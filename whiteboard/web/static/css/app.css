@@ -337,6 +337,28 @@ html, body {
 }
 .toast svg { width: 20px; height: 20px; }
 
+/* 系统层面的干扰（随手写抢笔迹）只能提示用户去关，页面拦不住 */
+.notice {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(520px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-l);
+  background: var(--surface-3);
+  color: var(--on-surface);
+  box-shadow: var(--shadow-3);
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+  animation: pop var(--motion);
+}
+.notice svg { flex: 0 0 auto; color: var(--primary); }
+
 .dialog {
   position: absolute; left: 50%; top: 50%;
   transform: translate(-50%, -50%);

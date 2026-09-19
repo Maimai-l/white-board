@@ -49,7 +49,10 @@ export class InputController {
     this.lastInputAt = -Infinity;
     this.sampleCount = 0;
     // 诊断用：区分「主线程被卡住」和「系统把事件抢走了」两种卡顿。
-    this.stats = { down: 0, move: 0, up: 0, cancel: 0, maxGap: 0, coalesced: 0 };
+    this.stats = {
+      down: 0, move: 0, up: 0, cancel: 0, maxGap: 0, coalesced: 0,
+      touch: 0, uncancelable: 0, penCancel: 0,
+    };
     this.canceled = null;
     this._rect = null;
 
@@ -76,18 +79,25 @@ export class InputController {
       stage.addEventListener(name, (e) => e.preventDefault());
     }
 
-    // 兜底：触摸没落在 #stage 上时（界面控件除外）同样掐掉默认行为。
-    // 注意不能对控件调 preventDefault，否则 iOS 不会再合成 click，按钮就点不动了。
+    // 文档级、捕获阶段、第一时间 preventDefault。
+    //
+    // iPadOS 把「点一下、再点住拖动」识别成选择文字，于是冒出放大镜并吃掉这一笔；
+    // 断笔重新落笔正好构成这个双击模式。Excalidraw 修同类问题也是把 preventDefault
+    // 提到 touchstart 处理函数的第一行（excalidraw#4705）。
+    // 界面控件要放过，否则 iOS 不再合成 click，按钮就点不动了。
     const ui = document.getElementById("ui");
+    const guard = (e) => {
+      if (ui && ui.contains(e.target)) return;
+      this.stats.touch += 1;
+      if (!e.cancelable) {
+        // 不可取消说明系统已经接管了这次手势，我们拦不住（多半是随手写 Scribble）。
+        this.stats.uncancelable += 1;
+        return;
+      }
+      e.preventDefault();
+    };
     for (const name of ["touchstart", "touchmove"]) {
-      document.addEventListener(
-        name,
-        (e) => {
-          if (ui && ui.contains(e.target)) return;
-          e.preventDefault();
-        },
-        { passive: false, capture: true }
-      );
+      document.addEventListener(name, guard, { passive: false, capture: true });
     }
 
     // 画布铺满窗口，位置只会在窗口变化时改变，没必要每个采样点都去量一次。
@@ -244,18 +254,25 @@ export class InputController {
   }
 
   onUp(event, canceled = false) {
+    const entry = this.pointers.get(event.pointerId);
+    this.pointers.delete(event.pointerId);
+    this.capture(event.pointerId, false);
+    this.lastInputAt = performance.now();
+    if (event.pointerType === "pen") this.lastPenAt = performance.now();
+
     if (canceled) {
       this.stats.cancel += 1;
       this.canceled = { id: event.pointerId, at: performance.now() };
+      // Pencil 写着写着被系统打断，多半是随手写（Scribble）在抢输入。
+      if (event.pointerType === "pen" && entry && entry.role === "draw") {
+        this.stats.penCancel += 1;
+        this.hooks.onPenInterrupted?.(this.stats.penCancel);
+      }
     } else {
       this.stats.up += 1;
       this.canceled = null;
     }
-    this.lastInputAt = performance.now();
-    if (event.pointerType === "pen") this.lastPenAt = performance.now();
-    const entry = this.pointers.get(event.pointerId);
-    this.pointers.delete(event.pointerId);
-    this.capture(event.pointerId, false);
+
     if (!entry) return;
     if (entry.role === "draw") {
       if (this.erase) this.endErase();

@@ -264,6 +264,16 @@ class App {
         this.saveCache();
         this.pushThumb();
       },
+      onPenInterrupted: (count) => {
+        // 页面这侧已经把能拦的都拦了，连续被打断只可能是系统级的随手写。
+        if (count !== 3) return;
+        this.ui.showNotice(
+          "scribble",
+          "笔迹被系统打断了几次。iPad 的「随手写」会抢走 Apple Pencil 的输入，" +
+            "在 设置 → Apple Pencil 里关掉它即可。"
+        );
+        reportError("笔迹被系统打断", { count });
+      },
       onViewChange: () => {
         const [w, h] = this.state.size();
         this.viewport.clampTo(w, h, this.renderer.viewW, this.renderer.viewH);

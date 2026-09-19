@@ -256,6 +256,22 @@ export class UI {
     setTimeout(() => node.remove(), 1600);
   }
 
+  /** 一条可点掉的提示，用于页面无能为力、只能让用户去改系统设置的情况。 */
+  showNotice(key, text, iconName = "pen") {
+    const stamp = `whiteboard.notice.${key}`;
+    try {
+      if (Date.now() - Number(localStorage.getItem(stamp) || 0) < 24 * 3600 * 1000) return;
+      localStorage.setItem(stamp, String(Date.now()));
+    } catch (err) {
+      /* 记不住就每次都提示 */
+    }
+    const node = el("div", { class: "notice", html: icon(iconName) });
+    node.append(el("span", { text }));
+    node.addEventListener("click", () => node.remove());
+    this.root.append(node);
+    setTimeout(() => node.remove(), 15000);
+  }
+
   confirm(iconName, onYes) {
     const scrim = el("div", { class: "scrim", onclick: () => scrim.remove() });
     const dialog = el("div", { class: "dialog" }, [

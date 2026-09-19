@@ -101,6 +101,9 @@ export class PerfMonitor {
       事件间隔: Math.round(input.maxGap),
       笔画数: input.down,
       中断: input.cancel,
+      笔被抢: input.penCancel || 0,
+      触摸: input.touch || 0,
+      拦不住: input.uncancelable || 0,
       耗时: Object.fromEntries(this.marks),
     };
     input.maxGap = 0;
@@ -123,11 +126,12 @@ export class PerfMonitor {
     const rate = this.samples.reduce((a, b) => a + b[1], 0);
     const marks = [...this.marks.entries()].map(([k, v]) => `${k} ${v}ms`).join("  ");
     const worst = this.worst.map(([t, ms]) => `${ms}ms@${t}s`).join("  ");
-    const input = this.input || { down: 0, move: 0, cancel: 0, maxGap: 0, coalesced: 0 };
+    const input = this.input || { down: 0, move: 0, cancel: 0, maxGap: 0, coalesced: 0, touch: 0 };
     this.node.textContent = [
       `帧 ${avg ? (1000 / avg).toFixed(0) : 0}fps  最长 ${max.toFixed(0)}ms`,
       `渲染 ${this.renderMs.toFixed(1)}ms  采样 ${rate}/s`,
       `笔 ${input.down}下 ${input.cancel}断  事件间隔 ${input.maxGap.toFixed(0)}ms  合并 ${input.coalesced}`,
+      `触摸 ${input.touch || 0}  拦不住 ${input.uncancelable || 0}  笔被抢 ${input.penCancel || 0}`,
       marks,
       worst ? `卡顿 ${worst}` : "",
     ]

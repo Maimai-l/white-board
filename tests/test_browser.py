@@ -327,6 +327,26 @@ def test_toolbar_still_responds_to_taps(browser, server):
     ipad.close()
 
 
+def test_repeated_pen_interruptions_show_a_hint(browser, server):
+    """页面拦不住系统级的随手写，只能在连续被打断时提示用户去关掉它。"""
+    mac, ipad = open_pages(browser, server.port)
+    for i in range(3):
+        pointer = 30 + i
+        ipad.evaluate(FIRE, ["pointerdown", 300, 300 + i * 40, "pen", pointer, 0.6])
+        ipad.evaluate(FIRE, ["pointermove", 340, 320 + i * 40, "pen", pointer, 0.6])
+        ipad.evaluate(FIRE, ["pointermove", 380, 320 + i * 40, "pen", pointer, 0.6])
+        ipad.evaluate(FIRE, ["pointercancel", 380, 320 + i * 40, "pen", pointer, 0.6])
+
+    notice = ipad.locator(".notice")
+    notice.wait_for(timeout=3000)
+    assert "随手写" in notice.inner_text()
+    assert ipad.evaluate("() => whiteboard.input.stats.penCancel") == 3
+    notice.click()
+    assert notice.count() == 0
+    mac.close()
+    ipad.close()
+
+
 def test_debug_overlay_toggles(browser, server):
     mac, ipad = open_pages(browser, server.port)
     assert ipad.evaluate("() => !!document.getElementById('perf')") is False
