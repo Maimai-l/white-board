@@ -43,7 +43,14 @@
   }
 }
 
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  /* iPadOS 的选择 / 放大镜手势只要有一个元素允许选中就可能被触发，这里一刀切。 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 
 html, body {
   margin: 0;
@@ -296,9 +303,11 @@ html, body {
   padding: 12px; border-radius: var(--radius-m);
   background: var(--surface-3);
 }
+/* 只有这一处地址需要能选中复制（Mac 端设置面板里） */
 .card .addr {
   flex: 1; font: 600 13px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--on-surface); word-break: break-all; user-select: text; -webkit-user-select: text;
+  color: var(--on-surface); word-break: break-all;
+  user-select: text; -webkit-user-select: text;
 }
 
 /* 诊断面板：?debug=1 或连点状态圆点三下 */

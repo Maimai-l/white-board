@@ -113,7 +113,9 @@ class App {
       viewport: this.viewport,
       renderer: this.renderer,
       device: this.role,
-      strokePrefix: this.clientId,
+      // 会话段必不可少：光用客户端 id + 计数器的话，重开页面后计数器从头数，
+      // 新笔画的 id 会和上次的撞车，被当成重复项丢掉（表现为抬笔即消失）。
+      strokePrefix: `${this.clientId}-${uid(4)}`,
       getTool: () => this.tool,
       hooks: this.inputHooks(),
     });
@@ -272,8 +274,17 @@ class App {
   }
 
   commitStroke(stroke) {
+    // 兜底：id 撞上已有笔画就换一个，绝不允许一笔画完之后凭空消失。
+    for (let guard = 0; this.state.byId.has(stroke.id) && guard < 50; guard += 1) {
+      stroke.id = this.input.newStrokeId();
+    }
     const { added } = this.state.add([stroke]);
-    if (added.length) this.renderer.drawCommitted(stroke);
+    if (added.length) {
+      this.renderer.drawCommitted(stroke);
+    } else {
+      reportError("笔画提交失败", { id: stroke.id, points: stroke.p.length / 3 });
+      this.renderer.requestFull();
+    }
     this.pushUndo({ type: "added", ids: [stroke.id] });
     this.net.sendOp({ op: "add", strokes: [plainStroke(stroke)] });
     this.saveCache();

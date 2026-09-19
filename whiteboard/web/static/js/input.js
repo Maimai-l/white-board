@@ -50,6 +50,7 @@ export class InputController {
     this.sampleCount = 0;
     // 诊断用：区分「主线程被卡住」和「系统把事件抢走了」两种卡顿。
     this.stats = { down: 0, move: 0, up: 0, cancel: 0, maxGap: 0, coalesced: 0 };
+    this.canceled = null;
     this._rect = null;
 
     const stage = this.stage;
@@ -73,6 +74,20 @@ export class InputController {
     }
     for (const name of ["selectstart", "dragstart"]) {
       stage.addEventListener(name, (e) => e.preventDefault());
+    }
+
+    // 兜底：触摸没落在 #stage 上时（界面控件除外）同样掐掉默认行为。
+    // 注意不能对控件调 preventDefault，否则 iOS 不会再合成 click，按钮就点不动了。
+    const ui = document.getElementById("ui");
+    for (const name of ["touchstart", "touchmove"]) {
+      document.addEventListener(
+        name,
+        (e) => {
+          if (ui && ui.contains(e.target)) return;
+          e.preventDefault();
+        },
+        { passive: false, capture: true }
+      );
     }
 
     // 画布铺满窗口，位置只会在窗口变化时改变，没必要每个采样点都去量一次。
@@ -152,6 +167,9 @@ export class InputController {
 
   onDown(event) {
     event.preventDefault();
+    // 有选区在就先清掉：放大镜是跟着选区走的。
+    const selection = getSelection && getSelection();
+    if (selection && !selection.isCollapsed) selection.removeAllRanges();
     this.stats.down += 1;
     this.stats.maxGap = 0;
     this.lastInputAt = performance.now();
@@ -214,6 +232,10 @@ export class InputController {
   /** 这个还在按着的指针是不是被系统中途取消掉了。 */
   canResume(event) {
     if (this.draw || this.erase || this.gesture) return false;
+    const canceled = this.canceled;
+    // 只接被系统中途取消掉的那一个指针，而且只在刚取消不久时接。
+    if (!canceled || canceled.id !== event.pointerId) return false;
+    if (performance.now() - canceled.at > 3000) return false;
     const pressed = (event.buttons & 1) === 1 || event.pressure > 0;
     if (!pressed) return false;
     if (event.pointerType === "pen") return true;
@@ -222,8 +244,13 @@ export class InputController {
   }
 
   onUp(event, canceled = false) {
-    if (canceled) this.stats.cancel += 1;
-    else this.stats.up += 1;
+    if (canceled) {
+      this.stats.cancel += 1;
+      this.canceled = { id: event.pointerId, at: performance.now() };
+    } else {
+      this.stats.up += 1;
+      this.canceled = null;
+    }
     this.lastInputAt = performance.now();
     if (event.pointerType === "pen") this.lastPenAt = performance.now();
     const entry = this.pointers.get(event.pointerId);

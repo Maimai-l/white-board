@@ -293,6 +293,40 @@ def test_page_errors_are_reported_to_the_server(browser, server):
     ipad.close()
 
 
+def test_strokes_survive_a_reload_without_id_collisions(browser, server):
+    """重新打开页面之后再写，笔画不能因为 id 撞车而在抬笔瞬间消失。"""
+    mac, ipad = open_pages(browser, server.port)
+    draw(ipad, [(300, 300), (380, 340), (460, 300)])
+    draw(ipad, [(300, 420), (380, 460), (460, 420)])
+    wait_strokes(mac, 2)
+
+    ipad.reload()
+    ipad.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    wait_strokes(ipad, 2)
+
+    draw(ipad, [(300, 540), (380, 580), (460, 540)])
+    draw(ipad, [(300, 640), (380, 680), (460, 640)])
+    wait_strokes(ipad, 4)
+    wait_strokes(mac, 4)
+    ids = ipad.evaluate("() => whiteboard.state.strokes.map(s => s.id)")
+    assert len(set(ids)) == 4, f"笔画 id 撞车了：{ids}"
+    mac.close()
+    ipad.close()
+
+
+def test_toolbar_still_responds_to_taps(browser, server):
+    """挡掉触摸默认行为之后，iOS 仍然要能在按钮上合成 click。"""
+    mac, ipad = open_pages(browser, server.port)
+    ipad.tap('button[title="橡皮擦"]')
+    assert ipad.evaluate("() => whiteboard.tool.tool") == "eraser"
+    ipad.tap('button[title="钢笔"]')
+    assert ipad.evaluate("() => whiteboard.tool.tool") == "pen"
+    ipad.tap('button[title="手指书写"]')
+    assert ipad.evaluate("() => whiteboard.input.fingerDraw") is True
+    mac.close()
+    ipad.close()
+
+
 def test_debug_overlay_toggles(browser, server):
     mac, ipad = open_pages(browser, server.port)
     assert ipad.evaluate("() => !!document.getElementById('perf')") is False

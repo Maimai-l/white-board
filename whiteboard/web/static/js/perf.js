@@ -37,6 +37,12 @@ export class PerfMonitor {
   /** 每帧调用：dt 是距离上一帧的间隔，renderMs 是这一帧渲染花的时间。 */
   frame(now, dt, renderMs) {
     if (!this.enabled) return;
+    // 窗口切到后台时 rAF 会整个停掉，那种「超长帧」不是卡顿。
+    if (document.hidden || dt > 5000) {
+      this._lastPaint = now;
+      this._lastReport = now;
+      return;
+    }
     this.frames.push([now, dt]);
     this.renderMs = this.renderMs * 0.8 + renderMs * 0.2;
     if (dt > 32) {
