@@ -289,9 +289,24 @@ class _Session:
 
 # --------------------------------------------------------------------- 应用
 
+@web.middleware
+async def revalidate_static(request: web.Request, handler):
+    """前端文件必须每次回源确认。
+
+    否则 Safari 会按启发式规则把 js / css 缓存住，Mac 上更新了代码，
+    iPad 的主屏图标点开还是旧的。局域网里多一次 304 的开销可以忽略。
+    """
+    response = await handler(request)
+    if request.path.startswith("/static/"):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
 def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Application:
     store = store or BoardStore(config.data_dir)
-    app = web.Application(client_max_size=MAX_THUMB_BYTES + 4096)
+    app = web.Application(
+        client_max_size=MAX_THUMB_BYTES + 4096, middlewares=[revalidate_static]
+    )
     app[CONFIG_KEY] = config
     app[STORE_KEY] = store
     app[HUB_KEY] = Hub(store)

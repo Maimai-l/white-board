@@ -334,3 +334,17 @@ def test_reconnect_with_same_client_id_keeps_broadcasting(tmp_path):
             await mac.close()
 
     run(main())
+
+
+def test_static_files_must_revalidate(tmp_path):
+    """iPad 上的 Safari 会启发式缓存 js/css，更新后必须回源确认。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            response = await client.get("/static/js/app.js")
+            assert response.status == 200
+            assert response.headers["Cache-Control"] == "no-cache"
+            index = await client.get("/")
+            assert index.headers["Cache-Control"] == "no-cache"
+
+    run(main())
