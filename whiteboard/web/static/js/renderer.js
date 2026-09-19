@@ -28,6 +28,7 @@ export class Renderer {
     this.liveStrokes = new Map();
     this.cursor = null;
     this._liveDrawn = false;
+    this._liveClip = null;
     this.resize();
   }
 
@@ -40,6 +41,7 @@ export class Renderer {
       canvas.width = Math.round(this.viewW * this.dpr);
       canvas.height = Math.round(this.viewH * this.dpr);
     }
+    this._liveClip = null;
     this.fullDirty = true;
   }
 
@@ -153,10 +155,47 @@ export class Renderer {
     this.liveStrokes.clear();
   }
 
+  /** 正在书写的那一笔占多大（画布像素），用来只清这一块而不是整屏。 */
+  liveBounds() {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const stroke of this.liveStrokes.values()) {
+      if (stroke.p.length < 3) continue;
+      const bbox = strokeBBox(stroke);
+      if (bbox.x0 < x0) x0 = bbox.x0;
+      if (bbox.y0 < y0) y0 = bbox.y0;
+      if (bbox.x1 > x1) x1 = bbox.x1;
+      if (bbox.y1 > y1) y1 = bbox.y1;
+    }
+    if (this.cursor) {
+      const { x, y, r } = this.cursor;
+      if (x - r < x0) x0 = x - r;
+      if (y - r < y0) y0 = y - r;
+      if (x + r > x1) x1 = x + r;
+      if (y + r > y1) y1 = y + r;
+    }
+    if (x0 === Infinity) return null;
+
+    const { scale, x, y } = this.viewport;
+    const pad = 3;
+    const left = Math.max(0, Math.floor((x0 * scale + x - pad) * this.dpr));
+    const top = Math.max(0, Math.floor((y0 * scale + y - pad) * this.dpr));
+    const right = Math.min(this.live.width, Math.ceil((x1 * scale + x + pad) * this.dpr));
+    const bottom = Math.min(this.live.height, Math.ceil((y1 * scale + y + pad) * this.dpr));
+    if (right <= left || bottom <= top) return null;
+    return [left, top, right - left, bottom - top];
+  }
+
   drawLive() {
     const ctx = this.liveCtx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, this.live.width, this.live.height);
+    // 只清上一帧画过的范围：iPad 是 2 倍像素的全屏画布，整屏清空每帧都要好几毫秒。
+    if (this._liveClip) ctx.clearRect(...this._liveClip);
+    else ctx.clearRect(0, 0, this.live.width, this.live.height);
+    this._liveClip = this.liveBounds();
+    if (!this._liveClip) return;
     this._applyTransform(ctx);
     for (const stroke of this.liveStrokes.values()) {
       if (stroke.p.length >= 3) drawStroke(ctx, stroke);

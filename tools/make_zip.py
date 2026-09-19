@@ -18,9 +18,10 @@ INCLUDE_FILES = [
     "run.py",
     "requirements.txt",
     "README.md",
-    "使用说明.txt",
-    "启动白板.command",
-    "浏览器模式.command",
+    "GETTING-STARTED.txt",
+    "start-whiteboard.command",
+    "browser-mode.command",
+    "update.command",
 ]
 INCLUDE_DIRS = ["whiteboard", "docs", "tests"]
 SKIP_PARTS = {"__pycache__", ".git", ".venv", "data", ".pytest_cache"}

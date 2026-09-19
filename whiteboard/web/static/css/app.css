@@ -56,9 +56,19 @@ html, body {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  /* iPadOS：关掉长按弹出的「拷贝 / 查询」气泡和拖拽，否则写快了会被它抢走一笔 */
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
 }
 
-#stage { position: fixed; inset: 0; background: var(--paper); }
+#stage {
+  position: fixed;
+  inset: 0;
+  background: var(--paper);
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+}
 #stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #live { pointer-events: none; }
 

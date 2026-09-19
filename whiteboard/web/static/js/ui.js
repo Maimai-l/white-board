@@ -4,6 +4,7 @@
 // 存储目录 / 描述文件）、导出与缩放。
 
 import { icon } from "./icons.js";
+import { loadFingerDraw } from "./input.js";
 import { el, clamp } from "./util.js";
 
 export const COLORS = [
@@ -77,6 +78,15 @@ export class UI {
     }
     toolbar.append(el("div", { class: "sep" }));
 
+    // 默认只认 Apple Pencil，手指负责平移缩放；没有 Pencil 的人在这里打开手指书写。
+    this.touchDevice = this.role === "ipad" || navigator.maxTouchPoints > 1;
+    if (this.touchDevice) {
+      this.fingerDraw = loadFingerDraw();
+      this.fingerButton = iconButton("hand", "手指书写", () => this.toggleFingerDraw());
+      this.fingerButton.classList.toggle("active", this.fingerDraw);
+      toolbar.append(this.fingerButton, el("div", { class: "sep" }));
+    }
+
     this.colorButton = el("button", {
       class: "icon-btn",
       title: "颜色与粗细",
@@ -120,6 +130,13 @@ export class UI {
       button.classList.toggle("active", key === tool);
     }
     this.actions.onToolChange(this.toolState());
+  }
+
+  toggleFingerDraw() {
+    this.fingerDraw = !this.fingerDraw;
+    this.fingerButton.classList.toggle("active", this.fingerDraw);
+    this.actions.onFingerDraw(this.fingerDraw);
+    this.toast(this.fingerDraw ? "hand" : "pen");
   }
 
   rememberTool() {

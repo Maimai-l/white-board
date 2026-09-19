@@ -73,7 +73,7 @@ def open_pages(browser, port):
     return mac, ipad
 
 
-def draw(page, points, pointer_type="touch", pointer_id=1, pressure=0.6):
+def draw(page, points, pointer_type="pen", pointer_id=1, pressure=0.6):
     page.evaluate(FIRE, ["pointerdown", *points[0], pointer_type, pointer_id, pressure])
     for x, y in points[1:]:
         page.evaluate(FIRE, ["pointermove", x, y, pointer_type, pointer_id, pressure])
@@ -136,20 +136,111 @@ def test_undo_erase_and_clear(browser, server):
     ipad.close()
 
 
-def test_pencil_only_mode_ignores_touch(browser, server):
+def test_touch_pans_by_default_and_only_pencil_draws(browser, server):
     mac, ipad = open_pages(browser, server.port)
     draw(ipad, [(300, 300), (360, 340), (420, 300)], pointer_type="pen", pressure=0.8)
     wait_strokes(ipad, 1)
 
-    # 检测到 Pencil 之后，手指只平移不画线
+    # 默认只认 Pencil：手指只平移，不留笔迹（等过了手掌屏蔽的时间窗）
+    ipad.wait_for_timeout(700)
     before = ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]")
     draw(ipad, [(500, 500), (560, 560), (620, 600)], pointer_type="touch", pointer_id=7)
     ipad.wait_for_timeout(300)
     assert stroke_count(ipad) == 1
     after = ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]")
-    assert after != before
+    assert after != before, "手指应该把画布拖动了"
+
+    # 打开「手指书写」之后手指才画线，并且这个选择会被记住
+    ipad.click('button[title="手指书写"]')
+    ipad.wait_for_timeout(100)
+    assert ipad.evaluate("() => whiteboard.input.fingerDraw") is True
+    draw(ipad, [(300, 600), (380, 640), (460, 600)], pointer_type="touch", pointer_id=8)
+    wait_strokes(ipad, 2)
+    wait_strokes(mac, 2)
+    assert ipad.evaluate("() => localStorage.getItem('whiteboard.fingerDraw')") == "1"
+
+    ipad.click('button[title="手指书写"]')
+    assert ipad.evaluate("() => whiteboard.input.fingerDraw") is False
     mac.close()
     ipad.close()
+
+
+def test_palm_is_ignored_while_pencil_writes(browser, server):
+    """Pencil 写字时手掌落在屏幕上，既不能画线也不能把画布拖走。"""
+    mac, ipad = open_pages(browser, server.port)
+    before = ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]")
+
+    ipad.evaluate(FIRE, ["pointerdown", 400, 400, "pen", 1, 0.7])
+    for x in range(410, 520, 10):
+        ipad.evaluate(FIRE, ["pointermove", x, 420, "pen", 1, 0.7])
+    # 手掌：落下并滑动
+    for step, x in enumerate(range(300, 500, 40)):
+        kind = "pointerdown" if step == 0 else "pointermove"
+        ipad.evaluate(FIRE, [kind, x, 700, "touch", 9, 0.5])
+    ipad.evaluate(FIRE, ["pointerup", 500, 700, "touch", 9, 0])
+    ipad.evaluate(FIRE, ["pointerup", 520, 420, "pen", 1, 0])
+    wait_strokes(ipad, 1)
+
+    assert ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]") == before
+    assert stroke_count(ipad) == 1
+
+    # 手掌先落屏、笔后落下时，手掌拖出来的位移会被撤回（上面已经断言过位置没变）
+    # 抬笔一会儿之后，手指恢复平移
+    ipad.wait_for_timeout(700)
+    draw(ipad, [(300, 600), (420, 640)], pointer_type="touch", pointer_id=11)
+    assert ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]") != before
+    mac.close()
+    ipad.close()
+
+
+def test_palm_landing_before_the_pencil_does_not_shift_the_canvas(browser, server):
+    """手掌通常比笔尖先落屏：它拖出来的位移要在笔落下时撤回去。"""
+    mac, ipad = open_pages(browser, server.port)
+    before = ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]")
+
+    ipad.evaluate(FIRE, ["pointerdown", 300, 700, "touch", 21, 0.5])
+    for x in range(320, 440, 20):
+        ipad.evaluate(FIRE, ["pointermove", x, 700, "touch", 21, 0.5])
+    moved = ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]")
+    assert moved != before, "手掌确实先把画布拖动了"
+
+    ipad.evaluate(FIRE, ["pointerdown", 500, 400, "pen", 1, 0.7])
+    assert ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]") == before
+    for x in range(510, 600, 10):
+        ipad.evaluate(FIRE, ["pointermove", x, 420, "pen", 1, 0.7])
+    ipad.evaluate(FIRE, ["pointerup", 600, 420, "pen", 1, 0])
+    wait_strokes(ipad, 1)
+    assert ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]") == before
+    mac.close()
+    ipad.close()
+
+
+def test_stage_blocks_ios_selection_gestures(browser, server):
+    """iPadOS 的选择 / 查词手势必须被挡掉，否则写快了会丢笔。"""
+    mac, ipad = open_pages(browser, server.port)
+    blocked = ipad.evaluate(
+        """() => {
+          const stage = document.getElementById('stage');
+          const results = {};
+          for (const type of ['touchstart', 'touchmove', 'selectstart', 'dragstart']) {
+            const event = new Event(type, { bubbles: true, cancelable: true });
+            stage.dispatchEvent(event);
+            results[type] = event.defaultPrevented;
+          }
+          results.touchAction = getComputedStyle(stage).touchAction;
+          return results;
+        }"""
+    )
+    assert blocked["touchstart"] and blocked["touchmove"]
+    assert blocked["selectstart"] and blocked["dragstart"]
+    assert blocked["touchAction"] == "none"
+
+    # -webkit-touch-callout 只有 Safari 认，这里只能确认样式确实发出去了
+    css = ipad.evaluate("async () => (await fetch('/static/css/app.css')).text()")
+    assert "-webkit-touch-callout: none" in css
+    mac.close()
+    ipad.close()
+
 
 
 def test_board_switch_and_settings_follow(browser, server):

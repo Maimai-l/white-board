@@ -80,7 +80,7 @@ class App {
       hooks: this.inputHooks(),
     });
 
-    this.saveCache = debounce(() => this.persist(), 600);
+    this.saveCache = debounce(() => this.persistWhenIdle(), 1500);
     this.saveView = debounce(() => this.persistView(), 400);
     this.pushThumb = debounce(() => {
       if (this.role === "mac") uploadThumb(this.state, this.state.id);
@@ -204,7 +204,6 @@ class App {
         this.renderer.requestFull();
         this.saveView();
       },
-      onPencilDetected: () => this.ui.toast("pen"),
     };
   }
 
@@ -432,6 +431,16 @@ class App {
     }
   }
 
+  /** 写缓存要把整块白板序列化一遍，绝不能在落笔的时候插进来。 */
+  persistWhenIdle() {
+    if (this.input && (this.input.draw || this.input.erase)) {
+      this.saveCache();
+      return;
+    }
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 0));
+    idle(() => this.persist(), { timeout: 2000 });
+  }
+
   persist() {
     if (!this.state.meta) return;
     this.cache.saveBoard(this.state.id, {
@@ -463,6 +472,7 @@ class App {
   actions() {
     return {
       isNative: () => !!nativeApi(),
+      onFingerDraw: (enabled) => this.input.setFingerDraw(enabled),
       onToolChange: (tool) => {
         this.tool = tool;
       },

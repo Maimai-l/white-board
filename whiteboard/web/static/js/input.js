@@ -1,8 +1,9 @@
 // 指针输入：书写、擦除、平移与缩放。
 //
 // 规则（对齐 iPad 原生体感）：
-//   * 一旦检测到 Apple Pencil，手指就只负责平移 / 缩放，不再画线（即手掌误触屏蔽）；
-//   * 没有 Pencil 时单指书写、双指平移缩放，第二根手指落下会撤掉刚起笔的那一下；
+//   * 默认只有 Apple Pencil 能画线，手指一律是平移 / 缩放，手掌搭上去也不会留痕；
+//     没有 Pencil 的人可以在工具栏上打开「手指书写」，此时单指画线、双指手势，
+//     第二根手指落下会撤掉刚起笔的那一下；
 //   * 鼠标左键书写，中键 / 右键 / 空格拖动画布，滚轮平移，⌘ / Ctrl + 滚轮缩放。
 //
 // 所有笔迹先落在本地画布上，再通过网络发出去，本地书写不等待任何回包。
@@ -10,16 +11,16 @@
 import { TOOLS } from "./stroke.js";
 import { clamp } from "./util.js";
 
-const PENCIL_FLAG = "whiteboard.pencil";
-const PENCIL_TTL = 12 * 3600 * 1000;
+const FINGER_FLAG = "whiteboard.fingerDraw";
+// Pencil 落笔期间以及抬笔后的这段时间里，手指 / 手掌一律不参与任何操作。
+const PALM_GRACE = 500;
 const SMOOTH_PEN = 0.45;
 const SMOOTH_MOUSE = 0.6;
 const PRESSURE_SMOOTH = 0.25;
 
-function loadPencilSeen() {
+export function loadFingerDraw() {
   try {
-    const raw = Number(localStorage.getItem(PENCIL_FLAG) || 0);
-    return raw > 0 && Date.now() - raw < PENCIL_TTL;
+    return localStorage.getItem(FINGER_FLAG) === "1";
   } catch (err) {
     return false;
   }
@@ -42,8 +43,10 @@ export class InputController {
     this.gesture = null;
     this.liveRef = null;
     this.spaceHeld = false;
-    this.pencilSeen = loadPencilSeen();
+    this.fingerDraw = loadFingerDraw();
     this.pendingLive = [];
+    this.lastPenAt = -Infinity;
+    this._rect = null;
 
     const stage = this.stage;
     stage.addEventListener("pointerdown", (e) => this.onDown(e));
@@ -53,10 +56,29 @@ export class InputController {
     stage.addEventListener("pointerleave", (e) => this.onLeave(e));
     stage.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     stage.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    // iPadOS 上光有 touch-action: none 还不够：书写快一点，Safari 的选择 / 查词
+    // 手势就会抢走这一笔，表现为卡一下并弹出选择气泡。把 touch 事件的默认行为
+    // 一并挡掉，pointer 事件不受影响（它们是独立产生的）。
+    for (const name of ["touchstart", "touchmove", "touchend", "touchcancel"]) {
+      stage.addEventListener(name, (e) => e.preventDefault(), { passive: false });
+    }
     // Safari 的双指缩放手势会顶掉 pointer 事件，这里屏蔽掉。
     for (const name of ["gesturestart", "gesturechange", "gestureend"]) {
       stage.addEventListener(name, (e) => e.preventDefault());
     }
+    for (const name of ["selectstart", "dragstart"]) {
+      stage.addEventListener(name, (e) => e.preventDefault());
+    }
+
+    // 画布铺满窗口，位置只会在窗口变化时改变，没必要每个采样点都去量一次。
+    const invalidate = () => {
+      this._rect = null;
+    };
+    addEventListener("resize", invalidate);
+    addEventListener("orientationchange", invalidate);
+    addEventListener("scroll", invalidate, true);
+    if (window.visualViewport) visualViewport.addEventListener("resize", invalidate);
     addEventListener("keydown", (e) => {
       if (e.code === "Space") this.spaceHeld = true;
     });
@@ -77,17 +99,38 @@ export class InputController {
 
   // ----------------------------------------------------------------- 坐标
 
+  /** 缓存画布位置：Pencil 一帧能给出二十几个合并采样点，每个都量一次会强制重排。 */
+  rect() {
+    if (this._rect === null) this._rect = this.stage.getBoundingClientRect();
+    return this._rect;
+  }
+
   toWorld(event) {
-    const rect = this.stage.getBoundingClientRect();
+    const rect = this.rect();
     return this.viewport.toWorld(event.clientX - rect.left, event.clientY - rect.top);
   }
 
   toScreen(event) {
-    const rect = this.stage.getBoundingClientRect();
+    const rect = this.rect();
     return [event.clientX - rect.left, event.clientY - rect.top];
   }
 
+  setFingerDraw(enabled) {
+    this.fingerDraw = !!enabled;
+    try {
+      localStorage.setItem(FINGER_FLAG, this.fingerDraw ? "1" : "0");
+    } catch (err) {
+      /* 记不住就只在本次会话内生效 */
+    }
+  }
+
   // --------------------------------------------------------------- 分派
+
+  /** Pencil 正在写，或者刚抬起不久。 */
+  penActive() {
+    if (this.draw && this.draw.type === "pen") return true;
+    return performance.now() - this.lastPenAt < PALM_GRACE;
+  }
 
   classify(event) {
     if (event.pointerType === "pen") return "draw";
@@ -95,30 +138,27 @@ export class InputController {
       if (event.button !== 0 || this.spaceHeld) return "gesture";
       return "draw";
     }
-    // 触摸
-    if (this.pencilSeen) return "gesture";
+    // 手掌屏蔽：用 Pencil 写字时，搭在屏幕上的手既不画线也不会把画布拖走
+    if (this.penActive()) return "ignore";
+    // 触摸：默认只平移 / 缩放，打开「手指书写」后才画线
+    if (!this.fingerDraw) return "gesture";
     if (this.draw || this.erase || this.gesture) return "gesture";
     return "draw";
   }
 
   onDown(event) {
     event.preventDefault();
-    if (event.pointerType === "pen" && !this.pencilSeen) {
-      this.pencilSeen = true;
-      try {
-        localStorage.setItem(PENCIL_FLAG, String(Date.now()));
-      } catch (err) {
-        /* 无痕模式下记不住也无妨，本次会话内仍然生效 */
-      }
-      this.hooks.onPencilDetected?.();
-    }
+    this._rect = null;
     if (event.pointerType === "pen") {
-      // Pencil 落笔时把手指造成的手势取消掉
-      this.endGesture();
+      this.lastPenAt = performance.now();
+      // 手掌通常比笔尖先碰到屏幕：把它刚拖出来的那一点位移撤回去，画面不会跳。
+      this.endGesture(true);
     }
 
-    this.capture(event.pointerId, true);
     const role = this.classify(event);
+    if (role === "ignore") return;
+
+    this.capture(event.pointerId, true);
     this.pointers.set(event.pointerId, { type: event.pointerType, role });
 
     if (role === "draw") {
@@ -136,6 +176,7 @@ export class InputController {
   }
 
   onMove(event) {
+    if (event.pointerType === "pen") this.lastPenAt = performance.now();
     const entry = this.pointers.get(event.pointerId);
     if (!entry) {
       if (event.pointerType === "mouse") this.updateCursor(event);
@@ -151,6 +192,7 @@ export class InputController {
   }
 
   onUp(event, canceled = false) {
+    if (event.pointerType === "pen") this.lastPenAt = performance.now();
     const entry = this.pointers.get(event.pointerId);
     this.pointers.delete(event.pointerId);
     this.capture(event.pointerId, false);
@@ -340,7 +382,7 @@ export class InputController {
 
   startGesture(event) {
     const [x, y] = this.toScreen(event);
-    if (!this.gesture) this.gesture = { points: new Map(), mid: null, dist: 0 };
+    if (!this.gesture) this.gesture = { points: new Map(), mid: null, dist: 0, dx: 0, dy: 0, zoomed: false };
     this.gesture.points.set(event.pointerId, { x, y });
     this.updateGestureRef();
   }
@@ -369,9 +411,14 @@ export class InputController {
     const prevDist = gesture.dist;
     this.updateGestureRef();
     if (!prevMid) return;
-    this.viewport.panBy(gesture.mid.x - prevMid.x, gesture.mid.y - prevMid.y);
+    const dx = gesture.mid.x - prevMid.x;
+    const dy = gesture.mid.y - prevMid.y;
+    this.viewport.panBy(dx, dy);
+    gesture.dx += dx;
+    gesture.dy += dy;
     if (prevDist > 0 && gesture.dist > 0) {
       this.viewport.zoomAt(gesture.dist / prevDist, gesture.mid.x, gesture.mid.y);
+      gesture.zoomed = true;
     }
     this.hooks.onViewChange();
   }
@@ -383,7 +430,12 @@ export class InputController {
     else this.updateGestureRef();
   }
 
-  endGesture() {
+  endGesture(revert = false) {
+    const gesture = this.gesture;
+    if (revert && gesture && !gesture.zoomed && (gesture.dx || gesture.dy)) {
+      this.viewport.panBy(-gesture.dx, -gesture.dy);
+      this.hooks.onViewChange();
+    }
     this.gesture = null;
     for (const [id, entry] of this.pointers) {
       if (entry.role === "gesture") this.pointers.delete(id);
