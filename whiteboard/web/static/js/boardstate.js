@@ -20,12 +20,6 @@ export class BoardState {
     return this.meta ? this.meta.id : null;
   }
 
-  size() {
-    if (!this.meta) return [0, 0];
-    const [unitW, unitH] = this.meta.unit;
-    return [this.meta.cols * unitW, this.meta.rows * unitH];
-  }
-
   /** 加入若干笔画；返回真正新增的那些（重复 id 会被忽略）。 */
   add(strokes) {
     const added = [];

@@ -100,7 +100,7 @@ class BoardRuntime:
             if not isinstance(incoming, dict):
                 return None
             merged = dict(self.meta)
-            for key in ("cols", "rows", "background", "name"):
+            for key in ("background", "name"):
                 if key in incoming:
                     merged[key] = incoming[key]
             merged = models.sanitize_meta(merged)

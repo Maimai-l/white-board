@@ -10,7 +10,7 @@ import { UI } from "./ui.js";
 import { Viewport } from "./viewport.js";
 import { strokeHit } from "./stroke.js";
 import { debounce, plainStroke, uid } from "./util.js";
-import { downloadDataURL, exportDataURL, uploadThumb } from "./exporter.js";
+import { contentBounds, downloadDataURL, exportDataURL, uploadThumb } from "./exporter.js";
 
 const UNDO_LIMIT = 200;
 // 写 IndexedDB 会卡主线程（iOS 上首次写事务尤其慢），离最后一次落笔足够远才写。
@@ -161,8 +161,6 @@ class App {
   bindWindow() {
     const onResize = () => {
       this.renderer.resize();
-      const [w, h] = this.state.size();
-      this.viewport.clampTo(w, h, this.renderer.viewW, this.renderer.viewH);
       this.renderer.requestFull();
     };
     addEventListener("resize", onResize);
@@ -275,8 +273,6 @@ class App {
         reportError("笔迹被系统打断", { count });
       },
       onViewChange: () => {
-        const [w, h] = this.state.size();
-        this.viewport.clampTo(w, h, this.renderer.viewW, this.renderer.viewH);
         this.renderer.requestFull();
         this.saveView();
       },
@@ -396,9 +392,7 @@ class App {
   applyBoard(meta, strokes, seq, options = {}) {
     this.state.reset(meta, strokes.map((s) => ({ ...s })));
     this.ui.setMeta(meta);
-    const [boardW, boardH] = this.state.size();
-    if (!options.keepView) this.restoreView(meta.id, boardW, boardH);
-    this.viewport.clampTo(boardW, boardH, this.renderer.viewW, this.renderer.viewH);
+    if (!options.keepView) this.restoreView(meta.id);
     this.renderer.requestFull();
     if (!options.fromCache) this.saveCache();
     this.cache.setLast(meta.id);
@@ -431,11 +425,6 @@ class App {
       case "meta":
         this.state.meta = op.meta;
         this.ui.setMeta(op.meta);
-        this.viewport.clampTo(
-          ...this.state.size(),
-          this.renderer.viewW,
-          this.renderer.viewH
-        );
         this.renderer.requestFull();
         break;
       default:
@@ -482,7 +471,7 @@ class App {
 
   // ------------------------------------------------------------ 视图
 
-  restoreView(boardId, boardW, boardH) {
+  restoreView(boardId) {
     let saved = null;
     try {
       saved = JSON.parse(localStorage.getItem(`whiteboard.view.${boardId}`) || "null");
@@ -495,12 +484,19 @@ class App {
       this.viewport.y = saved.y;
       return;
     }
+    const bounds = contentBounds(this.state);
     if (this.role === "ipad") {
-      // iPad 以 1:1 显示，落笔位置和手感与本机屏幕一致，起始停在正中那一屏。
+      // iPad 以 1:1 显示，落笔位置和手感与本机屏幕一致；有内容就停在内容上。
       this.viewport.scale = 1;
-      this.viewport.centerOn(boardW / 2, boardH / 2, this.renderer.viewW, this.renderer.viewH);
-    } else {
-      this.viewport.fit(boardW, boardH, this.renderer.viewW, this.renderer.viewH);
+      const cx = bounds ? (bounds.x0 + bounds.x1) / 2 : 0;
+      const cy = bounds ? (bounds.y0 + bounds.y1) / 2 : 0;
+      this.viewport.centerOn(cx, cy, this.renderer.viewW, this.renderer.viewH);
+      return;
+    }
+    if (bounds) this.viewport.fit(bounds, this.renderer.viewW, this.renderer.viewH);
+    else {
+      this.viewport.scale = 1;
+      this.viewport.centerOn(0, 0, this.renderer.viewW, this.renderer.viewH);
     }
   }
 
@@ -548,15 +544,19 @@ class App {
 
   zoom(factor) {
     this.viewport.zoomAt(factor, this.renderer.viewW / 2, this.renderer.viewH / 2);
-    const [w, h] = this.state.size();
-    this.viewport.clampTo(w, h, this.renderer.viewW, this.renderer.viewH);
     this.renderer.requestFull();
     this.saveView();
   }
 
+  /** 回到内容：有笔迹就把它们全装进视口，空白板就回到原点。 */
   fit() {
-    const [w, h] = this.state.size();
-    this.viewport.fit(w, h, this.renderer.viewW, this.renderer.viewH);
+    const bounds = contentBounds(this.state);
+    if (bounds) {
+      this.viewport.fit(bounds, this.renderer.viewW, this.renderer.viewH);
+    } else {
+      this.viewport.scale = 1;
+      this.viewport.centerOn(0, 0, this.renderer.viewW, this.renderer.viewH);
+    }
     this.renderer.requestFull();
     this.saveView();
   }
@@ -589,8 +589,6 @@ class App {
         const meta = { ...this.state.meta, ...patch };
         this.state.meta = meta;
         this.ui.setMeta(meta);
-        const [w, h] = this.state.size();
-        this.viewport.clampTo(w, h, this.renderer.viewW, this.renderer.viewH);
         this.renderer.requestFull();
         this.net.sendOp({ op: "meta", meta: patch });
       },

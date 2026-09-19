@@ -19,16 +19,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-# 单屏基准尺寸，取 11 英寸 iPad 横屏的逻辑分辨率。
-UNIT_W = 1180
-UNIT_H = 820
-
-# 伪无限画布：默认九宫格，即主屏 + 周围 8 个方向各扩展一屏。
-DEFAULT_COLS = 3
-DEFAULT_ROWS = 3
-MIN_GRID = 1
-MAX_GRID = 7
-
+# 画布是真无限的：没有边界，坐标就是世界坐标，白板元数据里不再有尺寸。
 BACKGROUNDS = ("blank", "grid", "lines", "dots")
 TOOLS = ("pen", "marker", "highlighter")
 
@@ -56,9 +47,6 @@ def new_board_meta(name: str = "", **overrides: Any) -> Dict[str, Any]:
     meta = {
         "id": new_id(),
         "name": name,
-        "cols": DEFAULT_COLS,
-        "rows": DEFAULT_ROWS,
-        "unit": [UNIT_W, UNIT_H],
         "background": "grid",
         "created": now(),
         "updated": now(),
@@ -68,20 +56,10 @@ def new_board_meta(name: str = "", **overrides: Any) -> Dict[str, Any]:
 
 
 def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """把（可能来自局域网客户端的）白板元数据收敛到合法范围。"""
-    unit = raw.get("unit") or [UNIT_W, UNIT_H]
-    try:
-        unit_w = int(clamp(float(unit[0]), 320, 4096))
-        unit_h = int(clamp(float(unit[1]), 320, 4096))
-    except (TypeError, ValueError, IndexError):
-        unit_w, unit_h = UNIT_W, UNIT_H
+    """把（可能来自局域网客户端的）白板元数据收敛到合法范围。
 
-    def _int(key: str, default: int) -> int:
-        try:
-            return int(clamp(int(raw.get(key, default)), MIN_GRID, MAX_GRID))
-        except (TypeError, ValueError):
-            return default
-
+    老版本的文件里可能还带着 cols / rows / unit，直接丢掉即可：画布已经是无限的。
+    """
     background = raw.get("background", "grid")
     if background not in BACKGROUNDS:
         background = "grid"
@@ -106,9 +84,6 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": board_id,
         "name": name[:64],
-        "cols": _int("cols", DEFAULT_COLS),
-        "rows": _int("rows", DEFAULT_ROWS),
-        "unit": [unit_w, unit_h],
         "background": background,
         "created": created,
         "updated": updated,
@@ -170,8 +145,3 @@ def sanitize_ids(raw: Any, limit: int = 5000) -> List[str]:
         if isinstance(value, str) and _ID_RE.match(value):
             out.append(value)
     return out
-
-
-def board_size(meta: Dict[str, Any]) -> tuple[int, int]:
-    unit_w, unit_h = meta["unit"]
-    return meta["cols"] * unit_w, meta["rows"] * unit_h

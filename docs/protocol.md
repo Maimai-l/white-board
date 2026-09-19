@@ -45,7 +45,7 @@
 {"op":"remove","ids":["c3f1-17"]}       // 擦除，或撤销一笔
 {"op":"restore","strokes":[...]}        // 撤销擦除 / 撤销清屏，按原 n 复位层叠关系
 {"op":"clear"}
-{"op":"meta","meta":{"cols":3,"rows":3,"background":"grid"}}   // 仅 Mac
+{"op":"meta","meta":{"background":"grid","name":"随便起的名字"}}   // 仅 Mac
 ```
 
 - `n` 由服务端分配并单调递增，客户端按 `n` 升序绘制。撤销擦除时带上原来的 `n`，
@@ -70,6 +70,9 @@
 「没有新内容」，`epoch` 就是用来识别这种情况的——它一变，客户端就会拿到完整快照，
 而不是守着过期内容。
 
+白板元数据只有 `id / name / background / created / updated`：画布是无限的，
+没有尺寸可言。老文件里残留的 `cols / rows / unit` 读取时直接丢掉。
+
 ## mDNS
 
 `.local` 主机名由 macOS 自带的 mDNSResponder 发布，程序本身不参与。`--mdns`
@@ -84,5 +87,5 @@
 - 服务端按 User-Agent 在首页里写入 `data-role`，iPad / iPhone 判为 `ipad`。
 - 客户端再用 `navigator.maxTouchPoints` 校正一次（iPadOS 的 Safari 默认报 Mac 的 UA）。
 - URL 上的 `?role=mac` / `?role=ipad` 优先级最高，pywebview 窗口用的就是它。
-- 白板列表、尺寸、背景、存储目录这些只在 `mac` 角色下出现；服务端对
+- 白板列表、背景、存储目录这些只在 `mac` 角色下出现；服务端对
   `sel` / `newboard` / `delboard` / `meta` 也只接受来自 `mac` 的请求。

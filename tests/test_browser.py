@@ -347,6 +347,50 @@ def test_repeated_pen_interruptions_show_a_hint(browser, server):
     ipad.close()
 
 
+def test_canvas_is_infinite(browser, server):
+    """画布没有边界：任意位置都能写，缩放只受上下限约束。"""
+    mac, ipad = open_pages(browser, server.port)
+    # 移到离原点很远的地方照样能画
+    ipad.evaluate(
+        "() => { whiteboard.viewport.scale = 1;"
+        "whiteboard.viewport.centerOn(50000, -30000, whiteboard.renderer.viewW, whiteboard.renderer.viewH);"
+        "whiteboard.renderer.requestFull(); }"
+    )
+    draw(ipad, [(300, 300), (400, 360), (500, 300)])
+    wait_strokes(mac, 1)
+    far = ipad.evaluate("() => whiteboard.state.strokes[0].p[0]")
+    assert far > 40000, "远处的笔迹应该照常落在世界坐标上"
+
+    # 视口不会被拉回任何边界
+    moved = ipad.evaluate(
+        "() => { const v = whiteboard.viewport; v.panBy(-4000, 2500);"
+        "whiteboard.renderer.requestFull(); return [v.x, v.y]; }"
+    )
+    ipad.wait_for_timeout(200)
+    assert ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]") == moved
+
+    # 缩放仍然有上下限
+    limits = ipad.evaluate(
+        "async () => { const m = await import('/static/js/viewport.js');"
+        "const v = whiteboard.viewport;"
+        "v.zoomAt(1e6, 0, 0); const max = v.scale;"
+        "v.zoomAt(1e-9, 0, 0); const min = v.scale;"
+        "return [min, max, m.MIN_SCALE, m.MAX_SCALE]; }"
+    )
+    assert limits[0] == limits[2] and limits[1] == limits[3]
+
+    # 「回到内容」把笔迹带回视野
+    ipad.evaluate("() => whiteboard.fit()")
+    visible = ipad.evaluate(
+        "() => { const s = whiteboard.state.strokes[0];"
+        "const [x, y] = whiteboard.viewport.toScreen(s.p[0], s.p[1]);"
+        "return x > 0 && y > 0 && x < whiteboard.renderer.viewW && y < whiteboard.renderer.viewH; }"
+    )
+    assert visible
+    mac.close()
+    ipad.close()
+
+
 def test_debug_overlay_toggles(browser, server):
     mac, ipad = open_pages(browser, server.port)
     assert ipad.evaluate("() => !!document.getElementById('perf')") is False
@@ -400,12 +444,10 @@ def test_board_switch_and_settings_follow(browser, server):
     ipad.wait_for_function(f"() => whiteboard.state.id !== '{first_board}'")
     assert stroke_count(ipad) == 0  # 新白板是空的
 
-    # 背景与尺寸改动会同步到 iPad
+    # 背景改动会同步到 iPad
     mac.click('button[title="白板设置"]')
     mac.click('.bg-opt[title="dots"]')
     ipad.wait_for_function("() => whiteboard.state.meta.background === 'dots'")
-    mac.click(".size-grid .size-cell:nth-child(12)")  # 第二行第五列 → 5 × 2
-    ipad.wait_for_function("() => whiteboard.state.meta.cols === 5 && whiteboard.state.meta.rows === 2")
     mac.close()
     ipad.close()
 

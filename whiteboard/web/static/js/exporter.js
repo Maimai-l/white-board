@@ -1,25 +1,50 @@
 // 导出 PNG 与生成白板缩略图。
+//
+// 画布是无限的，所以导出范围按内容外扩一圈决定；空白板导出一屏大小的空白。
 
 import { Renderer } from "./renderer.js";
 
 const MAX_EXPORT_PIXELS = 4096;
 const THUMB_WIDTH = 420;
+const MARGIN = 64;
+const EMPTY_SIZE = 1200;
 
-export function renderBoard(state, targetMax) {
-  const [boardW, boardH] = state.size();
-  const scale = Math.min(2, targetMax / Math.max(boardW, boardH));
-  return Renderer.renderToCanvas(state, { scale: Math.max(0.05, scale) });
+/** 内容范围（世界坐标）外扩一圈；白板为空时返回 null。 */
+export function contentBounds(state, margin = MARGIN) {
+  const bounds = state.contentBounds();
+  if (!bounds) return null;
+  return {
+    x0: bounds.x0 - margin,
+    y0: bounds.y0 - margin,
+    x1: bounds.x1 + margin,
+    y1: bounds.y1 + margin,
+  };
+}
+
+function exportArea(state) {
+  return (
+    contentBounds(state) || {
+      x0: -EMPTY_SIZE / 2,
+      y0: (-EMPTY_SIZE * 0.7) / 2,
+      x1: EMPTY_SIZE / 2,
+      y1: (EMPTY_SIZE * 0.7) / 2,
+    }
+  );
+}
+
+function renderArea(state, area, targetMax) {
+  const width = Math.max(1, area.x1 - area.x0);
+  const height = Math.max(1, area.y1 - area.y0);
+  const scale = Math.min(2, targetMax / Math.max(width, height));
+  return Renderer.renderToCanvas(state, { scale: Math.max(0.05, scale), bounds: area });
 }
 
 export function exportDataURL(state) {
-  return renderBoard(state, MAX_EXPORT_PIXELS).toDataURL("image/png");
+  return renderArea(state, exportArea(state), MAX_EXPORT_PIXELS).toDataURL("image/png");
 }
 
 export function thumbBlob(state) {
-  const [boardW] = state.size();
-  const canvas = Renderer.renderToCanvas(state, {
-    scale: THUMB_WIDTH / Math.max(1, boardW),
-  });
+  const canvas = renderArea(state, exportArea(state), THUMB_WIDTH);
   return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
 }
 

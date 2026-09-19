@@ -1,11 +1,11 @@
-// 视口：世界坐标 ↔ 屏幕坐标，以及缩放 / 平移的边界约束。
+// 视口：世界坐标 ↔ 屏幕坐标。
 //
-// 白板是「伪无限」的：默认九宫格，主屏在正中间，四周八个方向各扩一屏。
+// 画布是无限的，没有边界，所以这里只管缩放范围，不做任何位置约束。
 
 import { clamp } from "./util.js";
 
-export const MIN_SCALE = 0.1;
-export const MAX_SCALE = 5;
+export const MIN_SCALE = 0.05;
+export const MAX_SCALE = 8;
 
 export class Viewport {
   constructor() {
@@ -46,28 +46,20 @@ export class Viewport {
     this.zoomAt(clamp(scale, MIN_SCALE, MAX_SCALE) / this.scale, sx, sy);
   }
 
-  fit(boardW, boardH, viewW, viewH, padding = 24) {
+  /** 把一块世界矩形放进视口。 */
+  fit(bounds, viewW, viewH, padding = 48) {
+    const width = Math.max(1, bounds.x1 - bounds.x0);
+    const height = Math.max(1, bounds.y1 - bounds.y0);
     const scale = Math.min(
-      (viewW - padding * 2) / boardW,
-      (viewH - padding * 2) / boardH
+      (viewW - padding * 2) / width,
+      (viewH - padding * 2) / height
     );
     this.scale = clamp(scale, MIN_SCALE, MAX_SCALE);
-    this.centerOn(boardW / 2, boardH / 2, viewW, viewH);
+    this.centerOn((bounds.x0 + bounds.x1) / 2, (bounds.y0 + bounds.y1) / 2, viewW, viewH);
   }
 
   centerOn(wx, wy, viewW, viewH) {
     this.x = viewW / 2 - wx * this.scale;
     this.y = viewH / 2 - wy * this.scale;
-  }
-
-  /** 画布小于视口时居中，大于视口时限制在边缘附近，避免划到虚空里。 */
-  clampTo(boardW, boardH, viewW, viewH) {
-    const margin = 0.12;
-    const width = boardW * this.scale;
-    const height = boardH * this.scale;
-    if (width <= viewW) this.x = (viewW - width) / 2;
-    else this.x = clamp(this.x, viewW - width - viewW * margin, viewW * margin);
-    if (height <= viewH) this.y = (viewH - height) / 2;
-    else this.y = clamp(this.y, viewH - height - viewH * margin, viewH * margin);
   }
 }

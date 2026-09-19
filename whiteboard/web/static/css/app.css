@@ -277,15 +277,6 @@ html, body {
 }
 .board-tile.add svg { width: 28px; height: 28px; }
 
-/* 尺寸选择：像选表格一样拖出行列 */
-.size-grid { display: grid; gap: 4px; width: max-content; }
-.size-cell {
-  width: 26px; height: 20px; border-radius: 4px;
-  background: var(--surface-3); border: 1px solid var(--outline);
-  transition: background var(--motion);
-}
-.size-cell.on { background: var(--primary); border-color: var(--primary); }
-
 .bg-opts { display: flex; gap: 10px; }
 .bg-opt {
   width: 56px; height: 44px; border-radius: var(--radius-m);

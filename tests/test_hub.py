@@ -54,10 +54,12 @@ def test_clear_empties_board():
 
 def test_meta_op_is_sanitized_and_deduplicated():
     runtime = make_runtime()
-    op = runtime.apply({"op": "meta", "meta": {"cols": 99, "background": "lines"}})
-    assert op["meta"]["cols"] == 7
+    op = runtime.apply({"op": "meta", "meta": {"background": "lines", "name": "笔记"}})
     assert op["meta"]["background"] == "lines"
-    assert runtime.apply({"op": "meta", "meta": {"background": "lines"}}) is None
+    assert op["meta"]["name"] == "笔记"
+    # 非法取值回落到默认背景，而不是被忽略
+    assert runtime.apply({"op": "meta", "meta": {"background": "nope"}})["meta"]["background"] == "grid"
+    assert runtime.apply({"op": "meta", "meta": {"background": "grid"}}) is None
 
 
 def test_ops_since_returns_delta_or_none():

@@ -171,11 +171,13 @@ def test_ipad_cannot_manage_boards(tmp_path):
             before = hub.current_id
 
             await ws.send_json({"t": "newboard"})
-            await ws.send_json({"t": "op", "cid": "m", "op": {"op": "meta", "meta": {"cols": 5}}})
+            await ws.send_json(
+                {"t": "op", "cid": "m", "op": {"op": "meta", "meta": {"background": "dots"}}}
+            )
             ack = await ws.receive_json()
             assert ack["t"] == "ack"
             assert hub.current_id == before
-            assert hub.board().meta["cols"] == 3
+            assert hub.board().meta["background"] == "grid"
             await ws.close()
 
     run(main())

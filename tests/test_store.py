@@ -98,4 +98,4 @@ def test_unknown_board_returns_blank(tmp_path):
     store = BoardStore(tmp_path)
     meta, strokes = store.load_board("doesnotexist")
     assert strokes == []
-    assert meta["cols"] == models.DEFAULT_COLS
+    assert meta["background"] == "grid"

@@ -13,7 +13,6 @@ export const COLORS = [
 ];
 export const WIDTHS = [1.5, 3, 5, 8, 13];
 export const ERASER_SIZES = [16, 28, 44, 66, 96];
-export const MAX_GRID = 7;
 
 const TOOL_KEY = "whiteboard.tool";
 
@@ -116,7 +115,7 @@ export class UI {
       ]);
       const zoombar = el("div", { id: "zoombar", class: "pill" }, [
         iconButton("zoomIn", "放大", () => this.actions.onZoom(1.25)),
-        iconButton("fit", "适应窗口", () => this.actions.onFit()),
+        iconButton("fit", "回到内容", () => this.actions.onFit()),
         iconButton("zoomOut", "缩小", () => this.actions.onZoom(0.8)),
       ]);
       this.root.append(topright, zoombar);
@@ -362,39 +361,6 @@ export class UI {
     sheet.parentElement.dataset.kind = "boards";
   }
 
-  sizeGrid() {
-    const meta = this.meta || { cols: 3, rows: 3 };
-    const grid = el("div", {
-      class: "size-grid",
-      style: { gridTemplateColumns: `repeat(${MAX_GRID}, 26px)` },
-    });
-    const cells = [];
-    const paint = (cols, rows) => {
-      cells.forEach((cell, index) => {
-        const col = (index % MAX_GRID) + 1;
-        const row = Math.floor(index / MAX_GRID) + 1;
-        cell.classList.toggle("on", col <= cols && row <= rows);
-      });
-    };
-    for (let row = 1; row <= MAX_GRID; row++) {
-      for (let col = 1; col <= MAX_GRID; col++) {
-        const cell = el("div", {
-          class: "size-cell",
-          title: `${col} × ${row}`,
-          onpointerenter: () => paint(col, row),
-          onclick: () => {
-            this.actions.onMeta({ cols: col, rows: row });
-          },
-        });
-        cells.push(cell);
-        grid.append(cell);
-      }
-    }
-    grid.addEventListener("pointerleave", () => paint(this.meta.cols, this.meta.rows));
-    paint(meta.cols, meta.rows);
-    return grid;
-  }
-
   backgroundOptions() {
     const kinds = [
       ["blank", ""],
@@ -423,10 +389,7 @@ export class UI {
   }
 
   openSettings() {
-    const groups = [
-      el("div", { class: "group" }, [this.sizeGrid()]),
-      el("div", { class: "group" }, [this.backgroundOptions()]),
-    ];
+    const groups = [el("div", { class: "group" }, [this.backgroundOptions()])];
     // 选择 / 打开存储目录要调用本地文件对话框，只有 pywebview 窗口里才有。
     if (this.actions.isNative()) {
       groups.push(

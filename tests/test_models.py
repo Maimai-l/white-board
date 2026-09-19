@@ -1,16 +1,17 @@
 from whiteboard import models
 
 
-def test_meta_is_clamped():
-    meta = models.sanitize_meta({"id": "abc", "cols": 99, "rows": -3, "background": "hack"})
-    assert meta["cols"] == models.MAX_GRID
-    assert meta["rows"] == models.MIN_GRID
+def test_meta_is_sanitized():
+    meta = models.sanitize_meta({"id": "abc", "background": "hack", "name": 5})
     assert meta["background"] == "grid"
+    assert meta["name"] == ""
+    assert meta["id"] == "abc"
 
 
-def test_board_size_uses_unit():
-    meta = models.new_board_meta(cols=2, rows=1)
-    assert models.board_size(meta) == (2 * models.UNIT_W, models.UNIT_H)
+def test_meta_drops_legacy_board_size():
+    """老文件里可能还留着 cols / rows / unit：画布已经无限，直接丢掉。"""
+    meta = models.sanitize_meta({"id": "abc", "cols": 3, "rows": 3, "unit": [1180, 820]})
+    assert "cols" not in meta and "rows" not in meta and "unit" not in meta
 
 
 def test_stroke_validation():
