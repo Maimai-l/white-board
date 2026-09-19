@@ -1,0 +1,6 @@
+aiohttp>=3.9
+pywebview>=4.4
+zeroconf>=0.131
+pyobjc-core>=10.0 ; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10.0 ; sys_platform == "darwin"
+pyobjc-framework-WebKit>=10.0 ; sys_platform == "darwin"

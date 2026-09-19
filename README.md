@@ -1,0 +1,117 @@
+# 局域网共享白板
+
+Mac 上启动程序，iPad 从主屏图标打开，两块屏幕写同一块白板，内容实时互相显示。
+只走局域网，不需要账号、不连外网。
+
+```
+┌──────────── Mac ────────────┐            ┌─────── iPad ───────┐
+│ pywebview 窗口（role=mac）  │            │ 主屏 Web Clip 图标 │
+│   白板列表 / 尺寸 / 背景    │  WebSocket │   全屏书写界面     │
+│   缩放 / 导出 PNG           │◀──────────▶│   Apple Pencil     │
+│ aiohttp 服务 + mDNS 广播    │  局域网    │                    │
+│ 白板压缩存盘（矢量，非图片）│            │ IndexedDB 本地缓存 │
+└─────────────────────────────┘            └────────────────────┘
+```
+
+## 快速开始
+
+```bash
+pip install -r requirements.txt
+python run.py                 # 打开 Mac 窗口，同时在局域网上开服务
+```
+
+其他用法：
+
+```bash
+python run.py --headless                     # 不开窗口，只跑服务（用浏览器访问）
+python run.py --port 9000                    # 换端口（被占用时会自动顺延）
+python run.py --data-dir ~/Documents/白板    # 换白板存储目录
+```
+
+端口默认 8848。启动后 Mac 窗口右上角的「iPad」按钮里能看到 iPad 该访问的地址，
+形如 `http://你的电脑名.local:8848/`。
+
+## 把白板装到 iPad 主屏
+
+1. 在 Mac 窗口里点右上角的 **iPad 图标**，再点卡片上的 **下载** 按钮，得到
+   `whiteboard.mobileconfig`；也可以直接让 iPad 的 Safari 打开
+   `http://你的电脑名.local:8848/profile.mobileconfig`。
+2. iPad 上打开这个描述文件 → 「设置」→「已下载描述文件」→ 安装。
+   描述文件未签名，系统会提示「未签名」，确认安装即可。
+3. 主屏会出现「白板」图标，点开就是全屏白板，没有 Safari 的地址栏。
+
+描述文件里写的是 `.local` mDNS 主机名，Mac 换了 IP 也不用重装。
+Mac 和 iPad 必须在同一个局域网里，且路由器没有屏蔽 mDNS / Bonjour。
+
+## 用法
+
+**iPad**：底部一条工具栏——钢笔、马克笔、荧光笔、橡皮擦、颜色与粗细、撤销、清屏。
+
+- 一旦用过 Apple Pencil，手指就只负责平移和缩放，不再画线（和 iPad 原生一致，
+  手掌搭在屏幕上不会留痕）。12 小时内没再用过 Pencil 会恢复手指书写。
+- 没有 Pencil 时：单指书写，双指平移 / 缩放；第二根手指落下时，刚起笔的那一下会被撤掉。
+- 钢笔跟随压感与笔身倾斜出粗细，马克笔和荧光笔等宽，荧光笔半透明。
+
+**Mac**：同一套工具栏，另外多出右上角（白板列表、白板设置、导出 PNG、iPad 连接）
+和右下角（放大、适应窗口、缩小）。
+
+- 鼠标左键书写，中键 / 右键 / 按住空格拖动画布，滚轮平移，⌘ / Ctrl + 滚轮缩放。
+- 快捷键：`⌘Z` 撤销，`⌘0` 适应窗口，`⌘+` / `⌘-` 缩放。
+- 白板设置里可以直接拖出白板尺寸（最多 7 × 7 屏），换背景（空白 / 方格 / 横线 / 点阵），
+  选择白板存储目录。
+
+**白板大小**：默认 3 × 3 屏，即主屏加周围八个方向各一屏，单屏按 11 英寸 iPad 横屏
+（1180 × 820）计。iPad 端按 1:1 显示，书写手感与本机屏幕一致；Mac 端默认整块适应窗口。
+
+## 数据
+
+- 默认目录：`~/Library/Application Support/Whiteboard/boards-data`，可在 GUI 里改。
+- 每块白板一个 `boards/<id>.wbz`：**矢量笔画**（不是图片）先做量化 + 增量 + varint 编码，
+  再整体 zlib 压缩；一条 500 点的笔画通常不到 2 KB。
+- `index.json` 保存白板列表，删掉也能从 `.wbz` 文件重建。
+- `thumbs/<id>.png` 只是 Mac 端选白板用的缩略图。
+- 服务端每 3 秒自动保存一次改动，关窗口 / Ctrl+C 退出前会再存一次。
+
+## 断线与重启
+
+- 断线时本地照常书写，操作进待发队列（同时写进 IndexedDB，刷新页面也不丢），
+  重连后按序号补齐；服务端按笔画 id 去重，不会画两遍。
+- 重连时客户端带上 `epoch + 序号`：服务端重启过就换了 `epoch`，此时直接补发整块白板，
+  iPad 不会停留在旧内容或空白上。
+- 窗口尺寸、方向变化后整屏重绘；缩放平移时只重绘可见范围内的笔画。
+
+## 开发
+
+```
+whiteboard/
+  server.py     aiohttp 路由 + WebSocket 协议
+  hub.py        操作日志、广播、自动保存
+  store.py      白板存盘 / 读取（zlib + 紧凑点编码）
+  codec.py      点数据的量化 / 增量 / varint 编码
+  models.py     数据模型与来自局域网的数据校验
+  profile.py    .mobileconfig 与图标生成（纯 Python 画 PNG）
+  netinfo.py    .local 主机名、局域网地址、mDNS 广播
+  runner.py     后台线程里跑服务端
+  app.py        pywebview 窗口与本地文件对话框
+  web/          前端（原生 ES Module，无构建步骤）
+    static/js/  stroke 几何、渲染、输入、网络、缓存、界面
+```
+
+协议细节见 [docs/protocol.md](docs/protocol.md)。
+
+```bash
+python -m pytest tests -q                          # 全部测试
+python -m pytest tests --ignore=tests/test_browser.py -q   # 跳过浏览器端到端测试
+```
+
+端到端测试会真的开两个 Chromium 页面（Mac 端 + iPad 端）互相同步，覆盖书写同步、
+撤销、擦除、清屏、Pencil 独占、切换白板、断线重连补齐、导出 PNG。
+没装 Playwright 或找不到 Chromium 时会自动跳过。
+
+## 不做的事
+
+- 不做账号密码：设计前提是家里 / 办公室的局域网，谁能连上网就能写。
+- 只面向两台设备点对点使用，三台以上不做保证（协议本身能跑，但没有针对性测试）。
+- 不模仿 iPad 的「选择工具」交互，那套复刻起来需要美术素材。
+- `http://xxx.local` 不是安全上下文，用不了 Service Worker，所以服务端没开时
+  iPad 打不开这个页面——这与「页面开着时服务端重启」是两回事，后者已经处理好。

@@ -1,0 +1,336 @@
+"""服务端协议测试：握手、广播、断线补齐、权限与设备识别。"""
+
+import asyncio
+import json
+from contextlib import asynccontextmanager
+
+from aiohttp.test_utils import TestClient, TestServer
+
+from whiteboard.config import Config
+from whiteboard.server import HUB_KEY, create_app, detect_role
+from whiteboard.store import BoardStore
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+@asynccontextmanager
+async def make_client(tmp_path):
+    config = Config(path=tmp_path / "config.json")
+    config.data_dir = tmp_path / "data"
+    store = BoardStore(config.data_dir)
+    app = create_app(config, store)
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+    try:
+        yield client, app
+    finally:
+        await client.close()
+
+
+async def hello(ws, role="mac", board=None, since=0, client_id="client-one", epoch=None):
+    await ws.send_json(
+        {
+            "t": "hello",
+            "role": role,
+            "client": client_id,
+            "board": board,
+            "since": since,
+            "epoch": epoch,
+        }
+    )
+    return await ws.receive_json()
+
+
+def stroke(stroke_id="s1"):
+    return {"id": stroke_id, "tool": "pen", "color": "#000000", "w": 3, "p": [0, 0, 0.5, 5, 5, 0.6]}
+
+
+def test_index_and_role_detection(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            response = await client.get("/", headers={"User-Agent": "Mozilla/5.0 (iPad; CPU OS 17_0)"})
+            body = await response.text()
+            assert response.status == 200
+            assert 'data-role="ipad"' in body
+
+            response = await client.get("/", headers={"User-Agent": "Mozilla/5.0 (Macintosh)"})
+            assert 'data-role="mac"' in await response.text()
+
+    run(main())
+    assert detect_role("ipad safari") == "ipad"
+    assert detect_role("anything", override="ipad") == "ipad"
+
+
+def test_profile_and_icon_endpoints(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            response = await client.get("/profile.mobileconfig?host=mac.local")
+            assert response.status == 200
+            assert response.content_type == "application/x-apple-aspen-config"
+            body = await response.read()
+            assert b"com.apple.webClip.managed" in body
+            assert b"http://mac.local:" in body
+
+            icon = await client.get("/icon.png")
+            assert (await icon.read()).startswith(b"\x89PNG")
+
+    run(main())
+
+
+def test_init_then_broadcast_between_two_clients(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            mac = await client.ws_connect("/ws")
+            ipad = await client.ws_connect("/ws")
+            first = await hello(mac, "mac", client_id="mac-1")
+            second = await hello(ipad, "ipad", client_id="ipad-1")
+            assert first["t"] == "init" and first["strokes"] == []
+            assert second["board"]["id"] == first["board"]["id"]
+            assert first["info"]["port"]
+
+            await ipad.send_json({"t": "op", "cid": "c1", "op": {"op": "add", "strokes": [stroke()]}})
+            ack = await ipad.receive_json()
+            assert ack["t"] == "ack" and ack["cid"] == "c1" and ack["seq"] == 1
+            assert ack["op"]["strokes"][0]["n"] == 0
+
+            relayed = await mac.receive_json()
+            assert relayed["t"] == "op"
+            assert relayed["op"]["strokes"][0]["id"] == "s1"
+            assert relayed["src"] == "ipad-1"
+
+            # 实时笔迹只转发，不进操作日志
+            await ipad.send_json({"t": "live", "id": "s2", "phase": "b", "color": "#000000"})
+            live = await mac.receive_json()
+            assert live["t"] == "live" and live["src"] == "ipad-1"
+
+            await mac.close()
+            await ipad.close()
+
+    run(main())
+
+
+def test_reconnect_receives_only_missing_ops(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            ws = await client.ws_connect("/ws")
+            init = await hello(ws, "ipad", client_id="ipad-1")
+            board_id = init["board"]["id"]
+            epoch = init["epoch"]
+            for i in range(3):
+                await ws.send_json({"t": "op", "cid": f"c{i}", "op": {"op": "add", "strokes": [stroke(f"s{i}")]}})
+                await ws.receive_json()
+            await ws.close()
+
+            again = await client.ws_connect("/ws")
+            resumed = await hello(again, "ipad", board=board_id, since=1, client_id="ipad-1", epoch=epoch)
+            assert resumed["t"] == "sync"
+            assert [op["seq"] for op in resumed["ops"]] == [2, 3]
+            assert "strokes" not in resumed
+
+            fresh = await client.ws_connect("/ws")
+            full = await hello(fresh, "ipad", board=board_id, since=0, client_id="ipad-2", epoch=epoch)
+            assert full["t"] == "sync"
+            # 序号 0 表示从头开始，历史仍然完整，补差量即可
+            assert len(full["ops"]) == 3
+
+            stale = await client.ws_connect("/ws")
+            snapshot = await hello(stale, "ipad", board="another-board", since=2, client_id="ipad-3", epoch=epoch)
+            assert snapshot["t"] == "init"
+            assert len(snapshot["strokes"]) == 3
+            await again.close()
+            await fresh.close()
+            await stale.close()
+
+    run(main())
+
+
+def test_duplicate_stroke_is_acknowledged_but_not_duplicated(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            ws = await client.ws_connect("/ws")
+            await hello(ws, "ipad", client_id="ipad-1")
+            for cid in ("a", "b"):
+                await ws.send_json({"t": "op", "cid": cid, "op": {"op": "add", "strokes": [stroke()]}})
+                ack = await ws.receive_json()
+                assert ack["t"] == "ack" and ack["cid"] == cid
+            assert len(app[HUB_KEY].board().strokes) == 1
+            await ws.close()
+
+    run(main())
+
+
+def test_ipad_cannot_manage_boards(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            ws = await client.ws_connect("/ws")
+            await hello(ws, "ipad", client_id="ipad-1")
+            before = hub.current_id
+
+            await ws.send_json({"t": "newboard"})
+            await ws.send_json({"t": "op", "cid": "m", "op": {"op": "meta", "meta": {"cols": 5}}})
+            ack = await ws.receive_json()
+            assert ack["t"] == "ack"
+            assert hub.current_id == before
+            assert hub.board().meta["cols"] == 3
+            await ws.close()
+
+    run(main())
+
+
+def test_mac_switches_board_and_ipad_follows(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            mac = await client.ws_connect("/ws")
+            ipad = await client.ws_connect("/ws")
+            await hello(mac, "mac", client_id="mac-1")
+            await hello(ipad, "ipad", client_id="ipad-1")
+
+            await mac.send_json({"t": "newboard"})
+            mac_switch = await mac.receive_json()
+            ipad_switch = await ipad.receive_json()
+            assert mac_switch["t"] == "switch"
+            assert ipad_switch["board"]["id"] == mac_switch["board"]["id"]
+            assert len(mac_switch["boards"]) == 2
+
+            await mac.send_json({"t": "op", "cid": "m1", "op": {"op": "meta", "meta": {"background": "dots"}}})
+            ack = await mac.receive_json()
+            assert ack["op"]["meta"]["background"] == "dots"
+            relayed = await ipad.receive_json()
+            assert relayed["op"]["meta"]["background"] == "dots"
+
+            await mac.send_json({"t": "delboard", "board": mac_switch["board"]["id"]})
+            after = await mac.receive_json()
+            assert after["t"] == "switch"
+            assert len(after["boards"]) == 1
+            await mac.close()
+            await ipad.close()
+
+    run(main())
+
+
+def test_unknown_messages_are_ignored(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            ws = await client.ws_connect("/ws")
+            await ws.send_str("not json at all")
+            await ws.send_json({"t": "op", "op": {"op": "clear"}})  # 未握手，应被忽略
+            await hello(ws, "mac", client_id="mac-1")
+            await ws.send_json({"t": "ping", "ts": 42})
+            pong = await ws.receive_json()
+            assert pong == {"t": "pong", "ts": 42}
+            await ws.close()
+
+    run(main())
+
+
+def test_strokes_survive_server_restart(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            ws = await client.ws_connect("/ws")
+            init = await hello(ws, "ipad", client_id="ipad-1")
+            board_id = init["board"]["id"]
+            await ws.send_json({"t": "op", "cid": "c", "op": {"op": "add", "strokes": [stroke("keep")]}})
+            await ws.receive_json()
+            await ws.close()
+            app[HUB_KEY].save_all()
+            return board_id
+
+        # 退出上下文即触发 on_cleanup，白板已落盘
+
+    board_id = run(main())
+
+    async def again():
+        async with make_client(tmp_path) as (client, _app):
+            ws = await client.ws_connect("/ws")
+            init = await hello(ws, "ipad", client_id="ipad-1")
+            assert init["board"]["id"] == board_id
+            assert [s["id"] for s in init["strokes"]] == ["keep"]
+            await ws.close()
+
+    run(again())
+
+
+def test_thumbnail_upload_and_fetch(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            board_id = app[HUB_KEY].current_id
+            blank = await client.get(f"/api/thumb/{board_id}")
+            assert blank.status == 200  # 没有缩略图时返回空白图
+
+            png = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+            assert (await client.post(f"/api/thumb/{board_id}", data=png)).status == 200
+            fetched = await client.get(f"/api/thumb/{board_id}")
+            assert (await fetched.read()) == png
+
+            assert (await client.post(f"/api/thumb/{board_id}", data=b"<svg/>")).status == 400
+            assert (await client.post("/api/thumb/nope", data=png)).status == 404
+
+    run(main())
+
+
+def test_info_and_boards_endpoints(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            info = await (await client.get("/api/info")).json()
+            assert info["hostname"].endswith(".local")
+            assert info["urls"]
+            boards = await (await client.get("/api/boards")).json()
+            assert boards["current"] == app[HUB_KEY].current_id
+            assert len(boards["boards"]) == 1
+
+    run(main())
+
+
+def test_stale_epoch_forces_full_snapshot(tmp_path):
+    """服务端重启后序号归零，旧客户端必须拿到整块白板而不是空的差量。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            ws = await client.ws_connect("/ws")
+            init = await hello(ws, "ipad", client_id="ipad-1")
+            board_id = init["board"]["id"]
+            await ws.send_json({"t": "op", "cid": "c", "op": {"op": "add", "strokes": [stroke("s")]}})
+            await ws.receive_json()
+            await ws.close()
+
+            # 换一个 epoch 就相当于「服务端重启过」
+            resumed = await client.ws_connect("/ws")
+            answer = await hello(
+                resumed, "ipad", board=board_id, since=9, client_id="ipad-1", epoch="stale-epoch"
+            )
+            assert answer["t"] == "init"
+            assert [s["id"] for s in answer["strokes"]] == ["s"]
+            assert answer["epoch"] != "stale-epoch"
+            await resumed.close()
+
+    run(main())
+
+
+def test_reconnect_with_same_client_id_keeps_broadcasting(tmp_path):
+    """旧连接晚一步断开时，不能把同 id 的新连接从广播名单里摘掉。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            stale = await client.ws_connect("/ws")
+            await hello(stale, "ipad", client_id="ipad-1")
+            fresh = await client.ws_connect("/ws")
+            await hello(fresh, "ipad", client_id="ipad-1")
+            await stale.close()
+            await asyncio.sleep(0.05)
+
+            assert hub.clients.get("ipad-1") is not None
+            mac = await client.ws_connect("/ws")
+            await hello(mac, "mac", client_id="mac-1")
+            await mac.send_json({"t": "op", "cid": "c", "op": {"op": "add", "strokes": [stroke()]}})
+            await mac.receive_json()  # ack
+            relayed = await fresh.receive_json()
+            assert relayed["t"] == "op"
+            await fresh.close()
+            await mac.close()
+
+    run(main())

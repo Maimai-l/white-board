@@ -1,0 +1,309 @@
+/* Material 3 风格的极简界面：只有图标，没有文案。 */
+
+:root {
+  --primary: #4a5bc0;
+  --on-primary: #ffffff;
+  --primary-container: #dee0ff;
+  --on-primary-container: #00105c;
+  --surface: #fdfbff;
+  --surface-1: #f5f3fb;
+  --surface-2: #efedf7;
+  --surface-3: #e9e6f2;
+  --on-surface: #1b1b1f;
+  --on-surface-variant: #46464f;
+  --outline: #c6c5d0;
+  --error: #ba1a1a;
+  --scrim: rgba(0, 0, 0, .32);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .18), 0 1px 3px 1px rgba(0, 0, 0, .10);
+  --shadow-2: 0 2px 6px 2px rgba(0, 0, 0, .10), 0 1px 2px rgba(0, 0, 0, .20);
+  --shadow-3: 0 4px 12px 4px rgba(0, 0, 0, .12), 0 2px 4px rgba(0, 0, 0, .20);
+  --radius-pill: 28px;
+  --radius-l: 20px;
+  --radius-m: 12px;
+  --motion: 180ms cubic-bezier(.2, 0, 0, 1);
+  --paper: #ffffff;
+  --paper-line: #d9dce6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --primary: #bcc2ff;
+    --on-primary: #1a2a86;
+    --primary-container: #33429c;
+    --on-primary-container: #dee0ff;
+    --surface: #131316;
+    --surface-1: #1b1b1f;
+    --surface-2: #202025;
+    --surface-3: #26262b;
+    --on-surface: #e5e1e6;
+    --on-surface-variant: #c7c5d0;
+    --outline: #49474f;
+    --error: #ffb4ab;
+    --scrim: rgba(0, 0, 0, .55);
+  }
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--surface);
+  color: var(--on-surface);
+  font: 500 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#stage { position: fixed; inset: 0; background: var(--paper); }
+#stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#live { pointer-events: none; }
+
+#ui { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+#ui > * { pointer-events: auto; }
+
+/* ------------------------------------------------------------- 基础控件 */
+
+.icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  transition: background var(--motion), color var(--motion), transform var(--motion);
+}
+.icon-btn svg { width: 24px; height: 24px; }
+.icon-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity var(--motion);
+}
+.icon-btn:hover::before { opacity: .08; }
+.icon-btn:active::before { opacity: .14; }
+.icon-btn.active { background: var(--primary-container); color: var(--on-primary-container); }
+.icon-btn.danger { color: var(--error); }
+.icon-btn[disabled] { opacity: .38; pointer-events: none; }
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(12px);
+}
+/* 工具栏上的当前颜色：深浅背景下都要看得见，所以描一圈中性色。 */
+.color-dot {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgba(128, 128, 128, .6);
+}
+
+.pill .sep { width: 1px; height: 26px; margin: 0 4px; background: var(--outline); opacity: .5; flex: 0 0 auto; }
+
+/* 底部主工具条（iPad 与 Mac 共用） */
+#toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: calc(100vw - 24px);
+}
+
+/* Mac 端右上角功能簇与右下角缩放簇 */
+#topright {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  flex-direction: row;
+}
+#zoombar {
+  position: absolute;
+  right: calc(12px + env(safe-area-inset-right));
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  flex-direction: column;
+}
+
+/* 连接状态：一个小圆点，不用文字 */
+#status {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  left: calc(14px + env(safe-area-inset-left));
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--outline);
+  box-shadow: var(--shadow-1);
+  transition: background var(--motion), opacity var(--motion);
+  opacity: .8;
+}
+#status.online { background: #2e7d32; }
+#status.offline { background: var(--error); }
+#status.syncing { background: #ef8f00; }
+
+/* ----------------------------------------------------------------- 弹层 */
+
+.popover {
+  position: absolute;
+  padding: 10px;
+  border-radius: var(--radius-l);
+  background: var(--surface-3);
+  box-shadow: var(--shadow-3);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: pop var(--motion);
+}
+@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.96); } }
+
+.swatches { display: grid; grid-template-columns: repeat(5, 36px); gap: 8px; }
+.swatch {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 2px solid transparent; cursor: pointer; padding: 0;
+  transition: transform var(--motion), border-color var(--motion);
+}
+.swatch:hover { transform: scale(1.08); }
+.swatch.active { border-color: var(--primary); transform: scale(1.12); }
+
+.widths { display: flex; align-items: center; gap: 6px; }
+.width-opt {
+  width: 40px; height: 40px; border: 0; border-radius: 50%;
+  background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background var(--motion);
+}
+.width-opt:hover { background: rgba(127, 127, 127, .16); }
+.width-opt.active { background: var(--primary-container); }
+.width-opt i { display: block; border-radius: 50%; background: var(--on-surface); }
+
+/* --------------------------------------------------------------- 侧板 */
+
+.scrim {
+  position: absolute; inset: 0; background: var(--scrim);
+  animation: fade var(--motion);
+}
+@keyframes fade { from { opacity: 0; } }
+
+.sheet {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: min(420px, 92vw);
+  padding: 16px calc(16px + env(safe-area-inset-right)) 16px 16px;
+  background: var(--surface-1);
+  box-shadow: var(--shadow-3);
+  border-radius: var(--radius-l) 0 0 var(--radius-l);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  animation: slide var(--motion);
+}
+@keyframes slide { from { transform: translateX(24px); opacity: 0; } }
+.sheet-head { display: flex; justify-content: flex-end; }
+.group { display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* 白板列表：只有缩略图 */
+.boards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.board-tile {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  border-radius: var(--radius-m);
+  border: 2px solid transparent;
+  background: var(--paper) center/cover no-repeat;
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color var(--motion), transform var(--motion);
+}
+.board-tile:hover { transform: translateY(-2px); }
+.board-tile.active { border-color: var(--primary); }
+.board-tile .del {
+  position: absolute; top: 4px; right: 4px;
+  width: 30px; height: 30px; border-radius: 50%; border: 0;
+  background: var(--surface-2); color: var(--on-surface-variant);
+  display: none; align-items: center; justify-content: center; cursor: pointer;
+}
+.board-tile .del svg { width: 18px; height: 18px; }
+.board-tile:hover .del { display: flex; }
+.board-tile.add {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-3); color: var(--on-surface-variant);
+  border: 1px dashed var(--outline);
+}
+.board-tile.add svg { width: 28px; height: 28px; }
+
+/* 尺寸选择：像选表格一样拖出行列 */
+.size-grid { display: grid; gap: 4px; width: max-content; }
+.size-cell {
+  width: 26px; height: 20px; border-radius: 4px;
+  background: var(--surface-3); border: 1px solid var(--outline);
+  transition: background var(--motion);
+}
+.size-cell.on { background: var(--primary); border-color: var(--primary); }
+
+.bg-opts { display: flex; gap: 10px; }
+.bg-opt {
+  width: 56px; height: 44px; border-radius: var(--radius-m);
+  border: 2px solid var(--outline); background: var(--paper);
+  cursor: pointer; padding: 0; overflow: hidden;
+  transition: border-color var(--motion), transform var(--motion);
+}
+.bg-opt:hover { transform: translateY(-2px); }
+.bg-opt.active { border-color: var(--primary); }
+.bg-opt svg { width: 100%; height: 100%; display: block; color: var(--paper-line); }
+
+/* 连接卡片：一个二维码大小的地址块 + 描述文件按钮 */
+.card {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px; border-radius: var(--radius-m);
+  background: var(--surface-3);
+}
+.card .addr {
+  flex: 1; font: 600 13px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--on-surface); word-break: break-all; user-select: text; -webkit-user-select: text;
+}
+
+.toast {
+  position: absolute;
+  left: 50%; bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-radius: var(--radius-pill);
+  background: var(--surface-3); color: var(--on-surface);
+  box-shadow: var(--shadow-2);
+  animation: pop var(--motion);
+}
+.toast svg { width: 20px; height: 20px; }
+
+.dialog {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 20px; border-radius: 28px;
+  background: var(--surface-3); box-shadow: var(--shadow-3);
+  display: flex; gap: 16px; align-items: center;
+  animation: pop var(--motion);
+}
+
+@media (max-width: 520px) {
+  .boards { grid-template-columns: 1fr; }
+}
