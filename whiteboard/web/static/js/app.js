@@ -16,6 +16,9 @@ const UNDO_LIMIT = 200;
 // 写 IndexedDB 会卡主线程（iOS 上首次写事务尤其慢），离最后一次落笔足够远才写。
 const SAVE_DEBOUNCE = 4000;
 const SAVE_IDLE = 1500;
+// 笔记：缩放到接近「刚好一页宽」时自动吸附到屏幕两边。
+const SNAP_RATIO = 0.08;
+const SNAP_MS = 180;
 const REMOTE_LIVE_TTL = 5000;
 
 function resolveRole() {
@@ -90,6 +93,7 @@ class App {
     this.undoStack = [];
     this.remoteLive = new Map();
     this.eraseBatch = [];
+    this.viewAnim = 0;
     this.pendingRestored = false;
 
     this.perf = new PerfMonitor();
@@ -261,9 +265,12 @@ class App {
         if (!this.eraseBatch.length) return;
         this.pushUndo({ type: "removed", strokes: this.eraseBatch.map(plainStroke) });
         this.eraseBatch = [];
+    this.viewAnim = 0;
         this.saveCache();
         this.pushThumb();
       },
+      onInteractionStart: () => this.stopViewAnimation(),
+      onGestureEnd: () => this.snapToPageWidth(),
       onPenInterrupted: (count) => {
         // 页面这侧已经把能拦的都拦了，连续被打断只可能是系统级的随手写。
         if (count !== 3) return;
@@ -550,6 +557,63 @@ class App {
     });
     this.cache.savePending(this.net.outbox);
     this.perf.mark("序列化", built - started);
+  }
+
+  stopViewAnimation() {
+    if (this.viewAnim) {
+      cancelAnimationFrame(this.viewAnim);
+      this.viewAnim = 0;
+    }
+  }
+
+  /** 缓动到指定视角。 */
+  animateView(target, ms = SNAP_MS) {
+    this.stopViewAnimation();
+    const from = { scale: this.viewport.scale, x: this.viewport.x, y: this.viewport.y };
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / ms);
+      const eased = 1 - Math.pow(1 - t, 3);
+      this.viewport.scale = from.scale + (target.scale - from.scale) * eased;
+      this.viewport.x = from.x + (target.x - from.x) * eased;
+      this.viewport.y = from.y + (target.y - from.y) * eased;
+      this.clampView();
+      this.renderer.requestFull();
+      if (t < 1) {
+        this.viewAnim = requestAnimationFrame(step);
+      } else {
+        this.viewAnim = 0;
+        this.saveView();
+      }
+    };
+    this.viewAnim = requestAnimationFrame(step);
+  }
+
+  /**
+   * 笔记：松手（或滚轮停下）时若已经接近「一页正好占满屏幕宽」，就吸附过去，
+   * 纸的左右边贴住屏幕两侧。返回是否接管了这次收尾。
+   */
+  snapToPageWidth() {
+    const limits = this.state.limits;
+    if (!limits) return false;
+    const pageWidth = limits.x1 - limits.x0;
+    const target = this.renderer.viewW / pageWidth;
+    const current = this.viewport.scale;
+    const offset = Math.abs(current - target);
+    if (offset > target * SNAP_RATIO) return false; // 离得还远，不打扰
+    if (offset < target * 0.002) return false; // 已经贴住了
+
+    // 缩放绕视口中心进行，纵向位置保持不动
+    const [, centerWorldY] = this.viewport.toWorld(
+      this.renderer.viewW / 2,
+      this.renderer.viewH / 2
+    );
+    this.animateView({
+      scale: target,
+      x: -limits.x0 * target,
+      y: this.renderer.viewH / 2 - centerWorldY * target,
+    });
+    return true;
   }
 
   /** 笔记模式不能划出纸外，大白板不受约束。 */

@@ -14,6 +14,14 @@ import { clamp } from "./util.js";
 const FINGER_FLAG = "whiteboard.fingerDraw";
 // Pencil 落笔期间以及抬笔后的这段时间里，手指 / 手掌一律不参与任何操作。
 const PALM_GRACE = 500;
+// 惯性滑动：速度取最近这段时间的平均，之后按指数衰减。
+const FLING_WINDOW = 120;
+const FLING_MIN = 0.35; // px/ms（约 350 px/s），低于这个速度算拖动而不是甩
+const FLING_MAX = 4;
+const FLING_TAU = 220; // 衰减时间常数，越大滑得越远
+const FLING_STOP = 0.015;
+const WHEEL_SETTLE = 220;
+
 const SMOOTH_PEN = 0.45;
 const SMOOTH_MOUSE = 0.6;
 const PRESSURE_SMOOTH = 0.25;
@@ -55,6 +63,8 @@ export class InputController {
       touch: 0, uncancelable: 0, penCancel: 0,
     };
     this.canceled = null;
+    this.momentum = 0;
+    this._wheelTimer = 0;
     this._rect = null;
 
     const stage = this.stage;
@@ -185,6 +195,8 @@ export class InputController {
 
   onDown(event) {
     event.preventDefault();
+    this.stopMomentum();
+    this.hooks.onInteractionStart?.();
     // 有选区在就先清掉：放大镜是跟着选区走的。
     const selection = getSelection && getSelection();
     if (selection && !selection.isCollapsed) selection.removeAllRanges();
@@ -487,7 +499,17 @@ export class InputController {
 
   startGesture(event) {
     const [x, y] = this.toScreen(event);
-    if (!this.gesture) this.gesture = { points: new Map(), mid: null, dist: 0, dx: 0, dy: 0, zoomed: false };
+    if (!this.gesture) {
+      this.gesture = {
+        points: new Map(),
+        mid: null,
+        dist: 0,
+        dx: 0,
+        dy: 0,
+        zoomed: false,
+        samples: [],
+      };
+    }
     this.gesture.points.set(event.pointerId, { x, y });
     this.updateGestureRef();
   }
@@ -521,6 +543,11 @@ export class InputController {
     this.viewport.panBy(dx, dy);
     gesture.dx += dx;
     gesture.dy += dy;
+    const now = performance.now();
+    gesture.samples.push([now, dx, dy]);
+    while (gesture.samples.length && now - gesture.samples[0][0] > FLING_WINDOW) {
+      gesture.samples.shift();
+    }
     if (prevDist > 0 && gesture.dist > 0) {
       this.viewport.zoomAt(gesture.dist / prevDist, gesture.mid.x, gesture.mid.y);
       gesture.zoomed = true;
@@ -531,8 +558,60 @@ export class InputController {
   endGesturePointer(pointerId) {
     if (!this.gesture) return;
     this.gesture.points.delete(pointerId);
-    if (!this.gesture.points.size) this.gesture = null;
-    else this.updateGestureRef();
+    if (this.gesture.points.size) {
+      this.updateGestureRef();
+      return;
+    }
+    const gesture = this.gesture;
+    this.gesture = null;
+    // 松手之后：先让界面决定要不要吸附，没吸附就按甩出去的速度继续滑。
+    if (this.hooks.onGestureEnd?.()) return;
+    this.startMomentum(gesture);
+  }
+
+  /** 惯性滑动：按最近一段时间的平均速度继续走，指数衰减到停。 */
+  startMomentum(gesture) {
+    const now = performance.now();
+    const samples = gesture.samples.filter((sample) => now - sample[0] <= FLING_WINDOW);
+    if (samples.length < 2) return;
+    const span = now - samples[0][0];
+    if (span <= 0) return;
+    let vx = samples.reduce((sum, sample) => sum + sample[1], 0) / span;
+    let vy = samples.reduce((sum, sample) => sum + sample[2], 0) / span;
+    const speed = Math.hypot(vx, vy);
+    if (speed < FLING_MIN) return;
+    if (speed > FLING_MAX) {
+      vx = (vx / speed) * FLING_MAX;
+      vy = (vy / speed) * FLING_MAX;
+    }
+
+    let last = now;
+    const step = (time) => {
+      const dt = Math.min(32, time - last);
+      last = time;
+      const before = [this.viewport.x, this.viewport.y];
+      this.viewport.panBy(vx * dt, vy * dt);
+      this.hooks.onViewChange();
+      const decay = Math.exp(-dt / FLING_TAU);
+      vx *= decay;
+      vy *= decay;
+      const moved =
+        Math.abs(this.viewport.x - before[0]) > 0.01 ||
+        Math.abs(this.viewport.y - before[1]) > 0.01;
+      if (!moved || Math.hypot(vx, vy) < FLING_STOP) {
+        this.momentum = 0;
+        return;
+      }
+      this.momentum = requestAnimationFrame(step);
+    };
+    this.momentum = requestAnimationFrame(step);
+  }
+
+  stopMomentum() {
+    if (this.momentum) {
+      cancelAnimationFrame(this.momentum);
+      this.momentum = 0;
+    }
   }
 
   endGesture(revert = false) {
@@ -549,6 +628,10 @@ export class InputController {
 
   onWheel(event) {
     event.preventDefault();
+    this.stopMomentum();
+    // 滚轮 / 触控板停下来之后，和松手一样给界面一次吸附的机会。
+    clearTimeout(this._wheelTimer);
+    this._wheelTimer = setTimeout(() => this.hooks.onGestureEnd?.(), WHEEL_SETTLE);
     const [x, y] = this.toScreen(event);
     if (event.ctrlKey || event.metaKey) {
       this.viewport.zoomAt(Math.exp(-event.deltaY * 0.01), x, y);

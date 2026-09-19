@@ -391,6 +391,95 @@ def test_note_boards_only_extend_downwards(browser, server):
     ipad.close()
 
 
+FLICK = """
+async ([points, pointerType, delay]) => {
+  const stage = document.getElementById('stage');
+  const fire = (type, x, y) => stage.dispatchEvent(new PointerEvent(type, {
+    clientX: x, clientY: y, pointerType, pointerId: 77, pressure: type === 'pointerup' ? 0 : 0.5,
+    buttons: type === 'pointerup' ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true,
+  }));
+  fire('pointerdown', points[0][0], points[0][1]);
+  for (const [x, y] of points.slice(1)) {
+    await new Promise((resolve) => setTimeout(resolve, delay || 8));
+    fire('pointermove', x, y);
+  }
+  fire('pointerup', points[points.length - 1][0], points[points.length - 1][1]);
+}
+"""
+
+
+def make_note(mac, ipad):
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title^="笔记"]')
+    ipad.wait_for_function("() => whiteboard.state.kind === 'note'")
+    ipad.wait_for_timeout(200)
+
+
+def test_flick_keeps_scrolling_with_momentum(browser, server):
+    """笔记上下翻要有惯性：松手之后还会继续滑一段再停。"""
+    mac, ipad = open_pages(browser, server.port)
+    make_note(mac, ipad)
+
+    points = [[590, 700 - i * 40] for i in range(9)]  # 快速上划
+    ipad.evaluate(FLICK, [points, "touch", 8])
+    released = ipad.evaluate("() => whiteboard.viewport.y")
+    ipad.wait_for_timeout(120)
+    gliding = ipad.evaluate("() => whiteboard.viewport.y")
+    assert gliding < released - 5, "松手之后应该继续往下滑"
+
+    ipad.wait_for_timeout(1200)
+    settled = ipad.evaluate("() => whiteboard.viewport.y")
+    ipad.wait_for_timeout(200)
+    assert abs(ipad.evaluate("() => whiteboard.viewport.y") - settled) < 0.5, "最后要停下来"
+
+    # 慢慢拖不该有惯性
+    slow = [[590, 600 - i * 4] for i in range(6)]
+    ipad.evaluate(FLICK, [slow, "touch", 30])
+    before = ipad.evaluate("() => whiteboard.viewport.y")
+    ipad.wait_for_timeout(200)
+    assert abs(ipad.evaluate("() => whiteboard.viewport.y") - before) < 0.5
+    mac.close()
+    ipad.close()
+
+
+def test_note_snaps_to_screen_width_when_close(browser, server):
+    """缩放到接近一页宽时，松手自动吸附到屏幕两边。"""
+    mac, ipad = open_pages(browser, server.port)
+    make_note(mac, ipad)
+    target = ipad.evaluate("() => whiteboard.renderer.viewW / 1000")
+
+    # 差一点点：松手后吸附
+    ipad.evaluate(
+        "([s]) => { whiteboard.viewport.scale = s; whiteboard.clampView();"
+        "whiteboard.renderer.requestFull(); }",
+        [target * 1.045],
+    )
+    ipad.evaluate(FLICK, [[[590, 500], [590, 495]], "touch", 30])
+    ipad.wait_for_function(
+        "(t) => whiteboard.viewAnim === 0 && Math.abs(whiteboard.viewport.scale - t) < t * 0.001",
+        arg=target,
+        timeout=3000,
+    )
+    edges = ipad.evaluate(
+        "() => { const v = whiteboard.viewport; const l = whiteboard.state.limits;"
+        "return [v.x + l.x0 * v.scale, v.x + l.x1 * v.scale, whiteboard.renderer.viewW]; }"
+    )
+    assert abs(edges[0]) < 0.5 and abs(edges[1] - edges[2]) < 0.5, "纸的左右边要贴住屏幕"
+
+    # 差得远：不要自作主张
+    ipad.evaluate(
+        "([s]) => { whiteboard.viewport.scale = s; whiteboard.clampView();"
+        "whiteboard.renderer.requestFull(); }",
+        [target * 1.6],
+    )
+    ipad.evaluate(FLICK, [[[590, 500], [590, 495]], "touch", 30])
+    ipad.wait_for_timeout(400)
+    assert ipad.evaluate("() => whiteboard.viewport.scale") > target * 1.5
+    mac.close()
+    ipad.close()
+
+
 def test_canvas_is_infinite(browser, server):
     """画布没有边界：任意位置都能写，缩放只受上下限约束。"""
     mac, ipad = open_pages(browser, server.port)

@@ -64,7 +64,7 @@ export class Viewport {
   }
 
   /** 笔记模式：按页宽铺满，并停在页首。 */
-  fitWidth(limits, viewW, viewH, padding = 20) {
+  fitWidth(limits, viewW, viewH, padding = 0) {
     const width = Math.max(1, limits.x1 - limits.x0);
     this.scale = clamp((viewW - padding * 2) / width, MIN_SCALE, MAX_SCALE);
     this.x = viewW / 2 - ((limits.x0 + limits.x1) / 2) * this.scale;
