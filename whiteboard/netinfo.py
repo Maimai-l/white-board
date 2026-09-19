@@ -1,16 +1,24 @@
 """局域网地址与 mDNS 广播。
 
-iPad 通过 Mac 的 ``<主机名>.local`` 访问，不依赖固定 IP；同时注册一个
-``_http._tcp`` 服务，方便在别的设备上直接发现。
+iPad 通过 Mac 的 ``<主机名>.local`` 访问，不依赖固定 IP。
+
+macOS 自带的 mDNSResponder 已经在发布本机的 ``.local`` 主机名，所以这里的
+``_http._tcp`` 注册只是给别的工具做服务发现用，属于可有可无的装饰：默认在
+macOS 上关闭，其余平台打开，而且**无论如何都不能影响服务端启动**。
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import socket
+import sys
 from typing import List, Optional
 
 log = logging.getLogger(__name__)
+
+# 注册 / 注销 mDNS 的等待上限，超时就放弃广播，绝不拖住启动或退出。
+REGISTER_TIMEOUT = 5.0
 
 
 def local_hostname() -> str:
@@ -43,48 +51,64 @@ def candidate_urls(port: int) -> List[str]:
     return urls
 
 
+def mdns_default() -> bool:
+    """macOS 上交给系统的 Bonjour，不自己再注册一遍。"""
+    return sys.platform != "darwin"
+
+
 class MDNSAdvertiser:
-    """注册 ``_http._tcp`` 服务；没装 zeroconf 时静默降级。"""
+    """注册 ``_http._tcp`` 服务。
+
+    必须用 zeroconf 的**异步** API：同步 API 会阻塞调用方所在的事件循环，
+    在 asyncio 里调用会抛 ``EventLoopBlocked``，进而把服务端启动拖超时。
+    """
 
     def __init__(self, port: int, name: str = "Whiteboard"):
         self.port = port
         self.name = name
-        self._zeroconf = None
+        self._azc = None
         self._info = None
 
-    def start(self) -> None:
+    async def start(self) -> bool:
+        """注册服务；任何失败都只记日志，返回 False。"""
         try:
-            from zeroconf import ServiceInfo, Zeroconf
+            from zeroconf import ServiceInfo
+            from zeroconf.asyncio import AsyncZeroconf
         except ImportError:
             log.info("未安装 zeroconf，跳过 mDNS 广播（.local 主机名仍可用）")
-            return
+            return False
         ip = lan_ip()
         if not ip:
             log.info("未找到局域网地址，跳过 mDNS 广播")
-            return
+            return False
         try:
-            self._zeroconf = Zeroconf()
+            self._azc = AsyncZeroconf()
             self._info = ServiceInfo(
                 "_http._tcp.local.",
                 f"{self.name}._http._tcp.local.",
                 addresses=[socket.inet_aton(ip)],
                 port=self.port,
                 properties={"path": "/"},
-                server=local_hostname() + ".",
             )
-            self._zeroconf.register_service(self._info)
-            log.info("mDNS 已广播 %s:%s", local_hostname(), self.port)
-        except OSError as exc:
-            log.warning("mDNS 广播失败：%s", exc)
-            self.stop()
+            await asyncio.wait_for(
+                self._azc.async_register_service(self._info), timeout=REGISTER_TIMEOUT
+            )
+        except Exception as exc:  # noqa: BLE001 - 广播失败不该影响白板本身
+            log.warning("mDNS 广播失败（不影响使用）：%s", exc)
+            await self.stop()
+            return False
+        log.info("mDNS 已广播 %s:%s", local_hostname(), self.port)
+        return True
 
-    def stop(self) -> None:
-        if self._zeroconf is not None:
-            try:
-                if self._info is not None:
-                    self._zeroconf.unregister_service(self._info)
-                self._zeroconf.close()
-            except OSError:
-                pass
-        self._zeroconf = None
+    async def stop(self) -> None:
+        azc, info = self._azc, self._info
+        self._azc = None
         self._info = None
+        if azc is None:
+            return
+        try:
+            if info is not None:
+                await asyncio.wait_for(azc.async_unregister_service(info), timeout=REGISTER_TIMEOUT)
+            await asyncio.wait_for(azc.async_close(), timeout=REGISTER_TIMEOUT)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("mDNS 注销失败：%s", exc)

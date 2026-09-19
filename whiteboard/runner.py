@@ -34,14 +34,16 @@ class ServerThread:
         self._ready = threading.Event()
         self._error: Optional[BaseException] = None
         self._mdns: Optional[MDNSAdvertiser] = None
+        self._mdns_task: Optional[asyncio.Task] = None
         self.app: Optional[web.Application] = None
 
     # --------------------------------------------------------------- 生命周期
 
-    def start(self, timeout: float = 15.0) -> int:
+    def start(self, timeout: float = 20.0) -> int:
         self._thread = threading.Thread(target=self._run, name="whiteboard-server", daemon=True)
         self._thread.start()
         if not self._ready.wait(timeout):
+            self.stop(timeout=2.0)
             raise RuntimeError("服务端启动超时")
         if self._error is not None:
             raise self._error
@@ -87,15 +89,27 @@ class ServerThread:
         else:
             raise last_error or OSError("没有可用端口")
 
-        if self.advertise:
-            self._mdns = MDNSAdvertiser(self.port)
-            self._mdns.start()
         log.info("服务端已就绪：http://0.0.0.0:%s", self.port)
         self._ready.set()
 
+        # mDNS 放到启动完成之后的后台任务里：它是可选的装饰，失败或慢了都不该
+        # 影响白板本身（同步版 zeroconf 会阻塞事件循环，绝不能在这里直接调）。
+        if self.advertise:
+            self._mdns = MDNSAdvertiser(self.port)
+            self._mdns_task = asyncio.create_task(self._advertise())
+
+    async def _advertise(self) -> None:
+        try:
+            await self._mdns.start()
+        except Exception:  # noqa: BLE001 - 广播异常不能冒泡到服务端
+            log.exception("mDNS 广播异常（不影响使用）")
+
     async def _shutdown(self) -> None:
+        if self._mdns_task is not None:
+            self._mdns_task.cancel()
+            self._mdns_task = None
         if self._mdns is not None:
-            self._mdns.stop()
+            await self._mdns.stop()
             self._mdns = None
         if self._runner is not None:
             await self._runner.cleanup()  # 触发 on_cleanup：保存所有白板

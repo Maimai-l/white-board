@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, help="监听端口（默认 8848，占用时自动顺延）")
     parser.add_argument("--data-dir", help="白板存储目录")
     parser.add_argument("--headless", action="store_true", help="不开窗口，只跑服务端")
+    parser.add_argument("--mdns", action="store_true", help="强制广播 mDNS 服务（macOS 默认交给系统）")
     parser.add_argument("--no-mdns", action="store_true", help="不广播 mDNS 服务")
     parser.add_argument("--debug", action="store_true", help="打开调试日志与开发者工具")
     args = parser.parse_args(argv)
@@ -37,11 +38,19 @@ def main(argv: list[str] | None = None) -> int:
         config.data_dir = args.data_dir
     config.save()
 
+    from whiteboard.netinfo import mdns_default
+
+    advertise = mdns_default()
+    if args.mdns:
+        advertise = True
+    if args.no_mdns:
+        advertise = False
+
     if args.headless:
         from whiteboard.netinfo import candidate_urls
         from whiteboard.runner import ServerThread
 
-        server = ServerThread(config, advertise=not args.no_mdns)
+        server = ServerThread(config, advertise=advertise)
         server.start()
         print("白板服务已启动：")
         for url in candidate_urls(server.port):
@@ -65,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError as exc:
         print(f"缺少 pywebview（{exc}）。可以先用 python run.py --headless 跑服务端。", file=sys.stderr)
         return 1
-    run_app(config, debug=args.debug)
+    run_app(config, debug=args.debug, advertise=advertise)
     return 0
 
 

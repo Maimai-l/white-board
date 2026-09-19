@@ -70,6 +70,15 @@
 「没有新内容」，`epoch` 就是用来识别这种情况的——它一变，客户端就会拿到完整快照，
 而不是守着过期内容。
 
+## mDNS
+
+`.local` 主机名由 macOS 自带的 mDNSResponder 发布，程序本身不参与。`--mdns`
+额外注册的 `_http._tcp` 服务只是方便服务发现，因此：
+
+- 必须用 zeroconf 的**异步** API。同步 API 会阻塞调用方所在的事件循环，在 asyncio
+  里调用会抛 `EventLoopBlocked`，并把服务端启动拖到超时。
+- 注册放在 HTTP 服务就绪**之后**的后台任务里，并且带 5 秒超时，任何异常只记日志。
+
 ## 设备识别
 
 - 服务端按 User-Agent 在首页里写入 `data-role`，iPad / iPhone 判为 `ipad`。

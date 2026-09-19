@@ -15,6 +15,15 @@ Mac 上启动程序，iPad 从主屏图标打开，两块屏幕写同一块白�
 
 ## 快速开始
 
+Mac 上双击 **启动白板.command** 就行：第一次会自动建好运行环境并装依赖（只做一次），
+之后每次双击直接开窗口。
+
+从下载的压缩包里解压时，macOS 可能提示「无法打开，因为来自身份不明的开发者」，
+右键点脚本 →「打开」→「打开」即可；或者在终端里执行一次
+`xattr -dr com.apple.quarantine <解压出来的文件夹>`。
+
+想自己敲命令也可以：
+
 ```bash
 pip install -r requirements.txt
 python run.py                 # 打开 Mac 窗口，同时在局域网上开服务
@@ -26,6 +35,7 @@ python run.py                 # 打开 Mac 窗口，同时在局域网上开服�
 python run.py --headless                     # 不开窗口，只跑服务（用浏览器访问）
 python run.py --port 9000                    # 换端口（被占用时会自动顺延）
 python run.py --data-dir ~/Documents/白板    # 换白板存储目录
+python run.py --mdns                         # 额外注册 _http._tcp 服务（macOS 默认交给系统）
 ```
 
 端口默认 8848。启动后 Mac 窗口右上角的「iPad」按钮里能看到 iPad 该访问的地址，
@@ -42,6 +52,8 @@ python run.py --data-dir ~/Documents/白板    # 换白板存储目录
 
 描述文件里写的是 `.local` mDNS 主机名，Mac 换了 IP 也不用重装。
 Mac 和 iPad 必须在同一个局域网里，且路由器没有屏蔽 mDNS / Bonjour。
+`.local` 名字由 macOS 自带的 Bonjour 发布，程序不需要也不会去抢这件事；
+`--mdns` 只是额外注册一个 `_http._tcp` 服务方便别的工具发现，失败也不影响使用。
 
 ## 用法
 
