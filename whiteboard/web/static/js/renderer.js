@@ -7,6 +7,8 @@ import { drawStroke, strokeBBox } from "./stroke.js";
 import { TAU } from "./util.js";
 
 const PAPER = "#ffffff";
+const OUTSIDE = "#e6e8ee";
+const EDGE = "#d2d6e0";
 const LINE = "#d7dbe6";
 const GRID_STEP = 40;
 const MIN_PATTERN_PX = 14;
@@ -105,13 +107,68 @@ export class Renderer {
 
   // ------------------------------------------------------------------ 背景
 
+  /** 笔记模式下纸张在屏幕上的范围；大白板返回 null。 */
+  pageRect() {
+    const limits = this.state.limits;
+    if (!limits) return null;
+    const { scale, x, y } = this.viewport;
+    const left = x + limits.x0 * scale;
+    const top = y + limits.y0 * scale;
+    return {
+      left,
+      top,
+      width: (limits.x1 - limits.x0) * scale,
+      height: this.viewH - Math.min(top, 0) + 2,
+    };
+  }
+
+  /** 把后续绘制限制在纸张内（笔记模式）；返回是否需要 restore。 */
+  clipToPage(ctx) {
+    const page = this.pageRect();
+    if (!page) return false;
+    ctx.save();
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.beginPath();
+    ctx.rect(page.left, page.top, page.width, page.height);
+    ctx.clip();
+    return true;
+  }
+
   drawBackground(ctx) {
     const { scale, x, y } = this.viewport;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.fillStyle = PAPER;
+    const page = this.pageRect();
+    if (!page) {
+      ctx.fillStyle = PAPER;
+      ctx.fillRect(0, 0, this.viewW, this.viewH);
+      const background = this.state.meta ? this.state.meta.background : "blank";
+      drawPattern(ctx, background, scale, x, y, this.viewW, this.viewH);
+      return;
+    }
+
+    // 笔记：纸张之外是底色，页首上方也不画纸。
+    ctx.fillStyle = OUTSIDE;
     ctx.fillRect(0, 0, this.viewW, this.viewH);
-    const background = this.state.meta ? this.state.meta.background : "blank";
-    drawPattern(ctx, background, scale, x, y, this.viewW, this.viewH);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(page.left, page.top, page.width, page.height);
+    ctx.clip();
+    ctx.fillStyle = PAPER;
+    ctx.fillRect(page.left, page.top, page.width, page.height);
+    drawPattern(ctx, this.state.meta.background, scale, x, y, this.viewW, this.viewH);
+    ctx.restore();
+    ctx.strokeStyle = EDGE;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(page.left) + 0.5, page.top);
+    ctx.lineTo(Math.round(page.left) + 0.5, page.top + page.height);
+    ctx.moveTo(Math.round(page.left + page.width) - 0.5, page.top);
+    ctx.lineTo(Math.round(page.left + page.width) - 0.5, page.top + page.height);
+    if (page.top > 0) {
+      ctx.moveTo(page.left, Math.round(page.top) + 0.5);
+      ctx.lineTo(page.left + page.width, Math.round(page.top) + 0.5);
+    }
+    ctx.stroke();
   }
 
   // ------------------------------------------------------------------ 绘制
@@ -119,6 +176,7 @@ export class Renderer {
   fullRedraw() {
     const ctx = this.baseCtx;
     this.drawBackground(ctx);
+    const clipped = this.clipToPage(ctx);
     this._applyTransform(ctx);
     const view = this.viewport.visibleRect(this.viewW, this.viewH);
     for (const stroke of this.state.strokes) {
@@ -128,6 +186,7 @@ export class Renderer {
       }
       drawStroke(ctx, stroke);
     }
+    if (clipped) ctx.restore();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
@@ -135,8 +194,10 @@ export class Renderer {
   drawCommitted(stroke) {
     if (this.fullDirty) return;
     const ctx = this.baseCtx;
+    const clipped = this.clipToPage(ctx);
     this._applyTransform(ctx);
     drawStroke(ctx, stroke);
+    if (clipped) ctx.restore();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
@@ -190,6 +251,7 @@ export class Renderer {
     else ctx.clearRect(0, 0, this.live.width, this.live.height);
     this._liveClip = this.liveBounds();
     if (!this._liveClip) return;
+    const clipped = this.clipToPage(ctx);
     this._applyTransform(ctx);
     for (const stroke of this.liveStrokes.values()) {
       if (stroke.p.length >= 3) drawStroke(ctx, stroke);
@@ -201,6 +263,7 @@ export class Renderer {
       ctx.arc(this.cursor.x, this.cursor.y, this.cursor.r, 0, TAU);
       ctx.stroke();
     }
+    if (clipped) ctx.restore();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 

@@ -32,6 +32,7 @@ export class InputController {
     this.viewport = options.viewport;
     this.renderer = options.renderer;
     this.getTool = options.getTool;
+    this.getLimits = options.getLimits || (() => null);
     this.hooks = options.hooks;
     this.strokePrefix = options.strokePrefix;
     this.device = options.device;
@@ -155,6 +156,13 @@ export class InputController {
 
   // --------------------------------------------------------------- 分派
 
+  withinLimits(event) {
+    const limits = this.getLimits();
+    if (!limits) return true;
+    const [wx, wy] = this.toWorld(event);
+    return wx >= limits.x0 && wx <= limits.x1 && wy >= limits.y0;
+  }
+
   /** Pencil 正在写，或者刚抬起不久。 */
   penActive() {
     if (this.draw && this.draw.type === "pen") return true;
@@ -190,8 +198,10 @@ export class InputController {
       this.endGesture(true);
     }
 
-    const role = this.classify(event);
+    let role = this.classify(event);
     if (role === "ignore") return;
+    // 笔记模式：纸张之外不落笔，改成拖动画布。
+    if (role === "draw" && !this.withinLimits(event)) role = "gesture";
 
     this.capture(event.pointerId, true);
     this.pointers.set(event.pointerId, { type: event.pointerType, role });
@@ -321,6 +331,7 @@ export class InputController {
       dev: this.device,
     };
     this.draw = {
+      limits: this.getLimits(),
       pointerId: event.pointerId,
       type: event.pointerType,
       stroke,
@@ -358,6 +369,11 @@ export class InputController {
     const target = this.pressureFor(event, { speed });
     draw.sp = first ? target : draw.sp + (target - draw.sp) * PRESSURE_SMOOTH;
 
+    if (draw.limits) {
+      draw.sx = clamp(draw.sx, draw.limits.x0, draw.limits.x1);
+      if (draw.sy < draw.limits.y0) draw.sy = draw.limits.y0;
+    }
+
     const points = draw.stroke.p;
     if (!first) {
       const dx = draw.sx - points[points.length - 3];
@@ -392,7 +408,11 @@ export class InputController {
     const draw = this.draw;
     if (!draw) return;
     if (!canceled) {
-      const [wx, wy] = this.toWorld(event);
+      let [wx, wy] = this.toWorld(event);
+      if (draw.limits) {
+        wx = clamp(wx, draw.limits.x0, draw.limits.x1);
+        if (wy < draw.limits.y0) wy = draw.limits.y0;
+      }
       draw.stroke.p.push(wx, wy, draw.sp);
       this.pendingLive.push(wx, wy, draw.sp);
       draw.stroke._path = null;

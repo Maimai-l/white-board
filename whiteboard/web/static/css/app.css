@@ -247,35 +247,82 @@ html, body {
 .group { display: flex; flex-direction: column; gap: 10px; }
 .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
-/* 白板列表：只有缩略图 */
-.boards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.board-tile {
+/* 白板选择界面：满屏缩略图，只有图标 */
+.gallery {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-1);
+  overflow-y: auto;
+  padding: calc(12px + env(safe-area-inset-top)) 24px 32px;
+  animation: fade var(--motion);
+}
+.gallery-head { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 18px;
+}
+.board-card {
   position: relative;
-  aspect-ratio: 3 / 2;
-  border-radius: var(--radius-m);
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-l);
   border: 2px solid transparent;
   background: var(--paper) center/cover no-repeat;
   box-shadow: var(--shadow-1);
   cursor: pointer;
   overflow: hidden;
-  transition: border-color var(--motion), transform var(--motion);
+  padding: 0;
+  transition: border-color var(--motion), transform var(--motion), box-shadow var(--motion);
 }
-.board-tile:hover { transform: translateY(-2px); }
-.board-tile.active { border-color: var(--primary); }
-.board-tile .del {
-  position: absolute; top: 4px; right: 4px;
+.board-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-2); }
+.board-card.active { border-color: var(--primary); }
+.board-card .kind {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  color: var(--on-surface-variant);
+  box-shadow: var(--shadow-1);
+}
+.board-card .del {
+  position: absolute; top: 8px; right: 8px;
   width: 30px; height: 30px; border-radius: 50%; border: 0;
   background: var(--surface-2); color: var(--on-surface-variant);
   display: none; align-items: center; justify-content: center; cursor: pointer;
 }
-.board-tile .del svg { width: 18px; height: 18px; }
-.board-tile:hover .del { display: flex; }
-.board-tile.add {
+.board-card:hover .del { display: flex; }
+.board-card.add {
   display: flex; align-items: center; justify-content: center;
   background: var(--surface-3); color: var(--on-surface-variant);
   border: 1px dashed var(--outline);
 }
-.board-tile.add svg { width: 28px; height: 28px; }
+
+/* 新建白板时选延伸方式 */
+.dialog.kinds { gap: 20px; }
+.kind-tile {
+  width: 132px;
+  height: 132px;
+  border-radius: var(--radius-l);
+  border: 2px solid var(--outline);
+  background: var(--surface-1);
+  color: var(--on-surface-variant);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color var(--motion), transform var(--motion), color var(--motion);
+}
+.kind-tile:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: translateY(-3px);
+}
 
 .bg-opts { display: flex; gap: 10px; }
 .bg-opt {
@@ -359,6 +406,7 @@ html, body {
   animation: pop var(--motion);
 }
 
-@media (max-width: 520px) {
-  .boards { grid-template-columns: 1fr; }
+@media (max-width: 560px) {
+  .gallery { padding-left: 14px; padding-right: 14px; }
+  .gallery-grid { grid-template-columns: 1fr; }
 }

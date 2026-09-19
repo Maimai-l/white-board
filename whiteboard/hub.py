@@ -182,9 +182,9 @@ class Hub:
         self.store.set_current(board_id)
         return True
 
-    def create_board(self) -> Dict[str, Any]:
+    def create_board(self, kind: str = "board") -> Dict[str, Any]:
         self.save_all()
-        meta = self.store.create_board()
+        meta = self.store.create_board(kind=kind)
         self._boards[meta["id"]] = BoardRuntime(meta, [])
         self.current_id = meta["id"]
         return meta

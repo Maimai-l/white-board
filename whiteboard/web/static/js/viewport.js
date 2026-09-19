@@ -62,4 +62,25 @@ export class Viewport {
     this.x = viewW / 2 - wx * this.scale;
     this.y = viewH / 2 - wy * this.scale;
   }
+
+  /** 笔记模式：按页宽铺满，并停在页首。 */
+  fitWidth(limits, viewW, viewH, padding = 20) {
+    const width = Math.max(1, limits.x1 - limits.x0);
+    this.scale = clamp((viewW - padding * 2) / width, MIN_SCALE, MAX_SCALE);
+    this.x = viewW / 2 - ((limits.x0 + limits.x1) / 2) * this.scale;
+    this.y = padding - limits.y0 * this.scale;
+  }
+
+  /**
+   * 笔记模式的约束：左右不能划出纸外（纸比视口窄时居中），
+   * 上面不能翻过页首，下面不限。
+   */
+  clampToPage(limits, viewW, viewH) {
+    const width = (limits.x1 - limits.x0) * this.scale;
+    const left = limits.x0 * this.scale;
+    if (width <= viewW) this.x = (viewW - width) / 2 - left;
+    else this.x = clamp(this.x, viewW - width - left, -left);
+    const top = limits.y0 * this.scale;
+    this.y = Math.min(this.y, viewH * 0.1 - top);
+  }
 }

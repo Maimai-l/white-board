@@ -22,6 +22,18 @@ export function contentBounds(state, margin = MARGIN) {
 }
 
 function exportArea(state) {
+  const limits = state.limits;
+  const content = state.contentBounds();
+  if (limits) {
+    // 笔记：宽度就是页宽，纵向从页首到内容末尾。
+    const width = limits.x1 - limits.x0;
+    return {
+      x0: limits.x0,
+      y0: limits.y0,
+      x1: limits.x1,
+      y1: content ? content.y1 + MARGIN : limits.y0 + width * 1.4,
+    };
+  }
   return (
     contentBounds(state) || {
       x0: -EMPTY_SIZE / 2,

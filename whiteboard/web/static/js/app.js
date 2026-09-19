@@ -117,6 +117,7 @@ class App {
       // 新笔画的 id 会和上次的撞车，被当成重复项丢掉（表现为抬笔即消失）。
       strokePrefix: `${this.clientId}-${uid(4)}`,
       getTool: () => this.tool,
+      getLimits: () => this.state.limits,
       hooks: this.inputHooks(),
     });
     this.perf.setInput(this.input.stats);
@@ -161,6 +162,7 @@ class App {
   bindWindow() {
     const onResize = () => {
       this.renderer.resize();
+      this.clampView();
       this.renderer.requestFull();
     };
     addEventListener("resize", onResize);
@@ -273,6 +275,7 @@ class App {
         reportError("笔迹被系统打断", { count });
       },
       onViewChange: () => {
+        this.clampView();
         this.renderer.requestFull();
         this.saveView();
       },
@@ -482,6 +485,13 @@ class App {
       this.viewport.scale = saved.scale;
       this.viewport.x = saved.x;
       this.viewport.y = saved.y;
+      this.clampView();
+      return;
+    }
+    const limits = this.state.limits;
+    if (limits) {
+      // 笔记：按页宽铺满、停在页首
+      this.viewport.fitWidth(limits, this.renderer.viewW, this.renderer.viewH);
       return;
     }
     const bounds = contentBounds(this.state);
@@ -542,16 +552,30 @@ class App {
     this.perf.mark("序列化", built - started);
   }
 
+  /** 笔记模式不能划出纸外，大白板不受约束。 */
+  clampView() {
+    const limits = this.state.limits;
+    if (limits) this.viewport.clampToPage(limits, this.renderer.viewW, this.renderer.viewH);
+  }
+
   zoom(factor) {
     this.viewport.zoomAt(factor, this.renderer.viewW / 2, this.renderer.viewH / 2);
+    this.clampView();
     this.renderer.requestFull();
     this.saveView();
   }
 
-  /** 回到内容：有笔迹就把它们全装进视口，空白板就回到原点。 */
+  /** 回到内容：大白板把笔迹全装进视口；笔记按页宽铺满并回到内容开头。 */
   fit() {
+    const limits = this.state.limits;
     const bounds = contentBounds(this.state);
-    if (bounds) {
+    if (limits) {
+      this.viewport.fitWidth(limits, this.renderer.viewW, this.renderer.viewH);
+      if (bounds) {
+        this.viewport.y = 24 - bounds.y0 * this.viewport.scale;
+        this.clampView();
+      }
+    } else if (bounds) {
       this.viewport.fit(bounds, this.renderer.viewW, this.renderer.viewH);
     } else {
       this.viewport.scale = 1;
@@ -575,14 +599,15 @@ class App {
       onClear: () => this.clearBoard(),
       onZoom: (factor) => this.zoom(factor),
       onFit: () => this.fit(),
+      onBoardsOpen: () => uploadThumb(this.state, this.state.id),
       onSelectBoard: async (boardId) => {
         if (boardId === this.state.id) return;
         await uploadThumb(this.state, this.state.id);
         this.net.send({ t: "sel", board: boardId });
       },
-      onNewBoard: async () => {
+      onNewBoard: async (kind) => {
         await uploadThumb(this.state, this.state.id);
-        this.net.send({ t: "newboard" });
+        this.net.send({ t: "newboard", kind });
       },
       onDeleteBoard: (boardId) => this.net.send({ t: "delboard", board: boardId }),
       onMeta: (patch) => {

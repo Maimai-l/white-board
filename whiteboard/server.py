@@ -281,7 +281,8 @@ class _Session:
     async def _new_board(self, msg: Dict[str, Any]) -> None:
         if self.client.role != "mac":
             return
-        self.hub.create_board()
+        kind = msg.get("kind")
+        self.hub.create_board(kind if kind in models.KINDS else "board")
         await self._broadcast_switch()
 
     async def _del_board(self, msg: Dict[str, Any]) -> None:

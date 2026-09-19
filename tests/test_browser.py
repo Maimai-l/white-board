@@ -347,6 +347,50 @@ def test_repeated_pen_interruptions_show_a_hint(browser, server):
     ipad.close()
 
 
+def test_note_boards_only_extend_downwards(browser, server):
+    """笔记：宽度固定成一页，纸外不落笔、也划不出去；大白板不受这些约束。"""
+    mac, ipad = open_pages(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title^="笔记"]')
+    ipad.wait_for_function("() => whiteboard.state.kind === 'note'")
+    assert ipad.evaluate("() => whiteboard.state.limits.x1") == 1000
+
+    # 纸内照常书写
+    ipad.evaluate(
+        "() => { const v = whiteboard.viewport; v.scale = 0.5;"
+        "v.centerOn(500, 400, whiteboard.renderer.viewW, whiteboard.renderer.viewH);"
+        "whiteboard.clampView(); whiteboard.renderer.requestFull(); }"
+    )
+    inside = ipad.evaluate("() => whiteboard.viewport.toScreen(500, 400)")
+    draw(ipad, [(inside[0] - 60, inside[1]), (inside[0], inside[1] + 30), (inside[0] + 60, inside[1])])
+    wait_strokes(mac, 1)
+
+    # 纸外不落笔，而是拖动画布
+    before = ipad.evaluate("() => [whiteboard.state.strokes.length, whiteboard.viewport.y]")
+    draw(ipad, [(40, 560), (50, 440), (60, 320)], pointer_id=9)  # 往上拖 = 向下翻页
+    ipad.wait_for_timeout(200)
+    after = ipad.evaluate("() => [whiteboard.state.strokes.length, whiteboard.viewport.y]")
+    assert after[0] == before[0], "纸外不应该留下笔迹"
+    assert after[1] != before[1], "纸外拖动应该滚动页面"
+
+    # 横向划不出纸外：纸比视口窄时始终居中
+    centered = ipad.evaluate(
+        "() => { const v = whiteboard.viewport; v.panBy(3000, 0); whiteboard.clampView();"
+        "const l = whiteboard.state.limits;"
+        "return [v.x + l.x0 * v.scale, v.x + l.x1 * v.scale, whiteboard.renderer.viewW]; }"
+    )
+    assert centered[0] > 0 and centered[1] < centered[2]
+
+    # 页首之上翻不过去
+    top = ipad.evaluate(
+        "() => { const v = whiteboard.viewport; v.panBy(0, 5000); whiteboard.clampView(); return v.y; }"
+    )
+    assert top <= ipad.evaluate("() => whiteboard.renderer.viewH * 0.1") + 1
+    mac.close()
+    ipad.close()
+
+
 def test_canvas_is_infinite(browser, server):
     """画布没有边界：任意位置都能写，缩放只受上下限约束。"""
     mac, ipad = open_pages(browser, server.port)
@@ -440,7 +484,8 @@ def test_board_switch_and_settings_follow(browser, server):
     first_board = ipad.evaluate("() => whiteboard.state.id")
 
     mac.click('button[title="白板"]')
-    mac.click(".board-tile.add")
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title^="大白板"]')
     ipad.wait_for_function(f"() => whiteboard.state.id !== '{first_board}'")
     assert stroke_count(ipad) == 0  # 新白板是空的
 

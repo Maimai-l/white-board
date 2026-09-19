@@ -21,7 +21,7 @@
 {"t":"live","id":"<笔画 id>","phase":"m","p":[x,y,压感, ...]}
 {"t":"live","id":"<笔画 id>","phase":"e"}      // 结束；"x" 表示这一笔作废
 {"t":"sel","board":"<白板 id>"}                // 仅 Mac
-{"t":"newboard"} / {"t":"delboard","board":"<白板 id>"}   // 仅 Mac
+{"t":"newboard","kind":"board|note"} / {"t":"delboard","board":"<白板 id>"}   // 仅 Mac
 {"t":"ping","ts":1730000000000}
 ```
 
@@ -70,8 +70,9 @@
 「没有新内容」，`epoch` 就是用来识别这种情况的——它一变，客户端就会拿到完整快照，
 而不是守着过期内容。
 
-白板元数据只有 `id / name / background / created / updated`：画布是无限的，
-没有尺寸可言。老文件里残留的 `cols / rows / unit` 读取时直接丢掉。
+白板元数据只有 `id / name / kind / background / created / updated`。`kind` 是延伸方式
+（`board` 四向无限 / `note` 宽度固定只向下延伸），建板时定下，之后不能改——`meta`
+操作只接受 `background` 和 `name`。老文件里残留的 `cols / rows / unit` 读取时直接丢掉。
 
 ## mDNS
 

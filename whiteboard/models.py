@@ -19,7 +19,11 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-# 画布是真无限的：没有边界，坐标就是世界坐标，白板元数据里不再有尺寸。
+# 白板的延伸方式，创建时选定、之后不可更改：
+#   board —— 四个方向都无限，是一块大白板；
+#   note  —— 宽度固定成一页，只向下无限延伸，像笔记本。
+KINDS = ("board", "note")
+
 BACKGROUNDS = ("blank", "grid", "lines", "dots")
 TOOLS = ("pen", "marker", "highlighter")
 
@@ -47,6 +51,7 @@ def new_board_meta(name: str = "", **overrides: Any) -> Dict[str, Any]:
     meta = {
         "id": new_id(),
         "name": name,
+        "kind": "board",
         "background": "grid",
         "created": now(),
         "updated": now(),
@@ -63,6 +68,10 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     background = raw.get("background", "grid")
     if background not in BACKGROUNDS:
         background = "grid"
+
+    kind = raw.get("kind", "board")
+    if kind not in KINDS:
+        kind = "board"
 
     name = raw.get("name", "")
     if not isinstance(name, str):
@@ -84,6 +93,7 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": board_id,
         "name": name[:64],
+        "kind": kind,
         "background": background,
         "created": created,
         "updated": updated,

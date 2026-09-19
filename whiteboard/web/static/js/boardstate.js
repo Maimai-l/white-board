@@ -2,6 +2,9 @@
 
 import { strokeBBox } from "./stroke.js";
 
+// 笔记页的宽度（世界坐标）。两端设备共用同一个值，换设备看到的排版才一致。
+export const PAGE_WIDTH = 1000;
+
 export class BoardState {
   constructor() {
     this.meta = null;
@@ -18,6 +21,17 @@ export class BoardState {
 
   get id() {
     return this.meta ? this.meta.id : null;
+  }
+
+  /** "board"：四向无限；"note"：宽度固定成一页，只向下延伸。 */
+  get kind() {
+    return this.meta && this.meta.kind === "note" ? "note" : "board";
+  }
+
+  /** 可书写范围；大白板没有范围限制，返回 null。 */
+  get limits() {
+    if (this.kind !== "note") return null;
+    return { x0: 0, x1: PAGE_WIDTH, y0: 0 };
   }
 
   /** 加入若干笔画；返回真正新增的那些（重复 id 会被忽略）。 */

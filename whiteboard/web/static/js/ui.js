@@ -316,23 +316,51 @@ export class UI {
   setBoards(boards, currentId) {
     this.boards = boards;
     this.currentBoardId = currentId;
-    if (this.sheet && this.sheet.dataset.kind === "boards") this.openBoards();
+    if (this.gallery) this.renderBoards();
   }
 
-  openBoards() {
-    const tiles = el("div", { class: "boards" });
+  closeGallery() {
+    if (this.gallery) {
+      this.gallery.remove();
+      this.gallery = null;
+    }
+  }
+
+  /** 打开选择界面前先把当前白板的缩略图刷新一遍，免得看到的是旧图。 */
+  async openBoards() {
+    if (this.actions.onBoardsOpen) await this.actions.onBoardsOpen();
+    this.renderBoards();
+  }
+
+  /** Mac 端专门的白板选择界面：满屏缩略图，左上角标出延伸类型。 */
+  renderBoards() {
+    this.closeGallery();
+    this.closeSheet();
+    const grid = el("div", { class: "gallery-grid" });
+
     for (const board of this.boards) {
-      const tile = el("div", {
-        class: `board-tile${board.id === this.currentBoardId ? " active" : ""}`,
-        style: { backgroundImage: `url(/api/thumb/${board.id}?v=${Math.floor(board.updated)})` },
-        title: new Date(board.updated * 1000).toLocaleString(),
-        onclick: () => {
-          this.closeSheet();
-          this.actions.onSelectBoard(board.id);
+      const card = el(
+        "div",
+        {
+          class: `board-card${board.id === this.currentBoardId ? " active" : ""}`,
+          style: {
+            backgroundImage: `url(/api/thumb/${board.id}?v=${Math.floor(board.updated)})`,
+          },
+          title: new Date(board.updated * 1000).toLocaleString(),
+          onclick: () => {
+            this.closeGallery();
+            this.actions.onSelectBoard(board.id);
+          },
         },
-      });
+        [
+          el("span", {
+            class: "kind",
+            html: icon(board.kind === "note" ? "note" : "board", 20),
+          }),
+        ]
+      );
       if (this.boards.length > 1) {
-        tile.append(
+        card.append(
           el("button", {
             class: "del",
             html: icon("close", 18),
@@ -344,21 +372,53 @@ export class UI {
           })
         );
       }
-      tiles.append(tile);
+      grid.append(card);
     }
-    tiles.append(
-      el("div", {
-        class: "board-tile add",
-        html: icon("add", 28),
+
+    grid.append(
+      el("button", {
+        class: "board-card add",
+        html: icon("add", 32),
         title: "新建白板",
-        onclick: () => {
-          this.closeSheet();
-          this.actions.onNewBoard();
-        },
+        onclick: () => this.chooseKind(),
       })
     );
-    const sheet = this.openSheet([el("div", { class: "group" }, [tiles])]);
-    sheet.parentElement.dataset.kind = "boards";
+
+    const gallery = el("div", { class: "gallery" }, [
+      el("div", { class: "gallery-head" }, [
+        iconButton("close", "关闭", () => this.closeGallery()),
+      ]),
+      grid,
+    ]);
+    this.root.append(gallery);
+    this.gallery = gallery;
+  }
+
+  /** 新建白板时选延伸方式：四向无限的大白板，或只向下延伸的笔记。选定后不再更改。 */
+  chooseKind() {
+    const scrim = el("div", { class: "scrim", onclick: () => scrim.remove() });
+    const pick = (kind) => {
+      scrim.remove();
+      this.closeGallery();
+      this.actions.onNewBoard(kind);
+    };
+    const dialog = el("div", { class: "dialog kinds" }, [
+      el("button", {
+        class: "kind-tile",
+        html: icon("board", 48),
+        title: "大白板：四个方向都无限延伸",
+        onclick: () => pick("board"),
+      }),
+      el("button", {
+        class: "kind-tile",
+        html: icon("note", 48),
+        title: "笔记：宽度固定，只向下延伸",
+        onclick: () => pick("note"),
+      }),
+    ]);
+    dialog.addEventListener("click", (event) => event.stopPropagation());
+    scrim.append(dialog);
+    this.root.append(scrim);
   }
 
   backgroundOptions() {
