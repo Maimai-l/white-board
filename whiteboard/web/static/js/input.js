@@ -46,6 +46,10 @@ export class InputController {
     this.fingerDraw = loadFingerDraw();
     this.pendingLive = [];
     this.lastPenAt = -Infinity;
+    this.lastInputAt = -Infinity;
+    this.sampleCount = 0;
+    // 诊断用：区分「主线程被卡住」和「系统把事件抢走了」两种卡顿。
+    this.stats = { down: 0, move: 0, up: 0, cancel: 0, maxGap: 0, coalesced: 0 };
     this._rect = null;
 
     const stage = this.stage;
@@ -148,6 +152,9 @@ export class InputController {
 
   onDown(event) {
     event.preventDefault();
+    this.stats.down += 1;
+    this.stats.maxGap = 0;
+    this.lastInputAt = performance.now();
     this._rect = null;
     if (event.pointerType === "pen") {
       this.lastPenAt = performance.now();
@@ -176,9 +183,22 @@ export class InputController {
   }
 
   onMove(event) {
+    const now = performance.now();
+    if (this.draw && this.lastInputAt > 0) {
+      const gap = now - this.lastInputAt;
+      if (gap > this.stats.maxGap) this.stats.maxGap = gap;
+    }
+    this.stats.move += 1;
+    this.lastInputAt = now;
     if (event.pointerType === "pen") this.lastPenAt = performance.now();
     const entry = this.pointers.get(event.pointerId);
     if (!entry) {
+      // 系统有时会在书写途中发 pointercancel（手势识别、通知横幅之类），
+      // 但笔还按在屏幕上。这时把后面这一段接着画出来，不要整截丢掉。
+      if (this.canResume(event)) {
+        this.onDown(event);
+        return;
+      }
       if (event.pointerType === "mouse") this.updateCursor(event);
       return;
     }
@@ -191,7 +211,20 @@ export class InputController {
     this.moveGesture(event);
   }
 
+  /** 这个还在按着的指针是不是被系统中途取消掉了。 */
+  canResume(event) {
+    if (this.draw || this.erase || this.gesture) return false;
+    const pressed = (event.buttons & 1) === 1 || event.pressure > 0;
+    if (!pressed) return false;
+    if (event.pointerType === "pen") return true;
+    if (event.pointerType === "touch") return this.fingerDraw;
+    return false;
+  }
+
   onUp(event, canceled = false) {
+    if (canceled) this.stats.cancel += 1;
+    else this.stats.up += 1;
+    this.lastInputAt = performance.now();
     if (event.pointerType === "pen") this.lastPenAt = performance.now();
     const entry = this.pointers.get(event.pointerId);
     this.pointers.delete(event.pointerId);
@@ -289,6 +322,7 @@ export class InputController {
       if (dx * dx + dy * dy < minDist * minDist) return;
     }
     points.push(draw.sx, draw.sy, draw.sp);
+    this.sampleCount += 1;
     this.pendingLive.push(draw.sx, draw.sy, draw.sp);
     draw.stroke._path = null;
     draw.stroke._bbox = null;
@@ -299,6 +333,7 @@ export class InputController {
     if (!draw || draw.pointerId !== event.pointerId) return;
     const events = event.getCoalescedEvents ? event.getCoalescedEvents() : null;
     if (events && events.length) {
+      this.stats.coalesced = events.length;
       for (const sample of events) {
         const [wx, wy] = this.toWorld(sample);
         this.addSample(sample, wx, wy);
@@ -334,6 +369,12 @@ export class InputController {
     this.liveRef = null;
     this.renderer.setLive("local", null);
     this.hooks.onStrokeCancel(stroke);
+  }
+
+  takeSampleCount() {
+    const count = this.sampleCount;
+    this.sampleCount = 0;
+    return count;
   }
 
   /** 每帧把新采样点推给对端；掉线时直接丢，笔画结束的正式操作会补齐。 */

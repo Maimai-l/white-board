@@ -348,3 +348,15 @@ def test_static_files_must_revalidate(tmp_path):
             assert index.headers["Cache-Control"] == "no-cache"
 
     run(main())
+
+
+def test_debug_reports_are_logged(tmp_path, caplog):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            response = await client.post("/api/debug", json={"role": "ipad", "最长帧": 180})
+            assert response.status == 200
+            assert (await client.post("/api/debug", data=b"not json")).status == 400
+
+    with caplog.at_level("WARNING"):
+        run(main())
+    assert any("[诊断]" in record.message for record in caplog.records)

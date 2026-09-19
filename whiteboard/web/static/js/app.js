@@ -4,6 +4,7 @@ import { BoardState } from "./boardstate.js";
 import { Cache } from "./cache.js";
 import { InputController } from "./input.js";
 import { Net } from "./net.js";
+import { PerfMonitor } from "./perf.js";
 import { Renderer } from "./renderer.js";
 import { UI } from "./ui.js";
 import { Viewport } from "./viewport.js";
@@ -12,6 +13,9 @@ import { debounce, plainStroke, uid } from "./util.js";
 import { downloadDataURL, exportDataURL, uploadThumb } from "./exporter.js";
 
 const UNDO_LIMIT = 200;
+// 写 IndexedDB 会卡主线程（iOS 上首次写事务尤其慢），离最后一次落笔足够远才写。
+const SAVE_DEBOUNCE = 4000;
+const SAVE_IDLE = 1500;
 const REMOTE_LIVE_TTL = 5000;
 
 function resolveRole() {
@@ -36,6 +40,35 @@ function clientId() {
   }
 }
 
+// iPad 上没有控制台，页面里的报错直接送到 Mac 的终端日志里（限量，避免刷屏）。
+let reportedErrors = 0;
+export function reportError(kind, detail) {
+  if (reportedErrors >= 5) return;
+  reportedErrors += 1;
+  try {
+    fetch("/api/debug", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, ...detail }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch (err) {
+    /* 上报失败就算了 */
+  }
+}
+
+addEventListener("error", (event) => {
+  reportError("脚本报错", {
+    message: String(event.message || ""),
+    source: `${event.filename || ""}:${event.lineno || 0}`,
+    stack: event.error && event.error.stack ? String(event.error.stack).slice(0, 400) : "",
+  });
+});
+
+addEventListener("unhandledrejection", (event) => {
+  reportError("未处理的 Promise", { message: String(event.reason).slice(0, 400) });
+});
+
 function nativeApi() {
   return (window.pywebview && window.pywebview.api) || null;
 }
@@ -59,6 +92,10 @@ class App {
     this.eraseBatch = [];
     this.pendingRestored = false;
 
+    this.perf = new PerfMonitor();
+    this.perf.role = this.role;
+    if (new URLSearchParams(location.search).get("debug") === "1") this.perf.toggle(true);
+
     this.ui = new UI({ role: this.role, native: !!nativeApi(), actions: this.actions() });
     this.tool = this.ui.toolState();
 
@@ -68,7 +105,8 @@ class App {
       onMessage: (msg) => this.onMessage(msg),
       onStatus: (status) => this.ui.setStatus(status),
     });
-    this.net.onOutboxChange = debounce((outbox) => this.cache.savePending(outbox), 400);
+    // 待发队列同样走「空闲才写」，不然每写一笔就有两次写盘插进来。
+    this.net.onOutboxChange = () => this.saveCache();
 
     this.input = new InputController({
       stage: document.getElementById("stage"),
@@ -79,8 +117,9 @@ class App {
       getTool: () => this.tool,
       hooks: this.inputHooks(),
     });
+    this.perf.setInput(this.input.stats);
 
-    this.saveCache = debounce(() => this.persistWhenIdle(), 1500);
+    this.saveCache = debounce(() => this.persistWhenIdle(), SAVE_DEBOUNCE);
     this.saveView = debounce(() => this.persistView(), 400);
     this.pushThumb = debounce(() => {
       if (this.role === "mac") uploadThumb(this.state, this.state.id);
@@ -112,6 +151,8 @@ class App {
       for (const item of pending) this.applyOp(item.op, { local: true });
     }
     this.pendingRestored = true;
+    // 预热：IndexedDB 的第一次写事务最慢，趁还没开始书写先把它跑掉。
+    this.cache.set("warmup", Date.now());
     this.net.connect();
   }
 
@@ -143,6 +184,9 @@ class App {
       }
     });
 
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.persist();
+    });
     addEventListener("pagehide", () => {
       this.persist();
       if (this.role === "mac") uploadThumb(this.state, this.state.id);
@@ -150,10 +194,30 @@ class App {
   }
 
   loop() {
+    let previous = performance.now();
     const frame = () => {
-      this.input.flushLive();
-      this.renderer.tick();
-      requestAnimationFrame(frame);
+      const started = performance.now();
+      // 这一帧里出什么岔子都不能让渲染循环停下来，所以下一帧放在 finally 里排。
+      try {
+        this.input.flushLive();
+        this.renderer.tick();
+        if (this.perf.enabled) {
+          this.perf.countSamples(this.input.takeSampleCount());
+          this.perf.frame(started, started - previous, performance.now() - started);
+        }
+      } catch (err) {
+        this.frameErrors = (this.frameErrors || 0) + 1;
+        if (this.frameErrors <= 3) {
+          console.error("渲染帧出错", err);
+          reportError("渲染帧出错", {
+            message: String(err && err.message ? err.message : err),
+            stack: err && err.stack ? String(err.stack).slice(0, 400) : "",
+          });
+        }
+      } finally {
+        previous = started;
+        requestAnimationFrame(frame);
+      }
     };
     requestAnimationFrame(frame);
   }
@@ -431,9 +495,12 @@ class App {
     }
   }
 
-  /** 写缓存要把整块白板序列化一遍，绝不能在落笔的时候插进来。 */
+  /** 写缓存要把整块白板序列化一遍，绝不能在落笔前后插进来。 */
   persistWhenIdle() {
-    if (this.input && (this.input.draw || this.input.erase)) {
+    const input = this.input;
+    const busy =
+      input && (input.draw || input.erase || performance.now() - input.lastInputAt < SAVE_IDLE);
+    if (busy) {
       this.saveCache();
       return;
     }
@@ -443,13 +510,19 @@ class App {
 
   persist() {
     if (!this.state.meta) return;
-    this.cache.saveBoard(this.state.id, {
+    const started = performance.now();
+    const payload = {
       meta: this.state.meta,
       strokes: this.state.strokes.map(plainStroke),
       seq: this.net.lastSeq,
       epoch: this.net.epoch,
+    };
+    const built = performance.now();
+    this.cache.saveBoard(this.state.id, payload).then(() => {
+      this.perf.mark("写盘", performance.now() - built);
     });
     this.cache.savePending(this.net.outbox);
+    this.perf.mark("序列化", built - started);
   }
 
   zoom(factor) {
@@ -472,6 +545,7 @@ class App {
   actions() {
     return {
       isNative: () => !!nativeApi(),
+      onToggleDebug: () => this.perf.toggle(),
       onFingerDraw: (enabled) => this.input.setFingerDraw(enabled),
       onToolChange: (tool) => {
         this.tool = tool;

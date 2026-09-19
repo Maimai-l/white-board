@@ -88,6 +88,22 @@ async def handle_info(request: web.Request) -> web.Response:
     )
 
 
+async def handle_debug(request: web.Request) -> web.Response:
+    """诊断模式下客户端上报的卡顿数据，直接打到服务端日志里。
+
+    iPad 上看不到开发者工具，这样用户把 Mac 终端里的输出贴出来就够定位了。
+    """
+    try:
+        payload = await request.json()
+    except (ValueError, TypeError):
+        raise web.HTTPBadRequest()
+    if not isinstance(payload, dict):
+        raise web.HTTPBadRequest()
+    fields = {k: payload[k] for k in list(payload)[:20] if isinstance(k, str)}
+    log.warning("[诊断] %s", json.dumps(fields, ensure_ascii=False)[:1000])
+    return web.json_response({"ok": True})
+
+
 async def handle_boards(request: web.Request) -> web.Response:
     hub: Hub = request.app[HUB_KEY]
     return web.json_response({"boards": hub.store.list_metas(), "current": hub.current_id})
@@ -317,6 +333,7 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app.router.add_get("/icon.png", handle_icon)
     app.router.add_get("/api/info", handle_info)
     app.router.add_get("/api/boards", handle_boards)
+    app.router.add_post("/api/debug", handle_debug)
     app.router.add_get("/api/thumb/{board_id}", handle_thumb_get)
     app.router.add_post("/api/thumb/{board_id}", handle_thumb_post)
     app.router.add_static("/static/", WEB_DIR / "static", name="static")

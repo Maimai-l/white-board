@@ -60,7 +60,12 @@ export class UI {
   // ------------------------------------------------------------- 构建
 
   build() {
-    this.status = el("div", { id: "status", class: "offline" });
+    this.status = el("div", {
+      id: "status",
+      class: "offline",
+      title: "连接状态（连点三下显示诊断）",
+      onclick: () => this.countStatusTaps(),
+    });
     this.root.append(this.status);
 
     this.toolButtons = {};
@@ -119,6 +124,18 @@ export class UI {
 
     this.colorDot.style.background = this.tool.color;
     this.selectTool(this.tool.tool);
+  }
+
+  /** 连点三下状态圆点：在真机上打开 / 关掉诊断面板。 */
+  countStatusTaps() {
+    const now = Date.now();
+    if (now - (this._tapAt || 0) > 1200) this._taps = 0;
+    this._tapAt = now;
+    this._taps = (this._taps || 0) + 1;
+    if (this._taps >= 3) {
+      this._taps = 0;
+      this.actions.onToggleDebug();
+    }
   }
 
   // ------------------------------------------------------------- 工具

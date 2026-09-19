@@ -215,6 +215,98 @@ def test_palm_landing_before_the_pencil_does_not_shift_the_canvas(browser, serve
     ipad.close()
 
 
+def test_cache_writes_never_land_on_a_stroke(browser, server):
+    """写 IndexedDB 会卡主线程，必须等书写停下来之后才写。"""
+    mac, ipad = open_pages(browser, server.port)
+    ipad.evaluate(
+        """() => {
+          window.__writes = [];
+          const original = whiteboard.persist.bind(whiteboard);
+          whiteboard.persist = () => { window.__writes.push(performance.now()); original(); };
+        }"""
+    )
+    draw(ipad, [(300, 300), (360, 340), (420, 300)])
+    ipad.wait_for_timeout(1200)  # 第一笔之后正好是老实现写盘的时刻
+
+    start = ipad.evaluate("() => performance.now()")
+    for step, point in enumerate([(300, 500), (340, 540), (380, 500), (430, 540), (480, 500)]):
+        kind = "pointerdown" if step == 0 else "pointermove"
+        ipad.evaluate(FIRE, [kind, point[0], point[1], "pen", 3, 0.6])
+        ipad.wait_for_timeout(120)
+    ipad.evaluate(FIRE, ["pointerup", 480, 500, "pen", 3, 0])
+    end = ipad.evaluate("() => performance.now()")
+    wait_strokes(ipad, 2)
+
+    writes = ipad.evaluate("() => window.__writes")
+    during = [w for w in writes if start <= w <= end]
+    assert not during, f"第二笔期间写了 {len(during)} 次盘"
+
+    # 停下来之后总得写进去
+    ipad.wait_for_timeout(6000)
+    assert ipad.evaluate("() => window.__writes.length") > 0
+    cached = ipad.evaluate(
+        "async () => { const c = whiteboard.cache; const b = await c.loadBoard(whiteboard.state.id);"
+        "return b ? b.strokes.length : 0; }"
+    )
+    assert cached == 2
+    mac.close()
+    ipad.close()
+
+
+def test_stroke_resumes_after_a_system_cancel(browser, server):
+    """系统中途取消指针、但笔还按着时，后半截不能丢。"""
+    mac, ipad = open_pages(browser, server.port)
+    ipad.evaluate(FIRE, ["pointerdown", 300, 300, "pen", 5, 0.6])
+    for x in (320, 340, 360):
+        ipad.evaluate(FIRE, ["pointermove", x, 320, "pen", 5, 0.6])
+    ipad.evaluate(FIRE, ["pointercancel", 360, 320, "pen", 5, 0.6])
+    # 笔仍然按在屏幕上，继续移动
+    for x in (380, 400, 420, 440):
+        ipad.evaluate(FIRE, ["pointermove", x, 330, "pen", 5, 0.6])
+    ipad.evaluate(FIRE, ["pointerup", 440, 330, "pen", 5, 0])
+
+    wait_strokes(ipad, 2)
+    tail = ipad.evaluate("() => whiteboard.state.strokes[1].p.length / 3")
+    assert tail >= 3, "被取消之后的那一段应该接着画出来"
+    assert ipad.evaluate("() => whiteboard.input.stats.cancel") == 1
+    wait_strokes(mac, 2)
+    mac.close()
+    ipad.close()
+
+
+def test_page_errors_are_reported_to_the_server(browser, server):
+    """iPad 上看不到控制台，页面报错必须能在 Mac 的终端里看到。"""
+    mac, ipad = open_pages(browser, server.port)
+    posted = []
+    ipad.on("request", lambda request: posted.append(request.url) if request.url.endswith("/api/debug") else None)
+    ipad.evaluate("() => setTimeout(() => { throw new Error('故意炸一个'); }, 0)")
+    ipad.wait_for_timeout(500)
+    assert posted, "报错应该被送到 /api/debug"
+
+    # 渲染循环不能因为一次异常就停摆
+    ipad.evaluate("() => { const t = whiteboard.renderer.tick.bind(whiteboard.renderer); let n = 0;"
+                  "whiteboard.renderer.tick = () => { if (n++ === 0) throw new Error('单帧异常'); return t(); }; }")
+    ipad.wait_for_timeout(300)
+    draw(ipad, [(300, 300), (380, 350), (460, 300)])
+    wait_strokes(mac, 1)
+    mac.close()
+    ipad.close()
+
+
+def test_debug_overlay_toggles(browser, server):
+    mac, ipad = open_pages(browser, server.port)
+    assert ipad.evaluate("() => !!document.getElementById('perf')") is False
+    for _ in range(3):
+        ipad.click("#status")
+    assert ipad.evaluate("() => whiteboard.perf.enabled") is True
+    ipad.wait_for_function("() => { const n = document.getElementById('perf'); return n && n.textContent.includes('帧'); }")
+    for _ in range(3):
+        ipad.click("#status")
+    assert ipad.evaluate("() => whiteboard.perf.enabled") is False
+    mac.close()
+    ipad.close()
+
+
 def test_stage_blocks_ios_selection_gestures(browser, server):
     """iPadOS 的选择 / 查词手势必须被挡掉，否则写快了会丢笔。"""
     mac, ipad = open_pages(browser, server.port)
