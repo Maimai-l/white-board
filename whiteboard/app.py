@@ -31,7 +31,11 @@ class NativeApi:
         self.server = server
         self.window = None
         self.update_info: Optional[Dict[str, Any]] = None
+        self.staged_app: Optional[Path] = None
         self.updating = False
+        self.downloading = False
+        self.install_on_quit = False
+        self.progress = 0.0
 
     # ------------------------------------------------------------------ 信息
 
@@ -50,20 +54,68 @@ class NativeApi:
     # ------------------------------------------------------------------ 更新
 
     def start_update_check(self) -> None:
-        """启动后在后台查一次，结果放着等网页来取。"""
+        """启动后在后台查一次；开了自动下载就顺手把包下好，等用户决定装不装。"""
         if not resources.is_frozen():
             return
         threading.Thread(target=self._check_update, name="whiteboard-update", daemon=True).start()
 
-    def _check_update(self) -> None:
+    def _check_update(self, force: bool = False) -> Optional[Dict[str, Any]]:
         try:
             info = updater.check()
         except Exception:  # noqa: BLE001 - 检查更新不能把程序带崩
             log.exception("检查更新出错")
-            return
-        if info:
-            log.info("发现新版本 %s", info["version"])
-            self.update_info = info
+            return None
+        if not info:
+            return None
+        if not force and info["version"] == self.config.skip_version:
+            log.info("版本 %s 已被跳过", info["version"])
+            return None
+        log.info("发现新版本 %s", info["version"])
+        self.update_info = info
+        if self.config.auto_update:
+            self._stage_update()
+        return info
+
+    def _stage_update(self) -> bool:
+        """把更新包下好、解开放着，之后「安装」就是一瞬间的事。"""
+        info = self.update_info
+        if not info or self.staged_app is not None or self.downloading:
+            return self.staged_app is not None
+        self.downloading = True
+        self.progress = 0.0
+        workdir = Path(tempfile.mkdtemp(prefix="whiteboard-update-"))
+        try:
+            archive = updater.download(info["url"], workdir, on_progress=self._on_progress)
+            if archive is None:
+                return False
+            staged = updater.unpack(archive, workdir / "unpacked")
+            if staged is None:
+                return False
+            self.staged_app = staged
+            self.progress = 1.0
+            log.info("更新包已就绪：%s", staged)
+            return True
+        finally:
+            self.downloading = False
+            if self.staged_app is None:
+                updater.cleanup(workdir)
+
+    def _on_progress(self, value: float) -> None:
+        self.progress = value
+
+    # -------------------------------------------------- 给网页调用的更新接口
+
+    def update_state(self) -> Dict[str, Any]:
+        return {
+            "current": __version__,
+            "packaged": resources.is_frozen(),
+            "auto": self.config.auto_update,
+            "info": self.update_info,
+            "staged": self.staged_app is not None,
+            "downloading": self.downloading,
+            "progress": round(self.progress, 3),
+            "onQuit": self.install_on_quit,
+        }
 
     def pending_update(self) -> Optional[Dict[str, Any]]:
         return self.update_info
@@ -71,34 +123,61 @@ class NativeApi:
     def check_update_now(self) -> Optional[Dict[str, Any]]:
         if not resources.is_frozen():
             return None
-        info = updater.check()
-        if info:
-            self.update_info = info
-        return info
+        return self._check_update(force=True)
 
-    def apply_update(self) -> bool:
-        """下载新版本、交给脱离进程的脚本替换，然后退出本进程。"""
-        info = self.update_info
-        bundle = resources.app_bundle()
-        if not info or bundle is None or self.updating:
+    def set_auto_update(self, enabled: bool) -> bool:
+        self.config.auto_update = bool(enabled)
+        self.config.save()
+        if self.config.auto_update and self.update_info and self.staged_app is None:
+            threading.Thread(target=self._stage_update, daemon=True).start()
+        return self.config.auto_update
+
+    def skip_update(self) -> bool:
+        if not self.update_info:
             return False
+        self.config.skip_version = self.update_info["version"]
+        self.config.save()
+        log.info("跳过版本 %s", self.config.skip_version)
+        self.update_info = None
+        return True
+
+    def download_update(self) -> bool:
+        """网页点「下载」时用；已经下好就直接返回。"""
+        if self.staged_app is not None:
+            return True
+        return self._stage_update()
+
+    def install_update(self, mode: str = "now") -> bool:
+        """``mode`` 为 ``now`` 立刻装并重启，``quit`` 则等退出应用时再装。"""
+        if self.updating:
+            return False
+        if self.staged_app is None and not self._stage_update():
+            return False
+        bundle = resources.app_bundle()
+        if bundle is None or self.staged_app is None:
+            return False
+        if mode == "quit":
+            self.install_on_quit = True
+            log.info("退出时安装更新")
+            return True
         self.updating = True
-        workdir = Path(tempfile.mkdtemp(prefix="whiteboard-update-"))
-        try:
-            archive = updater.download(info["url"], workdir)
-            if archive is None:
-                return False
-            staged = updater.unpack(archive, workdir / "unpacked")
-            if staged is None:
-                return False
-            if not updater.swap_and_restart(staged, bundle):
-                return False
-        finally:
-            if not self.updating:
-                updater.cleanup(workdir)
+        if not updater.swap_and_restart(self.staged_app, bundle, relaunch=True):
+            self.updating = False
+            return False
         log.info("更新已就绪，正在退出以完成替换")
         self._quit()
         return True
+
+    def finish_pending_install(self) -> None:
+        """窗口关闭时调用：装上之前下好的更新，但不再把应用打开。"""
+        if not self.install_on_quit or self.staged_app is None or self.updating:
+            return
+        bundle = resources.app_bundle()
+        if bundle is None:
+            return
+        self.updating = True
+        updater.swap_and_restart(self.staged_app, bundle, relaunch=False)
+        log.info("退出后将完成更新替换")
 
     def _quit(self) -> None:
         try:
@@ -234,6 +313,7 @@ def run(config: Optional[Config] = None, debug: bool = False, advertise: Optiona
             api.server.save_now()
         except (RuntimeError, TimeoutError) as exc:
             log.warning("退出前保存失败：%s", exc)
+        api.finish_pending_install()
 
     window.events.closing += _on_closing
     try:

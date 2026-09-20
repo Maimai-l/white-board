@@ -119,7 +119,7 @@ def _host_allowed(url: str) -> bool:
     return parsed.scheme == "https" and parsed.hostname in ALLOWED_HOSTS
 
 
-def download(url: str, into: Path, timeout: float = 60.0) -> Optional[Path]:
+def download(url: str, into: Path, timeout: float = 60.0, on_progress=None) -> Optional[Path]:
     if not _host_allowed(url):
         return None
     into.mkdir(parents=True, exist_ok=True)
@@ -127,6 +127,10 @@ def download(url: str, into: Path, timeout: float = 60.0) -> Optional[Path]:
     request = urllib.request.Request(url, headers={"User-Agent": f"Whiteboard/{__version__}"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response, target.open("wb") as out:
+            try:
+                total = int(response.headers.get("Content-Length") or 0)
+            except (TypeError, ValueError):
+                total = 0
             written = 0
             while True:
                 chunk = response.read(256 * 1024)
@@ -136,6 +140,8 @@ def download(url: str, into: Path, timeout: float = 60.0) -> Optional[Path]:
                 if written > MAX_DOWNLOAD:
                     raise OSError("更新包过大")
                 out.write(chunk)
+                if on_progress is not None and total > 0:
+                    on_progress(min(1.0, written / total))
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         log.error("下载更新失败：%s", exc)
         target.unlink(missing_ok=True)
@@ -166,7 +172,7 @@ def unpack(zip_path: Path, into: Path) -> Optional[Path]:
 
 
 SWAP_SCRIPT = """#!/bin/sh
-pid="$1"; staged="$2"; target="$3"
+pid="$1"; staged="$2"; target="$3"; relaunch="$4"
 i=0
 while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 240 ]; do sleep 0.5; i=$((i+1)); done
 backup="$target.old"
@@ -179,12 +185,16 @@ else
   mv "$backup" "$target"
 fi
 xattr -dr com.apple.quarantine "$target" 2>/dev/null
-open "$target"
+[ "$relaunch" = "1" ] && open "$target"
+exit 0
 """
 
 
-def swap_and_restart(staged_app: Path, bundle: Path) -> bool:
-    """本进程退出后替换 bundle 并重新打开；失败会把旧版本放回去。"""
+def swap_and_restart(staged_app: Path, bundle: Path, relaunch: bool = True) -> bool:
+    """本进程退出后替换 bundle；``relaunch`` 为真时再把新版本打开。
+
+    失败会把旧版本原样放回去。
+    """
     if not staged_app.exists() or not bundle.exists():
         return False
     script = Path(tempfile.mkdtemp(prefix="whiteboard-update-")) / "swap.sh"
@@ -192,7 +202,14 @@ def swap_and_restart(staged_app: Path, bundle: Path) -> bool:
     script.chmod(0o755)
     try:
         subprocess.Popen(
-            ["/bin/sh", str(script), str(os.getpid()), str(staged_app), str(bundle)],
+            [
+                "/bin/sh",
+                str(script),
+                str(os.getpid()),
+                str(staged_app),
+                str(bundle),
+                "1" if relaunch else "0",
+            ],
             start_new_session=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

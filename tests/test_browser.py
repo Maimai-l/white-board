@@ -524,6 +524,94 @@ def test_canvas_is_infinite(browser, server):
     ipad.close()
 
 
+UPDATE_NOTES = """## What's Changed
+* fix: 修好了一个东西 by @someone in https://github.com/Maimai-l/white-board/pull/1285
+* chore: bump `aiohttp` and **tidy** the build
+"""
+
+# 假装自己是 pywebview 注入的本地接口，把每次调用记下来
+UPDATE_STUB = """
+([notes, staged]) => {
+  window.__calls = [];
+  window.pywebview = { api: {
+    info: async () => ({ native: true, version: '1.0.0', packaged: true }),
+    update_state: async () => ({
+      current: '1.0.0', packaged: true, auto: true,
+      info: { version: '1.2.0', notes },
+      staged, downloading: !staged, progress: staged ? 1 : 0.4, onQuit: false,
+    }),
+    pending_update: async () => ({ version: '1.2.0', notes }),
+    set_auto_update: async (value) => { window.__calls.push(['auto', value]); return value; },
+    skip_update: async () => { window.__calls.push(['skip']); return true; },
+    install_update: async (mode) => { window.__calls.push(['install', mode]); return true; },
+    check_update_now: async () => ({ version: '1.2.0', notes }),
+  }};
+}
+"""
+
+
+def open_update_dialog(page, staged=True):
+    page.evaluate(UPDATE_STUB, [UPDATE_NOTES, staged])
+    page.evaluate(
+        "async () => { whiteboard.offeredUpdate = null;"
+        "await whiteboard.offerUpdate({ version: '1.2.0' }); }"
+    )
+    page.locator(".update-dialog").wait_for(timeout=3000)
+
+
+def test_update_dialog_offers_install_skip_and_later(browser, server):
+    """更新对话框：版本、更新说明、自动下载开关、三个按钮都要工作。"""
+    mac, ipad = open_pages(browser, server.port)
+    open_update_dialog(mac)
+
+    dialog = mac.locator(".update-dialog")
+    assert "1.2.0" in dialog.inner_text()
+    assert "已下载完毕" in dialog.inner_text()
+    # PR 链接渲染成 #1285
+    assert mac.locator(".update-notes a").first.inner_text() == "#1285"
+    assert mac.locator(".update-notes code").count() == 1
+
+    mac.locator(".update-auto input").uncheck()
+    assert ["auto", False] in mac.evaluate("() => window.__calls")
+
+    mac.click("button:has-text('退出应用时安装')")
+    mac.locator(".update-dialog").wait_for(state="detached", timeout=3000)
+    assert ["install", "quit"] in mac.evaluate("() => window.__calls")
+
+    open_update_dialog(mac)
+    mac.click("button:has-text('跳过这个版本')")
+    mac.locator(".update-dialog").wait_for(state="detached", timeout=3000)
+    assert ["skip"] in mac.evaluate("() => window.__calls")
+    mac.close()
+    ipad.close()
+
+
+def test_update_dialog_shows_progress_while_downloading(browser, server):
+    mac, ipad = open_pages(browser, server.port)
+    open_update_dialog(mac, staged=False)
+    dialog = mac.locator(".update-dialog")
+    assert "正在下载" in dialog.inner_text()
+    width = mac.evaluate("() => document.querySelector('.update-progress i').style.width")
+    assert width == "40%"
+    assert mac.locator("button:has-text('下载并安装')").is_disabled()
+    mac.close()
+    ipad.close()
+
+
+def test_release_notes_are_escaped(browser, server):
+    """更新说明来自网络，必须当纯文本处理。"""
+    mac, _ipad = open_pages(browser, server.port)
+    html = mac.evaluate(
+        "async () => { const m = await import('/static/js/notes.js');"
+        "return m.renderNotes('- <img src=x onerror=alert(1)> **粗** `码`\\n- [看](https://example.com/a)'); }"
+    )
+    assert "<img" not in html
+    assert "&lt;img" in html
+    assert "<strong>粗</strong>" in html and "<code>码</code>" in html
+    assert '<a href="https://example.com/a">看</a>' in html
+    mac.close()
+
+
 def test_debug_overlay_toggles(browser, server):
     mac, ipad = open_pages(browser, server.port)
     assert ipad.evaluate("() => !!document.getElementById('perf')") is False

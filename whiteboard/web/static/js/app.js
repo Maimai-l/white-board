@@ -183,7 +183,7 @@ class App {
       if (!api || !api.pending_update) return;
       try {
         const info = await api.pending_update();
-        if (info) this.offerUpdate(info);
+        if (info) await this.offerUpdate(info);
       } catch (err) {
         /* 取不到就算了 */
       }
@@ -197,13 +197,17 @@ class App {
     setTimeout(poll, 4000);
   }
 
-  offerUpdate(info) {
-    if (!info || this.offeredUpdate === info.version) return;
+  async offerUpdate(info) {
+    const api = nativeApi();
+    if (!info || !api || this.offeredUpdate === info.version) return;
     this.offeredUpdate = info.version;
-    this.ui.showUpdate(info.version, async () => {
-      const api = nativeApi();
-      if (!api || !api.apply_update) return false;
-      return api.apply_update();
+    const state = (await api.update_state()) || { info };
+    this.ui.showUpdateDialog(state, {
+      poll: () => api.update_state(),
+      setAuto: (enabled) => api.set_auto_update(enabled),
+      skip: () => api.skip_update(),
+      installOnQuit: () => api.install_update("quit"),
+      installNow: () => api.install_update("now"),
     });
   }
 
@@ -707,8 +711,9 @@ class App {
           this.ui.showNotice("source-update", "这是从源码运行的版本，更新请用 git pull。", "refresh");
           return;
         }
+        this.offeredUpdate = null; // 手动检查时即使之前提示过也要再弹一次
         const info = await api.check_update_now();
-        if (info) this.offerUpdate(info);
+        if (info) await this.offerUpdate(info);
         else this.ui.toast("check");
       },
       onFingerDraw: (enabled) => this.input.setFingerDraw(enabled),

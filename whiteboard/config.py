@@ -39,6 +39,10 @@ class Config:
         self.values: Dict[str, Any] = {
             "port": DEFAULT_PORT,
             "data_dir": str(default_data_dir()),
+            # 后台自动下载更新（下好之后仍然会问你装不装）
+            "auto_update": True,
+            # 「跳过这个版本」记在这里
+            "skip_version": "",
         }
         self.load()
 
@@ -70,6 +74,23 @@ class Config:
     @port.setter
     def port(self, value: int) -> None:
         self.values["port"] = int(value)
+
+    @property
+    def auto_update(self) -> bool:
+        return bool(self.values.get("auto_update", True))
+
+    @auto_update.setter
+    def auto_update(self, value: bool) -> None:
+        self.values["auto_update"] = bool(value)
+
+    @property
+    def skip_version(self) -> str:
+        value = self.values.get("skip_version", "")
+        return value if isinstance(value, str) else ""
+
+    @skip_version.setter
+    def skip_version(self, value: str) -> None:
+        self.values["skip_version"] = str(value or "")
 
     @property
     def data_dir(self) -> Path:

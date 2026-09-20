@@ -5,6 +5,7 @@
 
 import { icon } from "./icons.js";
 import { loadFingerDraw } from "./input.js";
+import { renderNotes } from "./notes.js";
 import { el, clamp } from "./util.js";
 
 export const COLORS = [
@@ -271,32 +272,116 @@ export class UI {
     setTimeout(() => node.remove(), 15000);
   }
 
-  /** 有新版本时的提示条：一句话加一个下载按钮。 */
-  showUpdate(version, onInstall) {
-    if (this.updateNode) this.updateNode.remove();
-    const label = el("span", { text: `新版本 ${version}` });
-    const button = iconButton("download", "下载并重启", async (event) => {
-      event.stopPropagation();
-      button.setAttribute("disabled", "");
-      label.textContent = "正在下载…";
-      const ok = await onInstall();
+  /**
+   * 更新对话框：图标、标题、更新说明、自动下载开关、三个按钮。
+   *
+   * ``state`` 来自本地进程（update_state），``actions`` 里是四个回调：
+   * skip / installNow / installOnQuit / setAuto，另外 poll 用来刷新下载进度。
+   */
+  showUpdateDialog(state, actions) {
+    this.closeUpdateDialog();
+    const info = state.info || {};
+    const version = info.version || "";
+
+    const title = el("h2", { text: `新版本的白板可以安装了` });
+    const subtitle = el("p");
+    const notes = el("div", { class: "update-notes", html: renderNotes(info.notes) });
+    notes.addEventListener("click", (event) => {
+      const link = event.target.closest("a");
+      if (!link) return;
+      event.preventDefault();
+      this.actions.onOpenUrl(link.getAttribute("href"));
+    });
+
+    const bar = el("i");
+    const progress = el("div", { class: "update-progress" }, [bar]);
+
+    const checkbox = el("input", { type: "checkbox" });
+    checkbox.checked = !!state.auto;
+    checkbox.addEventListener("change", () => actions.setAuto(checkbox.checked));
+    const auto = el("label", { class: "update-auto" }, [
+      checkbox,
+      el("span", { text: "以后自动下载更新" }),
+    ]);
+
+    const skip = el("button", { class: "btn", text: "跳过这个版本" });
+    const later = el("button", { class: "btn", text: "退出应用时安装" });
+    const now = el("button", { class: "btn primary", text: "安装并重启应用" });
+
+    const render = (current) => {
+      const staged = !!current.staged;
+      const downloading = !!current.downloading;
+      subtitle.textContent = staged
+        ? `白板 ${version} 已下载完毕并可以使用。要立刻安装并重启白板吗？`
+        : downloading
+          ? `正在下载白板 ${version}…`
+          : `白板 ${version} 可以下载安装，当前版本 ${current.current || ""}。`;
+      progress.style.display = downloading || (current.progress > 0 && !staged) ? "" : "none";
+      bar.style.width = `${Math.round((current.progress || 0) * 100)}%`;
+      now.textContent = staged ? "安装并重启应用" : "下载并安装";
+      now.toggleAttribute("disabled", downloading);
+      later.toggleAttribute("disabled", downloading);
+    };
+    render(state);
+
+    skip.addEventListener("click", async () => {
+      await actions.skip();
+      this.closeUpdateDialog();
+    });
+    later.addEventListener("click", async () => {
+      later.setAttribute("disabled", "");
+      const ok = await actions.installOnQuit();
+      this.closeUpdateDialog();
+      this.toast(ok ? "check" : "close");
+    });
+    now.addEventListener("click", async () => {
+      now.setAttribute("disabled", "");
+      const ok = await actions.installNow();
       if (!ok) {
-        label.textContent = "更新失败，稍后再试";
-        button.removeAttribute("disabled");
+        subtitle.textContent = "更新失败了，稍后再试。";
+        now.removeAttribute("disabled");
       }
     });
-    const node = el("div", { class: "notice" }, [
-      el("div", { html: icon("refresh") }),
-      label,
-      button,
+
+    const dialog = el("div", { class: "update-dialog" }, [
+      el("div", { class: "update-head" }, [
+        el("img", { src: "/icon.png", alt: "" }),
+        el("div", {}, [title, subtitle]),
+      ]),
+      notes,
+      progress,
+      auto,
+      el("div", { class: "update-actions" }, [
+        skip,
+        el("span", { class: "spacer" }),
+        later,
+        now,
+      ]),
     ]);
-    node.addEventListener("click", (event) => {
-      if (event.target === button || button.contains(event.target)) return;
-      node.remove();
-      this.updateNode = null;
-    });
-    this.root.append(node);
-    this.updateNode = node;
+    const scrim = el("div", { class: "scrim" });
+    scrim.append(dialog);
+    dialog.addEventListener("click", (event) => event.stopPropagation());
+    this.root.append(scrim);
+    this.updateDialog = { scrim, render };
+
+    // 下载中就跟着刷新进度
+    if (actions.poll) {
+      this._updateTimer = setInterval(async () => {
+        if (!this.updateDialog) return;
+        const current = await actions.poll();
+        if (current) render(current);
+      }, 400);
+    }
+    return this.updateDialog;
+  }
+
+  closeUpdateDialog() {
+    clearInterval(this._updateTimer);
+    this._updateTimer = 0;
+    if (this.updateDialog) {
+      this.updateDialog.scrim.remove();
+      this.updateDialog = null;
+    }
   }
 
   confirm(iconName, onYes) {
