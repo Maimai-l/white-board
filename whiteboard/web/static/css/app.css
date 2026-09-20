@@ -23,6 +23,12 @@
   --motion: 180ms cubic-bezier(.2, 0, 0, 1);
   --paper: #ffffff;
   --paper-line: #d9dce6;
+  /* 笔具盘（beta）：笔身与选中托底 */
+  --secondary-container: #dfe1f4;
+  --tool-body: #b6b3c4;
+  --tool-collar: #9996a8;
+  /* 笔尖描一圈，深色墨水落在笔身上也分得开 */
+  --nib-edge: rgba(0, 0, 0, .22);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -40,6 +46,10 @@
     --outline: #49474f;
     --error: #ffb4ab;
     --scrim: rgba(0, 0, 0, .55);
+    --secondary-container: #3b3b50;
+    --tool-body: #6f6c7d;
+    --tool-collar: #8d8a9b;
+    --nib-edge: rgba(255, 255, 255, .5);
   }
 }
 
@@ -136,21 +146,150 @@ html, body {
 
 .pill .sep { width: 1px; height: 26px; margin: 0 4px; background: var(--outline); opacity: .5; flex: 0 0 auto; }
 
-/* 主工具条（iPad 与 Mac 共用），默认贴底，可以换到顶上 */
+/* 主工具条（iPad 与 Mac 共用）：默认贴底，可以换边，笔具盘模式下还能拖 */
 #toolbar {
   position: absolute;
   left: 50%;
   bottom: calc(14px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   max-width: calc(100vw - 24px);
+  transition: none;
 }
 :root[data-toolbar="top"] #toolbar {
   top: calc(12px + env(safe-area-inset-top));
   bottom: auto;
 }
+:root[data-toolbar="left"] #toolbar,
+:root[data-toolbar="right"] #toolbar {
+  top: 50%;
+  bottom: auto;
+  left: auto;
+  transform: translateY(-50%);
+  flex-direction: column;
+  max-width: none;
+  max-height: calc(100vh - 24px);
+}
+:root[data-toolbar="left"] #toolbar { left: calc(12px + env(safe-area-inset-left)); }
+:root[data-toolbar="right"] #toolbar { right: calc(12px + env(safe-area-inset-right)); }
+:root[data-toolbar="left"] .pill .sep,
+:root[data-toolbar="right"] .pill .sep { width: 26px; height: 1px; margin: 4px 0; }
+:root[data-toolbar="min"] #toolbar { display: none; }
+
 /* 工具条上去了，提示条和 toast 就得让开 */
 :root[data-toolbar="top"] .notice { top: calc(84px + env(safe-area-inset-top)); }
 :root[data-toolbar="top"] .toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
+
+/* ------------------------------------------------- 笔具盘（beta） */
+
+/* 每件工具一支笔：选中的抬出来，没选中的沉下去一截 */
+#toolbar.picker {
+  padding: 4px 10px;
+  align-items: flex-end;
+  /* 没选中的笔沉进栏里，多出来的部分让圆角裁掉，和 iPad 上一个意思 */
+  overflow: hidden;
+}
+:root[data-toolbar="top"] #toolbar.picker { align-items: flex-start; }
+.grip {
+  width: 5px;
+  height: 26px;
+  flex: 0 0 auto;
+  margin: 0 6px 0 2px;
+  border-radius: 3px;
+  background: var(--outline);
+  opacity: .8;
+  cursor: grab;
+}
+:root[data-toolbar="left"] .grip,
+:root[data-toolbar="right"] .grip { width: 26px; height: 5px; margin: 2px 0 6px; }
+
+.tool-slot {
+  position: relative;
+  width: 44px;
+  height: 62px;
+  flex: 0 0 auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-radius: 22px;
+  transition: transform var(--motion), background var(--motion);
+}
+.tool-slot .tool-art { display: block; transform: translateY(14px); transition: transform var(--motion); }
+.tool-slot.active { background: var(--secondary-container); }
+.tool-slot.active .tool-art { transform: translateY(2px); }
+.tool-slot:active { transform: scale(.96); }
+
+/* 顶部停靠时整支笔翻过来，笔尖还是朝着画布 */
+:root[data-toolbar="top"] #toolbar.picker .tool-slot { align-items: flex-start; }
+:root[data-toolbar="top"] #toolbar.picker .tool-art { transform: translateY(-14px) rotate(180deg); }
+:root[data-toolbar="top"] #toolbar.picker .tool-slot.active .tool-art { transform: translateY(-2px) rotate(180deg); }
+:root[data-toolbar="left"] #toolbar.picker .tool-art { transform: translateX(-12px) rotate(90deg); }
+:root[data-toolbar="left"] #toolbar.picker .tool-slot.active .tool-art { transform: translateX(-2px) rotate(90deg); }
+:root[data-toolbar="right"] #toolbar.picker .tool-art { transform: translateX(12px) rotate(-90deg); }
+:root[data-toolbar="right"] #toolbar.picker .tool-slot.active .tool-art { transform: translateX(2px) rotate(-90deg); }
+:root[data-toolbar="left"] #toolbar.picker .tool-slot,
+:root[data-toolbar="right"] #toolbar.picker .tool-slot { width: 62px; height: 44px; align-items: center; }
+:root[data-toolbar="left"] #toolbar.picker,
+:root[data-toolbar="right"] #toolbar.picker { padding: 10px 4px; }
+
+.tool-art .body { fill: var(--tool-body, #b9b5c6); }
+.tool-art .nib {
+  fill: var(--ink, currentColor);
+  stroke: var(--nib-edge);
+  stroke-width: 1;
+  paint-order: stroke fill;
+}
+.tool-art .nib-plain { fill: var(--surface-1); stroke: var(--tool-body, #b9b5c6); stroke-width: 1.4; }
+.tool-art .collar { stroke: var(--tool-collar, #9b97a8); stroke-width: 2.6; }
+
+/* 拖动中：跟着手指走，落下时再贴边 */
+#toolbar.draggable { touch-action: none; }
+#toolbar.dragging {
+  transition: none;
+  opacity: .92;
+  box-shadow: var(--shadow-3);
+}
+
+/* 丢进角落之后缩成的圆 */
+#toolbubble {
+  position: absolute;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-2);
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+:root[data-toolbar="min"] #toolbubble { display: inline-flex; }
+#toolbubble .tool-art { transform: translateY(3px); }
+:root[data-corner="tl"] #toolbubble { top: calc(14px + env(safe-area-inset-top)); left: calc(14px + env(safe-area-inset-left)); }
+:root[data-corner="tr"] #toolbubble { top: calc(14px + env(safe-area-inset-top)); right: calc(14px + env(safe-area-inset-right)); }
+:root[data-corner="bl"] #toolbubble { bottom: calc(14px + env(safe-area-inset-bottom)); left: calc(14px + env(safe-area-inset-left)); }
+:root[data-corner="br"] #toolbubble { bottom: calc(14px + env(safe-area-inset-bottom)); right: calc(14px + env(safe-area-inset-right)); }
+
+/* 工具设置面板 */
+.pop-title {
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  padding: 0 2px;
+}
+.beta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  padding: 4px 2px 0;
+  border-top: 1px solid var(--outline);
+  margin-top: 2px;
+  cursor: pointer;
+}
+.beta-row input { accent-color: var(--primary); width: 16px; height: 16px; }
 
 /* Mac 端右上角功能簇与右下角缩放簇 */
 #topright {

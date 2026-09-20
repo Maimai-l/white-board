@@ -933,3 +933,124 @@ def test_ipad_toolbar_can_move_to_the_top(browser, server):
     assert dock() == "bottom"
     _mac.close()
     ipad.close()
+
+
+def enable_picker(page):
+    """从颜色面板里打开笔具盘（beta）。"""
+    page.click('button[title="颜色与粗细"]')
+    page.click(".beta-row input")
+    page.wait_for_selector("#toolbar.picker .tool-slot")
+
+
+def drag(page, x0, y0, x1, y1, steps=12):
+    page.mouse.move(x0, y0)
+    page.mouse.down()
+    for i in range(1, steps + 1):
+        page.mouse.move(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)
+    page.mouse.up()
+
+
+def grip_center(page):
+    return page.evaluate(
+        "() => { const g = document.querySelector('#toolbar .grip').getBoundingClientRect();"
+        " return [g.left + g.width / 2, g.top + g.height / 2]; }"
+    )
+
+
+def test_tool_picker_beta_switches_the_toolbar(browser, server):
+    """笔具盘：每支笔画成一支笔，笔尖是它自己的墨色，颜色按钮收进设置里。"""
+    _mac, ipad = open_pages(browser, server.port)
+    enable_picker(ipad)
+
+    assert ipad.evaluate("() => document.querySelectorAll('#toolbar .tool-slot').length") == 4
+    assert ipad.query_selector('button[title="颜色与粗细"]') is None
+    # 笔尖用的是各自的墨色
+    inks = ipad.evaluate(
+        "() => [...document.querySelectorAll('#toolbar .tool-slot svg')]"
+        ".map(s => s.style.getPropertyValue('--ink'))"
+    )
+    assert inks[0] and inks[1] and inks[0] != inks[1]  # 钢笔和马克笔默认不同色
+    assert inks[3] == ""  # 橡皮擦没有墨色
+
+    # 选中的那支抬起来
+    raised = ipad.evaluate(
+        "() => { const a = document.querySelector('.tool-slot.active svg').getBoundingClientRect();"
+        " const b = document.querySelectorAll('#toolbar .tool-slot svg')[1].getBoundingClientRect();"
+        " return b.top - a.top; }"
+    )
+    assert raised > 6
+
+    ipad.reload()
+    ipad.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    assert ipad.query_selector("#toolbar.picker") is not None  # 记得住
+    _mac.close()
+    ipad.close()
+
+
+def test_tool_picker_keeps_a_colour_per_tool(browser, server):
+    """每支笔各记各的颜色：换笔不会把上一支的设置带过去。"""
+    _mac, ipad = open_pages(browser, server.port)
+    enable_picker(ipad)
+
+    # 点已经选中的钢笔 → 开设置，挑一个颜色
+    ipad.click('button[title="钢笔"]')
+    ipad.wait_for_selector(".popover .swatches")
+    ipad.click(".popover .swatch:nth-child(7)")  # 挑一个和马克笔默认色不一样的
+    pen_color = ipad.evaluate("() => whiteboard.tool.color")
+
+    ipad.click('button[title="马克笔"]')
+    marker_color = ipad.evaluate("() => whiteboard.tool.color")
+    assert marker_color != pen_color
+
+    ipad.click('button[title="钢笔"]')
+    assert ipad.evaluate("() => whiteboard.tool.color") == pen_color
+
+    # 画出来的笔迹用的就是这支笔的颜色
+    draw(ipad, [(400, 300), (460, 340), (520, 300)])
+    wait_strokes(ipad, 1)
+    assert ipad.evaluate("() => whiteboard.state.strokes[0].color") == pen_color
+    _mac.close()
+    ipad.close()
+
+
+def test_classic_toolbar_still_shares_one_colour(browser, server):
+    """没开笔具盘时保持老行为：改颜色是所有笔一起改。"""
+    _mac, ipad = open_pages(browser, server.port)
+    ipad.click('button[title="颜色与粗细"]')
+    ipad.click(".popover .swatch:nth-child(4)")
+    picked = ipad.evaluate("() => whiteboard.tool.color")
+    ipad.click('button[title="马克笔"]')
+    assert ipad.evaluate("() => whiteboard.tool.color") == picked
+    _mac.close()
+    ipad.close()
+
+
+def test_tool_picker_can_be_dragged_and_minimized(browser, server):
+    """拖到哪边停哪边，丢进角落缩成一个圆，点圆再展开。"""
+    _mac, ipad = open_pages(browser, server.port)
+    enable_picker(ipad)
+
+    def dock():
+        return ipad.evaluate("() => document.documentElement.dataset.toolbar")
+
+    x, y = grip_center(ipad)
+    drag(ipad, x, y, 60, 400)
+    assert dock() == "left"
+
+    x, y = grip_center(ipad)
+    drag(ipad, x, y, 1120, 760)
+    assert dock() == "min"
+    assert ipad.evaluate("() => document.documentElement.dataset.corner") == "br"
+    assert ipad.is_visible("#toolbubble")
+    assert not ipad.is_visible("#toolbar")
+
+    ipad.click("#toolbubble")
+    assert dock() == "left"  # 回到收起来之前那一边
+
+    # 关掉 beta 就换回原来那条
+    ipad.click('button[title="钢笔"]')
+    ipad.click(".beta-row input")
+    ipad.wait_for_selector('button[title="颜色与粗细"]')
+    assert ipad.query_selector("#toolbar.picker") is None
+    _mac.close()
+    ipad.close()
