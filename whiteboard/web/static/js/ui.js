@@ -3,14 +3,13 @@
 // iPad 端只有一条工具栏；Mac 端另外多出白板列表、白板设置（背景 / 存储目录 /
 // 描述文件）、导出与缩放。
 //
-// 工具栏有两套：默认那条是一排图标；勾上「笔具盘 beta」之后换成 toolart.js 画的
-// 一支支笔（参考 iPad 的 PencilKit 工具面板，形状和配色按 Material 3 重做），
-// 位置由 toolpicker.js 的 ToolDock 管，可以拖到任意一边或者收进角落。
+// 工具栏有两套：默认那条是一排图标，位置（上 / 下）由 toolpicker.js 的 ToolDock 管；
+// 勾上「笔具盘 beta」之后这条收起来，换成 pkpicker.js 接进来的 PencilKit 工具盘。
 
 import { icon } from "./icons.js";
 import { loadFingerDraw } from "./input.js";
 import { renderNotes } from "./notes.js";
-import { toolArt } from "./toolart.js";
+import { loadPicker } from "./pkpicker.js";
 import { ToolDock } from "./toolpicker.js";
 import { el, clamp } from "./util.js";
 
@@ -39,9 +38,12 @@ function defaultTool() {
   };
 }
 
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
 function sanitizeEntry(raw, fallback) {
   const entry = { ...fallback };
-  if (raw && COLORS.includes(raw.color)) entry.color = raw.color;
+  // 笔具盘的取色器能调出任意颜色，不限于面板上那十个
+  if (raw && typeof raw.color === "string" && HEX.test(raw.color)) entry.color = raw.color;
   if (raw && raw.widthIndex >= 0 && raw.widthIndex < WIDTHS.length) {
     entry.widthIndex = raw.widthIndex;
   }
@@ -64,8 +66,8 @@ function loadTool() {
   }
 }
 
-/** 笔具盘（beta）：工具画成一支支笔，选中的抬起来，再点一下开设置。 */
-function loadPicker() {
+/** 笔具盘（beta）：iPad 上换成 PencilKit 那条工具盘，见 pkpicker.js。 */
+function loadPickerFlag() {
   try {
     return localStorage.getItem(PICKER_KEY) === "1";
   } catch (err) {
@@ -95,7 +97,7 @@ export class UI {
     this.info = null;
     this.popover = null;
     this.sheet = null;
-    this.picker = loadPicker();
+    this.picker = loadPickerFlag();
     this.undoEnabled = false;
     this.build();
   }
@@ -117,11 +119,7 @@ export class UI {
 
     this.toolbar = el("div", { id: "toolbar", class: "pill" });
     this.root.append(this.toolbar);
-    this.dock = new ToolDock({
-      root: this.root,
-      bar: this.toolbar,
-      renderBubble: () => this.bubbleArt(),
-    });
+    this.dock = new ToolDock({ bar: this.toolbar });
     this.fillToolbar();
 
     if (this.role === "mac") {
@@ -141,22 +139,20 @@ export class UI {
     }
   }
 
-  /** 按当前模式重新填一遍工具栏（换模式时整条重建）。 */
+  /** 填工具栏。开了笔具盘就把这条藏起来，交给 pkpicker.js 那条。 */
   fillToolbar() {
     this.closePopover();
     const bar = this.toolbar;
     bar.innerHTML = "";
-    bar.classList.toggle("picker", this.picker);
     this.toolButtons = {};
     this.colorButton = null;
     this.colorDot = null;
-    if (this.picker) this.fillPickerBar(bar);
-    else this.fillClassicBar(bar);
-    this.dock.enableDrag(this.picker);
-    this.dock.apply({}, false);
+    this.fillClassicBar(bar);
+    this.dock.apply(this.dock.dock, false);
     this.syncDockButton();
     this.setUndoEnabled(this.undoEnabled);
     this.selectTool(this.tool.tool);
+    if (this.picker) this.mountPicker();
   }
 
   /** 原来那条：一排图标 + 单独的颜色按钮。 */
@@ -180,28 +176,6 @@ export class UI {
     this.appendEditButtons(bar);
   }
 
-  /**
-   * 笔具盘（beta）：每件工具画成一支立着的笔，笔尖就是它自己的墨色，选中的那支
-   * 抬起来。点已经选中的那支会开设置，颜色和粗细都在里面——不再需要单独的颜色按钮。
-   */
-  fillPickerBar(bar) {
-    // 一条明显的握把：告诉人这条栏可以拖，也给手指一个不会误触按钮的着力点
-    bar.append(el("div", { class: "grip", title: "拖动换位置" }));
-    for (const key of ALL_TOOLS) {
-      const button = el("button", {
-        class: "tool-slot",
-        title: TOOL_TITLES[key],
-        "aria-label": TOOL_TITLES[key],
-        onclick: (event) => this.onPickerTool(key, event.currentTarget),
-      });
-      this.toolButtons[key] = button;
-      bar.append(button);
-    }
-    bar.append(el("div", { class: "sep" }));
-    this.appendCommonButtons(bar);
-    this.appendEditButtons(bar);
-  }
-
   /** 两条都有的：手指书写开关和位置按钮。 */
   appendCommonButtons(bar) {
     if (this.touchDevice) {
@@ -220,39 +194,68 @@ export class UI {
     bar.append(iconButton("trash", "清屏", () => this.confirmClear(), "danger"));
   }
 
-  /** 点工具：换一支就是换一支，点的是正在用的那支就开设置。 */
-  onPickerTool(key, anchor) {
-    if (this.tool.tool === key) this.openInspector(anchor);
-    else this.selectTool(key);
-  }
+  /* ------------------------------------------------ 笔具盘（beta） */
 
-  /** 把每支笔按自己的墨色和粗细重画一遍。 */
-  renderToolArt() {
-    if (this.picker) {
-      for (const key of ALL_TOOLS) {
-        const button = this.toolButtons[key];
-        if (!button) continue;
-        button.innerHTML = toolArt(key, {
-          color: this.tool[key].color,
-          widthIndex: this.tool[key].widthIndex,
-          widthCount: WIDTHS.length,
-        });
-      }
+  /** 挂上 PencilKit 那条工具盘：原来那条藏起来，输入照旧走白板的画布。 */
+  async mountPicker() {
+    if (this.pk || this.pkLoading) return;
+    this.pkLoading = true;
+    try {
+      const Picker = await loadPicker();
+      if (!this.picker) return; // 还没装好就被关掉了
+      this.pkHost = el("div", { id: "pk-host" });
+      this.root.append(this.pkHost);
+      const pk = new Picker(this.pkHost, { theme: "auto" });
+      pk.onChange = (state) => this.onPickerChange(state);
+      pk.onUndo = () => this.actions.onUndo();
+      pk.onClear = () => this.confirmClear();
+      pk.onLeave = () => this.setPicker(false);
+      pk.applyState({
+        tool: this.tool.tool,
+        color: this.ink.color,
+        sizeIndex: this.ink.widthIndex,
+        fingerDraws: this.fingerDraw,
+      });
+      this.pk = pk;
+      pk.setUndoEnabled(this.undoEnabled);
+      this.toolbar.classList.add("hidden");
+    } catch (err) {
+      this.picker = false;
+      this.message("笔具盘没能载入", "close", 5000);
+    } finally {
+      this.pkLoading = false;
     }
-    if (this.dock) this.dock.refreshBubble();
   }
 
-  bubbleArt() {
-    const ink = this.ink;
-    return toolArt(this.tool.tool, {
-      color: ink.color,
-      widthIndex: ink.widthIndex,
-      widthCount: WIDTHS.length,
-      size: 40,
-    });
+  unmountPicker() {
+    if (!this.pk) return;
+    this.pk.destroy();
+    this.pk = null;
+    if (this.pkHost) this.pkHost.remove();
+    this.pkHost = null;
+    this.toolbar.classList.remove("hidden");
   }
 
-  /** 笔具盘开关：换模式就整条重建。 */
+  /** 工具盘那边改了工具 / 颜色 / 粗细 / 手指书写，同步到白板。 */
+  onPickerChange(state) {
+    if (state.fingerDraws !== this.fingerDraw) {
+      this.fingerDraw = state.fingerDraws;
+      this.actions.onFingerDraw(this.fingerDraw);
+    }
+    const entry = this.tool[state.tool];
+    if (entry) {
+      entry.color = state.color;
+      entry.widthIndex = Math.max(0, Math.min(WIDTHS.length - 1, state.sizeIndex));
+    }
+    this.selectTool(state.tool);
+  }
+
+  /** 落笔时通知工具盘（开了「自动最小化」就收起来）。 */
+  strokeStarted() {
+    if (this.pk) this.pk.strokeStarted();
+  }
+
+  /** 笔具盘开关。 */
   setPicker(on) {
     this.picker = !!on;
     try {
@@ -260,14 +263,14 @@ export class UI {
     } catch (err) {
       /* 记不住就下次回到普通工具栏 */
     }
-    if (!this.picker) this.dock.apply({ minimized: false });
-    this.fillToolbar();
+    this.closePopover();
+    if (this.picker) this.mountPicker();
+    else this.unmountPicker();
   }
 
   syncDockButton() {
     if (!this.dockButton) return;
-    const onTop = this.dock.dock === "top" && !this.dock.minimized;
-    this.dockButton.innerHTML = icon(onTop ? "dockBottom" : "dockTop");
+    this.dockButton.innerHTML = icon(this.dock.dock === "top" ? "dockBottom" : "dockTop");
   }
 
   toggleDock() {
@@ -354,7 +357,6 @@ export class UI {
       button.classList.toggle("active", on);
       button.setAttribute("aria-pressed", String(on));
     }
-    this.renderToolArt();
     if (this.colorDot) this.colorDot.style.background = this.ink.color;
     this.actions.onToolChange(this.toolState());
   }
@@ -368,7 +370,6 @@ export class UI {
     for (const key of targets) Object.assign(this.tool[key], patch);
     this.rememberTool();
     if (this.colorDot) this.colorDot.style.background = this.ink.color;
-    this.renderToolArt();
     this.actions.onToolChange(this.toolState());
   }
 
@@ -400,6 +401,7 @@ export class UI {
   setUndoEnabled(enabled) {
     this.undoEnabled = !!enabled;
     if (this.undoButton) this.undoButton.toggleAttribute("disabled", !enabled);
+    if (this.pk) this.pk.setUndoEnabled(enabled);
   }
 
   // ------------------------------------------------------------- 弹层
@@ -419,20 +421,12 @@ export class UI {
     const rect = anchor.getBoundingClientRect();
     const width = popover.offsetWidth;
     const height = popover.offsetHeight;
-    const side = this.dock && !this.dock.minimized ? this.dock.dock : "bottom";
-    if (side === "left" || side === "right") {
-      // 工具栏立在侧边：弹层开到它旁边，别压在工具上
-      const beside = side === "left" ? rect.right + 12 : rect.left - width - 12;
-      popover.style.left = `${clamp(beside, 12, Math.max(12, innerWidth - width - 12))}px`;
-      popover.style.top = `${clamp(rect.top + rect.height / 2 - height / 2, 12, Math.max(12, innerHeight - height - 12))}px`;
-    } else {
-      popover.style.left = `${clamp(rect.left + rect.width / 2 - width / 2, 12, innerWidth - width - 12)}px`;
-      // 工具栏在上边时锚点上方没地方，翻到下面开
-      const above = rect.top - height - 12;
-      const below = rect.bottom + 12;
-      popover.style.top =
-        above >= 12 ? `${above}px` : `${clamp(below, 12, Math.max(12, innerHeight - height - 12))}px`;
-    }
+    popover.style.left = `${clamp(rect.left + rect.width / 2 - width / 2, 12, innerWidth - width - 12)}px`;
+    // 工具栏在上边时锚点上方没地方，翻到下面开
+    const above = rect.top - height - 12;
+    const below = rect.bottom + 12;
+    popover.style.top =
+      above >= 12 ? `${above}px` : `${clamp(below, 12, Math.max(12, innerHeight - height - 12))}px`;
     this.popover = popover;
     this._popoverCloser = (event) => {
       if (!popover.contains(event.target) && !anchor.contains(event.target)) this.closePopover();
@@ -484,8 +478,9 @@ export class UI {
     return widths;
   }
 
-  /** 笔具盘的开关，放在工具设置面板里，两种模式都能切回去。 */
+  /** 笔具盘的开关，放在颜色面板里；只有触摸设备才给（这条是给 iPad 的）。 */
   pickerRow() {
+    if (!this.touchDevice) return null;
     const input = el("input", { type: "checkbox" });
     input.checked = this.picker;
     input.addEventListener("change", () => this.setPicker(input.checked));
@@ -502,20 +497,9 @@ export class UI {
     }
     const parts = [];
     if (this.tool.tool !== "eraser") parts.push(this.colorSwatches());
-    parts.push(this.widthOptions(), this.pickerRow());
-    this.showPopover(anchor, parts);
-  }
-
-  /** 笔具盘：点正在用的那支笔弹出来的设置。 */
-  openInspector(anchor) {
-    if (this.popover) {
-      this.closePopover();
-      return;
-    }
-    const parts = [el("div", { class: "pop-title", text: TOOL_TITLES[this.tool.tool] })];
     parts.push(this.widthOptions());
-    if (this.tool.tool !== "eraser") parts.push(this.colorSwatches());
-    parts.push(this.pickerRow());
+    const row = this.pickerRow();
+    if (row) parts.push(row);
     this.showPopover(anchor, parts);
   }
 

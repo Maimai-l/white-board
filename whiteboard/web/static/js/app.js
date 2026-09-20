@@ -354,6 +354,7 @@ class App {
   inputHooks() {
     return {
       onStrokeStart: (stroke) => {
+        this.ui.strokeStarted();
         this.net.sendLive({
           t: "live",
           id: stroke.id,
