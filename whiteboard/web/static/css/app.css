@@ -363,6 +363,27 @@ html, body {
   pointer-events: none;
 }
 
+/* 关于面板 */
+.dialog.about {
+  flex-direction: column;
+  gap: 6px;
+  padding: 28px 32px 22px;
+  min-width: 280px;
+  text-align: center;
+}
+.about-icon { width: 88px; height: 88px; margin-bottom: 6px; }
+.about-name { font-size: 19px; font-weight: 700; }
+.about-meta { font-size: 12.5px; color: var(--on-surface-variant); }
+.about-update { margin-top: 14px; justify-content: center; }
+.about-links { margin-top: 4px; justify-content: center; }
+
+/* 设置面板里的小标题 */
+.row-label {
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  min-width: 62px;
+}
+
 /* 检查更新的结果文字 */
 .check-note {
   font-size: 12.5px;

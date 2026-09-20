@@ -113,6 +113,7 @@ export class UI {
         iconButton("settings", "白板设置", () => this.openSettings()),
         iconButton("image", "导出 PNG", () => this.actions.onExport()),
         iconButton("tablet", "连接 iPad", () => this.openConnect()),
+        iconButton("info", "关于", () => this.openAbout()),
       ]);
       const zoombar = el("div", { id: "zoombar", class: "pill" }, [
         iconButton("zoomIn", "放大", () => this.actions.onZoom(1.25)),
@@ -126,8 +127,39 @@ export class UI {
     this.selectTool(this.tool.tool);
   }
 
-  /** 版本号 + 检查更新按钮，结果直接写在旁边。 */
-  updateRow(version) {
+  /** 关于：图标、名字、版本，以及更新相关的入口都收在这里。 */
+  openAbout() {
+    this.closeSheet();
+    const info = this.info || {};
+    const version = info.version ? `版本 ${info.version}` : "";
+    const scrim = el("div", { class: "scrim", onclick: () => scrim.remove() });
+    const dialog = el("div", { class: "dialog about" }, [
+      el("img", { class: "about-icon", src: "/icon.png", alt: "" }),
+      el("div", { class: "about-name", text: "白板" }),
+      el("div", { class: "about-meta", text: version }),
+      el("div", { class: "about-meta", text: "局域网共享白板" }),
+      this.updateRow(),
+      el("div", { class: "row about-links" }, [
+        el("button", {
+          class: "btn",
+          text: "更新日志",
+          onclick: () => this.actions.onOpenReleases(),
+        }),
+        el("button", {
+          class: "btn",
+          text: "日志文件",
+          onclick: () => this.actions.onOpenLog(),
+        }),
+      ]),
+    ]);
+    dialog.addEventListener("click", (event) => event.stopPropagation());
+    scrim.append(dialog);
+    this.root.append(scrim);
+    return scrim;
+  }
+
+  /** 检查更新按钮 + 结果文字。 */
+  updateRow() {
     const note = el("span", { class: "check-note" });
     const button = el("button", { class: "btn", text: "检查更新" });
     button.addEventListener("click", async () => {
@@ -142,11 +174,7 @@ export class UI {
       note.textContent = message || "";
       button.removeAttribute("disabled");
     });
-    return el("div", { class: "row" }, [
-      el("span", { class: "version", text: version }),
-      button,
-      note,
-    ]);
+    return el("div", { class: "row about-update" }, [button, note]);
   }
 
   /** 连点三下状态圆点：在真机上打开 / 关掉诊断面板。 */
@@ -588,17 +616,16 @@ export class UI {
     const groups = [el("div", { class: "group" }, [this.backgroundOptions()])];
     // 选择 / 打开存储目录要调用本地文件对话框，只有 pywebview 窗口里才有。
     if (this.actions.isNative()) {
-      const version = this.info && this.info.version ? `v${this.info.version}` : "";
       groups.push(
         el("div", { class: "group" }, [
           el("div", { class: "row" }, [
+            el("span", { class: "row-label", text: "存储目录" }),
             iconButton("folder", "选择存储目录", async () => {
               const dir = await this.actions.onChooseDir();
               if (dir) this.toast("check");
             }),
             iconButton("folderOpen", "打开存储目录", () => this.actions.onOpenDir()),
           ]),
-          this.updateRow(version),
         ])
       );
     }

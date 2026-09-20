@@ -612,6 +612,36 @@ def test_release_notes_are_escaped(browser, server):
     mac.close()
 
 
+def test_about_panel_holds_version_and_update_entries(browser, server):
+    """更新相关的入口收在「关于」里，白板设置只管背景和存储。"""
+    mac, ipad = open_pages(browser, server.port)
+    mac.evaluate(
+        """() => { window.pywebview = { api: {
+          info: async () => ({ native: true, version: '0.9.4', packaged: true,
+            releases: 'https://github.com/Maimai-l/white-board/releases' }),
+          check_update_now: async () => ({ status: 'latest', version: '0.9.4' }),
+        }}; }"""
+    )
+    mac.evaluate("() => whiteboard.refreshNativeInfo()")
+    mac.wait_for_timeout(200)
+
+    # 设置面板里不该再有检查更新
+    mac.click('button[title="白板设置"]')
+    assert mac.locator("button:has-text('检查更新')").count() == 0
+    assert mac.locator(".row-label").inner_text() == "存储目录"
+    mac.evaluate("() => whiteboard.ui.closeSheet()")
+
+    mac.click('button[title="关于"]')
+    about = mac.locator(".dialog.about")
+    about.wait_for(timeout=3000)
+    assert "白板" in about.inner_text()
+    assert "0.9.4" in about.inner_text()
+    assert about.locator("button:has-text('检查更新')").count() == 1
+    assert about.locator("button:has-text('更新日志')").count() == 1
+    mac.close()
+    ipad.close()
+
+
 def test_check_update_button_says_what_happened(browser, server):
     """点「检查更新」必须给出人话，而不是一个没头没尾的对勾。"""
     mac, ipad = open_pages(browser, server.port)
@@ -632,7 +662,8 @@ def test_check_update_button_says_what_happened(browser, server):
             }""",
             [result],
         )
-        mac.evaluate("() => { whiteboard.ui.closeSheet(); whiteboard.ui.openSettings(); }")
+        mac.evaluate("() => { document.querySelectorAll('.scrim').forEach(n => n.remove());"
+                     "whiteboard.ui.openAbout(); }")
         mac.click("button:has-text('检查更新')")
         note = mac.locator(".check-note")
         note.wait_for()
@@ -659,7 +690,8 @@ def test_check_update_button_says_what_happened(browser, server):
         }""",
         [UPDATE_NOTES],
     )
-    mac.evaluate("() => { whiteboard.ui.closeSheet(); whiteboard.ui.openSettings(); }")
+    mac.evaluate("() => { document.querySelectorAll('.scrim').forEach(n => n.remove());"
+                 "whiteboard.ui.openAbout(); }")
     mac.click("button:has-text('检查更新')")
     mac.locator(".update-dialog").wait_for(timeout=3000)
     assert "1.0.0" in mac.locator(".update-dialog").inner_text()

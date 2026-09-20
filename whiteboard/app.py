@@ -49,6 +49,7 @@ class NativeApi:
             "urls": netinfo.candidate_urls(self.server.port),
             "data_dir": str(self.config.data_dir),
             "log": str(resources.log_path()),
+            "releases": f"https://github.com/{updater.REPO}/releases",
         }
 
     # ------------------------------------------------------------------ 更新
@@ -262,6 +263,22 @@ class NativeApi:
                 subprocess.run(["xdg-open", str(path)], check=False)
         except OSError as exc:
             log.warning("打开目录失败：%s", exc)
+            return False
+        return True
+
+    def open_log(self) -> bool:
+        """在访达里选中日志文件，方便直接拖去看。"""
+        path = resources.log_path()
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        try:
+            if sys.platform == "darwin":
+                subprocess.run(["open", "-R", str(path)], check=False)
+            else:
+                subprocess.run(["xdg-open", str(path.parent)], check=False)
+        except OSError as exc:
+            log.warning("打开日志失败：%s", exc)
             return False
         return True
 

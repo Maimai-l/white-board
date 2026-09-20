@@ -697,6 +697,12 @@ class App {
     this.saveView();
   }
 
+  actionsOpenUrl(url) {
+    const api = nativeApi();
+    if (api && api.open_external) api.open_external(url);
+    else window.open(url, "_blank");
+  }
+
   // ------------------------------------------------------------ 界面动作
 
   actions() {
@@ -775,6 +781,14 @@ class App {
         const api = nativeApi();
         if (!api || !api.choose_data_dir) return null;
         return api.choose_data_dir();
+      },
+      onOpenReleases: () => {
+        const info = this.ui.info || {};
+        this.actionsOpenUrl(info.releases || "https://github.com/Maimai-l/white-board/releases");
+      },
+      onOpenLog: () => {
+        const api = nativeApi();
+        if (api && api.open_log) api.open_log();
       },
       onOpenDir: () => {
         const api = nativeApi();
