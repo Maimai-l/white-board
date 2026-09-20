@@ -174,7 +174,8 @@ export class UI {
       note.textContent = message || "";
       button.removeAttribute("disabled");
     });
-    return el("div", { class: "row about-update" }, [button, note]);
+    // 结果放在按钮上方，并且始终占着一行高度：按钮不会因为出结果而被顶着移动。
+    return el("div", { class: "row about-update" }, [note, button]);
   }
 
   /** 连点三下状态圆点：在真机上打开 / 关掉诊断面板。 */
@@ -387,6 +388,14 @@ export class UI {
     };
     render(state);
 
+    /** 下载 / 校验失败时把服务端给的具体原因显示出来，而不是一句「失败」。 */
+    const failure = async (fallback) => {
+      if (!actions.poll) return fallback;
+      const current = await actions.poll();
+      const reason = current && current.error;
+      return reason ? `${reason}，这次先不更新。` : fallback;
+    };
+
     skip.addEventListener("click", async () => {
       await actions.skip();
       this.closeUpdateDialog();
@@ -397,7 +406,7 @@ export class UI {
       if (!this.updateStaged) {
         progress.style.display = "";
         if (!(await actions.download())) {
-          subtitle.textContent = "下载失败了，稍后再试。";
+          subtitle.textContent = await failure("下载失败了，稍后再试。");
           later.removeAttribute("disabled");
           now.removeAttribute("disabled");
           return;
@@ -416,7 +425,7 @@ export class UI {
         progress.style.display = "";
         const downloaded = await actions.download();
         if (!downloaded) {
-          subtitle.textContent = "下载失败了，稍后再试。";
+          subtitle.textContent = await failure("下载失败了，稍后再试。");
           now.removeAttribute("disabled");
           later.removeAttribute("disabled");
           return;

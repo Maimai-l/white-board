@@ -16,7 +16,9 @@ import platform
 import re
 import shutil
 import ssl
+import stat
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.parse
@@ -200,18 +202,58 @@ def download(url: str, into: Path, timeout: float = 60.0, on_progress=None) -> O
     return target
 
 
+def _safe_members(archive: zipfile.ZipFile, into: Path) -> bool:
+    """检查压缩包里没有越界路径。"""
+    root = into.resolve()
+    for member in archive.namelist():
+        destination = (into / member).resolve()
+        if destination != root and root not in destination.parents:
+            log.error("更新包里有越界路径：%s", member)
+            return False
+    return True
+
+
+def _extract(archive: zipfile.ZipFile, into: Path) -> bool:
+    """自己解压：``ZipFile.extractall`` 会丢掉权限位和符号链接。
+
+    .app 里两样都有（``Contents/MacOS`` 下的可执行文件、Frameworks 里的
+    ``Versions/Current`` 之类），丢了之后 macOS 会直接拒绝打开，
+    报「应用程序“…”无法打开」。
+    """
+    root = into.resolve()
+    for info in archive.infolist():
+        target = into / info.filename
+        mode = info.external_attr >> 16
+        if stat.S_ISLNK(mode):
+            link = archive.read(info).decode("utf-8", "replace")
+            resolved = (target.parent / link).resolve()
+            if os.path.isabs(link) or (resolved != root and root not in resolved.parents):
+                log.error("更新包里的符号链接指向包外：%s -> %s", info.filename, link)
+                return False
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.is_symlink() or target.exists():
+                target.unlink()
+            os.symlink(link, target)
+            continue
+        extracted = Path(archive.extract(info, into))
+        if extracted.is_file() and mode & 0o111:
+            extracted.chmod(extracted.stat().st_mode | 0o111)
+    return True
+
+
 def unpack(zip_path: Path, into: Path) -> Optional[Path]:
     """解压并返回里面的 .app 路径。"""
     into.mkdir(parents=True, exist_ok=True)
     try:
         with zipfile.ZipFile(zip_path) as archive:
-            for member in archive.namelist():
-                # 防目录穿越
-                destination = (into / member).resolve()
-                if not str(destination).startswith(str(into.resolve())):
-                    log.error("更新包里有越界路径：%s", member)
-                    return None
-            archive.extractall(into)
+            if not _safe_members(archive, into):
+                return None
+            # macOS 上优先用 ditto：权限、符号链接、扩展属性和代码签名都保得住，
+            # 这也是 Sparkle / electron-updater 的做法。
+            if sys.platform == "darwin" and _ditto(zip_path, into):
+                pass
+            elif not _extract(archive, into):
+                return None
     except (zipfile.BadZipFile, OSError) as exc:
         log.error("解压更新失败：%s", exc)
         return None
@@ -222,6 +264,51 @@ def unpack(zip_path: Path, into: Path) -> Optional[Path]:
     return apps[0]
 
 
+def _ditto(zip_path: Path, into: Path) -> bool:
+    try:
+        result = subprocess.run(
+            ["/usr/bin/ditto", "-x", "-k", str(zip_path), str(into)],
+            capture_output=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("ditto 解压失败，改用内置解压：%s", exc)
+        return False
+    if result.returncode != 0:
+        log.warning("ditto 解压失败（%s），改用内置解压", result.returncode)
+        return False
+    return True
+
+
+def verify_bundle(app: Path) -> Optional[str]:
+    """检查解出来的 .app 能不能用；能用返回 None，不能用返回原因。
+
+    宁可在这里挡下来，也不要把一个打不开的 .app 换到用户的应用程序里。
+    """
+    if not (app / "Contents" / "Info.plist").is_file():
+        return "缺少 Info.plist"
+    macos = app / "Contents" / "MacOS"
+    if not macos.is_dir():
+        return "缺少 Contents/MacOS"
+    if not any(entry.is_file() and os.access(entry, os.X_OK) for entry in macos.iterdir()):
+        return "可执行文件没有执行权限"
+    if sys.platform != "darwin":
+        return None
+    try:
+        result = subprocess.run(
+            ["/usr/bin/codesign", "--verify", "--strict", str(app)],
+            capture_output=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("没法校验代码签名：%s", exc)
+        return None
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", "replace").strip().splitlines()
+        return "代码签名校验不通过：" + (detail[-1] if detail else "未知原因")
+    return None
+
+
 SWAP_SCRIPT = """#!/bin/sh
 pid="$1"; staged="$2"; target="$3"; relaunch="$4"
 i=0
@@ -229,7 +316,8 @@ while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 240 ]; do sleep 0.5; i=$((i+1)); 
 backup="$target.old"
 rm -rf "$backup"
 mv "$target" "$backup" 2>/dev/null
-if ditto "$staged" "$target"; then
+# 换完再验一次签名：验不过就把旧版本原样放回去，宁可没更新也不要留个打不开的
+if ditto "$staged" "$target" && /usr/bin/codesign --verify --strict "$target"; then
   rm -rf "$backup"
 else
   rm -rf "$target"

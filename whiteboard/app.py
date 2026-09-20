@@ -37,6 +37,7 @@ class NativeApi:
         self.downloading = False
         self.install_on_quit = False
         self.progress = 0.0
+        self.stage_error: Optional[str] = None
 
     # ------------------------------------------------------------------ 信息
 
@@ -87,13 +88,22 @@ class NativeApi:
             return self.staged_app is not None
         self.downloading = True
         self.progress = 0.0
+        self.stage_error = None
         workdir = Path(tempfile.mkdtemp(prefix="whiteboard-update-"))
         try:
             archive = updater.download(info["url"], workdir, on_progress=self._on_progress)
             if archive is None:
+                self.stage_error = "下载失败"
                 return False
             staged = updater.unpack(archive, workdir / "unpacked")
             if staged is None:
+                self.stage_error = "更新包解不开"
+                return False
+            # 解出来先验一遍：宁可这次不更新，也不要换上一个打不开的 .app
+            problem = updater.verify_bundle(staged)
+            if problem is not None:
+                log.error("更新包不可用：%s", problem)
+                self.stage_error = problem
                 return False
             self.staged_app = staged
             self.progress = 1.0
@@ -119,6 +129,7 @@ class NativeApi:
             "downloading": self.downloading,
             "progress": round(self.progress, 3),
             "onQuit": self.install_on_quit,
+            "error": self.stage_error,
         }
 
     def pending_update(self) -> Optional[Dict[str, Any]]:

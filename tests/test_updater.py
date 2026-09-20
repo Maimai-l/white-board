@@ -1,9 +1,26 @@
 """应用内更新：版本比较、选包、解包与安全检查。"""
 
+import os
+import stat
 import time
 import zipfile
 
 from whiteboard import updater
+
+
+def app_zip(path, *, link_to="A", executable=True):
+    """造一个像 .app 的压缩包：带符号链接，二进制有执行权限。"""
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("Whiteboard.app/Contents/Info.plist", "<plist/>")
+        binary = zipfile.ZipInfo("Whiteboard.app/Contents/MacOS/Whiteboard")
+        binary.create_system = 3  # Unix，外部属性里才有权限位
+        binary.external_attr = (0o100755 if executable else 0o100644) << 16
+        archive.writestr(binary, "#!/bin/sh\nexit 0\n")
+        link = zipfile.ZipInfo("Whiteboard.app/Contents/Frameworks/Current")
+        link.create_system = 3
+        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+        archive.writestr(link, link_to)
+    return path
 
 
 def release(tag="v2.0.0", names=("Whiteboard-2.0.0-macos-arm64.zip",), host="github.com", **extra):
@@ -119,6 +136,34 @@ def test_unpack_rejects_paths_outside_the_target(tmp_path):
         archive.writestr(zipfile.ZipInfo("../escaped.txt"), "nope")
     assert updater.unpack(staged, tmp_path / "out") is None
     assert not (tmp_path / "escaped.txt").exists()
+
+
+def test_unpack_keeps_permissions_and_symlinks(tmp_path):
+    """extractall 会丢执行权限和符号链接，丢了 macOS 就打不开这个 .app。"""
+    app = updater.unpack(app_zip(tmp_path / "pkg.zip"), tmp_path / "out")
+    assert app is not None
+    binary = app / "Contents" / "MacOS" / "Whiteboard"
+    assert os.access(binary, os.X_OK)
+    link = app / "Contents" / "Frameworks" / "Current"
+    assert link.is_symlink() and os.readlink(link) == "A"
+
+
+def test_unpack_rejects_symlink_pointing_outside(tmp_path):
+    bad = app_zip(tmp_path / "bad.zip", link_to="../../../../etc/passwd")
+    assert updater.unpack(bad, tmp_path / "out") is None
+
+
+def test_verify_bundle_accepts_a_normal_app(tmp_path):
+    app = updater.unpack(app_zip(tmp_path / "pkg.zip"), tmp_path / "out")
+    assert updater.verify_bundle(app) is None
+
+
+def test_verify_bundle_rejects_a_broken_app(tmp_path):
+    app = updater.unpack(app_zip(tmp_path / "pkg.zip", executable=False), tmp_path / "out")
+    assert "执行权限" in updater.verify_bundle(app)
+
+    (app / "Contents" / "Info.plist").unlink()
+    assert "Info.plist" in updater.verify_bundle(app)
 
 
 def test_unpack_handles_broken_archive(tmp_path):
