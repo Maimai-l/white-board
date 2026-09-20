@@ -235,6 +235,20 @@ class Hub:
         if self._autosave_task is None:
             self._autosave_task = asyncio.create_task(self._autosave_loop())
 
+    async def close_clients(self) -> None:
+        """关服务前先把连接断干净。
+
+        不主动关的话，aiohttp 会一直等这些长连接的处理协程结束，
+        关窗口时就要干等十几秒。
+        """
+        clients = list(self.clients.values())
+        self.clients.clear()
+        for client in clients:
+            try:
+                await client.ws.close(code=1001, message=b"shutdown")
+            except (ConnectionResetError, RuntimeError, OSError) as exc:
+                log.debug("关闭连接 %s 失败：%s", client.id, exc)
+
     async def stop(self) -> None:
         if self._autosave_task is not None:
             self._autosave_task.cancel()

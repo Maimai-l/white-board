@@ -342,9 +342,14 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     async def _on_startup(_app: web.Application) -> None:
         _app[HUB_KEY].start_autosave()
 
+    async def _on_shutdown(_app: web.Application) -> None:
+        # 必须在等待处理协程之前断开长连接，否则关服务要干等到超时
+        await _app[HUB_KEY].close_clients()
+
     async def _on_cleanup(_app: web.Application) -> None:
         await _app[HUB_KEY].stop()
 
     app.on_startup.append(_on_startup)
+    app.on_shutdown.append(_on_shutdown)
     app.on_cleanup.append(_on_cleanup)
     return app

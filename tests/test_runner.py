@@ -79,3 +79,39 @@ def test_mdns_default_is_off_on_macos(monkeypatch):
     assert netinfo.mdns_default() is False
     monkeypatch.setattr(netinfo.sys, "platform", "linux")
     assert netinfo.mdns_default() is True
+
+
+def test_shutdown_is_quick_even_with_a_live_websocket(tmp_path):
+    """关窗口时不能干等：服务必须先把长连接断掉再收摊。"""
+    import asyncio
+    import threading
+
+    import aiohttp
+
+    server = ServerThread(make_config(tmp_path, 8479), advertise=False)
+    port = server.start()
+
+    connected = threading.Event()
+
+    def hold():
+        async def main():
+            async with aiohttp.ClientSession() as session:
+                async with session.ws_connect(f"http://127.0.0.1:{port}/ws") as ws:
+                    await ws.send_json({"t": "hello", "role": "ipad", "client": "ipad-hold"})
+                    await ws.receive_json()
+                    connected.set()
+                    await asyncio.sleep(60)
+
+        try:
+            asyncio.run(main())
+        except Exception:  # noqa: BLE001 - 连接被服务端关掉是预期结果
+            pass
+
+    threading.Thread(target=hold, daemon=True).start()
+    assert connected.wait(10), "测试用的连接没建立起来"
+
+    started = time.monotonic()
+    server.save_now()
+    server.stop()
+    elapsed = time.monotonic() - started
+    assert elapsed < 3, f"关闭耗时 {elapsed:.1f}s，长连接又把关服务拖住了"

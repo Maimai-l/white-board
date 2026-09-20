@@ -67,7 +67,8 @@ class ServerThread:
 
     async def _serve(self) -> None:
         self.app = create_app(self.config, self.store)
-        self._runner = web.AppRunner(self.app)
+        # 兜底：万一还有连接没断干净，也不要让关闭卡在默认的 60 秒上
+        self._runner = web.AppRunner(self.app, shutdown_timeout=2.0)
         await self._runner.setup()
 
         last_error: Optional[OSError] = None
@@ -115,7 +116,7 @@ class ServerThread:
             await self._runner.cleanup()  # 触发 on_cleanup：保存所有白板
             self._runner = None
 
-    def stop(self, timeout: float = 10.0) -> None:
+    def stop(self, timeout: float = 8.0) -> None:
         loop = self._loop
         if loop is None:
             return
