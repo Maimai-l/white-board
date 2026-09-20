@@ -164,6 +164,18 @@ class App {
     this.net.connect();
   }
 
+  /** 版本号这类只有本地进程知道的信息，取回来给设置界面用。 */
+  async refreshNativeInfo() {
+    const api = nativeApi();
+    if (!api || !api.info) return;
+    try {
+      const native = await api.info();
+      this.ui.setInfo({ ...(this.ui.info || {}), ...native });
+    } catch (err) {
+      /* 取不到就不显示版本号 */
+    }
+  }
+
   /** 打包成 .app 时，启动后台检查的结果会在这里被取走并提示。 */
   watchUpdates() {
     const poll = async () => {
@@ -177,9 +189,11 @@ class App {
       }
     };
     addEventListener("pywebviewready", () => {
+      this.refreshNativeInfo();
       setTimeout(poll, 2500);
       setTimeout(poll, 60000);
     });
+    setTimeout(() => this.refreshNativeInfo(), 1200);
     setTimeout(poll, 4000);
   }
 
@@ -688,6 +702,11 @@ class App {
       onCheckUpdate: async () => {
         const api = nativeApi();
         if (!api || !api.check_update_now) return;
+        const native = this.ui.info || {};
+        if (native.packaged === false) {
+          this.ui.showNotice("source-update", "这是从源码运行的版本，更新请用 git pull。", "refresh");
+          return;
+        }
         const info = await api.check_update_now();
         if (info) this.offerUpdate(info);
         else this.ui.toast("check");

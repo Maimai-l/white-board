@@ -363,6 +363,13 @@ html, body {
   pointer-events: none;
 }
 
+/* 设置里的版本号 */
+.version {
+  font: 600 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--on-surface-variant);
+  padding-left: 8px;
+}
+
 .toast {
   position: absolute;
   left: 50%; bottom: calc(84px + env(safe-area-inset-bottom));

@@ -480,6 +480,7 @@ export class UI {
     const groups = [el("div", { class: "group" }, [this.backgroundOptions()])];
     // 选择 / 打开存储目录要调用本地文件对话框，只有 pywebview 窗口里才有。
     if (this.actions.isNative()) {
+      const version = this.info && this.info.version ? `v${this.info.version}` : "";
       groups.push(
         el("div", { class: "group" }, [
           el("div", { class: "row" }, [
@@ -488,6 +489,9 @@ export class UI {
               if (dir) this.toast("check");
             }),
             iconButton("folderOpen", "打开存储目录", () => this.actions.onOpenDir()),
+          ]),
+          el("div", { class: "row" }, [
+            el("span", { class: "version", text: version }),
             iconButton("refresh", "检查更新", () => this.actions.onCheckUpdate()),
           ]),
         ])

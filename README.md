@@ -130,7 +130,8 @@ Mac 端点右上角第一个图标进入**白板选择界面**：满屏缩略图
 
 - 默认目录：`~/Library/Application Support/Whiteboard/boards-data`，可在 GUI 里改。
 - 每块白板一个 `boards/<id>.wbz`：**矢量笔画**（不是图片）先做量化 + 增量 + varint 编码，
-  再整体 zlib 压缩；一条 500 点的笔画通常不到 2 KB。
+  再整体 zlib 压缩；一条 500 点的笔画通常不到 2 KB。格式细节见
+  [docs/format.md](docs/format.md)。
 - `index.json` 保存白板列表，删掉也能从 `.wbz` 文件重建。
 - `thumbs/<id>.png` 只是 Mac 端选白板用的缩略图。
 - 服务端每 3 秒自动保存一次改动，关窗口 / Ctrl+C 退出前会再存一次。
@@ -189,7 +190,7 @@ whiteboard/
     static/js/  stroke 几何、渲染、输入、网络、缓存、界面
 ```
 
-协议细节见 [docs/protocol.md](docs/protocol.md)。
+协议细节见 [docs/protocol.md](docs/protocol.md)，存档格式见 [docs/format.md](docs/format.md)。
 
 ```bash
 python -m pytest tests -q                          # 全部测试

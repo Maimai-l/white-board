@@ -15,15 +15,10 @@ permissions:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14
-            arch: arm64
-          - runner: macos-13
-            arch: x86_64
-    runs-on: ${{ matrix.runner }}
+    # 只出 Apple 芯片的包；要 Intel 版的话加一条 macos-13 / x86_64 的矩阵项即可
+    runs-on: macos-14
+    env:
+      ARCH: arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -73,11 +68,11 @@ jobs:
       - name: 压缩
         run: |
           ditto -c -k --keepParent dist/Whiteboard.app \
-            "Whiteboard-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}.zip"
+            "Whiteboard-${{ steps.version.outputs.value }}-macos-${{ env.ARCH }}.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Whiteboard-macos-${{ matrix.arch }}
+          name: Whiteboard-macos-${{ env.ARCH }}
           path: Whiteboard-*.zip
           if-no-files-found: error
 

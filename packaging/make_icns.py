@@ -35,7 +35,7 @@ def main(argv: list[str]) -> int:
         cache: dict[int, bytes] = {}
         for name, size in ENTRIES:
             if size not in cache:
-                cache[size] = icon_png(size)
+                cache[size] = icon_png(size, mac=True)
             (iconset / name).write_bytes(cache[size])
         try:
             result = subprocess.run(
