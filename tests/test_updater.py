@@ -1,5 +1,6 @@
 """应用内更新：版本比较、选包、解包与安全检查。"""
 
+import time
 import zipfile
 
 from whiteboard import updater
@@ -140,3 +141,93 @@ def test_swap_needs_both_sides(tmp_path):
 
 def test_download_rejects_bad_url(tmp_path):
     assert updater.download("http://evil.example.com/a.zip", tmp_path) is None
+
+
+class _FakeServer:
+    def __init__(self):
+        self.saved = False
+
+    def save_now(self):
+        self.saved = True
+
+
+def make_api(tmp_path, monkeypatch, *, auto=False, frozen=True):
+    """造一个不碰 pywebview 的 NativeApi。"""
+    from whiteboard import app as app_module
+    from whiteboard import resources
+    from whiteboard.config import Config
+
+    config = Config(path=tmp_path / "config.json")
+    config.data_dir = tmp_path / "data"
+    config.auto_update = auto
+    monkeypatch.setattr(resources, "is_frozen", lambda: frozen)
+    monkeypatch.setattr(app_module.resources, "is_frozen", lambda: frozen)
+    return app_module.NativeApi(config, _FakeServer())
+
+
+def test_manual_check_never_downloads(tmp_path, monkeypatch):
+    """点「检查更新」只该拿版本信息，不能偷偷开始下载。"""
+    from whiteboard import app as app_module
+
+    staged = []
+    monkeypatch.setattr(
+        app_module.updater,
+        "check",
+        lambda: {"status": "update", "version": "9.9.9", "url": "https://github.com/a.zip",
+                 "name": "a-arm64.zip", "notes": ""},
+    )
+    api = make_api(tmp_path, monkeypatch, auto=True)
+    monkeypatch.setattr(api, "_stage_update", lambda: staged.append(True))
+
+    result = api.check_update_now()
+    assert result["status"] == "update"
+    assert staged == [], "手动检查不该触发下载"
+
+
+def test_automatic_check_downloads_only_when_opted_in(tmp_path, monkeypatch):
+    from whiteboard import app as app_module
+
+    monkeypatch.setattr(
+        app_module.updater,
+        "check",
+        lambda: {"status": "update", "version": "9.9.9", "url": "https://github.com/a.zip",
+                 "name": "a-arm64.zip", "notes": ""},
+    )
+    for auto, expected in ((False, 0), (True, 1)):
+        api = make_api(tmp_path, monkeypatch, auto=auto)
+        staged = []
+        monkeypatch.setattr(api, "_stage_update", lambda: staged.append(True))
+        api._check_update(force=False)
+        # 自动下载是在后台线程里跑的，给它一点时间
+        for _ in range(50):
+            if len(staged) >= expected:
+                break
+            time.sleep(0.01)
+        assert len(staged) == expected
+
+
+def test_install_requires_a_staged_package(tmp_path, monkeypatch):
+    """安装只负责替换，不在这一步下载——否则界面没法显示进度。"""
+    api = make_api(tmp_path, monkeypatch)
+    api.update_info = {"status": "update", "version": "9.9.9", "url": "https://github.com/a.zip"}
+    assert api.install_update("now") is False
+    assert api.install_update("quit") is False
+    assert api.install_on_quit is False
+
+
+def test_install_on_quit_only_flags_it(tmp_path, monkeypatch):
+    from whiteboard import app as app_module
+
+    api = make_api(tmp_path, monkeypatch)
+    api.staged_app = tmp_path / "Whiteboard.app"
+    api.staged_app.mkdir()
+    monkeypatch.setattr(app_module.resources, "app_bundle", lambda: tmp_path / "current.app")
+    swaps = []
+    monkeypatch.setattr(app_module.updater, "swap_and_restart", lambda *a, **k: swaps.append(a))
+
+    assert api.install_update("quit") is True
+    assert api.install_on_quit is True
+    assert swaps == [], "退出时安装不该当场替换"
+
+    api.finish_pending_install()
+    assert len(swaps) == 1

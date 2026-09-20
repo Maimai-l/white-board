@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -55,7 +56,7 @@ class NativeApi:
     # ------------------------------------------------------------------ 更新
 
     def start_update_check(self) -> None:
-        """启动后在后台查一次；开了自动下载就顺手把包下好，等用户决定装不装。"""
+        """启动后在后台查一次。只有明确开了自动下载才会顺手把包下好。"""
         if not resources.is_frozen():
             return
         threading.Thread(target=self._check_update, name="whiteboard-update", daemon=True).start()
@@ -74,8 +75,9 @@ class NativeApi:
             return {"status": "skipped", "version": result["version"]}
         log.info("发现新版本 %s", result["version"])
         self.update_info = result
-        if self.config.auto_update:
-            self._stage_update()
+        # 手动检查只回报结果；自动下载是用户明确打开的开关，才会在后台拉包。
+        if self.config.auto_update and not force:
+            threading.Thread(target=self._stage_update, daemon=True).start()
         return result
 
     def _stage_update(self) -> bool:
@@ -150,25 +152,40 @@ class NativeApi:
         return self._stage_update()
 
     def install_update(self, mode: str = "now") -> bool:
-        """``mode`` 为 ``now`` 立刻装并重启，``quit`` 则等退出应用时再装。"""
-        if self.updating:
-            return False
-        if self.staged_app is None and not self._stage_update():
+        """安装已经下好的更新。``mode`` 为 ``now`` 立刻重启，``quit`` 等退出时再装。
+
+        不在这里下载：界面先调 download_update，这样进度条才有意义。
+        """
+        if self.updating or self.staged_app is None:
             return False
         bundle = resources.app_bundle()
-        if bundle is None or self.staged_app is None:
+        if bundle is None:
             return False
         if mode == "quit":
             self.install_on_quit = True
             log.info("退出时安装更新")
             return True
+
         self.updating = True
+        self._save_before_exit()
         if not updater.swap_and_restart(self.staged_app, bundle, relaunch=True):
             self.updating = False
             return False
+
+        # 替换脚本在等我们的进程消失，所以这里直接退干净。
+        #
+        # 不能走 window.destroy()：JS 接口的调用跑在自己的线程里，销毁窗口之后
+        # 它还要 evaluate_js 把返回值送回页面，窗口没了就卡在那儿；而且这些线程
+        # 不是守护线程，进程也退不掉。延迟一点点是为了让这次调用先返回给界面。
         log.info("更新已就绪，正在退出以完成替换")
-        self._quit()
+        threading.Timer(0.3, lambda: os._exit(0)).start()
         return True
+
+    def _save_before_exit(self) -> None:
+        try:
+            self.server.save_now()
+        except (RuntimeError, TimeoutError) as exc:
+            log.warning("退出前保存失败：%s", exc)
 
     def finish_pending_install(self) -> None:
         """窗口关闭时调用：装上之前下好的更新，但不再把应用打开。"""
@@ -182,10 +199,7 @@ class NativeApi:
         log.info("退出后将完成更新替换")
 
     def _quit(self) -> None:
-        try:
-            self.server.save_now()
-        except (RuntimeError, TimeoutError):
-            pass
+        self._save_before_exit()
         if self.window is not None:
             self.window.destroy()
 

@@ -204,6 +204,7 @@ class App {
     const state = (await api.update_state()) || { info };
     this.ui.showUpdateDialog(state, {
       poll: () => api.update_state(),
+      download: () => api.download_update(),
       setAuto: (enabled) => api.set_auto_update(enabled),
       skip: () => api.skip_update(),
       installOnQuit: () => api.install_update("quit"),

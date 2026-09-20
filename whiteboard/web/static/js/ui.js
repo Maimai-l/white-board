@@ -361,6 +361,7 @@ export class UI {
 
     const render = (current) => {
       const staged = !!current.staged;
+      this.updateStaged = staged;
       const downloading = !!current.downloading;
       subtitle.textContent = staged
         ? `白板 ${version} 已下载完毕并可以使用。要立刻安装并重启白板吗？`
@@ -370,8 +371,6 @@ export class UI {
       progress.style.display = downloading || (current.progress > 0 && !staged) ? "" : "none";
       bar.style.width = `${Math.round((current.progress || 0) * 100)}%`;
       now.textContent = staged ? "安装并重启应用" : "下载并安装";
-      now.toggleAttribute("disabled", downloading);
-      later.toggleAttribute("disabled", downloading);
     };
     render(state);
 
@@ -381,16 +380,41 @@ export class UI {
     });
     later.addEventListener("click", async () => {
       later.setAttribute("disabled", "");
+      now.setAttribute("disabled", "");
+      if (!this.updateStaged) {
+        progress.style.display = "";
+        if (!(await actions.download())) {
+          subtitle.textContent = "下载失败了，稍后再试。";
+          later.removeAttribute("disabled");
+          now.removeAttribute("disabled");
+          return;
+        }
+      }
       const ok = await actions.installOnQuit();
       this.closeUpdateDialog();
       this.toast(ok ? "check" : "close");
     });
     now.addEventListener("click", async () => {
       now.setAttribute("disabled", "");
+      later.setAttribute("disabled", "");
+      // 先下载再安装：两步分开，进度条才有东西可显示
+      if (!this.updateStaged) {
+        subtitle.textContent = `正在下载白板 ${version}…`;
+        progress.style.display = "";
+        const downloaded = await actions.download();
+        if (!downloaded) {
+          subtitle.textContent = "下载失败了，稍后再试。";
+          now.removeAttribute("disabled");
+          later.removeAttribute("disabled");
+          return;
+        }
+      }
+      subtitle.textContent = "正在安装，应用会重新打开…";
       const ok = await actions.installNow();
       if (!ok) {
-        subtitle.textContent = "更新失败了，稍后再试。";
+        subtitle.textContent = "安装失败了，稍后再试。";
         now.removeAttribute("disabled");
+        later.removeAttribute("disabled");
       }
     });
 

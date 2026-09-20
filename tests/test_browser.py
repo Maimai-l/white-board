@@ -543,6 +543,7 @@ UPDATE_STUB = """
     pending_update: async () => ({ version: '1.2.0', notes }),
     set_auto_update: async (value) => { window.__calls.push(['auto', value]); return value; },
     skip_update: async () => { window.__calls.push(['skip']); return true; },
+    download_update: async () => { window.__calls.push(['download']); return true; },
     install_update: async (mode) => { window.__calls.push(['install', mode]); return true; },
     check_update_now: async () => ({ version: '1.2.0', notes }),
   }};
@@ -586,6 +587,18 @@ def test_update_dialog_offers_install_skip_and_later(browser, server):
     ipad.close()
 
 
+def test_update_downloads_before_installing_when_not_staged(browser, server):
+    """没下好就点安装：先下载再装，两步分开，进度条才有意义。"""
+    mac, ipad = open_pages(browser, server.port)
+    open_update_dialog(mac, staged=False)
+    mac.click("button:has-text('下载并安装')")
+    mac.wait_for_function("() => window.__calls.some(c => c[0] === 'install')", timeout=3000)
+    calls = mac.evaluate("() => window.__calls.map(c => c.join(':'))")
+    assert calls.index("download") < calls.index("install:now"), "应当先下载再安装"
+    mac.close()
+    ipad.close()
+
+
 def test_update_dialog_shows_progress_while_downloading(browser, server):
     mac, ipad = open_pages(browser, server.port)
     open_update_dialog(mac, staged=False)
@@ -593,7 +606,9 @@ def test_update_dialog_shows_progress_while_downloading(browser, server):
     assert "正在下载" in dialog.inner_text()
     width = mac.evaluate("() => document.querySelector('.update-progress i').style.width")
     assert width == "40%"
-    assert mac.locator("button:has-text('下载并安装')").is_disabled()
+    assert "40%" == mac.evaluate(
+        "() => document.querySelector('.update-progress i').style.width"
+    )
     mac.close()
     ipad.close()
 
