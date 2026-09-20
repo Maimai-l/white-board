@@ -16,6 +16,16 @@ export const WIDTHS = [1.5, 3, 5, 8, 13];
 export const ERASER_SIZES = [16, 28, 44, 66, 96];
 
 const TOOL_KEY = "whiteboard.tool";
+const DOCK_KEY = "whiteboard.toolbar";
+
+/** 工具栏停在上边还是下边；记在本机，换设备互不影响。 */
+function loadDock() {
+  try {
+    return localStorage.getItem(DOCK_KEY) === "top" ? "top" : "bottom";
+  } catch (err) {
+    return "bottom";
+  }
+}
 
 function loadTool() {
   const fallback = { tool: "pen", color: COLORS[0], widthIndex: 1 };
@@ -54,6 +64,7 @@ export class UI {
     this.info = null;
     this.popover = null;
     this.sheet = null;
+    this.dock = loadDock();
     this.build();
   }
 
@@ -89,7 +100,9 @@ export class UI {
       this.fingerDraw = loadFingerDraw();
       this.fingerButton = iconButton("hand", "手指书写", () => this.toggleFingerDraw());
       this.fingerButton.classList.toggle("active", this.fingerDraw);
-      toolbar.append(this.fingerButton, el("div", { class: "sep" }));
+      // 手拿着 iPad 写字时底部这条够不着，让它能挪到上边去。
+      this.dockButton = iconButton("dockTop", "工具栏换个位置", () => this.toggleDock());
+      toolbar.append(this.fingerButton, this.dockButton, el("div", { class: "sep" }));
     }
 
     this.colorButton = el("button", {
@@ -125,6 +138,27 @@ export class UI {
 
     this.colorDot.style.background = this.tool.color;
     this.selectTool(this.tool.tool);
+    this.applyDock(this.dock);
+  }
+
+  /** 工具栏靠上还是靠下。提示条和 toast 的位置跟着让开。 */
+  applyDock(dock) {
+    this.dock = dock === "top" ? "top" : "bottom";
+    document.documentElement.dataset.toolbar = this.dock;
+    if (this.dockButton) {
+      // 图标指向「点了会去哪边」，不用文字也看得懂
+      this.dockButton.innerHTML = icon(this.dock === "top" ? "dockBottom" : "dockTop");
+    }
+  }
+
+  toggleDock() {
+    this.closePopover();
+    this.applyDock(this.dock === "top" ? "bottom" : "top");
+    try {
+      localStorage.setItem(DOCK_KEY, this.dock);
+    } catch (err) {
+      /* 记不住就下次还是默认位置 */
+    }
   }
 
   /** 关于：图标、名字、版本，以及更新相关的入口都收在这里。 */
@@ -246,7 +280,13 @@ export class UI {
     const rect = anchor.getBoundingClientRect();
     const width = popover.offsetWidth;
     popover.style.left = `${clamp(rect.left + rect.width / 2 - width / 2, 12, innerWidth - width - 12)}px`;
-    popover.style.top = `${Math.max(12, rect.top - popover.offsetHeight - 12)}px`;
+    // 工具栏在上边时锚点上方没地方，翻到下面开
+    const above = rect.top - popover.offsetHeight - 12;
+    const below = rect.bottom + 12;
+    popover.style.top =
+      above >= 12
+        ? `${above}px`
+        : `${clamp(below, 12, Math.max(12, innerHeight - popover.offsetHeight - 12))}px`;
     this.popover = popover;
     this._popoverCloser = (event) => {
       if (!popover.contains(event.target) && !anchor.contains(event.target)) this.closePopover();

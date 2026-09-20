@@ -46,6 +46,11 @@ export const ICONS = {
     path("M7 3.6h6.6L18 8v12.4H7z") +
     path("M13.4 3.8V8H17.8") +
     path("M9.6 12.4h5.4M9.6 15.4h5.4M9.6 18.2h3"),
+  // 圆角条代表工具栏本身，箭头指向它要去的那一边
+  dockTop: `<rect x="3.6" y="3" width="16.8" height="4.6" rx="2.3"/>` +
+    path("M12 20.6v-9.2") + path("M8.8 14.6 12 11.4l3.2 3.2"),
+  dockBottom: `<rect x="3.6" y="16.4" width="16.8" height="4.6" rx="2.3"/>` +
+    path("M12 3.4v9.2") + path("M8.8 9.4 12 12.6l3.2-3.2"),
   info: `<circle cx="12" cy="12" r="8.6"/>` + path("M12 11.2v5") + path("M12 7.9h.01"),
   history: path("M4.2 12a7.8 7.8 0 1 0 2.4-5.6") + path("M4 5.8v4h4") + path("M12 8.2V12l2.8 1.8"),
   refresh: path("M19.4 12a7.4 7.4 0 1 1-2.2-5.3") + path("M19.8 4.7v4.3h-4.3"),

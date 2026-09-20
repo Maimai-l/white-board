@@ -891,3 +891,45 @@ def test_doc_board_export_merges_ink(browser, server, tmp_path):
     assert len(body) < path.stat().st_size + 4096
     mac.close()
     ipad.close()
+
+
+def test_ipad_toolbar_can_move_to_the_top(browser, server):
+    """底部那条够不着时可以挪到上边，并且记在本机。"""
+    _mac, ipad = open_pages(browser, server.port)
+
+    def dock():
+        return ipad.evaluate("() => document.documentElement.dataset.toolbar")
+
+    def toolbar_top():
+        return ipad.evaluate("() => document.getElementById('toolbar').getBoundingClientRect().top")
+
+    assert dock() == "bottom"
+    bottom_y = toolbar_top()
+
+    ipad.click('button[title="工具栏换个位置"]')
+    assert dock() == "top"
+    assert toolbar_top() < bottom_y / 2
+
+    # 提示条让开了，不会压在工具栏上
+    notice_top = ipad.evaluate(
+        "() => { const n = document.createElement('div'); n.className = 'notice';"
+        " document.getElementById('ui').append(n);"
+        " const t = n.getBoundingClientRect().top; n.remove(); return t; }"
+    )
+    assert notice_top > toolbar_top()
+
+    # 颜色面板改成往下开，不会跑到屏幕外面
+    ipad.click('button[title="颜色与粗细"]')
+    box = ipad.evaluate("() => { const p = document.querySelector('.popover');"
+                        " const r = p.getBoundingClientRect(); return [r.top, r.bottom]; }")
+    assert box[0] > toolbar_top()
+    assert box[1] <= ipad.evaluate("() => innerHeight")
+
+    ipad.reload()
+    ipad.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    assert dock() == "top"  # 换个位置之后记得住
+
+    ipad.click('button[title="工具栏换个位置"]')
+    assert dock() == "bottom"
+    _mac.close()
+    ipad.close()

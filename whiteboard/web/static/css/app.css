@@ -136,7 +136,7 @@ html, body {
 
 .pill .sep { width: 1px; height: 26px; margin: 0 4px; background: var(--outline); opacity: .5; flex: 0 0 auto; }
 
-/* 底部主工具条（iPad 与 Mac 共用） */
+/* 主工具条（iPad 与 Mac 共用），默认贴底，可以换到顶上 */
 #toolbar {
   position: absolute;
   left: 50%;
@@ -144,6 +144,13 @@ html, body {
   transform: translateX(-50%);
   max-width: calc(100vw - 24px);
 }
+:root[data-toolbar="top"] #toolbar {
+  top: calc(12px + env(safe-area-inset-top));
+  bottom: auto;
+}
+/* 工具条上去了，提示条和 toast 就得让开 */
+:root[data-toolbar="top"] .notice { top: calc(84px + env(safe-area-inset-top)); }
+:root[data-toolbar="top"] .toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
 
 /* Mac 端右上角功能簇与右下角缩放簇 */
 #topright {
