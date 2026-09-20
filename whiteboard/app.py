@@ -59,22 +59,23 @@ class NativeApi:
             return
         threading.Thread(target=self._check_update, name="whiteboard-update", daemon=True).start()
 
-    def _check_update(self, force: bool = False) -> Optional[Dict[str, Any]]:
+    def _check_update(self, force: bool = False) -> Dict[str, Any]:
+        """返回带 status 的结果，界面照原样显示，不再让用户面对一个没头没尾的对勾。"""
         try:
-            info = updater.check()
-        except Exception:  # noqa: BLE001 - 检查更新不能把程序带崩
+            result = updater.check()
+        except Exception as exc:  # noqa: BLE001 - 检查更新不能把程序带崩
             log.exception("检查更新出错")
-            return None
-        if not info:
-            return None
-        if not force and info["version"] == self.config.skip_version:
-            log.info("版本 %s 已被跳过", info["version"])
-            return None
-        log.info("发现新版本 %s", info["version"])
-        self.update_info = info
+            return {"status": "error", "message": str(exc)}
+        if result.get("status") != "update":
+            return result
+        if not force and result["version"] == self.config.skip_version:
+            log.info("版本 %s 已被跳过", result["version"])
+            return {"status": "skipped", "version": result["version"]}
+        log.info("发现新版本 %s", result["version"])
+        self.update_info = result
         if self.config.auto_update:
             self._stage_update()
-        return info
+        return result
 
     def _stage_update(self) -> bool:
         """把更新包下好、解开放着，之后「安装」就是一瞬间的事。"""
@@ -120,9 +121,9 @@ class NativeApi:
     def pending_update(self) -> Optional[Dict[str, Any]]:
         return self.update_info
 
-    def check_update_now(self) -> Optional[Dict[str, Any]]:
+    def check_update_now(self) -> Dict[str, Any]:
         if not resources.is_frozen():
-            return None
+            return {"status": "source", "version": __version__}
         return self._check_update(force=True)
 
     def set_auto_update(self, enabled: bool) -> bool:

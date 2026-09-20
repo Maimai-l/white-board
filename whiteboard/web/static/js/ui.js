@@ -126,6 +126,29 @@ export class UI {
     this.selectTool(this.tool.tool);
   }
 
+  /** 版本号 + 检查更新按钮，结果直接写在旁边。 */
+  updateRow(version) {
+    const note = el("span", { class: "check-note" });
+    const button = el("button", { class: "btn", text: "检查更新" });
+    button.addEventListener("click", async () => {
+      button.setAttribute("disabled", "");
+      note.textContent = "检查中…";
+      let message = "";
+      try {
+        message = await this.actions.onCheckUpdate();
+      } catch (err) {
+        message = "检查失败";
+      }
+      note.textContent = message || "";
+      button.removeAttribute("disabled");
+    });
+    return el("div", { class: "row" }, [
+      el("span", { class: "version", text: version }),
+      button,
+      note,
+    ]);
+  }
+
   /** 连点三下状态圆点：在真机上打开 / 关掉诊断面板。 */
   countStatusTaps() {
     const now = Date.now();
@@ -575,10 +598,7 @@ export class UI {
             }),
             iconButton("folderOpen", "打开存储目录", () => this.actions.onOpenDir()),
           ]),
-          el("div", { class: "row" }, [
-            el("span", { class: "version", text: version }),
-            iconButton("refresh", "检查更新", () => this.actions.onCheckUpdate()),
-          ]),
+          this.updateRow(version),
         ])
       );
     }

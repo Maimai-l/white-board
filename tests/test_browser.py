@@ -612,6 +612,61 @@ def test_release_notes_are_escaped(browser, server):
     mac.close()
 
 
+def test_check_update_button_says_what_happened(browser, server):
+    """点「检查更新」必须给出人话，而不是一个没头没尾的对勾。"""
+    mac, ipad = open_pages(browser, server.port)
+
+    cases = [
+        ({"status": "latest", "version": "0.9.3"}, "已是最新"),
+        ({"status": "error", "message": "连不上 GitHub"}, "检查失败：连不上 GitHub"),
+        ({"status": "source", "version": "1.0.0"}, "git pull"),
+        ({"status": "skipped", "version": "1.2.0"}, "已被跳过"),
+    ]
+    for result, expected in cases:
+        mac.evaluate(
+            """([result]) => {
+              window.pywebview = { api: {
+                info: async () => ({ native: true, version: '0.9.3', packaged: true }),
+                check_update_now: async () => result,
+              }};
+            }""",
+            [result],
+        )
+        mac.evaluate("() => { whiteboard.ui.closeSheet(); whiteboard.ui.openSettings(); }")
+        mac.click("button:has-text('检查更新')")
+        note = mac.locator(".check-note")
+        note.wait_for()
+        mac.wait_for_function(
+            "(text) => { const n = document.querySelector('.check-note');"
+            "return n && n.textContent.includes(text); }",
+            arg=expected,
+            timeout=3000,
+        )
+
+    # 查到新版本时直接弹出对话框
+    mac.evaluate(
+        """([notes]) => {
+          window.__calls = [];
+          window.pywebview = { api: {
+            info: async () => ({ native: true, version: '0.9.3', packaged: true }),
+            check_update_now: async () => ({ status: 'update', version: '1.0.0', notes }),
+            update_state: async () => ({ current: '0.9.3', auto: true, staged: true,
+              downloading: false, progress: 1, info: { version: '1.0.0', notes } }),
+            set_auto_update: async (v) => v,
+            skip_update: async () => true,
+            install_update: async (mode) => { window.__calls.push(mode); return true; },
+          }};
+        }""",
+        [UPDATE_NOTES],
+    )
+    mac.evaluate("() => { whiteboard.ui.closeSheet(); whiteboard.ui.openSettings(); }")
+    mac.click("button:has-text('检查更新')")
+    mac.locator(".update-dialog").wait_for(timeout=3000)
+    assert "1.0.0" in mac.locator(".update-dialog").inner_text()
+    mac.close()
+    ipad.close()
+
+
 def test_debug_overlay_toggles(browser, server):
     mac, ipad = open_pages(browser, server.port)
     assert ipad.evaluate("() => !!document.getElementById('perf')") is False

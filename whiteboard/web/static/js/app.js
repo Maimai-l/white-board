@@ -705,16 +705,24 @@ class App {
       onToggleDebug: () => this.perf.toggle(),
       onCheckUpdate: async () => {
         const api = nativeApi();
-        if (!api || !api.check_update_now) return;
-        const native = this.ui.info || {};
-        if (native.packaged === false) {
-          this.ui.showNotice("source-update", "这是从源码运行的版本，更新请用 git pull。", "refresh");
-          return;
-        }
+        if (!api || !api.check_update_now) return "这个窗口没有本地接口";
         this.offeredUpdate = null; // 手动检查时即使之前提示过也要再弹一次
-        const info = await api.check_update_now();
-        if (info) await this.offerUpdate(info);
-        else this.ui.toast("check");
+        const result = (await api.check_update_now()) || {};
+        switch (result.status) {
+          case "update":
+            await this.offerUpdate(result);
+            return `发现新版本 ${result.version}`;
+          case "latest":
+            return `已是最新（v${result.version || ""}）`;
+          case "skipped":
+            return `${result.version} 已被跳过`;
+          case "source":
+            return `源码运行（v${result.version || ""}），更新请用 git pull`;
+          case "error":
+            return `检查失败：${result.message || "未知原因"}`;
+          default:
+            return "检查失败";
+        }
       },
       onFingerDraw: (enabled) => this.input.setFingerDraw(enabled),
       onToolChange: (tool) => {

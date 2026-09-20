@@ -15,6 +15,7 @@ import os
 import platform
 import re
 import shutil
+import ssl
 import subprocess
 import tempfile
 import urllib.error
@@ -34,6 +35,33 @@ ALLOWED_HOSTS = ("github.com", "api.github.com", "objects.githubusercontent.com"
 MAX_DOWNLOAD = 400 * 1024 * 1024
 
 _NUMBER_RE = re.compile(r"\d+")
+
+
+def _certifi_context() -> Optional[ssl.SSLContext]:
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # noqa: BLE001 - 没装 certifi 就算了
+        return None
+
+
+def _urlopen(request, timeout: float):
+    """先按系统证书走；打包后的应用里系统证书链可能不可用，再用 certifi 兜底。
+
+    反过来不行：公司代理之类的自签证书只在系统钥匙串里，一上来就用 certifi
+    会把本来正常的环境弄挂。
+    """
+    try:
+        return urllib.request.urlopen(request, timeout=timeout)
+    except urllib.error.URLError as exc:
+        if not isinstance(getattr(exc, "reason", None), ssl.SSLError):
+            raise
+        context = _certifi_context()
+        if context is None:
+            raise
+        log.info("系统证书验证失败，改用 certifi 重试")
+        return urllib.request.urlopen(request, timeout=timeout, context=context)
 
 
 def parse_version(text: Any) -> tuple:
@@ -67,7 +95,8 @@ def pick_asset(release: Dict[str, Any], machine: Optional[str] = None) -> Option
     return assets[0] if len(assets) == 1 else None
 
 
-def fetch_latest(timeout: float = 6.0, url: str = LATEST_URL) -> Optional[Dict[str, Any]]:
+def fetch_latest(timeout: float = 6.0, url: str = LATEST_URL):
+    """返回 ``(release, 失败原因)``，成功时原因为 None。"""
     request = urllib.request.Request(
         url,
         headers={
@@ -76,34 +105,56 @@ def fetch_latest(timeout: float = 6.0, url: str = LATEST_URL) -> Optional[Dict[s
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
+        with _urlopen(request, timeout) as response:
+            return json.loads(response.read(2 * 1024 * 1024).decode("utf-8")), None
+    except urllib.error.HTTPError as exc:
+        reason = f"GitHub 返回 {exc.code}"
+        if exc.code == 403:
+            reason += "（可能是访问太频繁）"
+        elif exc.code == 404:
+            reason += "（仓库还没有发布过版本）"
     except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
-        log.info("检查更新失败（忽略）：%s", exc)
-        return None
+        reason = str(getattr(exc, "reason", exc)) or exc.__class__.__name__
+    log.info("检查更新失败：%s", reason)
+    return None, reason
 
 
 def check(
     current: str = __version__,
     release: Optional[Dict[str, Any]] = None,
     machine: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
-    """有新版本就返回 ``{"version", "url", "name", "notes"}``，否则 None。"""
+) -> Dict[str, Any]:
+    """检查更新。
+
+    永远返回一个带 ``status`` 的字典，方便界面如实告诉用户结果：
+
+    * ``update``  有新版本，附带下载地址与更新说明
+    * ``latest``  已经是最新
+    * ``error``   没查成（网络、证书、限流……），``message`` 是原因
+    """
+    error = None
     if release is None:
-        release = fetch_latest()
-    if not isinstance(release, dict) or release.get("draft"):
-        return None
+        release, error = fetch_latest()
+    if release is None:
+        return {"status": "error", "message": error or "没能连上 GitHub"}
+    if not isinstance(release, dict):
+        return {"status": "error", "message": "GitHub 返回的内容看不懂"}
+    if release.get("draft"):
+        return {"status": "latest", "version": current}
+
     tag = release.get("tag_name") or release.get("name") or ""
     if not is_newer(str(tag), current):
-        return None
+        return {"status": "latest", "version": current}
+
     asset = pick_asset(release, machine)
     if not asset:
-        return None
+        return {"status": "error", "message": f"{tag} 没有适配本机的安装包"}
     url = str(asset.get("browser_download_url", ""))
     if not _host_allowed(url):
         log.warning("更新包地址不在白名单里，已忽略：%s", url)
-        return None
+        return {"status": "error", "message": "更新包地址不可信"}
     return {
+        "status": "update",
         "version": str(tag).lstrip("vV"),
         "url": url,
         "name": str(asset.get("name", "")),
@@ -126,7 +177,7 @@ def download(url: str, into: Path, timeout: float = 60.0, on_progress=None) -> O
     target = into / "update.zip"
     request = urllib.request.Request(url, headers={"User-Agent": f"Whiteboard/{__version__}"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response, target.open("wb") as out:
+        with _urlopen(request, timeout) as response, target.open("wb") as out:
             try:
                 total = int(response.headers.get("Content-Length") or 0)
             except (TypeError, ValueError):

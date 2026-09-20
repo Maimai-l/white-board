@@ -17,7 +17,7 @@ binaries = []
 hiddenimports = ["webview.platforms.cocoa"]
 
 # pywebview / zeroconf / aiohttp 都有运行时才用到的子模块和资源
-for package in ("webview", "zeroconf", "aiohttp"):
+for package in ("webview", "zeroconf", "aiohttp", "certifi"):
     package_datas, package_binaries, package_hidden = collect_all(package)
     datas += package_datas
     binaries += package_binaries
