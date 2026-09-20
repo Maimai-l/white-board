@@ -62,6 +62,8 @@ export function thumbBlob(state) {
 
 export async function uploadThumb(state, boardId) {
   if (!boardId) return false;
+  // 文档板的缩略图由服务端直接渲染原件首页，这边画出来的只有笔迹没有底图。
+  if (state.kind === "doc") return false;
   try {
     const blob = await thumbBlob(state);
     if (!blob) return false;

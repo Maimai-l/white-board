@@ -817,3 +817,77 @@ def test_export_png_has_content(browser, server):
     assert data_url.startswith("data:image/png;base64,")
     assert len(data_url) > 5000
     mac.close()
+
+
+def make_doc(tmp_path, pages=((595, 842), (595, 842))):
+    pypdf = pytest.importorskip("pypdf")
+    pytest.importorskip("pypdfium2")
+    writer = pypdf.PdfWriter()
+    for width, height in pages:
+        writer.add_blank_page(width=width, height=height)
+    path = tmp_path / "讲义.pdf"
+    with open(path, "wb") as handle:
+        writer.write(handle)
+    return path
+
+
+def open_doc_board(mac, path):
+    """走完整的界面路径：白板列表 → 新建 → 选文件。"""
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    with mac.expect_file_chooser() as chooser:
+        mac.click(".dialog.kinds .kind-tile:nth-child(3)")
+    chooser.value.set_files(str(path))
+    mac.wait_for_function("() => whiteboard.state.kind === 'doc'", timeout=15000)
+
+
+def test_doc_board_created_from_file_and_synced(browser, server, tmp_path):
+    """拖 / 选一份 PDF：两端都切过去，页面底图取得回来，笔只能写在文档范围内。"""
+    path = make_doc(tmp_path)
+    mac, ipad = open_pages(browser, server.port)
+    open_doc_board(mac, path)
+    ipad.wait_for_function("() => whiteboard.state.kind === 'doc'", timeout=15000)
+
+    pages = mac.evaluate("() => whiteboard.state.pages")
+    assert len(pages) == 2
+    assert pages[1]["y"] == pytest.approx(842 + 24)
+    limits = mac.evaluate("() => whiteboard.state.limits")
+    assert limits["y1"] == pytest.approx(842 * 2 + 24)
+
+    # 首页底图由服务端渲染后送过来
+    mac.wait_for_function("() => whiteboard.renderer.docPages.get(0) !== null", timeout=15000)
+
+    # 从末页里落笔，一路划到文档下方：超出的部分被夹回最后一页里
+    start = ipad.evaluate(
+        "() => { const l = whiteboard.state.limits;"
+        " whiteboard.viewport.scale = 0.4;"
+        " whiteboard.viewport.centerOn(l.x1 / 2, l.y1 - 120, 1180, 820);"
+        " whiteboard.renderer.requestFull();"
+        " return whiteboard.viewport.toScreen(l.x1 / 2, l.y1 - 60); }"
+    )
+    draw(ipad, [(start[0], start[1]), (start[0] + 40, start[1] + 120), (start[0] + 80, start[1] + 240)])
+    wait_strokes(mac, 1)
+    ys = mac.evaluate("() => whiteboard.state.strokes[0].p.filter((_, i) => i % 3 === 1)")
+    assert max(ys) <= limits["y1"] + 0.01
+    mac.close()
+    ipad.close()
+
+
+def test_doc_board_export_merges_ink(browser, server, tmp_path):
+    import urllib.request
+
+    path = make_doc(tmp_path)
+    mac, ipad = open_pages(browser, server.port)
+    open_doc_board(mac, path)
+    draw(mac, [(300, 300), (380, 360), (460, 300)], pointer_type="mouse")
+    wait_strokes(ipad, 1)
+
+    board_id = mac.evaluate("() => whiteboard.state.id")
+    with urllib.request.urlopen(f"http://127.0.0.1:{server.port}/api/export/{board_id}") as out:
+        body = out.read()
+    assert body.startswith(b"%PDF")
+    # 笔迹进去了，但体积没涨多少
+    assert len(body) > path.stat().st_size
+    assert len(body) < path.stat().st_size + 4096
+    mac.close()
+    ipad.close()

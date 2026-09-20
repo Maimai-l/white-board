@@ -170,7 +170,8 @@ export class InputController {
     const limits = this.getLimits();
     if (!limits) return true;
     const [wx, wy] = this.toWorld(event);
-    return wx >= limits.x0 && wx <= limits.x1 && wy >= limits.y0;
+    if (wx < limits.x0 || wx > limits.x1 || wy < limits.y0) return false;
+    return limits.y1 === undefined || wy <= limits.y1;
   }
 
   /** Pencil 正在写，或者刚抬起不久。 */
@@ -384,6 +385,7 @@ export class InputController {
     if (draw.limits) {
       draw.sx = clamp(draw.sx, draw.limits.x0, draw.limits.x1);
       if (draw.sy < draw.limits.y0) draw.sy = draw.limits.y0;
+      if (draw.limits.y1 !== undefined && draw.sy > draw.limits.y1) draw.sy = draw.limits.y1;
     }
 
     const points = draw.stroke.p;
@@ -424,6 +426,7 @@ export class InputController {
       if (draw.limits) {
         wx = clamp(wx, draw.limits.x0, draw.limits.x1);
         if (wy < draw.limits.y0) wy = draw.limits.y0;
+        if (draw.limits.y1 !== undefined && wy > draw.limits.y1) wy = draw.limits.y1;
       }
       draw.stroke.p.push(wx, wy, draw.sp);
       this.pendingLive.push(wx, wy, draw.sp);

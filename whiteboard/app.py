@@ -225,6 +225,38 @@ class NativeApi:
         log.info("已导出描述文件：%s", path)
         return path
 
+    def export_doc(self, board_id: str) -> Any:
+        """文档板导出：服务端把笔迹合进原件，这边负责挑保存位置。
+
+        返回保存后的路径；用户取消返回 None，失败返回 False。
+        """
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        url = f"http://127.0.0.1:{self.server.port}/api/export/{board_id}"
+        try:
+            with urllib.request.urlopen(url, timeout=300) as response:
+                disposition = response.headers.get("Content-Disposition", "")
+                data = response.read()
+        except urllib.error.HTTPError as exc:
+            log.error("导出失败：%s %s", exc.code, exc.read()[:200].decode("utf-8", "replace"))
+            return False
+        except OSError as exc:
+            log.error("导出失败：%s", exc)
+            return False
+
+        suggested = "whiteboard.pdf"
+        marker = "filename*=UTF-8''"
+        if marker in disposition:
+            suggested = urllib.parse.unquote(disposition.split(marker, 1)[1].strip('"'))
+        path = self._ask_save_path(suggested)
+        if not path:
+            return None
+        Path(path).write_bytes(data)
+        log.info("已导出文档板：%s（%.1f KB）", path, len(data) / 1024)
+        return path
+
     def _ask_save_path(self, suggested: str) -> Optional[str]:
         import webview
 

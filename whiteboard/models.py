@@ -21,10 +21,13 @@ from typing import Any, Dict, List, Optional
 
 # 白板的延伸方式，创建时选定、之后不可更改：
 #   board —— 四个方向都无限，是一块大白板；
-#   note  —— 宽度固定成一页，只向下无限延伸，像笔记本。
-KINDS = ("board", "note")
+#   note  —— 宽度固定成一页，只向下无限延伸，像笔记本；
+#   doc   —— 由一份 PDF / 图片生成，页面自上而下排好，只能在页面上写。
+KINDS = ("board", "note", "doc")
 
 BACKGROUNDS = ("blank", "grid", "lines", "dots")
+DOC_TYPES = ("pdf", "image")
+MAX_DOC_PAGES = 400
 TOOLS = ("pen", "marker", "highlighter")
 
 MAX_POINTS_PER_STROKE = 20000
@@ -60,6 +63,37 @@ def new_board_meta(name: str = "", **overrides: Any) -> Dict[str, Any]:
     return sanitize_meta(meta)
 
 
+def sanitize_doc(raw: Any) -> Optional[Dict[str, Any]]:
+    """文档板的附加信息：原件类型、文件名和每页尺寸。"""
+    if not isinstance(raw, dict):
+        return None
+    doc_type = raw.get("type")
+    if doc_type not in DOC_TYPES:
+        return None
+    pages_raw = raw.get("pages")
+    if not isinstance(pages_raw, list) or not pages_raw:
+        return None
+    pages: List[List[float]] = []
+    for page in pages_raw[:MAX_DOC_PAGES]:
+        if not isinstance(page, (list, tuple)) or len(page) != 2:
+            return None
+        try:
+            width, height = float(page[0]), float(page[1])
+        except (TypeError, ValueError):
+            return None
+        if not (0 < width < 1e6 and 0 < height < 1e6):
+            return None
+        pages.append([round(width, 2), round(height, 2)])
+
+    name = raw.get("name")
+    name = name[:128] if isinstance(name, str) else ""
+    ext = raw.get("ext")
+    ext = ext[:8].lower() if isinstance(ext, str) else ""
+    if ext and not re.match(r"^\.[a-z0-9]{1,7}$", ext):
+        ext = ""
+    return {"type": doc_type, "name": name, "ext": ext, "pages": pages}
+
+
 def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     """把（可能来自局域网客户端的）白板元数据收敛到合法范围。
 
@@ -72,6 +106,13 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     kind = raw.get("kind", "board")
     if kind not in KINDS:
         kind = "board"
+
+    # 文档板离了原件就没有意义，信息不全时按普通白板处理。
+    doc = sanitize_doc(raw.get("doc"))
+    if kind == "doc" and doc is None:
+        kind = "board"
+    if kind != "doc":
+        doc = None
 
     name = raw.get("name", "")
     if not isinstance(name, str):
@@ -90,7 +131,7 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     except (TypeError, ValueError):
         updated = created
 
-    return {
+    meta = {
         "id": board_id,
         "name": name[:64],
         "kind": kind,
@@ -98,6 +139,9 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
         "created": created,
         "updated": updated,
     }
+    if doc is not None:
+        meta["doc"] = doc
+    return meta
 
 
 def sanitize_stroke(raw: Any) -> Optional[Dict[str, Any]]:

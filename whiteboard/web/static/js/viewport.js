@@ -72,15 +72,19 @@ export class Viewport {
   }
 
   /**
-   * 笔记模式的约束：左右不能划出纸外（纸比视口窄时居中），
-   * 上面不能翻过页首，下面不限。
+   * 纸张模式的约束：左右不能划出纸外（纸比视口窄时居中），
+   * 上面不能翻过页首；文档板还有末页的下边界，笔记则向下不限。
    */
   clampToPage(limits, viewW, viewH) {
     const width = (limits.x1 - limits.x0) * this.scale;
     const left = limits.x0 * this.scale;
     if (width <= viewW) this.x = (viewW - width) / 2 - left;
     else this.x = clamp(this.x, viewW - width - left, -left);
-    const top = limits.y0 * this.scale;
-    this.y = Math.min(this.y, viewH * 0.1 - top);
+    const highest = viewH * 0.1 - limits.y0 * this.scale;
+    this.y = Math.min(this.y, highest);
+    if (limits.y1 !== undefined) {
+      const lowest = viewH * 0.9 - limits.y1 * this.scale;
+      this.y = Math.max(this.y, Math.min(lowest, highest));
+    }
   }
 }

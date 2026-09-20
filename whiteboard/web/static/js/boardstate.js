@@ -5,6 +5,23 @@ import { strokeBBox } from "./stroke.js";
 // 笔记页的宽度（世界坐标）。两端设备共用同一个值，换设备看到的排版才一致。
 export const PAGE_WIDTH = 1000;
 
+// 文档板的页间距，必须和 whiteboard/docs.py 里的 PAGE_GAP 一致，
+// 否则导出的时候笔迹会落到别的页上。
+export const PAGE_GAP = 24;
+
+/** 文档页自上而下排列，横向按最宽的一页居中；与 docs.layout 同一套算法。 */
+export function docLayout(pages) {
+  if (!pages || !pages.length) return [];
+  const widest = Math.max(...pages.map((p) => p[0]));
+  const boxes = [];
+  let y = 0;
+  for (const [w, h] of pages) {
+    boxes.push({ x: (widest - w) / 2, y, w, h });
+    y += h + PAGE_GAP;
+  }
+  return boxes;
+}
+
 export class BoardState {
   constructor() {
     this.meta = null;
@@ -14,6 +31,8 @@ export class BoardState {
 
   reset(meta, strokes) {
     this.meta = meta;
+    this._pages = null;
+    this._pagesFor = null;
     this.strokes = [];
     this.byId = new Map();
     this.add(strokes || []);
@@ -23,15 +42,38 @@ export class BoardState {
     return this.meta ? this.meta.id : null;
   }
 
-  /** "board"：四向无限；"note"：宽度固定成一页，只向下延伸。 */
+  /** "board"：四向无限；"note"：只向下延伸；"doc"：PDF / 图片，范围固定。 */
   get kind() {
-    return this.meta && this.meta.kind === "note" ? "note" : "board";
+    const kind = this.meta && this.meta.kind;
+    return kind === "note" || kind === "doc" ? kind : "board";
+  }
+
+  /** 文档板的原件信息（页数 / 每页尺寸），其它白板返回 null。 */
+  get doc() {
+    if (this.kind !== "doc") return null;
+    const doc = this.meta.doc;
+    return doc && doc.pages && doc.pages.length ? doc : null;
+  }
+
+  /** 文档页在世界坐标里的位置，结果缓存在 meta 上。 */
+  get pages() {
+    const doc = this.doc;
+    if (!doc) return [];
+    if (!this._pages || this._pagesFor !== this.meta.id) {
+      this._pages = docLayout(doc.pages);
+      this._pagesFor = this.meta.id;
+    }
+    return this._pages;
   }
 
   /** 可书写范围；大白板没有范围限制，返回 null。 */
   get limits() {
-    if (this.kind !== "note") return null;
-    return { x0: 0, x1: PAGE_WIDTH, y0: 0 };
+    if (this.kind === "note") return { x0: 0, x1: PAGE_WIDTH, y0: 0 };
+    const boxes = this.pages;
+    if (!boxes.length) return null;
+    const last = boxes[boxes.length - 1];
+    const widest = Math.max(...boxes.map((b) => b.w));
+    return { x0: 0, x1: widest, y0: 0, y1: last.y + last.h };
   }
 
   /** 加入若干笔画；返回真正新增的那些（重复 id 会被忽略）。 */

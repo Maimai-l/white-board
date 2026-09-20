@@ -3,6 +3,7 @@
 // base：已提交的笔画。只在视口变化或内容变化时整屏重绘；新笔画直接增量画上去。
 // live：正在书写的笔画（本机的和对端的）。每帧清空重画，保证落笔即见。
 
+import { DocPages } from "./docpages.js";
 import { drawStroke, strokeBBox } from "./stroke.js";
 import { TAU } from "./util.js";
 
@@ -80,6 +81,8 @@ export class Renderer {
     this.cursor = null;
     this._liveDrawn = false;
     this._liveClip = null;
+    // 文档板的页面底图：解码完一页就重画一次
+    this.docPages = new DocPages(() => this.requestFull());
     this.resize();
   }
 
@@ -107,7 +110,7 @@ export class Renderer {
 
   // ------------------------------------------------------------------ 背景
 
-  /** 笔记模式下纸张在屏幕上的范围；大白板返回 null。 */
+  /** 纸张（笔记页 / 文档页）在屏幕上的范围；大白板返回 null。 */
   pageRect() {
     const limits = this.state.limits;
     if (!limits) return null;
@@ -118,7 +121,10 @@ export class Renderer {
       left,
       top,
       width: (limits.x1 - limits.x0) * scale,
-      height: this.viewH - Math.min(top, 0) + 2,
+      height:
+        limits.y1 === undefined
+          ? this.viewH - Math.min(top, 0) + 2
+          : (limits.y1 - limits.y0) * scale,
     };
   }
 
@@ -134,9 +140,49 @@ export class Renderer {
     return true;
   }
 
+  /** 文档板：页面自上而下铺开，底图来自 Mac 端渲染的原件。 */
+  drawDocBackground(ctx) {
+    const { scale, x, y } = this.viewport;
+    ctx.fillStyle = OUTSIDE;
+    ctx.fillRect(0, 0, this.viewW, this.viewH);
+
+    const boxes = this.state.pages;
+    this.docPages.setBoard(this.state.id, boxes);
+    const view = this.viewport.visibleRect(this.viewW, this.viewH);
+    this.docPages.update(view, scale, this.dpr);
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    for (let index = 0; index < boxes.length; index++) {
+      const box = boxes[index];
+      if (box.y + box.h < view.y0 || box.y > view.y1) continue;
+      const left = x + box.x * scale;
+      const top = y + box.y * scale;
+      const width = box.w * scale;
+      const height = box.h * scale;
+      ctx.fillStyle = PAPER;
+      ctx.fillRect(left, top, width, height);
+      const img = this.docPages.get(index);
+      if (img) {
+        try {
+          ctx.drawImage(img, left, top, width, height);
+        } catch (err) {
+          /* 图还没解码好，下一帧再说 */
+        }
+      }
+      ctx.strokeStyle = EDGE;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(Math.round(left) + 0.5, Math.round(top) + 0.5, width - 1, height - 1);
+    }
+  }
+
   drawBackground(ctx) {
     const { scale, x, y } = this.viewport;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    if (this.state.kind === "doc") {
+      this.drawDocBackground(ctx);
+      return;
+    }
     const page = this.pageRect();
     if (!page) {
       ctx.fillStyle = PAPER;

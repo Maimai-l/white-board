@@ -22,6 +22,7 @@
 {"t":"live","id":"<笔画 id>","phase":"e"}      // 结束；"x" 表示这一笔作废
 {"t":"sel","board":"<白板 id>"}                // 仅 Mac
 {"t":"newboard","kind":"board|note"} / {"t":"delboard","board":"<白板 id>"}   // 仅 Mac
+                                             // 文档板不走这里，走 POST /api/doc
 {"t":"ping","ts":1730000000000}
 ```
 
@@ -30,7 +31,7 @@
 ```jsonc
 {"t":"init","board":{...},"strokes":[...],"seq":42,"epoch":"...","boards":[...],"info":{...}}
 {"t":"sync","ops":[...],"board":{...},"seq":42,"epoch":"...","boards":[...]}  // 只补差量
-{"t":"switch", ...}          // 与 init 同结构，Mac 切换白板时广播给所有人
+{"t":"switch", ...}          // 与 init 同结构，Mac 切换白板（含拖入文档新建）时广播给所有人
 {"t":"op","op":{...,"seq":43},"src":"<来源客户端 id>"}
 {"t":"ack","cid":"<本地操作 id>","seq":43,"op":{...}}     // 回执，带上服务端分配的层叠序号
 {"t":"live", ..., "src":"<来源客户端 id>"}
@@ -70,9 +71,29 @@
 「没有新内容」，`epoch` 就是用来识别这种情况的——它一变，客户端就会拿到完整快照，
 而不是守着过期内容。
 
-白板元数据只有 `id / name / kind / background / created / updated`。`kind` 是延伸方式
-（`board` 四向无限 / `note` 宽度固定只向下延伸），建板时定下，之后不能改——`meta`
-操作只接受 `background` 和 `name`。老文件里残留的 `cols / rows / unit` 读取时直接丢掉。
+白板元数据只有 `id / name / kind / background / created / updated`，文档板多一个 `doc`
+（原件类型与每页尺寸，见 [format.md](format.md)）。`kind` 是延伸方式（`board` 四向无限 /
+`note` 宽度固定只向下延伸 / `doc` 文档板），建板时定下，之后不能改——`meta` 操作只接受
+`background` 和 `name`。老文件里残留的 `cols / rows / unit` 读取时直接丢掉。
+
+## HTTP 接口
+
+WebSocket 之外还有几条普通的 HTTP 路由，文档板（beta）用的是后三条：
+
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| GET | `/api/info` | 主机名、端口、候选地址、当前在线客户端 |
+| GET | `/api/boards` | 白板列表 |
+| GET / POST | `/api/thumb/{board}` | 缩略图；文档板没有上传过时直接返回原件首页 |
+| POST | `/api/debug` | 客户端上报的卡顿 / 报错，打到服务端日志 |
+| POST | `/api/doc?name=<文件名>` | 上传 PDF / 图片新建文档板，请求体就是文件本身 |
+| GET | `/api/doc/{board}/{页码}?w=<像素宽>` | 渲染好的页面位图（JPEG / PNG） |
+| GET | `/api/export/{board}` | 笔迹合进原件后的 PDF / 图片 |
+
+- 上传按块读完请求体（`StreamReader.read(n)` 只保证「至多 n 字节」），上限 256 MB。
+- 页面位图带 ETag，`Cache-Control: immutable`：原件不会变，客户端可以一直缓存。
+- 渲染串在一把锁后面：pdfium 不是线程安全的，两个线程同时渲染会直接把进程带走。
+- 新建文档板之后服务端主动广播一条 `switch`，iPad 不用自己轮询。
 
 ## mDNS
 

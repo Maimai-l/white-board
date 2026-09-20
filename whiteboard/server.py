@@ -6,6 +6,9 @@ import asyncio
 import json
 import logging
 import re
+import shutil
+import tempfile
+import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -21,12 +24,16 @@ log = logging.getLogger(__name__)
 WEB_DIR = resources.web_dir()
 MAX_WS_MESSAGE = 8 * 1024 * 1024
 MAX_THUMB_BYTES = 512 * 1024
+MAX_DOC_BYTES = 256 * 1024 * 1024
+# 同时最多渲染两页：渲染走线程池，再多也只是互相抢 CPU。
+RENDER_LIMIT = 2
 _CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
 
 # aiohttp 的类型安全键，避免字符串键的命名冲突。
 CONFIG_KEY: "web.AppKey[Config]" = web.AppKey("config")
 STORE_KEY: "web.AppKey[BoardStore]" = web.AppKey("store")
 HUB_KEY: "web.AppKey[Hub]" = web.AppKey("hub")
+RENDER_KEY: "web.AppKey[asyncio.Semaphore]" = web.AppKey("render_lock")
 
 
 def detect_role(user_agent: str, override: Optional[str] = None) -> str:
@@ -88,6 +95,22 @@ async def handle_info(request: web.Request) -> web.Response:
     )
 
 
+async def _read_body(request: web.Request, limit: int) -> bytes:
+    """按块读完请求体。``StreamReader.read(n)`` 只保证「至多 n 字节」，
+    大文件必须自己循环，否则会读成半截。"""
+    chunks = []
+    total = 0
+    while True:
+        chunk = await request.content.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise web.HTTPRequestEntityTooLarge(max_size=limit, actual_size=total)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def handle_debug(request: web.Request) -> web.Response:
     """诊断模式下客户端上报的卡顿数据，直接打到服务端日志里。
 
@@ -114,13 +137,39 @@ _BLANK_THUMB = profile._png(3, 2, [bytearray(b"\xff" * 12) for _ in range(2)])
 
 async def handle_thumb_get(request: web.Request) -> web.StreamResponse:
     hub: Hub = request.app[HUB_KEY]
-    path = hub.store.thumb_path(request.match_info["board_id"])
+    board_id = request.match_info["board_id"]
+    path = hub.store.thumb_path(board_id)
     if not path.exists():
+        thumb = await _doc_thumb(request.app, board_id)
+        if thumb is not None:
+            body, content_type = thumb
+            return web.Response(
+                body=body, content_type=content_type, headers={"Cache-Control": "no-cache"}
+            )
         # 还没生成缩略图的白板返回一张空白图，界面上就是一块空白板。
         return web.Response(
             body=_BLANK_THUMB, content_type="image/png", headers={"Cache-Control": "no-store"}
         )
     return web.FileResponse(path, headers={"Cache-Control": "no-cache"})
+
+
+async def _doc_thumb(app: web.Application, board_id: str):
+    """文档板没有上传过缩略图时，直接拿原件首页当封面。"""
+    from . import docs
+
+    hub: Hub = app[HUB_KEY]
+    meta = hub.store.get_meta(board_id)
+    if not meta or meta.get("kind") != "doc":
+        return None
+    path = hub.store.doc_path(board_id)
+    if path is None:
+        return None
+    try:
+        async with app[RENDER_KEY]:
+            return await asyncio.to_thread(docs.render_page, path, 0, 420)
+    except Exception as exc:  # noqa: BLE001 - 封面画不出来不影响选板
+        log.warning("文档板封面渲染失败 %s：%s", board_id, exc)
+        return None
 
 
 async def handle_thumb_post(request: web.Request) -> web.Response:
@@ -129,16 +178,111 @@ async def handle_thumb_post(request: web.Request) -> web.Response:
     board_id = request.match_info["board_id"]
     if not hub.store.get_meta(board_id):
         raise web.HTTPNotFound()
-    body = await request.content.read(MAX_THUMB_BYTES + 1)
-    if len(body) > MAX_THUMB_BYTES:
-        raise web.HTTPRequestEntityTooLarge(
-            max_size=MAX_THUMB_BYTES, actual_size=len(body)
-        )
+    body = await _read_body(request, MAX_THUMB_BYTES)
     try:
         hub.store.save_thumb(board_id, body)
     except (ValueError, OSError) as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
     return web.json_response({"ok": True})
+
+
+# ------------------------------------------------------------- 文档板（beta）
+
+async def handle_doc_upload(request: web.Request) -> web.Response:
+    """上传一份 PDF / 图片，新建文档板并切过去。"""
+    from . import docs
+
+    hub: Hub = request.app[HUB_KEY]
+    filename = request.query.get("name") or request.headers.get("X-Filename") or ""
+    body = await _read_body(request, MAX_DOC_BYTES)
+    try:
+        meta = await asyncio.to_thread(hub.import_doc, body, filename)
+    except docs.DocError as exc:
+        log.warning("导入文档失败：%s", exc)
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - 坏文件不该把服务端带崩
+        log.exception("导入文档出错")
+        raise web.HTTPBadRequest(text="文件读不出来") from exc
+    await hub.broadcast({"t": "switch", **hub.snapshot()})
+    return web.json_response({"board": meta})
+
+
+async def handle_doc_page(request: web.Request) -> web.StreamResponse:
+    """渲染文档板的某一页。原件不会变，所以可以长期缓存。"""
+    from . import docs
+
+    hub: Hub = request.app[HUB_KEY]
+    board_id = request.match_info["board_id"]
+    meta = hub.store.get_meta(board_id)
+    if not meta or meta.get("kind") != "doc":
+        raise web.HTTPNotFound()
+    path = hub.store.doc_path(board_id)
+    if path is None:
+        raise web.HTTPNotFound(text="原件已丢失")
+    try:
+        index = int(request.match_info["index"])
+        width = int(request.query.get("w", "1200"))
+    except ValueError:
+        raise web.HTTPBadRequest()
+
+    width = max(docs.MIN_RENDER_WIDTH, min(docs.MAX_RENDER_WIDTH, width))
+    etag = f'"{board_id}-{index}-{width}"'
+    if request.headers.get("If-None-Match") == etag:
+        return web.Response(status=304, headers={"ETag": etag})
+
+    try:
+        async with request.app[RENDER_KEY]:
+            body, content_type = await asyncio.to_thread(docs.render_page, path, index, width)
+    except docs.DocError as exc:
+        raise web.HTTPNotFound(text=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        log.exception("渲染文档页失败")
+        raise web.HTTPInternalServerError(text="渲染失败") from exc
+    return web.Response(
+        body=body,
+        content_type=content_type,
+        headers={"ETag": etag, "Cache-Control": "private, max-age=31536000, immutable"},
+    )
+
+
+async def handle_doc_export(request: web.Request) -> web.StreamResponse:
+    """把笔迹合进原件导出；PDF 走矢量叠加，图片按原分辨率栅格化。"""
+    from . import docs
+
+    hub: Hub = request.app[HUB_KEY]
+    board_id = request.match_info["board_id"]
+    meta = hub.store.get_meta(board_id)
+    if not meta or meta.get("kind") != "doc":
+        raise web.HTTPNotFound()
+    path = hub.store.doc_path(board_id)
+    if path is None:
+        raise web.HTTPNotFound(text="原件已丢失")
+
+    strokes = hub.strokes_of(board_id)
+    name = docs.default_export_name(meta)
+    out_dir = Path(tempfile.mkdtemp(prefix="whiteboard-export-"))
+    out = out_dir / name
+    try:
+        await asyncio.to_thread(docs.export, path, strokes, out)
+        body = out.read_bytes()
+    except docs.DocError as exc:
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        log.exception("导出文档失败")
+        raise web.HTTPInternalServerError(text="导出失败") from exc
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+    quoted = urllib.parse.quote(name)
+    log.info("导出文档板 %s：%d 笔，%.1f KB", board_id, len(strokes), len(body) / 1024)
+    return web.Response(
+        body=body,
+        content_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quoted}",
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 # ---------------------------------------------------------------- WebSocket
@@ -327,6 +471,7 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app[CONFIG_KEY] = config
     app[STORE_KEY] = store
     app[HUB_KEY] = Hub(store)
+    app[RENDER_KEY] = asyncio.Semaphore(RENDER_LIMIT)
 
     app.router.add_get("/", handle_index)
     app.router.add_get("/ws", handle_ws)
@@ -337,6 +482,9 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app.router.add_post("/api/debug", handle_debug)
     app.router.add_get("/api/thumb/{board_id}", handle_thumb_get)
     app.router.add_post("/api/thumb/{board_id}", handle_thumb_post)
+    app.router.add_post("/api/doc", handle_doc_upload)
+    app.router.add_get("/api/doc/{board_id}/{index}", handle_doc_page)
+    app.router.add_get("/api/export/{board_id}", handle_doc_export)
     app.router.add_static("/static/", WEB_DIR / "static", name="static")
 
     async def _on_startup(_app: web.Application) -> None:

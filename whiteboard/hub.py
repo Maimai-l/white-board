@@ -189,6 +189,22 @@ class Hub:
         self.current_id = meta["id"]
         return meta
 
+    def import_doc(self, data: bytes, filename: str) -> Dict[str, Any]:
+        """由一份 PDF / 图片新建文档板，并切到它上面。"""
+        self.save_all()
+        meta = self.store.import_doc(data, filename)
+        self._boards[meta["id"]] = BoardRuntime(meta, [])
+        self.current_id = meta["id"]
+        return meta
+
+    def strokes_of(self, board_id: str) -> List[Dict[str, Any]]:
+        """导出用：已经载入内存的用内存里的，其余的从磁盘读。"""
+        runtime = self._boards.get(board_id)
+        if runtime is not None:
+            return runtime.stroke_list()
+        _, strokes = self.store.load_board(board_id)
+        return strokes
+
     def delete_board(self, board_id: str) -> bool:
         if not self.store.delete_board(board_id):
             return False

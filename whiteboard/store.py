@@ -34,9 +34,12 @@ class BoardStore:
         self.data_dir = Path(data_dir).expanduser()
         self.boards_dir = self.data_dir / "boards"
         self.thumbs_dir = self.data_dir / "thumbs"
+        # 文档板的原件（PDF / 图片）原样放着，只读不改。
+        self.docs_dir = self.data_dir / "docs"
         self.index_path = self.data_dir / "index.json"
         self.boards_dir.mkdir(parents=True, exist_ok=True)
         self.thumbs_dir.mkdir(parents=True, exist_ok=True)
+        self.docs_dir.mkdir(parents=True, exist_ok=True)
         self._index: Dict[str, Any] = {"boards": [], "current": None}
         self._load_index()
 
@@ -120,6 +123,9 @@ class BoardStore:
         self._index["boards"] = [m for m in self._index["boards"] if m["id"] != board_id]
         self._board_path(board_id).unlink(missing_ok=True)
         self.thumb_path(board_id).unlink(missing_ok=True)
+        doc = self.doc_path(board_id)
+        if doc is not None:
+            doc.unlink(missing_ok=True)
         if not self._index["boards"]:
             self.create_board()
         elif self._index["current"] == board_id:
@@ -139,6 +145,45 @@ class BoardStore:
     def thumb_path(self, board_id: str) -> Path:
         safe = "".join(ch for ch in board_id if ch.isalnum() or ch in "-_")
         return self.thumbs_dir / f"{safe}.png"
+
+    def doc_path(self, board_id: str) -> Optional[Path]:
+        """文档板的原件路径；不是文档板或文件丢了就返回 None。"""
+        safe = "".join(ch for ch in board_id if ch.isalnum() or ch in "-_")
+        if not safe:
+            return None
+        for path in sorted(self.docs_dir.glob(f"{safe}.*")):
+            if path.is_file():
+                return path
+        return None
+
+    def import_doc(self, data: bytes, filename: str, name: str = "") -> Dict[str, Any]:
+        """由一份 PDF / 图片新建文档板；文件原样存进 docs/。"""
+        from . import docs  # 局部导入：没装 pypdf / pypdfium2 时其余功能照常
+
+        suffix = Path(filename or "").suffix.lower()
+        if suffix not in docs.SUFFIXES:
+            raise docs.DocError(f"不支持的文件类型：{suffix or '无扩展名'}")
+        if not data:
+            raise docs.DocError("文件是空的")
+
+        board_id = models.new_id()
+        target = self.docs_dir / f"{board_id}{suffix}"
+        _atomic_write(target, data)
+        try:
+            info = docs.probe(target)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+        info["name"] = Path(filename).name  # 存的是改名后的副本，这里留原文件名
+        meta = self.create_board(
+            name or Path(filename).stem,
+            id=board_id,
+            kind="doc",
+            background="blank",
+            doc=info,
+        )
+        log.info("新建文档板 %s：%s（%d 页）", board_id, filename, len(info["pages"]))
+        return meta
 
     @staticmethod
     def _read_file(path: Path) -> Dict[str, Any]:

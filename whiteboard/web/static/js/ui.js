@@ -111,7 +111,7 @@ export class UI {
       const topright = el("div", { id: "topright", class: "pill" }, [
         iconButton("boards", "白板", () => this.openBoards()),
         iconButton("settings", "白板设置", () => this.openSettings()),
-        iconButton("image", "导出 PNG", () => this.actions.onExport()),
+        (this.exportButton = iconButton("image", "导出 PNG", () => this.actions.onExport())),
         iconButton("tablet", "连接 iPad", () => this.openConnect()),
         iconButton("info", "关于", () => this.openAbout()),
       ]);
@@ -308,6 +308,19 @@ export class UI {
   }
 
   /** 一条可点掉的提示，用于页面无能为力、只能让用户去改系统设置的情况。 */
+  /** 普通消息条：和 showNotice 不同，每次都会显示。 */
+  message(text, iconName = "info", ms = 4000) {
+    const node = el("div", { class: "notice", html: icon(iconName) });
+    node.append(el("span", { text }));
+    node.addEventListener("click", () => node.remove());
+    this.root.append(node);
+    const timer = setTimeout(() => node.remove(), ms);
+    return () => {
+      clearTimeout(timer);
+      node.remove();
+    };
+  }
+
   showNotice(key, text, iconName = "pen") {
     const stamp = `whiteboard.notice.${key}`;
     try {
@@ -543,7 +556,7 @@ export class UI {
         [
           el("span", {
             class: "kind",
-            html: icon(board.kind === "note" ? "note" : "board", 20),
+            html: icon(["note", "doc"].includes(board.kind) ? board.kind : "board", 20),
           }),
         ]
       );
@@ -582,7 +595,23 @@ export class UI {
     this.gallery = gallery;
   }
 
-  /** 新建白板时选延伸方式：四向无限的大白板，或只向下延伸的笔记。选定后不再更改。 */
+  /** 弹一个文件选择框，选中的 PDF / 图片交给上层去建板。 */
+  pickDoc() {
+    const input = el("input", {
+      type: "file",
+      accept: ".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.tif,.tiff,application/pdf,image/*",
+      style: { display: "none" },
+    });
+    input.addEventListener("change", () => {
+      const file = input.files && input.files[0];
+      input.remove();
+      if (file) this.actions.onNewDoc(file);
+    });
+    this.root.append(input);
+    input.click();
+  }
+
+  /** 新建白板时选延伸方式：大白板、笔记，或者直接拿一份 PDF / 图片当底。 */
   chooseKind() {
     const scrim = el("div", { class: "scrim", onclick: () => scrim.remove() });
     const pick = (kind) => {
@@ -602,6 +631,16 @@ export class UI {
         html: icon("note", 48),
         title: "笔记：宽度固定，只向下延伸",
         onclick: () => pick("note"),
+      }),
+      el("button", {
+        class: "kind-tile",
+        html: icon("doc", 48),
+        title: "打开 PDF / 图片，直接在上面写（也可以把文件拖进窗口）",
+        onclick: () => {
+          scrim.remove();
+          this.closeGallery();
+          this.pickDoc();
+        },
       }),
     ]);
     dialog.addEventListener("click", (event) => event.stopPropagation());
@@ -637,7 +676,9 @@ export class UI {
   }
 
   openSettings() {
-    const groups = [el("div", { class: "group" }, [this.backgroundOptions()])];
+    // 文档板的底是原件本身，背景纹理没有意义。
+    const isDoc = this.meta && this.meta.kind === "doc";
+    const groups = isDoc ? [] : [el("div", { class: "group" }, [this.backgroundOptions()])];
     // 选择 / 打开存储目录要调用本地文件对话框，只有 pywebview 窗口里才有。
     if (this.actions.isNative()) {
       groups.push(
@@ -681,6 +722,11 @@ export class UI {
 
   setMeta(meta) {
     this.meta = meta;
+    if (this.exportButton) {
+      const isDoc = meta && meta.kind === "doc";
+      this.exportButton.title = isDoc ? "导出（笔迹合进原件）" : "导出 PNG";
+      this.exportButton.innerHTML = icon(isDoc ? "download" : "image");
+    }
     if (this.sheet && this.sheet.dataset.kind === "settings") this.openSettings();
   }
 

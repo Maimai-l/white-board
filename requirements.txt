@@ -5,3 +5,7 @@ pyobjc-core>=10.0 ; sys_platform == "darwin"
 pyobjc-framework-Cocoa>=10.0 ; sys_platform == "darwin"
 pyobjc-framework-WebKit>=10.0 ; sys_platform == "darwin"
 certifi
+# 文档板（beta）：读 / 写 PDF、渲染页面、处理图片
+pypdf>=4.2
+pypdfium2>=4.30
+pillow>=10.0

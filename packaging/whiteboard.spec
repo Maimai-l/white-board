@@ -17,8 +17,13 @@ binaries = []
 hiddenimports = ["webview.platforms.cocoa"]
 
 # pywebview / zeroconf / aiohttp 都有运行时才用到的子模块和资源
-for package in ("webview", "zeroconf", "aiohttp", "certifi"):
-    package_datas, package_binaries, package_hidden = collect_all(package)
+# pypdfium2 带着一个动态库，PIL / pypdf 也有运行时才导入的子模块
+for package in ("webview", "zeroconf", "aiohttp", "certifi", "pypdfium2", "pypdfium2_raw", "PIL", "pypdf"):
+    try:
+        package_datas, package_binaries, package_hidden = collect_all(package)
+    except Exception as exc:  # 少了某个可选依赖时照常打包，功能在运行时降级
+        print(f"[spec] 跳过 {package}：{exc}")
+        continue
     datas += package_datas
     binaries += package_binaries
     hiddenimports += package_hidden

@@ -1,9 +1,11 @@
 """服务端协议测试：握手、广播、断线补齐、权限与设备识别。"""
 
 import asyncio
+import io
 import json
 from contextlib import asynccontextmanager
 
+import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from whiteboard.config import Config
@@ -362,3 +364,167 @@ def test_debug_reports_are_logged(tmp_path, caplog):
     with caplog.at_level("WARNING"):
         run(main())
     assert any("[诊断]" in record.message for record in caplog.records)
+
+
+# ------------------------------------------------------------ 文档板（beta）
+
+
+def _doc_bytes(sizes=((595, 842), (400, 600))):
+    import pypdf
+
+    writer = pypdf.PdfWriter()
+    for width, height in sizes:
+        writer.add_blank_page(width=width, height=height)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
+def test_upload_creates_doc_board_and_switches(tmp_path):
+    """拖进来一份 PDF：建板、切过去，并且广播给已经连着的 iPad。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            ws = await client.ws_connect("/ws")
+            await hello(ws, role="ipad", client_id="pad-one")
+
+            response = await client.post("/api/doc?name=讲义.pdf", data=_doc_bytes())
+            assert response.status == 200
+            meta = (await response.json())["board"]
+            assert meta["kind"] == "doc"
+            assert meta["doc"]["pages"] == [[595.0, 842.0], [400.0, 600.0]]
+
+            switched = await ws.receive_json()
+            assert switched["t"] == "switch"
+            assert switched["board"]["id"] == meta["id"]
+            assert app[HUB_KEY].current_id == meta["id"]
+            await ws.close()
+
+    run(main())
+
+
+def test_upload_rejects_unsupported_file(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            assert (await client.post("/api/doc?name=a.txt", data=b"hello")).status == 400
+            assert (await client.post("/api/doc?name=a.pdf", data=b"broken")).status == 400
+
+    run(main())
+
+
+def test_doc_page_is_rendered_and_cacheable(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            meta = (await (await client.post("/api/doc?name=a.pdf", data=_doc_bytes())).json())[
+                "board"
+            ]
+            page = await client.get(f"/api/doc/{meta['id']}/0?w=320")
+            assert page.status == 200
+            assert page.content_type == "image/jpeg"
+            assert len(await page.read()) > 0
+            etag = page.headers["ETag"]
+
+            cached = await client.get(
+                f"/api/doc/{meta['id']}/0?w=320", headers={"If-None-Match": etag}
+            )
+            assert cached.status == 304
+            assert (await client.get(f"/api/doc/{meta['id']}/9?w=320")).status == 404
+
+    run(main())
+
+
+def test_doc_page_rejects_plain_boards(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            board_id = app[HUB_KEY].current_id
+            assert (await client.get(f"/api/doc/{board_id}/0")).status == 404
+            assert (await client.get("/api/doc/nope/0")).status == 404
+
+    run(main())
+
+
+def test_doc_board_thumbnail_falls_back_to_first_page(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            meta = (await (await client.post("/api/doc?name=a.pdf", data=_doc_bytes())).json())[
+                "board"
+            ]
+            thumb = await client.get(f"/api/thumb/{meta['id']}")
+            assert thumb.status == 200
+            assert thumb.content_type == "image/jpeg"  # 渲染的原件首页，不是空白 PNG
+
+    run(main())
+
+
+def test_doc_export_merges_strokes(tmp_path):
+    """导出的 PDF 页数不变，笔迹进去了，体积也没有明显变大。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            source = _doc_bytes()
+            meta = (await (await client.post("/api/doc?name=讲义.pdf", data=source)).json())[
+                "board"
+            ]
+            ws = await client.ws_connect("/ws")
+            await hello(ws, role="mac", board=meta["id"])
+            await ws.send_json(
+                {
+                    "t": "op",
+                    "cid": 1,
+                    "op": {
+                        "op": "add",
+                        "stroke": {
+                            "id": "x1",
+                            "tool": "pen",
+                            "color": "#1b1b1f",
+                            "w": 3.0,
+                            "p": [60, 100, 0.7, 120, 140, 0.7, 180, 100, 0.7],
+                        },
+                    },
+                }
+            )
+            await ws.receive_json()
+
+            response = await client.get(f"/api/export/{meta['id']}")
+            assert response.status == 200
+            assert "%E8%AE%B2%E4%B9%89-" in response.headers["Content-Disposition"]
+            body = await response.read()
+            await ws.close()
+
+        import pypdf
+
+        reader = pypdf.PdfReader(io.BytesIO(body))
+        assert len(reader.pages) == 2
+        assert len(body) < len(source) + 4096
+
+    run(main())
+
+
+def test_export_rejects_plain_boards(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            assert (await client.get(f"/api/export/{app[HUB_KEY].current_id}")).status == 404
+
+    run(main())
+
+
+def test_large_upload_is_stored_byte_exact(tmp_path):
+    """上传要按块读完：读成半截的话文件会坏掉。"""
+    import os
+
+    Image = pytest.importorskip("PIL.Image")
+    buffer = io.BytesIO()
+    Image.frombytes("RGB", (900, 700), os.urandom(900 * 700 * 3)).save(buffer, "PNG")
+    source = buffer.getvalue()
+    assert len(source) > 512 * 1024  # 一定跨多个读块
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            response = await client.post("/api/doc?name=big.png", data=source)
+            assert response.status == 200
+            meta = (await response.json())["board"]
+            stored = app[HUB_KEY].store.doc_path(meta["id"])
+            assert stored.read_bytes() == source
+            assert meta["doc"]["pages"] == [[900.0, 700.0]]
+
+    run(main())

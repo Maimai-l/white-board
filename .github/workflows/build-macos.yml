@@ -62,8 +62,12 @@ jobs:
             if curl -fsS http://127.0.0.1:8877/api/info > /dev/null; then ok=1; break; fi
             sleep 1
           done
+          if [ "${ok:-0}" = "1" ]; then
+            python packaging/smoke_doc.py http://127.0.0.1:8877 || doc_ok=0
+          fi
           kill $pid || true
           test "${ok:-0}" = "1" || { echo "打出来的应用起不来"; exit 1; }
+          test "${doc_ok:-1}" = "1" || { echo "打包后的文档板不可用"; exit 1; }
 
       - name: 压缩
         run: |

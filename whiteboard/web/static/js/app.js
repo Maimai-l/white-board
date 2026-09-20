@@ -246,6 +246,78 @@ class App {
       this.persist();
       if (this.role === "mac") uploadThumb(this.state, this.state.id);
     });
+
+    if (this.role === "mac") this.bindDrop();
+  }
+
+  /** 把 PDF / 图片拖进窗口就新建一块文档板。 */
+  bindDrop() {
+    const accept = (event) => {
+      const items = event.dataTransfer && event.dataTransfer.types;
+      return items && [...items].includes("Files");
+    };
+    addEventListener("dragover", (event) => {
+      if (!accept(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      document.body.classList.add("dropping");
+    });
+    addEventListener("dragleave", (event) => {
+      if (event.relatedTarget === null) document.body.classList.remove("dropping");
+    });
+    addEventListener("drop", (event) => {
+      if (!accept(event)) return;
+      event.preventDefault();
+      document.body.classList.remove("dropping");
+      const file = event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) this.importDoc(file);
+    });
+  }
+
+  /** 上传一份 PDF / 图片，服务端建好板之后会广播切换，这里不用自己跳。 */
+  async importDoc(file) {
+    if (this.importing) return;
+    this.importing = true;
+    const done = this.ui.message(`正在打开 ${file.name}…`, "doc", 60000);
+    try {
+      await uploadThumb(this.state, this.state.id);
+      const response = await fetch(`/api/doc?name=${encodeURIComponent(file.name)}`, {
+        method: "POST",
+        body: file,
+      });
+      if (!response.ok) {
+        const text = (await response.text()) || `${response.status}`;
+        this.ui.message(`打不开：${text.slice(0, 80)}`, "close", 6000);
+      }
+    } catch (err) {
+      this.ui.message(`打不开：${String(err).slice(0, 80)}`, "close", 6000);
+    } finally {
+      done();
+      this.importing = false;
+    }
+  }
+
+  /** 文档板导出：笔迹合进原件，打包成 PDF / 图片。 */
+  async exportDoc() {
+    const boardId = this.state.id;
+    if (!boardId) return;
+    const api = nativeApi();
+    const done = this.ui.message("正在导出…", "download", 60000);
+    try {
+      if (api && api.export_doc) {
+        const path = await api.export_doc(boardId);
+        done();
+        if (path) this.ui.toast("check");
+        else if (path === false) this.ui.message("导出失败，日志里有详细原因", "close", 6000);
+      } else {
+        location.href = `/api/export/${boardId}`;
+        done();
+        this.ui.toast("check");
+      }
+    } catch (err) {
+      done();
+      this.ui.message(`导出失败：${String(err).slice(0, 80)}`, "close", 6000);
+    }
   }
 
   loop() {
@@ -757,7 +829,12 @@ class App {
         this.renderer.requestFull();
         this.net.sendOp({ op: "meta", meta: patch });
       },
+      onNewDoc: (file) => this.importDoc(file),
       onExport: async () => {
+        if (this.state.kind === "doc") {
+          await this.exportDoc();
+          return;
+        }
         const dataUrl = exportDataURL(this.state);
         const api = nativeApi();
         const name = `whiteboard-${new Date().toISOString().slice(0, 10)}.png`;
