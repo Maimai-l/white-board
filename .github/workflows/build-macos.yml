@@ -1,0 +1,101 @@
+name: 打包 macOS 应用
+
+# 打 tag（v1.2.3）就构建并发布 Release；也可以手动跑一次只出构建产物。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 版本号（手动构建用，不会发布 Release）
+        default: 0.0.0-dev
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 确定版本号
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            value="${GITHUB_REF_NAME#v}"
+          else
+            value="${{ github.event.inputs.version || '0.0.0-dev' }}"
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+          python packaging/set_version.py "$value"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: 生成图标
+        run: python packaging/make_icns.py packaging/whiteboard.icns
+
+      - name: 打包
+        env:
+          WHITEBOARD_VERSION: ${{ steps.version.outputs.value }}
+        run: pyinstaller --noconfirm --clean packaging/whiteboard.spec
+
+      - name: 临时签名
+        # 没有开发者证书，用 ad-hoc 签名；不签的话 Apple 芯片上会直接被拒绝运行
+        run: codesign --force --deep --sign - dist/Whiteboard.app
+
+      - name: 冒烟测试
+        run: |
+          dist/Whiteboard.app/Contents/MacOS/Whiteboard --headless --no-mdns --port 8877 &
+          pid=$!
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8877/api/info > /dev/null; then ok=1; break; fi
+            sleep 1
+          done
+          kill $pid || true
+          test "${ok:-0}" = "1" || { echo "打出来的应用起不来"; exit 1; }
+
+      - name: 压缩
+        run: |
+          ditto -c -k --keepParent dist/Whiteboard.app \
+            "Whiteboard-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Whiteboard-macos-${{ matrix.arch }}
+          path: Whiteboard-*.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 发布 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

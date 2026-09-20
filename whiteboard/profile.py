@@ -9,6 +9,7 @@ iPad 在 Safari 里打开 ``/profile.mobileconfig``，安装后主屏会多出�
 
 from __future__ import annotations
 
+import bisect
 import functools
 import plistlib
 import struct
@@ -72,6 +73,9 @@ def icon_png(size: int = 180) -> bytes:
         half = size * 0.052 * (0.35 + 0.65 * taper)
         curve.append((x, y, half))
 
+    curve_x = [point[0] for point in curve]
+    max_half = max(point[2] for point in curve)
+
     rows: List[bytearray] = []
     for py in range(size):
         row = bytearray()
@@ -90,9 +94,13 @@ def icon_png(size: int = 180) -> bytes:
             base = (round(66 + 30 * t), round(97 + 20 * t), round(183 - 20 * t))
             pixel = _blend((0, 0, 0, 0), base, inside)
 
-            # 笔画：到曲线的最近「带宽距离」
+            # 笔画：到曲线的最近「带宽距离」。曲线按 x 单调，只看附近那一段，
+            # 否则 1024 像素的图标要跑上几分钟。
+            lo = bisect.bisect_left(curve_x, px - max_half - 1)
+            hi = bisect.bisect_right(curve_x, px + max_half + 1)
             best = 1e9
-            for cx, cy, half in curve:
+            for index in range(lo, hi):
+                cx, cy, half = curve[index]
                 d = math.hypot(cx - px, cy - py) - half
                 if d < best:
                     best = d

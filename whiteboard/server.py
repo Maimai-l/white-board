@@ -11,14 +11,14 @@ from typing import Any, Dict, Optional
 
 from aiohttp import WSMsgType, web
 
-from . import models, netinfo, profile
+from . import models, netinfo, profile, resources
 from .config import Config
 from .hub import Hub
 from .store import BoardStore
 
 log = logging.getLogger(__name__)
 
-WEB_DIR = Path(__file__).parent / "web"
+WEB_DIR = resources.web_dir()
 MAX_WS_MESSAGE = 8 * 1024 * 1024
 MAX_THUMB_BYTES = 512 * 1024
 _CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,64}$")

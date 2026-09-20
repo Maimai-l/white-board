@@ -133,6 +133,7 @@ class App {
     }, 5000);
 
     this.bindWindow();
+    this.watchUpdates();
     this.bootstrap();
     this.loop();
   }
@@ -161,6 +162,35 @@ class App {
     // 预热：IndexedDB 的第一次写事务最慢，趁还没开始书写先把它跑掉。
     this.cache.set("warmup", Date.now());
     this.net.connect();
+  }
+
+  /** 打包成 .app 时，启动后台检查的结果会在这里被取走并提示。 */
+  watchUpdates() {
+    const poll = async () => {
+      const api = nativeApi();
+      if (!api || !api.pending_update) return;
+      try {
+        const info = await api.pending_update();
+        if (info) this.offerUpdate(info);
+      } catch (err) {
+        /* 取不到就算了 */
+      }
+    };
+    addEventListener("pywebviewready", () => {
+      setTimeout(poll, 2500);
+      setTimeout(poll, 60000);
+    });
+    setTimeout(poll, 4000);
+  }
+
+  offerUpdate(info) {
+    if (!info || this.offeredUpdate === info.version) return;
+    this.offeredUpdate = info.version;
+    this.ui.showUpdate(info.version, async () => {
+      const api = nativeApi();
+      if (!api || !api.apply_update) return false;
+      return api.apply_update();
+    });
   }
 
   bindWindow() {
@@ -655,6 +685,13 @@ class App {
     return {
       isNative: () => !!nativeApi(),
       onToggleDebug: () => this.perf.toggle(),
+      onCheckUpdate: async () => {
+        const api = nativeApi();
+        if (!api || !api.check_update_now) return;
+        const info = await api.check_update_now();
+        if (info) this.offerUpdate(info);
+        else this.ui.toast("check");
+      },
       onFingerDraw: (enabled) => this.input.setFingerDraw(enabled),
       onToolChange: (tool) => {
         this.tool = tool;

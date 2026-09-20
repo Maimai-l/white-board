@@ -13,16 +13,32 @@ Mac 上启动程序，iPad 从主屏图标打开，两块屏幕写同一块白�
 └─────────────────────────────┘            └────────────────────┘
 ```
 
-## 快速开始
+## 安装（Mac）
+
+打过 tag 之后，GitHub Actions 会自动构建并发布 `.app`，到仓库的 Releases 页面下载
+对应架构的压缩包（`arm64` 是 Apple 芯片，`x86_64` 是 Intel），解压把 **Whiteboard.app**
+拖进「应用程序」即可。
+
+第一次打开有两个系统提示，都是一次性的：
+
+- 「无法验证开发者」——应用只做了 ad-hoc 签名（没有 Apple 开发者证书）。
+  右键点应用 →「打开」→ 再点「打开」，之后就能正常双击。
+- 「白板想要查找并连接到本地网络上的设备」——**必须允许**，否则 iPad 连不上。
+  （macOS 15 起的要求，应用里已经写了用途说明。）
+
+之后的版本不用再手动下载：应用启动时会在后台查一次 GitHub Release，有新版本就在
+界面上方提示，点一下下载按钮，它会下好、替换自己并重新打开。也可以在白板设置里
+手动点「检查更新」。
+
+### 从源码跑
 
 ```bash
 git clone https://github.com/Maimai-l/white-board.git
 cd white-board
 ```
 
-Mac 上双击 **start-whiteboard.command** 就行：第一次会自动建好运行环境并装依赖
-（只做一次），之后每次双击直接开窗口。更新双击 **update.command**（就是 `git pull`），
-依赖有变化时下次启动会自动补装。
+Mac 上双击 **start-whiteboard.command**：第一次会自动建好运行环境并装依赖，
+之后每次双击直接开窗口。更新双击 **update.command**（就是 `git pull`）。
 
 macOS 可能提示「无法打开，因为来自身份不明的开发者」，右键点脚本 →「打开」→「打开」
 即可；或者执行一次 `xattr -dr com.apple.quarantine <这个文件夹>`。
@@ -41,10 +57,24 @@ python run.py --headless                     # 不开窗口，只跑服务（用
 python run.py --port 9000                    # 换端口（被占用时会自动顺延）
 python run.py --data-dir ~/Documents/白板    # 换白板存储目录
 python run.py --mdns                         # 额外注册 _http._tcp 服务（macOS 默认交给系统）
+python run.py --version
 ```
 
 端口默认 8848。启动后 Mac 窗口右上角的「iPad」按钮里能看到 iPad 该访问的地址，
 形如 `http://你的电脑名.local:8848/`。
+
+### 自己打包
+
+```bash
+git tag v1.1.0 && git push origin v1.1.0     # 触发构建并发布 Release
+```
+
+也可以在 Actions 页面手动跑「打包 macOS 应用」，只出构建产物、不发布。
+本地打包：`pip install pyinstaller && python packaging/make_icns.py packaging/whiteboard.icns &&
+WHITEBOARD_VERSION=1.1.0 pyinstaller --noconfirm packaging/whiteboard.spec`。
+
+应用数据仍在 `~/Library/Application Support/Whiteboard`，与源码运行时共用，
+换版本不会丢白板；日志写在 `~/Library/Logs/Whiteboard.log`（.app 里没有终端）。
 
 ## 把白板装到 iPad 主屏
 

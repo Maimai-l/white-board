@@ -271,6 +271,34 @@ export class UI {
     setTimeout(() => node.remove(), 15000);
   }
 
+  /** 有新版本时的提示条：一句话加一个下载按钮。 */
+  showUpdate(version, onInstall) {
+    if (this.updateNode) this.updateNode.remove();
+    const label = el("span", { text: `新版本 ${version}` });
+    const button = iconButton("download", "下载并重启", async (event) => {
+      event.stopPropagation();
+      button.setAttribute("disabled", "");
+      label.textContent = "正在下载…";
+      const ok = await onInstall();
+      if (!ok) {
+        label.textContent = "更新失败，稍后再试";
+        button.removeAttribute("disabled");
+      }
+    });
+    const node = el("div", { class: "notice" }, [
+      el("div", { html: icon("refresh") }),
+      label,
+      button,
+    ]);
+    node.addEventListener("click", (event) => {
+      if (event.target === button || button.contains(event.target)) return;
+      node.remove();
+      this.updateNode = null;
+    });
+    this.root.append(node);
+    this.updateNode = node;
+  }
+
   confirm(iconName, onYes) {
     const scrim = el("div", { class: "scrim", onclick: () => scrim.remove() });
     const dialog = el("div", { class: "dialog" }, [
@@ -460,6 +488,7 @@ export class UI {
               if (dir) this.toast("check");
             }),
             iconButton("folderOpen", "打开存储目录", () => this.actions.onOpenDir()),
+            iconButton("refresh", "检查更新", () => this.actions.onCheckUpdate()),
           ]),
         ])
       );

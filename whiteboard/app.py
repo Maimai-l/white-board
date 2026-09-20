@@ -10,11 +10,13 @@ import base64
 import logging
 import subprocess
 import sys
+import tempfile
+import threading
 import webbrowser
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from . import netinfo, profile
+from . import __version__, netinfo, profile, resources, updater
 from .config import Config
 from .runner import ServerThread
 
@@ -28,17 +30,83 @@ class NativeApi:
         self.config = config
         self.server = server
         self.window = None
+        self.update_info: Optional[Dict[str, Any]] = None
+        self.updating = False
 
     # ------------------------------------------------------------------ 信息
 
     def info(self) -> Dict[str, Any]:
         return {
             "native": True,
+            "version": __version__,
+            "packaged": resources.is_frozen(),
             "hostname": netinfo.local_hostname(),
             "port": self.server.port,
             "urls": netinfo.candidate_urls(self.server.port),
             "data_dir": str(self.config.data_dir),
+            "log": str(resources.log_path()),
         }
+
+    # ------------------------------------------------------------------ 更新
+
+    def start_update_check(self) -> None:
+        """启动后在后台查一次，结果放着等网页来取。"""
+        if not resources.is_frozen():
+            return
+        threading.Thread(target=self._check_update, name="whiteboard-update", daemon=True).start()
+
+    def _check_update(self) -> None:
+        try:
+            info = updater.check()
+        except Exception:  # noqa: BLE001 - 检查更新不能把程序带崩
+            log.exception("检查更新出错")
+            return
+        if info:
+            log.info("发现新版本 %s", info["version"])
+            self.update_info = info
+
+    def pending_update(self) -> Optional[Dict[str, Any]]:
+        return self.update_info
+
+    def check_update_now(self) -> Optional[Dict[str, Any]]:
+        if not resources.is_frozen():
+            return None
+        info = updater.check()
+        if info:
+            self.update_info = info
+        return info
+
+    def apply_update(self) -> bool:
+        """下载新版本、交给脱离进程的脚本替换，然后退出本进程。"""
+        info = self.update_info
+        bundle = resources.app_bundle()
+        if not info or bundle is None or self.updating:
+            return False
+        self.updating = True
+        workdir = Path(tempfile.mkdtemp(prefix="whiteboard-update-"))
+        try:
+            archive = updater.download(info["url"], workdir)
+            if archive is None:
+                return False
+            staged = updater.unpack(archive, workdir / "unpacked")
+            if staged is None:
+                return False
+            if not updater.swap_and_restart(staged, bundle):
+                return False
+        finally:
+            if not self.updating:
+                updater.cleanup(workdir)
+        log.info("更新已就绪，正在退出以完成替换")
+        self._quit()
+        return True
+
+    def _quit(self) -> None:
+        try:
+            self.server.save_now()
+        except (RuntimeError, TimeoutError):
+            pass
+        if self.window is not None:
+            self.window.destroy()
 
     # ------------------------------------------------------------------ 导出
 
@@ -139,6 +207,7 @@ def run(config: Optional[Config] = None, debug: bool = False, advertise: Optiona
     """启动服务端并打开 pywebview 窗口（阻塞直到窗口关闭）。"""
     import webview
 
+    resources.setup_logging(debug)
     config = config or Config()
     if advertise is None:
         advertise = netinfo.mdns_default()
@@ -158,6 +227,7 @@ def run(config: Optional[Config] = None, debug: bool = False, advertise: Optiona
         text_select=False,
     )
     api.window = window
+    api.start_update_check()
 
     def _on_closing() -> None:
         try:

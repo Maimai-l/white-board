@@ -9,9 +9,9 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 
+from whiteboard import __version__, resources
 from whiteboard.config import Config
 
 
@@ -23,13 +23,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mdns", action="store_true", help="强制广播 mDNS 服务（macOS 默认交给系统）")
     parser.add_argument("--no-mdns", action="store_true", help="不广播 mDNS 服务")
     parser.add_argument("--debug", action="store_true", help="打开调试日志与开发者工具")
-    args = parser.parse_args(argv)
+    parser.add_argument("--version", action="version", version=f"白板 {__version__}")
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.debug else logging.INFO,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    # macOS 双击 .app 时系统会塞进来 -psn_0_xxx 之类的参数，别让 argparse 报错
+    raw = list(sys.argv[1:] if argv is None else argv)
+    raw = [item for item in raw if not item.startswith("-psn_")]
+    args, unknown = parser.parse_known_args(raw)
+    if unknown:
+        print(f"忽略无法识别的参数：{' '.join(unknown)}", file=sys.stderr)
+
+    log_file = resources.setup_logging(args.debug)
+    if log_file:
+        print(f"日志写在 {log_file}")
 
     config = Config()
     if args.port:
