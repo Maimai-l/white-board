@@ -30,9 +30,9 @@ const KIND_NAMES = { board: "白板", note: "笔记", doc: "文档" };
 
 // 可以放开给别的设备的权限，顺序就是设置面板里的顺序；键与 config.REMOTE_PERMISSIONS 一致。
 const PERMISSIONS = [
-  { key: "manage", title: "管理白板", note: "切换、新建、删除、改名，拖入 PDF 建板" },
-  { key: "settings", title: "改白板设置", note: "背景纹理" },
-  { key: "export", title: "导出", note: "把白板连同原件整份取走" },
+  { key: "manage", title: "管理白板", note: "切换、新建或删除白板" },
+  { key: "settings", title: "设置白板", note: "背景纹理" },
+  { key: "export", title: "导出白板", note: "" }, // 没有必要写note, 而且UI上的文字需要仔细推敲的, 不是让你在上面写random prose的, 比如至少短语结构应该统一
 ];
 
 /** 卡片上显示的名字。没起名就按延伸方式给个默认，文档板退回原件的文件名。 */
@@ -1053,17 +1053,13 @@ export class UI {
     // 文档板的底是原件本身，背景纹理没有意义。
     const isDoc = this.meta && this.meta.kind === "doc";
     if (!isDoc && this.may("settings")) {
-      groups.push(this.settingsGroup("白板背景", [this.backgroundOptions()]));
+      groups.push(this.settingsGroup("背景", [this.backgroundOptions()]));
     }
     // 选目录要开本地文件对话框，只有 pywebview 窗口里才有；别的设备看不到这两段。
     if (this.native) {
       groups.push(this.settingsGroup("存储目录", [this.dataDirCard()]));
       groups.push(
-        this.settingsGroup("其他设备的权限", [
-          el("p", {
-            class: "group-note",
-            text: "局域网里的别的设备默认只能写字，下面一项项放开。",
-          }),
+        this.settingsGroup("其他设备权限", [
           el("div", { class: "perm-list" }, PERMISSIONS.map((item) => this.permissionRow(item))),
         ])
       );
