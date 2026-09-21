@@ -10,10 +10,12 @@ macOS 上关闭，其余平台打开，而且**无论如何都不能影响服务
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import socket
 import sys
-from typing import List, Optional
+import time
+from typing import List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +43,42 @@ def lan_ip() -> Optional[str]:
         return None
     finally:
         sock.close()
+
+
+_LAN_IP_CACHE: Tuple[float, Optional[str]] = (0.0, None)
+LAN_IP_TTL = 5.0
+
+
+def cached_lan_ip() -> Optional[str]:
+    """``lan_ip()`` 的短缓存：请求路径上会反复问，地址又不会一秒一变。"""
+    global _LAN_IP_CACHE
+    now = time.monotonic()
+    if now - _LAN_IP_CACHE[0] < LAN_IP_TTL:
+        return _LAN_IP_CACHE[1]
+    _LAN_IP_CACHE = (now, lan_ip())
+    return _LAN_IP_CACHE[1]
+
+
+def is_own_address(remote: Optional[str]) -> bool:
+    """这个连接是不是来自本机。
+
+    依据是 TCP 对端地址，不是客户端自己声称的身份——那个随便填。回环之外还认
+    本机自己的局域网地址：Mac 上点「在浏览器打开」走的就是那个地址，仍然算本机。
+    取不到地址就当成外部，宁可少给权限。
+    """
+    if not remote:
+        return False
+    try:
+        address = ipaddress.ip_address(remote.split("%")[0])
+    except ValueError:
+        return False
+    if address.is_loopback:
+        return True
+    mapped = getattr(address, "ipv4_mapped", None)
+    if mapped is not None and mapped.is_loopback:
+        return True
+    own = cached_lan_ip()
+    return bool(own and str(address) == own)
 
 
 def candidate_urls(port: int) -> List[str]:

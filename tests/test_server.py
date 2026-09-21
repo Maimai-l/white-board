@@ -9,7 +9,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from whiteboard.config import Config
-from whiteboard.server import HUB_KEY, create_app, detect_role
+from whiteboard.server import CONFIG_KEY, HUB_KEY, create_app, detect_role
 from whiteboard.store import BoardStore
 
 
@@ -573,5 +573,124 @@ def test_large_upload_is_stored_byte_exact(tmp_path):
             stored = app[HUB_KEY].store.doc_path(meta["id"])
             assert stored.read_bytes() == source
             assert meta["doc"]["pages"] == [[900.0, 700.0]]
+
+    run(main())
+
+
+# --------------------------------------------------- 只有本机能做管理操作
+
+@pytest.fixture
+def remote(monkeypatch):
+    """把连接伪装成局域网上的别的设备。
+
+    真实判断看的是 TCP 对端地址，测试里全都是回环，所以这里换掉那个判断本身。
+    """
+    monkeypatch.setattr("whiteboard.server.netinfo.is_own_address", lambda remote: False)
+
+
+def test_is_own_address_only_trusts_this_machine():
+    from whiteboard import netinfo
+
+    assert netinfo.is_own_address("127.0.0.1")
+    assert netinfo.is_own_address("::1")
+    assert netinfo.is_own_address("::ffff:127.0.0.1")
+    assert not netinfo.is_own_address("192.0.2.77")
+    assert not netinfo.is_own_address("")
+    assert not netinfo.is_own_address(None)
+    assert not netinfo.is_own_address("不是地址")
+
+
+def test_remote_device_always_gets_the_writing_ui(tmp_path, remote):
+    """外部设备一律拿书写界面，`?role=mac` 也没用。"""
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            for query in ("", "?role=mac"):
+                body = await (await client.get("/" + query)).text()
+                assert 'data-role="ipad"' in body
+
+    run(main())
+
+
+def test_remote_device_cannot_reach_management_apis(tmp_path, remote):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            board_id = app[HUB_KEY].current_id
+            for path in (
+                "/api/info",
+                "/api/boards",
+                f"/api/thumb/{board_id}",
+                f"/api/export/{board_id}",
+            ):
+                assert (await client.get(path)).status == 403, path
+            assert (await client.post(f"/api/thumb/{board_id}", data=b"x")).status == 403
+            assert (await client.post("/api/doc?name=a.pdf", data=b"x")).status == 403
+
+            # 书写本身照常：页面、描述文件、诊断上报都还通
+            assert (await client.get("/")).status == 200
+            assert (await client.get("/profile.mobileconfig")).status == 200
+            assert (await client.post("/api/debug", json={"role": "ipad"})).status == 200
+
+    run(main())
+
+
+def test_remote_device_cannot_manage_over_websocket(tmp_path, remote):
+    """握手里报 role=mac 也没用：权限在连接建立时按对端地址就定死了。"""
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            before = hub.current_id
+            ws = await client.ws_connect("/ws")
+            await hello(ws, "mac", client_id="fake-mac")  # hello 已经把 init 收掉了
+
+            await ws.send_json({"t": "newboard"})
+            await ws.send_json({"t": "rename", "board": before, "name": "偷偷改"})
+            await ws.send_json({"t": "delboard", "board": before})
+            await ws.send_json(
+                {"t": "op", "cid": "m", "op": {"op": "meta", "meta": {"background": "dots"}}}
+            )
+            ack = await ws.receive_json()
+            assert ack["t"] == "ack"  # 前三条被丢掉了，这是第四条的回执
+
+            assert hub.current_id == before
+            assert len(hub.store.list_metas()) == 1
+            assert hub.store.get_meta(before)["name"] == ""
+            assert hub.board().meta["background"] == "grid"
+
+            # 写字照常
+            await ws.send_json(
+                {
+                    "t": "op",
+                    "cid": "s",
+                    "op": {
+                        "op": "add",
+                        "strokes": [
+                            {"id": "a", "tool": "pen", "color": "#000000", "w": 2,
+                             "p": [0, 0, 0.5, 1, 1, 0.5]}
+                        ],
+                    },
+                }
+            )
+            ack = await ws.receive_json()
+            assert ack["op"]["op"] == "add"
+            await ws.close()
+
+    run(main())
+
+
+def test_opening_the_gate_lets_other_devices_manage(tmp_path, remote):
+    """在 Mac 上打开「允许其他设备控制」之后，那道闸就放开了。"""
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            app[CONFIG_KEY].allow_remote_control = True
+            assert (await client.get("/api/boards")).status == 200
+            assert 'data-role="mac"' in await (await client.get("/?role=mac")).text()
+
+            ws = await client.ws_connect("/ws")
+            await hello(ws, "mac", client_id="remote-mac")
+            await ws.send_json({"t": "newboard"})
+            switched = await ws.receive_json()
+            assert switched["t"] == "switch"
+            assert len(app[HUB_KEY].store.list_metas()) == 2
+            await ws.close()
 
     run(main())

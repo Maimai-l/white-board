@@ -46,10 +46,32 @@ def detect_role(user_agent: str, override: Optional[str] = None) -> str:
     return "mac"
 
 
+def may_control(request: web.Request) -> bool:
+    """这个请求能不能动白板管理、设置、导出这些。
+
+    默认只有本机可以：局域网上的别的设备拿到的是书写界面，换白板、建板删板、
+    改名、导入导出、检查更新一律走不通。判断看的是 TCP 对端地址，不是 ``?role=``
+    或者握手里那个 role——那两样客户端想填什么填什么。想让别的设备也能管，
+    在 Mac 的白板设置里打开「允许其他设备控制」。
+    """
+    config: Config = request.app[CONFIG_KEY]
+    return config.allow_remote_control or netinfo.is_own_address(request.remote)
+
+
+def require_control(request: web.Request) -> None:
+    if not may_control(request):
+        raise web.HTTPForbidden(text="只有本机可以做这个操作")
+
+
 # --------------------------------------------------------------------- 页面
 
 async def handle_index(request: web.Request) -> web.Response:
-    role = detect_role(request.headers.get("User-Agent", ""), request.query.get("role"))
+    # 外部设备一律给书写界面，`?role=mac` 也没用：完整 GUI 里全是管理操作。
+    role = (
+        detect_role(request.headers.get("User-Agent", ""), request.query.get("role"))
+        if may_control(request)
+        else "ipad"
+    )
     html = (WEB_DIR / "index.html").read_text("utf-8")
     html = html.replace("{{ROLE}}", role)
     return web.Response(
@@ -78,6 +100,7 @@ async def handle_icon(request: web.Request) -> web.Response:
 
 
 async def handle_info(request: web.Request) -> web.Response:
+    require_control(request)
     config: Config = request.app[CONFIG_KEY]
     hub: Hub = request.app[HUB_KEY]
     return web.json_response(
@@ -128,6 +151,7 @@ async def handle_debug(request: web.Request) -> web.Response:
 
 
 async def handle_boards(request: web.Request) -> web.Response:
+    require_control(request)
     hub: Hub = request.app[HUB_KEY]
     return web.json_response({"boards": hub.store.list_metas(), "current": hub.current_id})
 
@@ -136,6 +160,7 @@ _BLANK_THUMB = profile._png(3, 2, [bytearray(b"\xff" * 12) for _ in range(2)])
 
 
 async def handle_thumb_get(request: web.Request) -> web.StreamResponse:
+    require_control(request)  # 缩略图只有白板选择界面在用
     hub: Hub = request.app[HUB_KEY]
     board_id = request.match_info["board_id"]
     path = hub.store.thumb_path(board_id)
@@ -174,6 +199,7 @@ async def _doc_thumb(app: web.Application, board_id: str):
 
 async def handle_thumb_post(request: web.Request) -> web.Response:
     """Mac 端在切换 / 关闭白板时上传缩略图，用于无文字的白板选择界面。"""
+    require_control(request)
     hub: Hub = request.app[HUB_KEY]
     board_id = request.match_info["board_id"]
     if not hub.store.get_meta(board_id):
@@ -192,6 +218,7 @@ async def handle_doc_upload(request: web.Request) -> web.Response:
     """上传一份 PDF / 图片，新建文档板并切过去。"""
     from . import docs
 
+    require_control(request)  # 建板算管理操作
     hub: Hub = request.app[HUB_KEY]
     filename = request.query.get("name") or request.headers.get("X-Filename") or ""
     body = await _read_body(request, MAX_DOC_BYTES)
@@ -249,6 +276,7 @@ async def handle_doc_export(request: web.Request) -> web.StreamResponse:
     """把笔迹合进原件导出；PDF 走矢量叠加，图片按原分辨率栅格化。"""
     from . import docs
 
+    require_control(request)  # 导出能把任意一块白板整份取走
     hub: Hub = request.app[HUB_KEY]
     board_id = request.match_info["board_id"]
     meta = hub.store.get_meta(board_id)
@@ -292,7 +320,8 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     await ws.prepare(request)
 
     hub: Hub = request.app[HUB_KEY]
-    session = _Session(request.app, ws)
+    # 权限在握手之前就按对端地址定下来，之后客户端说什么都改不了它。
+    session = _Session(request.app, ws, control=may_control(request))
     try:
         async for msg in ws:
             if msg.type != WSMsgType.TEXT:
@@ -314,12 +343,17 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
 class _Session:
     """一条 WebSocket 连接的协议处理。"""
 
-    def __init__(self, app: web.Application, ws: web.WebSocketResponse):
+    def __init__(self, app: web.Application, ws: web.WebSocketResponse, control: bool = True):
         self.app = app
         self.hub: Hub = app[HUB_KEY]
         self.ws = ws
+        self.control = control
         self.client = None
         self.client_id = "-"
+
+    def _may_manage(self) -> bool:
+        """能不能动白板管理。既要是 Mac 那套界面，也要来自本机。"""
+        return self.client.role == "mac" and self.client.control
 
     async def dispatch(self, msg: Dict[str, Any]) -> None:
         kind = msg.get("t")
@@ -351,10 +385,16 @@ class _Session:
         if not isinstance(client_id, str) or not _CLIENT_ID_RE.match(client_id):
             client_id = models.new_id()
         role = detect_role("", msg.get("role"))
-        self.client = Client(client_id, self.ws, role)
+        self.client = Client(client_id, self.ws, role, control=self.control)
         self.client_id = client_id
         self.hub.clients[client_id] = self.client
-        log.info("连接建立：%s（%s，在线 %d）", client_id, role, len(self.hub.clients))
+        log.info(
+            "连接建立：%s（%s%s，在线 %d）",
+            client_id,
+            role,
+            "" if self.client.control else "，只读管理",
+            len(self.hub.clients),
+        )
 
         board_id = msg.get("board")
         since = msg.get("since")
@@ -390,8 +430,8 @@ class _Session:
     async def _op(self, msg: Dict[str, Any]) -> None:
         raw = msg.get("op")
         runtime = self.hub.board()
-        if isinstance(raw, dict) and raw.get("op") == "meta" and self.client.role != "mac":
-            raw = None  # 白板尺寸 / 背景只在 Mac 端调整
+        if isinstance(raw, dict) and raw.get("op") == "meta" and not self._may_manage():
+            raw = None  # 背景 / 名字这些只在本机的 Mac 界面里调整
         op = runtime.apply(raw) if raw is not None else None
         cid = msg.get("cid")
         if op is None:
@@ -417,14 +457,14 @@ class _Session:
         await self.hub.broadcast({"t": "switch", **snapshot})
 
     async def _select(self, msg: Dict[str, Any]) -> None:
-        if self.client.role != "mac":
+        if not self._may_manage():
             return
         board_id = msg.get("board")
         if isinstance(board_id, str) and self.hub.select_board(board_id):
             await self._broadcast_switch()
 
     async def _new_board(self, msg: Dict[str, Any]) -> None:
-        if self.client.role != "mac":
+        if not self._may_manage():
             return
         kind = msg.get("kind")
         self.hub.create_board(kind if kind in models.KINDS else "board")
@@ -432,7 +472,7 @@ class _Session:
 
     async def _rename(self, msg: Dict[str, Any]) -> None:
         """给白板改名。改的可能不是当前这块，所以只广播列表，不走整块 switch。"""
-        if self.client.role != "mac":
+        if not self._may_manage():
             return
         board_id = msg.get("board")
         name = msg.get("name")
@@ -449,7 +489,7 @@ class _Session:
         )
 
     async def _del_board(self, msg: Dict[str, Any]) -> None:
-        if self.client.role != "mac":
+        if not self._may_manage():
             return
         board_id = msg.get("board")
         if isinstance(board_id, str) and self.hub.delete_board(board_id):

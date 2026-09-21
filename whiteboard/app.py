@@ -50,6 +50,7 @@ class NativeApi:
             "port": self.server.port,
             "urls": netinfo.candidate_urls(self.server.port),
             "data_dir": str(self.config.data_dir),
+            "remote_control": self.config.allow_remote_control,
             "log": str(resources.log_path()),
             "releases": f"https://github.com/{updater.REPO}/releases",
         }
@@ -139,6 +140,13 @@ class NativeApi:
         if not resources.is_frozen():
             return {"status": "source", "version": __version__}
         return self._check_update(force=True)
+
+    def set_remote_control(self, enabled: bool) -> bool:
+        """局域网上的别的设备能不能动白板管理、设置、导出这些。默认关。"""
+        self.config.allow_remote_control = bool(enabled)
+        self.config.save()
+        log.info("允许其他设备控制：%s", "开" if self.config.allow_remote_control else "关")
+        return self.config.allow_remote_control
 
     def set_auto_update(self, enabled: bool) -> bool:
         self.config.auto_update = bool(enabled)

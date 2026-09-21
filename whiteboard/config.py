@@ -44,6 +44,9 @@ class Config:
             "auto_update": False,
             # 「跳过这个版本」记在这里
             "skip_version": "",
+            # 局域网上的别的设备能不能动白板管理、设置这些。默认关：那些设备拿到的
+            # 只是书写界面，换白板、建板删板、改名、导出、检查更新一律走不通。
+            "allow_remote_control": False,
         }
         self.load()
 
@@ -83,6 +86,14 @@ class Config:
     @auto_update.setter
     def auto_update(self, value: bool) -> None:
         self.values["auto_update"] = bool(value)
+
+    @property
+    def allow_remote_control(self) -> bool:
+        return bool(self.values.get("allow_remote_control", False))
+
+    @allow_remote_control.setter
+    def allow_remote_control(self, value: bool) -> None:
+        self.values["allow_remote_control"] = bool(value)
 
     @property
     def skip_version(self) -> str:

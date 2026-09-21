@@ -1045,9 +1045,28 @@ export class UI {
         ])
       );
     }
-    groups.push(el("div", { class: "group" }, [this.connectCard()]));
+    groups.push(el("div", { class: "group" }, [this.connectCard(), this.remoteControlRow()]));
     const sheet = this.openSheet(groups);
     sheet.parentElement.dataset.kind = "settings";
+  }
+
+  /**
+   * 默认只有本机能换白板、改设置、导出、检查更新；局域网上的别的设备拿到的
+   * 是书写界面。这一行把那道闸放开，判断在服务端做，前端只是个开关。
+   */
+  remoteControlRow() {
+    if (!this.actions.isNative()) return null;
+    const input = el("input", { type: "checkbox" });
+    input.checked = !!(this.info && this.info.remote_control);
+    input.addEventListener("change", async () => {
+      const on = await this.actions.onRemoteControl(input.checked);
+      input.checked = !!on;
+      if (this.info) this.info.remote_control = !!on;
+    });
+    return el("label", { class: "beta-row" }, [
+      input,
+      el("span", { text: "允许其他设备控制（换白板、设置、导出、更新）" }),
+    ]);
   }
 
   connectCard() {

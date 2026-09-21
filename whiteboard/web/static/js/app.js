@@ -879,6 +879,13 @@ class App {
       },
       onDeleteBoard: (boardId) => this.net.send({ t: "delboard", board: boardId }),
       onRenameBoard: (boardId, name) => this.net.send({ t: "rename", board: boardId, name }),
+      onRemoteControl: async (enabled) => {
+        const api = nativeApi();
+        if (!api || !api.set_remote_control) return false;
+        const on = await api.set_remote_control(enabled);
+        await this.refreshNativeInfo();
+        return on;
+      },
       onMeta: (patch) => {
         const meta = { ...this.state.meta, ...patch };
         this.state.meta = meta;
