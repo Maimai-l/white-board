@@ -875,7 +875,7 @@ export class UI {
 
     if (query) {
       if (!matched.length) {
-        grid.append(el("p", { class: "gallery-empty", text: "没有名字对得上的白板" }));
+        grid.append(el("p", { class: "gallery-empty", text: "没有匹配的白板" }));
       }
       return; // 搜索结果里不放「新建」，免得点错
     }
@@ -932,7 +932,7 @@ export class UI {
       type: "text",
       value: board.name || "",
       placeholder: boardLabel(board),
-      title: "点一下改名",
+      title: "重命名白板",
       spellcheck: "false",
       maxlength: "64",
       "data-focus-key": `name:${board.id}`,
@@ -1081,14 +1081,14 @@ export class UI {
     return el("div", { class: "card" }, [
       el("div", { class: "addr", text: path }),
       // 合着的文件夹是「换一个」，开着的是「打开看看」，和原来那一行一致
-      iconButton("folder", "换一个目录", async () => {
+      iconButton("folder", "更换目录", async () => {
         const dir = await this.actions.onChooseDir();
         if (!dir) return;
         if (this.info) this.info.data_dir = dir;
         this.toast("check");
         this.openSettings();
       }),
-      iconButton("folderOpen", "在访达里打开", () => this.actions.onOpenDir()),
+      iconButton("folderOpen", "打开目录", () => this.actions.onOpenDir()),
     ]);
   }
 
@@ -1109,7 +1109,7 @@ export class UI {
     return el("label", { class: "perm-row" }, [
       el("span", { class: "perm-text" }, [
         el("span", { class: "perm-title", text: title }),
-        el("span", { class: "perm-note", text: note }),
+        note ? el("span", { class: "perm-note", text: note }) : null,
       ]),
       input,
     ]);

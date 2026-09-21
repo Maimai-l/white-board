@@ -667,7 +667,7 @@ def test_about_panel_holds_version_and_update_entries(browser, server):
     assert mac.locator(".sheet .card .addr").count() == 1  # 只剩存储目录那一张
     assert mac.evaluate(
         "() => [...document.querySelectorAll('.sheet .group-title')].map(h => h.textContent)"
-    ) == ["白板背景", "存储目录", "其他设备的权限"]
+    ) == ["背景", "存储目录", "其他设备权限"]
     mac.evaluate("() => whiteboard.ui.closeSheet()")
 
     mac.click('button[title="关于"]')
@@ -692,7 +692,7 @@ def test_permission_switches_are_separate(browser, server):
     assert mac.evaluate(rows) == [False, False, False]
     assert mac.evaluate(
         "() => [...document.querySelectorAll('.sheet .perm-title')].map(s => s.textContent)"
-    ) == ["管理白板", "改白板设置", "导出"]
+    ) == ["管理白板", "设置白板", "导出白板"]
 
     mac.locator(".sheet .perm-row input").nth(2).click()
     mac.wait_for_function("() => whiteboard.ui.info.remote_permissions.export === true")

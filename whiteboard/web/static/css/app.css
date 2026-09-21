@@ -238,9 +238,10 @@ html, body {
  * 工具盘的动画由 js/pkpicker.js 在 .pk-picker 上设置 data-motion 切换。
  * 时长和曲线写在 pkpicker.js 顶部的常量里，由它填进这几个 --pkm-* 变量，要调去那里调。
  *   travel（默认）：圆的飞行，收成圆、飞到角落，不回弹
- *   grow：「甩」之后的展开，以及上下两边之间直接滑过去的长条，带回弹
+ *   grow：「甩」之后的展开，带回弹
+ *   slide：「甩」时上下两边之间直接滑过去的长条，时长按距离计算、速度有上限
  *   smooth：「慢放」之后的展开，以及在手底下已展开的长条贴到边上，不回弹
- *   follow：拖动中跟手，位置几乎直给，圆与长条互变的形状单独用 morph
+ *   follow：拖动中跟手，位置和形状由 js 逐帧计算（以手指为中心伸缩），不用 css 过渡
  */
 @media (prefers-reduced-motion: no-preference) {
   #pk-host .pk-picker {
@@ -264,12 +265,17 @@ html, body {
       border-radius var(--pkm-smooth),
       box-shadow .3s ease, background-color .3s;
   }
-  #pk-host .pk-picker[data-motion="follow"] {
+  /* 甩：上下两边之间长条直接滑过去，时长由 js 按距离算好写进 --pkm-slide */
+  #pk-host .pk-picker[data-motion="slide"] {
     transition:
-      left var(--pkm-follow), top var(--pkm-follow),
-      width var(--pkm-morph), height var(--pkm-morph),
-      border-radius var(--pkm-morph),
-      box-shadow .3s ease;
+      left var(--pkm-slide), top var(--pkm-slide),
+      width var(--pkm-slide), height var(--pkm-slide),
+      border-radius var(--pkm-slide),
+      box-shadow .3s ease, background-color .3s;
+  }
+  /* 拖动中的位置和形状由 js 逐帧计算，这里不再加过渡 */
+  #pk-host .pk-picker[data-motion="follow"] {
+    transition: box-shadow .3s ease;
   }
   /* 圆里的笔转向 */
   #pk-host .pk-bubble-art { transition: transform var(--pkm-turn); }
@@ -457,12 +463,6 @@ html, body {
   letter-spacing: .04em;
   color: var(--on-surface-variant);
   text-transform: none;
-}
-.group-note {
-  margin: -4px 0 0;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--on-surface-variant);
 }
 /* 权限：一项一行，名字在上、说明在下，开关靠右；整块是一张卡 */
 .perm-list {

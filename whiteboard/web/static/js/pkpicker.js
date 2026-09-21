@@ -111,10 +111,9 @@ export const TUNING = {
   // ---- 拖动中 ----
   // 圆进入某条边的触发区后，停留多少毫秒才变成这条边的长条（出触发区则立即变回圆）
   DOCK_DWELL_MS: 250,
-  // 跟手时位置的延迟（线性）；手底下圆与长条互变的形状动画
-  FOLLOW_MS: 20,
-  MORPH_MS: 620,
-  MORPH_EASE: "cubic-bezier(.3, 1.3, .45, 1)",
+  // 手底下圆与长条互变：形状以手指为中心向四周伸缩，这里是时长和曲线
+  MORPH_MS: 460,
+  MORPH_EASE: "cubic-bezier(.28, 1.1, .4, 1)",
 
   // ---- 松手 ----
   // 用松手前多少毫秒内的移动计算速度；松手前停住超过这个时间，就当作没有速度
@@ -144,6 +143,14 @@ export const TUNING = {
   BOUNCE_MS: 400,
   BOUNCE_EASE: "cubic-bezier(.32, 1.28, .5, 1)",
 
+  // ---- 甩：在上下两边之间，长条直接滑过去（单独调） ----
+  // 滑动的最短时长
+  SLIDE_MS: 400,
+  // 滑动速度上限（像素/秒）：距离远时自动拉长时长，时长 = 距离 ÷ 这个速度，但不短于 SLIDE_MS
+  SLIDE_MAX_SPEED: 1000,
+  // 滑动曲线（带回弹）
+  SLIDE_EASE: "cubic-bezier(.32, 1.28, .5, 1)",
+
   // ---- 慢放：飞行、转笔同时开始，很快就开始展开（平滑，不回弹） ----
   // 起飞后多少毫秒开始展开
   SLOW_EXPAND_AT_MS: 50,
@@ -156,8 +163,32 @@ export const TUNING = {
 
 // 各条边上笔的方向：左边的长条里笔朝右，右边朝左，上下竖直
 const EDGE_DEG = { left: 90, right: -90, top: 0, bottom: 0 };
-// vendor 里拖动中圆的直径（MOVE_D），笔转向时要绕圆心转，需要这个值
+// vendor 里拖动中圆的直径（MOVE_D）
 const MOVE_D = 105;
+
+/** 把 "cubic-bezier(a, b, c, d)" 变成一个函数：输入时间进度 0–1，返回动画进度。其他写法按匀速处理。 */
+function easeFn(css) {
+  const m = /cubic-bezier\(([^)]+)\)/.exec(css || "");
+  const p = m ? m[1].split(",").map(Number) : [];
+  if (p.length !== 4 || p.some((n) => !Number.isFinite(n))) return (t) => t;
+  const [x1, y1, x2, y2] = p;
+  const curve = (t, a, b) => 3 * (1 - t) * (1 - t) * t * a + 3 * (1 - t) * t * t * b + t * t * t;
+  return (x) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let lo = 0;
+    let hi = 1;
+    let t = x;
+    for (let i = 0; i < 40; i++) {
+      const v = curve(t, x1, x2);
+      if (Math.abs(v - x) < 1e-5) break;
+      if (v < x) lo = t;
+      else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return curve(t, y1, y2);
+  };
+}
 
 let loading = null;
 
@@ -211,8 +242,6 @@ function makeClass(Base) {
       style.setProperty("--pkm-grow", `${TUNING.BOUNCE_MS}ms ${TUNING.BOUNCE_EASE}`);
       style.setProperty("--pkm-smooth", `${TUNING.SMOOTH_MS}ms ${TUNING.SMOOTH_EASE}`);
       style.setProperty("--pkm-turn", `${TUNING.TURN_MS}ms ${TUNING.TURN_EASE}`);
-      style.setProperty("--pkm-follow", `${TUNING.FOLLOW_MS}ms linear`);
-      style.setProperty("--pkm-morph", `${TUNING.MORPH_MS}ms ${TUNING.MORPH_EASE}`);
     }
 
     _bind() {
@@ -292,6 +321,13 @@ function makeClass(Base) {
         this._setState("moving");
       }
       this.picker.dataset.motion = "follow";
+      // 从当前画面上的大小开始，变到当前形态应有的大小
+      const now = this.picker.getBoundingClientRect();
+      this._size = { w: now.width, h: now.height };
+      this._morphTo(this._formSize());
+      this._lastPt = this._local({ clientX: this._pd.x, clientY: this._pd.y });
+      cancelAnimationFrame(this._dragRaf);
+      this._dragRaf = requestAnimationFrame(() => this._frame());
     }
 
     /**
@@ -339,7 +375,6 @@ function makeClass(Base) {
       this._formT = null;
       this._formWant = undefined;
       if (!this._pd || !this._pd.drag) return;
-      this._grab = { x: 0, y: 0 };
       if (want) {
         this.dock = want;
         this.minCorner = null;
@@ -350,31 +385,73 @@ function makeClass(Base) {
         this._setArt(0, MOVE_D, false);
         this._setState("moving");
       }
-      this._follow(this._lastPt);
+      // 手指相对形状中心的偏移随形变一起缩到 0：形状从原来的中心平滑移到手指下，不会一下跳过去
+      this._morphTo(this._formSize(), { x: 0, y: 0 });
     }
 
-    /** 当前形态跟着指针走：长条保持被拿起时手指的相对位置，圆以指针为中心。 */
+    /** 记下指针位置；位置和形状由 _frame 每一帧统一计算。 */
     _follow(pt) {
-      if (this.state === "docked") {
-        this._apply(this._loose({ x: pt.x - this._grab.x, y: pt.y - this._grab.y }));
-      } else {
-        this._apply(this._geom("moving", pt));
-      }
+      this._lastPt = pt;
     }
 
-    /** 展开之后仍然跟着手：整条栏以给定点为中心，别跑出屏幕就行。 */
-    _loose(pt) {
+    /** 当前形态应有的大小：圆为拖动中的大圆，长条按当前这条边的布局。 */
+    _formSize() {
+      if (this.state !== "docked") return { w: MOVE_D, h: MOVE_D };
       const L = LAYOUT[this.mode];
-      const scale = this._scale;
-      const w = L.W * scale;
-      const h = L.H * scale;
-      return {
-        x: clamp(pt.x - w / 2, 8, Math.max(8, this.W - w - 8)),
-        y: clamp(pt.y - h / 2, 8, Math.max(8, this.H - h - 8)),
-        w,
-        h,
-        r: 52.5 * scale,
+      return { w: L.W * this._scale, h: L.H * this._scale };
+    }
+
+    /**
+     * 从现在的大小开始，按 MORPH_MS / MORPH_EASE 变到 to；手指相对形状中心的偏移
+     * 同时从现在的值变到 grabTo（不传则保持不变）。
+     */
+    _morphTo(to, grabTo) {
+      const now = performance.now();
+      const cur = this._stateNow(now);
+      this._morph = {
+        from: cur.size,
+        to,
+        grabFrom: cur.grab,
+        grabTo: grabTo || cur.grab,
+        t0: now,
+        dur: TUNING.MORPH_MS,
+        ease: easeFn(TUNING.MORPH_EASE),
       };
+    }
+
+    /** 某一时刻形状的大小，以及手指相对形状中心的偏移。 */
+    _stateNow(now) {
+      const m = this._morph;
+      if (!m) return { size: this._size || { w: MOVE_D, h: MOVE_D }, grab: this._grab || { x: 0, y: 0 } };
+      const t = m.dur > 0 ? Math.min(1, (now - m.t0) / m.dur) : 1;
+      const e = m.ease(t);
+      const mix = (a, b) => a + (b - a) * e;
+      return {
+        size: { w: mix(m.from.w, m.to.w), h: mix(m.from.h, m.to.h) },
+        grab: { x: mix(m.grabFrom.x, m.grabTo.x), y: mix(m.grabFrom.y, m.grabTo.y) },
+      };
+    }
+
+    /**
+     * 拖动中每一帧：先算出形状此刻的大小和手指偏移，再以「手指减去偏移」为中心摆放，
+     * 所以圆与长条互变时，形状从中心向两端伸缩，不会先偏到一边。长条不超出屏幕。
+     */
+    _frame() {
+      this._dragRaf = 0;
+      if (!this._pd || !this._pd.drag) return;
+      const { size, grab } = this._stateNow(performance.now());
+      const { w, h } = size;
+      this._size = size;
+      this._grab = grab;
+      const pt = this._lastPt;
+      let cx = pt.x - grab.x;
+      let cy = pt.y - grab.y;
+      if (this.state === "docked") {
+        cx = clamp(cx, 8 + w / 2, Math.max(8 + w / 2, this.W - w / 2 - 8));
+        cy = clamp(cy, 8 + h / 2, Math.max(8 + h / 2, this.H - h / 2 - 8));
+      }
+      this._apply({ x: cx - w / 2, y: cy - h / 2, w, h, r: Math.min(w, h) / 2 });
+      this._dragRaf = requestAnimationFrame(() => this._frame());
     }
 
     /** 记录拖动轨迹，只保留最近 VELOCITY_WINDOW_MS 内的点（至少两个），用来算松手速度。 */
@@ -407,6 +484,9 @@ function makeClass(Base) {
       if (!drag || drag.id !== event.pointerId) return;
       this._pd = null;
       if (!drag.drag) return;
+      cancelAnimationFrame(this._dragRaf);
+      this._dragRaf = 0;
+      this._morph = null;
       clearTimeout(this._formT);
       this._formT = null;
       this._formWant = undefined;
@@ -543,7 +623,19 @@ function makeClass(Base) {
       const flat = (e) => e === "top" || e === "bottom";
       const sameBar = fromBar && from === edge;
       const flatJump = fast && flat(fromEdge) && flat(edge);
-      if (sameBar || flatJump) {
+      if (flatJump && !sameBar) {
+        // 上下两边之间直接滑过去：距离越远时长越长，速度不超过 SLIDE_MAX_SPEED
+        const now = this.picker.getBoundingClientRect();
+        const root = this.root.getBoundingClientRect();
+        const dist = Math.abs(now.top + now.height / 2 - root.top - (bar.y + bar.h / 2));
+        const ms = Math.max(TUNING.SLIDE_MS, (dist / Math.max(1, TUNING.SLIDE_MAX_SPEED)) * 1000);
+        this.picker.style.setProperty("--pkm-slide", `${Math.round(ms)}ms ${TUNING.SLIDE_EASE}`);
+        this.picker.dataset.motion = "slide";
+        this._setState("docked");
+        this._apply(bar);
+        return;
+      }
+      if (sameBar) {
         this.picker.dataset.motion = fast ? "grow" : "smooth";
         this._setState("docked");
         this._apply(bar);
@@ -801,6 +893,7 @@ function makeClass(Base) {
 
     /** 卸载：先停掉本文件的计时器，再走 vendor 原有的清理。 */
     destroy() {
+      cancelAnimationFrame(this._dragRaf);
       clearTimeout(this._formT);
       clearTimeout(this._settleT);
       clearTimeout(this._turnT);
