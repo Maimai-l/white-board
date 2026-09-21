@@ -18,6 +18,9 @@ log = logging.getLogger(__name__)
 DEFAULT_PORT = 8848
 APP_NAME = "Whiteboard"
 
+# 局域网上别的设备可以被授予的权限。名字同时是配置的键和界面上的分组。
+REMOTE_PERMISSIONS = ("manage", "settings", "export")
+
 
 def app_support_dir() -> Path:
     if sys.platform == "darwin":
@@ -44,9 +47,10 @@ class Config:
             "auto_update": False,
             # 「跳过这个版本」记在这里
             "skip_version": "",
-            # 局域网上的别的设备能不能动白板管理、设置这些。默认关：那些设备拿到的
-            # 只是书写界面，换白板、建板删板、改名、导出、检查更新一律走不通。
-            "allow_remote_control": False,
+            # 局域网上的别的设备各能做什么，一项一开关，默认全关：那些设备只能写字。
+            # 检查更新、选存储目录不在这里：它们走 pywebview 的本地接口，
+            # 别的设备本来就够不着，给个开关反而是骗人。
+            "remote_permissions": {},
         }
         self.load()
 
@@ -58,8 +62,12 @@ class Config:
         except (OSError, ValueError) as exc:
             log.warning("配置读取失败，使用默认值：%s", exc)
             return
-        if isinstance(raw, dict):
-            self.values.update({k: v for k, v in raw.items() if k in self.values})
+        if not isinstance(raw, dict):
+            return
+        self.values.update({k: v for k, v in raw.items() if k in self.values})
+        # 旧版本只有一个总开关，开着就等于三项全开。
+        if raw.get("allow_remote_control") and not self.values["remote_permissions"]:
+            self.values["remote_permissions"] = {name: True for name in REMOTE_PERMISSIONS}
 
     def save(self) -> None:
         try:
@@ -88,12 +96,19 @@ class Config:
         self.values["auto_update"] = bool(value)
 
     @property
-    def allow_remote_control(self) -> bool:
-        return bool(self.values.get("allow_remote_control", False))
+    def remote_permissions(self) -> Dict[str, bool]:
+        """别的设备被允许做的事，键见 ``REMOTE_PERMISSIONS``。"""
+        raw = self.values.get("remote_permissions")
+        raw = raw if isinstance(raw, dict) else {}
+        return {name: bool(raw.get(name)) for name in REMOTE_PERMISSIONS}
 
-    @allow_remote_control.setter
-    def allow_remote_control(self, value: bool) -> None:
-        self.values["allow_remote_control"] = bool(value)
+    def set_remote_permission(self, name: str, enabled: bool) -> Dict[str, bool]:
+        if name not in REMOTE_PERMISSIONS:
+            raise ValueError(f"没有这个权限：{name}")
+        current = self.remote_permissions
+        current[name] = bool(enabled)
+        self.values["remote_permissions"] = current
+        return current
 
     @property
     def skip_version(self) -> str:

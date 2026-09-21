@@ -308,6 +308,7 @@ html, body {
 }
 /* iOS 那种绿色小开关 */
 .beta-row input[type="checkbox"],
+.perm-row input[type="checkbox"],
 .update-auto input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
@@ -323,6 +324,7 @@ html, body {
   transition: background var(--motion);
 }
 .beta-row input[type="checkbox"]::after,
+.perm-row input[type="checkbox"]::after,
 .update-auto input[type="checkbox"]::after {
   content: "";
   position: absolute;
@@ -336,8 +338,10 @@ html, body {
   transition: transform var(--motion);
 }
 .beta-row input[type="checkbox"]:checked,
+.perm-row input[type="checkbox"]:checked,
 .update-auto input[type="checkbox"]:checked { background: #34c759; }
 .beta-row input[type="checkbox"]:checked::after,
+.perm-row input[type="checkbox"]:checked::after,
 .update-auto input[type="checkbox"]:checked::after { transform: translateX(18px); }
 
 /* Mac 端右上角功能簇与右下角缩放簇 */
@@ -444,6 +448,42 @@ html, body {
 .sheet-head { display: flex; justify-content: flex-end; }
 .group { display: flex; flex-direction: column; gap: 10px; }
 .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* 设置面板：每段一个小标题，必要时下面跟一句说明 */
+.group-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--on-surface-variant);
+  text-transform: none;
+}
+.group-note {
+  margin: -4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--on-surface-variant);
+}
+/* 权限：一项一行，名字在上、说明在下，开关靠右；整块是一张卡 */
+.perm-list {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-m);
+  background: var(--surface-1);
+  border: .5px solid var(--outline);
+  overflow: hidden;
+}
+.perm-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.perm-row + .perm-row { border-top: .5px solid var(--outline); }
+.perm-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.perm-title { font-size: 13.5px; color: var(--on-surface); }
+.perm-note { font-size: 12px; line-height: 1.4; color: var(--on-surface-variant); }
 
 /* 白板选择界面：满屏缩略图，只有图标 */
 .gallery {

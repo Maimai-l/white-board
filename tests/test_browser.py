@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -627,23 +628,46 @@ def test_release_notes_are_escaped(browser, server):
     mac.close()
 
 
-def test_about_panel_holds_version_and_update_entries(browser, server):
-    """更新相关的入口收在「关于」里，白板设置只管背景和存储。"""
-    mac, ipad = open_pages(browser, server.port)
-    mac.evaluate(
-        """() => { window.pywebview = { api: {
-          info: async () => ({ native: true, version: '0.9.4', packaged: true,
-            releases: 'https://github.com/Maimai-l/white-board/releases' }),
-          check_update_now: async () => ({ status: 'latest', version: '0.9.4' }),
-        }}; }"""
-    )
-    mac.evaluate("() => whiteboard.refreshNativeInfo()")
-    mac.wait_for_timeout(200)
+# 「关于」「连接 iPad」「存储目录」这几段只有本地进程里才有意义，界面按
+# window.pywebview 在不在来决定给不给，所以要在页面加载之前就把它放好。
+NATIVE_STUB = """
+  window.__perms = { manage: false, settings: false, export: false };
+  window.pywebview = { api: {
+    info: async () => ({ native: true, version: '0.9.4', packaged: true,
+      data_dir: '/tmp/boards',
+      remote_permissions: Object.assign({}, window.__perms),
+      releases: 'https://github.com/Maimai-l/white-board/releases' }),
+    check_update_now: async () => ({ status: 'latest', version: '0.9.4' }),
+    set_remote_permission: async (name, on) => {
+      window.__perms[name] = !!on;
+      return Object.assign({}, window.__perms);
+    },
+  }};
+"""
 
-    # 设置面板里不该再有检查更新
+
+def as_native(page):
+    """把这一页变成「本地进程里的那个窗口」，重新加载后生效。"""
+    page.add_init_script(NATIVE_STUB)
+    page.reload()
+    page.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    page.wait_for_function("() => whiteboard.ui.info && whiteboard.ui.info.native === true",
+                           timeout=15000)
+
+
+def test_about_panel_holds_version_and_update_entries(browser, server):
+    """更新相关的入口收在「关于」里，白板设置只管背景、存储和权限。"""
+    mac, ipad = open_pages(browser, server.port)
+    as_native(mac)
+
+    # 设置面板里不该再有检查更新，也不该再有连接 iPad 那张卡
     mac.click('button[title="白板设置"]')
+    mac.wait_for_selector(".sheet .group-title")
     assert mac.locator("button:has-text('检查更新')").count() == 0
-    assert mac.locator(".row-label").inner_text() == "存储目录"
+    assert mac.locator(".sheet .card .addr").count() == 1  # 只剩存储目录那一张
+    assert mac.evaluate(
+        "() => [...document.querySelectorAll('.sheet .group-title')].map(h => h.textContent)"
+    ) == ["白板背景", "存储目录", "其他设备的权限"]
     mac.evaluate("() => whiteboard.ui.closeSheet()")
 
     mac.click('button[title="关于"]')
@@ -653,6 +677,71 @@ def test_about_panel_holds_version_and_update_entries(browser, server):
     assert "0.9.4" in about.inner_text()
     assert about.locator("button:has-text('检查更新')").count() == 1
     assert about.locator("button:has-text('更新日志')").count() == 1
+    mac.close()
+    ipad.close()
+
+
+def test_permission_switches_are_separate(browser, server):
+    """三项权限各一个开关，互不牵连，改的是本地进程里的配置。"""
+    mac, ipad = open_pages(browser, server.port)
+    as_native(mac)
+    mac.click('button[title="白板设置"]')
+    mac.wait_for_selector(".sheet .perm-row")
+
+    rows = "() => [...document.querySelectorAll('.sheet .perm-row input')].map(i => i.checked)"
+    assert mac.evaluate(rows) == [False, False, False]
+    assert mac.evaluate(
+        "() => [...document.querySelectorAll('.sheet .perm-title')].map(s => s.textContent)"
+    ) == ["管理白板", "改白板设置", "导出"]
+
+    mac.locator(".sheet .perm-row input").nth(2).click()
+    mac.wait_for_function("() => whiteboard.ui.info.remote_permissions.export === true")
+    assert mac.evaluate(rows) == [False, False, True]
+    assert mac.evaluate("() => window.__perms") == {
+        "manage": False,
+        "settings": False,
+        "export": True,
+    }
+    mac.close()
+    ipad.close()
+
+
+def test_the_ui_only_draws_the_entries_it_is_allowed(browser, server):
+    """右上角那几个入口按权限出，没权限就根本不画。"""
+    mac, ipad = open_pages(browser, server.port)
+    titles = "() => [...document.querySelectorAll('#topright button')].map(b => b.title)"
+
+    # 本机：权限齐全，但「连接 iPad」「关于」要本地进程才有
+    assert mac.evaluate(titles) == ["白板", "白板设置", "导出 PNG"]
+    as_native(mac)
+    assert mac.evaluate(titles) == ["白板", "白板设置", "导出 PNG", "连接 iPad", "关于"]
+
+    # 装成局域网里的别的设备：把服务端发下来的那份清单改成只有 export
+    def only_export(route):
+        response = route.fetch()
+        body = response.text().replace('data-perms="export manage settings"', 'data-perms="export"')
+        route.fulfill(response=response, body=body)
+
+    index = re.compile(r"^http://127\.0\.0\.1:\d+/(\?.*)?$")
+    mac.route(index, only_export)
+    mac.add_init_script("delete window.pywebview;")  # 别的设备不是本地进程
+    mac.reload()
+    mac.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    assert mac.evaluate("() => document.documentElement.dataset.perms") == "export"
+    assert mac.evaluate(titles) == ["导出 PNG"]
+
+    # 没有任何权限时，那一簇整个不出现
+    mac.unroute(index)
+
+    def no_perms(route):
+        response = route.fetch()
+        body = response.text().replace('data-perms="export manage settings"', 'data-perms=""')
+        route.fulfill(response=response, body=body)
+
+    mac.route(index, no_perms)
+    mac.reload()
+    mac.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    assert mac.evaluate("() => !document.getElementById('topright')")
     mac.close()
     ipad.close()
 

@@ -28,6 +28,13 @@ export const ALL_TOOLS = [...INK_TOOLS, "eraser"];
 const TOOL_TITLES = { pen: "钢笔", marker: "马克笔", highlighter: "荧光笔", eraser: "橡皮擦" };
 const KIND_NAMES = { board: "白板", note: "笔记", doc: "文档" };
 
+// 可以放开给别的设备的权限，顺序就是设置面板里的顺序；键与 config.REMOTE_PERMISSIONS 一致。
+const PERMISSIONS = [
+  { key: "manage", title: "管理白板", note: "切换、新建、删除、改名，拖入 PDF 建板" },
+  { key: "settings", title: "改白板设置", note: "背景纹理" },
+  { key: "export", title: "导出", note: "把白板连同原件整份取走" },
+];
+
 /** 卡片上显示的名字。没起名就按延伸方式给个默认，文档板退回原件的文件名。 */
 export function boardLabel(board) {
   if (board.name) return board.name;
@@ -118,9 +125,10 @@ function iconButton(name, title, onClick, extraClass = "") {
 }
 
 export class UI {
-  constructor({ role, native, actions }) {
+  constructor({ role, native, perms, actions }) {
     this.role = role;
     this.native = native;
+    this.perms = perms || new Set();
     this.actions = actions;
     this.root = document.getElementById("ui");
     this.tool = loadTool();
@@ -157,20 +165,34 @@ export class UI {
     this.fillToolbar();
 
     if (this.role === "mac") {
-      const topright = el("div", { id: "topright", class: "pill" }, [
-        iconButton("boards", "白板", () => this.openBoards()),
-        iconButton("settings", "白板设置", () => this.openSettings()),
-        (this.exportButton = iconButton("image", "导出 PNG", () => this.actions.onExport())),
-        iconButton("tablet", "连接 iPad", () => this.openConnect()),
-        iconButton("info", "关于", () => this.openAbout()),
-      ]);
+      // 每个入口都对应一项权限：本机全有，别的设备看 Mac 上放开了哪几项。
+      // 「连接 iPad」和「关于」只有本机进程里才有意义（选文件、看版本、查更新），
+      // 所以跟着 native 走，不进权限体系。
+      const buttons = [];
+      if (this.may("manage")) buttons.push(iconButton("boards", "白板", () => this.openBoards()));
+      if (this.may("settings") || this.native) {
+        buttons.push(iconButton("settings", "白板设置", () => this.openSettings()));
+      }
+      if (this.may("export")) {
+        buttons.push((this.exportButton = iconButton("image", "导出 PNG", () => this.actions.onExport())));
+      }
+      if (this.native) {
+        buttons.push(iconButton("tablet", "连接 iPad", () => this.openConnect()));
+        buttons.push(iconButton("info", "关于", () => this.openAbout()));
+      }
+      const topright = el("div", { id: "topright", class: "pill" }, buttons);
       const zoombar = el("div", { id: "zoombar", class: "pill" }, [
         iconButton("zoomIn", "放大", () => this.actions.onZoom(1.25)),
         iconButton("fit", "回到内容", () => this.actions.onFit()),
         iconButton("zoomOut", "缩小", () => this.actions.onZoom(0.8)),
       ]);
-      this.root.append(topright, zoombar);
+      if (buttons.length) this.root.append(topright);
+      this.root.append(zoombar);
     }
+  }
+
+  may(permission) {
+    return this.perms.has(permission);
   }
 
   /** 填工具栏。开了笔具盘就把这条藏起来，交给 pkpicker.js 那条。 */
@@ -1027,45 +1049,73 @@ export class UI {
   }
 
   openSettings() {
+    const groups = [];
     // 文档板的底是原件本身，背景纹理没有意义。
     const isDoc = this.meta && this.meta.kind === "doc";
-    const groups = isDoc ? [] : [el("div", { class: "group" }, [this.backgroundOptions()])];
-    // 选择 / 打开存储目录要调用本地文件对话框，只有 pywebview 窗口里才有。
-    if (this.actions.isNative()) {
+    if (!isDoc && this.may("settings")) {
+      groups.push(this.settingsGroup("白板背景", [this.backgroundOptions()]));
+    }
+    // 选目录要开本地文件对话框，只有 pywebview 窗口里才有；别的设备看不到这两段。
+    if (this.native) {
+      groups.push(this.settingsGroup("存储目录", [this.dataDirCard()]));
       groups.push(
-        el("div", { class: "group" }, [
-          el("div", { class: "row" }, [
-            el("span", { class: "row-label", text: "存储目录" }),
-            iconButton("folder", "选择存储目录", async () => {
-              const dir = await this.actions.onChooseDir();
-              if (dir) this.toast("check");
-            }),
-            iconButton("folderOpen", "打开存储目录", () => this.actions.onOpenDir()),
-          ]),
+        this.settingsGroup("其他设备的权限", [
+          el("p", {
+            class: "group-note",
+            text: "局域网里的别的设备默认只能写字，下面一项项放开。",
+          }),
+          el("div", { class: "perm-list" }, PERMISSIONS.map((item) => this.permissionRow(item))),
         ])
       );
     }
-    groups.push(el("div", { class: "group" }, [this.connectCard(), this.remoteControlRow()]));
     const sheet = this.openSheet(groups);
     sheet.parentElement.dataset.kind = "settings";
   }
 
+  /** 设置面板里的一段：一个小标题加内容。 */
+  settingsGroup(title, children) {
+    return el("section", { class: "group" }, [
+      el("h2", { class: "group-title", text: title }),
+      ...children,
+    ]);
+  }
+
+  dataDirCard() {
+    const path = (this.info && this.info.data_dir) || "";
+    return el("div", { class: "card" }, [
+      el("div", { class: "addr", text: path }),
+      // 合着的文件夹是「换一个」，开着的是「打开看看」，和原来那一行一致
+      iconButton("folder", "换一个目录", async () => {
+        const dir = await this.actions.onChooseDir();
+        if (!dir) return;
+        if (this.info) this.info.data_dir = dir;
+        this.toast("check");
+        this.openSettings();
+      }),
+      iconButton("folderOpen", "在访达里打开", () => this.actions.onOpenDir()),
+    ]);
+  }
+
   /**
-   * 默认只有本机能换白板、改设置、导出、检查更新；局域网上的别的设备拿到的
-   * 是书写界面。这一行把那道闸放开，判断在服务端做，前端只是个开关。
+   * 一项权限一行：名字、一句话说明、一个开关。真正的拦截在服务端，
+   * 这里改的是本地进程里的配置。
    */
-  remoteControlRow() {
-    if (!this.actions.isNative()) return null;
+  permissionRow({ key, title, note }) {
+    const granted = (this.info && this.info.remote_permissions) || {};
     const input = el("input", { type: "checkbox" });
-    input.checked = !!(this.info && this.info.remote_control);
+    input.checked = !!granted[key];
     input.addEventListener("change", async () => {
-      const on = await this.actions.onRemoteControl(input.checked);
-      input.checked = !!on;
-      if (this.info) this.info.remote_control = !!on;
+      const next = await this.actions.onRemotePermission(key, input.checked);
+      if (!next) return;
+      input.checked = !!next[key];
+      if (this.info) this.info.remote_permissions = next;
     });
-    return el("label", { class: "beta-row" }, [
+    return el("label", { class: "perm-row" }, [
+      el("span", { class: "perm-text" }, [
+        el("span", { class: "perm-title", text: title }),
+        el("span", { class: "perm-note", text: note }),
+      ]),
       input,
-      el("span", { text: "允许其他设备控制（换白板、设置、导出、更新）" }),
     ]);
   }
 

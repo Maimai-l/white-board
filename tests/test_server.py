@@ -600,13 +600,22 @@ def test_is_own_address_only_trusts_this_machine():
     assert not netinfo.is_own_address("不是地址")
 
 
-def test_remote_device_always_gets_the_writing_ui(tmp_path, remote):
-    """外部设备一律拿书写界面，`?role=mac` 也没用。"""
+def test_remote_device_gets_no_permissions_by_default(tmp_path, remote):
+    """页面上带着这台设备拿到的权限清单，界面照它决定露出哪些入口。"""
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            assert 'data-perms=""' in await (await client.get("/?role=mac")).text()
+            app[CONFIG_KEY].set_remote_permission("export", True)
+            assert 'data-perms="export"' in await (await client.get("/?role=mac")).text()
+
+    run(main())
+
+
+def test_this_machine_gets_every_permission(tmp_path):
     async def main():
         async with make_client(tmp_path) as (client, _app):
-            for query in ("", "?role=mac"):
-                body = await (await client.get("/" + query)).text()
-                assert 'data-role="ipad"' in body
+            body = await (await client.get("/")).text()
+            assert 'data-perms="export manage settings"' in body
 
     run(main())
 
@@ -629,6 +638,23 @@ def test_remote_device_cannot_reach_management_apis(tmp_path, remote):
             assert (await client.get("/")).status == 200
             assert (await client.get("/profile.mobileconfig")).status == 200
             assert (await client.post("/api/debug", json={"role": "ipad"})).status == 200
+
+    run(main())
+
+
+def test_permissions_are_granted_one_by_one(tmp_path, remote):
+    """放开导出不等于放开管理：两边互不牵连。"""
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            board_id = app[HUB_KEY].current_id
+            app[CONFIG_KEY].set_remote_permission("export", True)
+            assert (await client.get(f"/api/export/{board_id}")).status != 403
+            assert (await client.get("/api/boards")).status == 403
+
+            app[CONFIG_KEY].set_remote_permission("export", False)
+            app[CONFIG_KEY].set_remote_permission("manage", True)
+            assert (await client.get("/api/boards")).status == 200
+            assert (await client.get(f"/api/export/{board_id}")).status == 403
 
     run(main())
 
@@ -678,12 +704,11 @@ def test_remote_device_cannot_manage_over_websocket(tmp_path, remote):
 
 
 def test_opening_the_gate_lets_other_devices_manage(tmp_path, remote):
-    """在 Mac 上打开「允许其他设备控制」之后，那道闸就放开了。"""
+    """在 Mac 上放开「管理白板」之后，那道闸就开了。"""
     async def main():
         async with make_client(tmp_path) as (client, app):
-            app[CONFIG_KEY].allow_remote_control = True
+            app[CONFIG_KEY].set_remote_permission("manage", True)
             assert (await client.get("/api/boards")).status == 200
-            assert 'data-role="mac"' in await (await client.get("/?role=mac")).text()
 
             ws = await client.ws_connect("/ws")
             await hello(ws, "mac", client_id="remote-mac")

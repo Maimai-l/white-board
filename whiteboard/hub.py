@@ -16,7 +16,7 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict, deque
-from typing import Any, Deque, Dict, Iterable, List, Optional
+from typing import Any, Deque, Dict, FrozenSet, Iterable, List, Optional
 
 from . import models
 from .store import BoardStore
@@ -128,18 +128,18 @@ class BoardRuntime:
 class Client:
     """一条 WebSocket 连接。
 
-    ``control`` 是连接建立时按 TCP 对端地址定下来的：本机（或显式放开了
-    「允许其他设备控制」）才为真。``role`` 是客户端自己报的，只用来决定界面长相，
+    ``allowed`` 是连接建立时按 TCP 对端地址定下来的权限集合：本机全给，别的设备
+    只有 Mac 上一项项放开的那些。``role`` 是客户端自己报的，只用来决定界面长相，
     不能拿来当权限判断。
     """
 
-    __slots__ = ("id", "ws", "role", "control", "connected_at")
+    __slots__ = ("id", "ws", "role", "allowed", "connected_at")
 
-    def __init__(self, client_id: str, ws: Any, role: str, control: bool = True):
+    def __init__(self, client_id: str, ws: Any, role: str, allowed: "FrozenSet[str]" = frozenset()):
         self.id = client_id
         self.ws = ws
         self.role = role
-        self.control = control
+        self.allowed = allowed
         self.connected_at = time.time()
 
     async def send(self, message: Dict[str, Any]) -> None:

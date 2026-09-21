@@ -30,6 +30,12 @@ function resolveRole() {
   return fromServer === "ipad" ? "ipad" : "mac";
 }
 
+/** 服务端发下来的权限清单。真正的拦截在服务端，这里只决定画不画那个入口。 */
+function resolvePerms() {
+  const raw = document.documentElement.dataset.perms || "";
+  return new Set(raw.split(" ").filter(Boolean));
+}
+
 function clientId() {
   try {
     let id = localStorage.getItem("whiteboard.client");
@@ -101,7 +107,12 @@ class App {
     this.perf.role = this.role;
     if (new URLSearchParams(location.search).get("debug") === "1") this.perf.toggle(true);
 
-    this.ui = new UI({ role: this.role, native: !!nativeApi(), actions: this.actions() });
+    this.ui = new UI({
+      role: this.role,
+      native: !!nativeApi(),
+      perms: resolvePerms(),
+      actions: this.actions(),
+    });
     this.tool = this.ui.toolState();
 
     this.net = new Net({
@@ -879,12 +890,12 @@ class App {
       },
       onDeleteBoard: (boardId) => this.net.send({ t: "delboard", board: boardId }),
       onRenameBoard: (boardId, name) => this.net.send({ t: "rename", board: boardId, name }),
-      onRemoteControl: async (enabled) => {
+      onRemotePermission: async (name, enabled) => {
         const api = nativeApi();
-        if (!api || !api.set_remote_control) return false;
-        const on = await api.set_remote_control(enabled);
+        if (!api || !api.set_remote_permission) return null;
+        const granted = await api.set_remote_permission(name, enabled);
         await this.refreshNativeInfo();
-        return on;
+        return granted;
       },
       onMeta: (patch) => {
         const meta = { ...this.state.meta, ...patch };

@@ -50,7 +50,7 @@ class NativeApi:
             "port": self.server.port,
             "urls": netinfo.candidate_urls(self.server.port),
             "data_dir": str(self.config.data_dir),
-            "remote_control": self.config.allow_remote_control,
+            "remote_permissions": self.config.remote_permissions,
             "log": str(resources.log_path()),
             "releases": f"https://github.com/{updater.REPO}/releases",
         }
@@ -141,12 +141,16 @@ class NativeApi:
             return {"status": "source", "version": __version__}
         return self._check_update(force=True)
 
-    def set_remote_control(self, enabled: bool) -> bool:
-        """局域网上的别的设备能不能动白板管理、设置、导出这些。默认关。"""
-        self.config.allow_remote_control = bool(enabled)
+    def set_remote_permission(self, name: str, enabled: bool) -> Optional[Dict[str, bool]]:
+        """放开 / 收回别的设备的某一项权限。名字见 config.REMOTE_PERMISSIONS。"""
+        try:
+            granted = self.config.set_remote_permission(name, enabled)
+        except ValueError:
+            log.warning("未知的权限名：%s", name)
+            return None
         self.config.save()
-        log.info("允许其他设备控制：%s", "开" if self.config.allow_remote_control else "关")
-        return self.config.allow_remote_control
+        log.info("其他设备的 %s 权限：%s", name, "开" if granted[name] else "关")
+        return granted
 
     def set_auto_update(self, enabled: bool) -> bool:
         self.config.auto_update = bool(enabled)
