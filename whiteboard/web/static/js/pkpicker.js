@@ -11,6 +11,8 @@
 // 没接的：不透明度（笔迹格式里还没有这个字段）、重做（白板没有重做）、
 // 直尺和套索（白板没有这两个功能，对应的按钮已经从布局里去掉）。
 
+import { clamp } from "./util.js";
+
 // 去掉套索和直尺之后的布局，其余数值原样取自 vendor 里的 PK_LAYOUT。
 const LAYOUT = {
   h: {
@@ -81,6 +83,19 @@ const LAYOUT = {
   },
 };
 
+// 顶部停靠：布局和底部那条一模一样，只是四支笔整支转 180°（笔尖朝着画布，
+// 没选中的往上沉进栏里），握把挪到下边缘。原实现只有下 / 左 / 右三种。
+LAYOUT.ht = {
+  ...LAYOUT.h,
+  items: Object.fromEntries(
+    Object.entries(LAYOUT.h.items).map(([key, item]) => {
+      if (["pen", "marker", "pencil", "eraser"].includes(key)) return [key, { ...item, r: 180 }];
+      if (key === "grip") return [key, { ...item, y: LAYOUT.h.H - item.y - item.h }];
+      return [key, item];
+    })
+  ),
+};
+
 // 我们的工具 → 那份实现里的工具造型
 export const TOOL_ART = { pen: "pen", marker: "pencil", highlighter: "marker", eraser: "eraser" };
 const ART_TOOL = Object.fromEntries(Object.entries(TOOL_ART).map(([k, v]) => [v, k]));
@@ -139,6 +154,8 @@ function makeClass(Base) {
         }
         return true;
       });
+      // 收起来之后，笔 / 光标靠近就提前展开，不用非得点中那个圆
+      this._on(window, "pointermove", (event) => this._hoverExpand(event));
       // 「更多」里的开关不发事件，点完之后自己对一次；另外接住我们加的两行
       this._on(this.pop, "click", (event) => {
         const row = event.target.closest("[data-wb]");
@@ -151,6 +168,17 @@ function makeClass(Base) {
         if (what === "clear" && this.onClear) this.onClear();
         if (what === "leave" && this.onLeave) this.onLeave();
       });
+    }
+
+    /** 悬停到收起来的那个圆附近就展开（手指没有悬停，只能点）。 */
+    _hoverExpand(event) {
+      if (this.state !== "minimized" || event.buttons) return;
+      if (event.pointerType === "touch") return;
+      const rect = this.picker.getBoundingClientRect();
+      const pad = 56;
+      if (event.clientX < rect.left - pad || event.clientX > rect.right + pad) return;
+      if (event.clientY < rect.top - pad || event.clientY > rect.bottom + pad) return;
+      this._expand();
     }
 
     // 画布事件归白板，这里一概不接
@@ -167,6 +195,68 @@ function makeClass(Base) {
       this._layoutBar();
       if (this.state === "moving") this._setState("docked");
       this._apply(this._geom(), false);
+    }
+
+    /* ---------------- 停靠：多一个顶部 ---------------- */
+
+    get mode() {
+      return this.dock === "top" ? "ht" : super.mode;
+    }
+
+    /** 松手：离哪条边近就贴哪条边，四条边都算；角落仍然缩成圆。 */
+    _dragDrop(pt) {
+      clearTimeout(this._followT);
+      this.picker.classList.remove("is-following");
+      const left = pt.x;
+      const right = this.W - pt.x;
+      const top = pt.y;
+      const bottom = this.H - pt.y;
+      const corner = Math.min(160, this.W / 4, this.H / 4);
+      this._dragEnd = performance.now();
+      if (Math.min(left, right) < corner && Math.min(top, bottom) < corner) {
+        this.minCorner = (top < bottom ? "t" : "b") + (left < right ? "l" : "r");
+        this._setState("minimized");
+        this._apply(this._geom());
+        this._emit("dock", "corner");
+        return;
+      }
+      const nearest = Math.min(left, right, top, bottom);
+      this.dock =
+        nearest === bottom ? "bottom" : nearest === top ? "top" : nearest === left ? "left" : "right";
+      this.minCorner = null;
+      this._layoutBar();
+      this._setState("docked");
+      this._apply(this._geom());
+      this._emit("dock", this.dock);
+    }
+
+    /** 顶部停靠时面板往下开；其余方向沿用原实现。 */
+    _placePop() {
+      if (this.dock !== "top") return super._placePop();
+      const pop = this.pop;
+      pop.style.setProperty("--pk-pop-scale", "1");
+      const anchor = this._popAnchor.getBoundingClientRect();
+      const root = this.root.getBoundingClientRect();
+      const bar = this.picker.getBoundingClientRect();
+      const gap = 16;
+      const width = pop.offsetWidth;
+      const height = pop.offsetHeight;
+      const scale = Math.min(
+        1,
+        (this.H - (bar.bottom - root.top) - gap - 8) / height,
+        (this.W - 16) / width
+      );
+      pop.style.setProperty("--pk-pop-scale", String(scale));
+      const shown = { w: width * scale, h: height * scale };
+      const cx = anchor.left - root.left + anchor.width / 2;
+      const x = clamp(cx - shown.w / 2, 8, this.W - shown.w - 8);
+      const y = bar.bottom - root.top + gap;
+      const arrow = clamp((cx - x) / scale, 24, width - 24);
+      pop.style.setProperty("--ax", arrow + "px");
+      pop.dataset.side = "bottom";
+      // 缩放以左上角为基准，横向位置要按原始尺寸折算回去
+      pop.style.left = x - arrow * (1 - scale) + "px";
+      pop.style.top = y + "px";
     }
 
     /* ---------------- 换成去掉套索直尺的布局 ---------------- */
@@ -219,6 +309,7 @@ function makeClass(Base) {
       const r = 52.5 * s;
       if (this.dock === "left") return { x: 20, y: (this.H - h) / 2, w, h, r };
       if (this.dock === "right") return { x: this.W - w - 20, y: (this.H - h) / 2, w, h, r };
+      if (this.dock === "top") return { x: (this.W - w) / 2, y: 20, w, h, r };
       return { x: (this.W - w) / 2, y: this.H - h - 20, w, h, r };
     }
 
@@ -236,17 +327,20 @@ function makeClass(Base) {
 
     /** 工具、颜色、粗细任何一项变了都会走到 _renderUI，就在这里同步出去。 */
     _renderUI(force) {
-      // 撤销按钮的亮灭由白板的撤销栈决定：借它自己那套历史判定，图标才会跟着变
-      this.hIndex = this._canUndo ? 1 : 0;
-      this.history = this._canUndo ? [[], []] : [[]];
+      // 撤销 / 重做按钮的亮灭由白板的历史栈决定：它自己那套判定看的是
+      // history 和 hIndex，这里按白板的状态摆一摆，图标就跟着对了。
+      const back = this._canUndo ? 1 : 0;
+      const forward = this._canRedo ? 1 : 0;
+      this.hIndex = back;
+      this.history = new Array(back + forward + 1).fill(null).map(() => []);
       super._renderUI(force);
-      if (this.el.redo) this.el.redo.disabled = true; // 白板没有重做
       this._sync();
     }
 
-    setUndoEnabled(on) {
-      if (this._canUndo === !!on) return;
-      this._canUndo = !!on;
+    setHistory(canUndo, canRedo) {
+      if (this._canUndo === !!canUndo && this._canRedo === !!canRedo) return;
+      this._canUndo = !!canUndo;
+      this._canRedo = !!canRedo;
       this._renderUI();
     }
 
@@ -266,12 +360,14 @@ function makeClass(Base) {
       this.onChange(next);
     }
 
-    /** 撤销交给白板；重做白板没有。 */
+    /** 撤销 / 重做都交给白板的历史栈。 */
     undo() {
       if (this.onUndo) this.onUndo();
     }
 
-    redo() {}
+    redo() {
+      if (this.onRedo) this.onRedo();
+    }
 
     /** 白板落笔时调用：开了「自动最小化」就把工具盘收起来。 */
     strokeStarted() {

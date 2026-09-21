@@ -11,6 +11,7 @@ export const ICONS = {
   eraser: path("M5.2 15.2l8.4-8.4a2 2 0 0 1 2.8 0l3.1 3.1a2 2 0 0 1 0 2.8L13.4 19H8.6l-3.4-3.8z") +
     path("M9.6 10.8l6 6") + path("M9 19h11"),
   undo: path("M5 9.5h9.5a4.75 4.75 0 1 1 0 9.5H9") + path("M5 9.5L9 5.5") + path("M5 9.5l4 4"),
+  redo: path("M19 9.5H9.5a4.75 4.75 0 1 0 0 9.5H15") + path("M19 9.5L15 5.5") + path("M19 9.5l-4 4"),
   trash: path("M4.5 7h15") + path("M9.5 7V4.8h5V7") + path("M6.8 7l1 12.2h8.4L17 7") +
     path("M10.3 10.5v5.5") + path("M13.7 10.5v5.5"),
   boards: path("M4 4.5h6.2v6.2H4zM13.8 4.5H20v6.2h-6.2zM4 13.3h6.2v6.2H4zM13.8 13.3H20v6.2h-6.2z"),

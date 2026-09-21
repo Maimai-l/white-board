@@ -1,52 +1,72 @@
-/* Material 3 风格的极简界面：只有图标，没有文案。 */
+/* 界面风格：照着 macOS / iOS 的系统控件来——磨砂玻璃、系统色、细分隔线。
+   只用图标，不放文案。 */
 
 :root {
-  --primary: #4a5bc0;
+  color-scheme: light dark;
+
+  /* 系统色 */
+  --primary: #007aff;
   --on-primary: #ffffff;
-  --primary-container: #dee0ff;
-  --on-primary-container: #00105c;
-  --surface: #fdfbff;
-  --surface-1: #f5f3fb;
-  --surface-2: #efedf7;
-  --surface-3: #e9e6f2;
-  --on-surface: #1b1b1f;
-  --on-surface-variant: #46464f;
-  --outline: #c6c5d0;
-  --error: #ba1a1a;
-  --scrim: rgba(0, 0, 0, .32);
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, .18), 0 1px 3px 1px rgba(0, 0, 0, .10);
-  --shadow-2: 0 2px 6px 2px rgba(0, 0, 0, .10), 0 1px 2px rgba(0, 0, 0, .20);
-  --shadow-3: 0 4px 12px 4px rgba(0, 0, 0, .12), 0 2px 4px rgba(0, 0, 0, .20);
-  --radius-pill: 28px;
-  --radius-l: 20px;
-  --radius-m: 12px;
-  --motion: 180ms cubic-bezier(.2, 0, 0, 1);
+  --primary-container: rgba(0, 122, 255, .14);
+  --on-primary-container: #007aff;
+  --error: #ff3b30;
+
+  /* 左上角状态点：用 macOS 红绿灯那三个颜色 */
+  --light-red: #ff5f57;
+  --light-amber: #febc2e;
+  --light-green: #28c840;
+
+  /* 磨砂玻璃：控件是半透明的，底下的画布透上来一点 */
+  --glass: rgba(246, 246, 248, .72);
+  --glass-solid: #f6f6f8;
+  --glass-border: rgba(0, 0, 0, .08);
+  --glass-blur: saturate(180%) blur(30px);
+
+  --surface: #f2f2f7;
+  --surface-1: #ffffff;
+  --surface-2: var(--glass);
+  --surface-3: var(--glass);
+  --on-surface: #1c1c1e;
+  --on-surface-variant: rgba(60, 60, 67, .6);
+  --outline: rgba(60, 60, 67, .22);
+  --fill: rgba(120, 120, 128, .12);
+  --scrim: rgba(0, 0, 0, .28);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .10);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, .12), 0 1px 3px rgba(0, 0, 0, .08);
+  --shadow-3: 0 16px 44px rgba(0, 0, 0, .18), 0 2px 6px rgba(0, 0, 0, .10);
+  --radius-pill: 999px;
+  --radius-l: 14px;
+  --radius-m: 10px;
+  --motion: 200ms cubic-bezier(.32, .72, 0, 1);
   --paper: #ffffff;
   --paper-line: #d9dce6;
-  /* 笔具盘（beta）：笔身与选中托底 */
-  --secondary-container: #dfe1f4;
+  --secondary-container: rgba(0, 122, 255, .14);
   --tool-body: #b6b3c4;
   --tool-collar: #9996a8;
-  /* 笔尖描一圈，深色墨水落在笔身上也分得开 */
   --nib-edge: rgba(0, 0, 0, .22);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --primary: #bcc2ff;
-    --on-primary: #1a2a86;
-    --primary-container: #33429c;
-    --on-primary-container: #dee0ff;
-    --surface: #131316;
-    --surface-1: #1b1b1f;
-    --surface-2: #202025;
-    --surface-3: #26262b;
-    --on-surface: #e5e1e6;
-    --on-surface-variant: #c7c5d0;
-    --outline: #49474f;
-    --error: #ffb4ab;
-    --scrim: rgba(0, 0, 0, .55);
-    --secondary-container: #3b3b50;
+    --primary: #0a84ff;
+    --on-primary: #ffffff;
+    --primary-container: rgba(10, 132, 255, .26);
+    --on-primary-container: #4da3ff;
+    --error: #ff453a;
+
+    --glass: rgba(38, 38, 40, .72);
+    --glass-solid: #262628;
+    --glass-border: rgba(255, 255, 255, .12);
+
+    --surface: #1c1c1e;
+    --surface-1: #1c1c1e;
+    --on-surface: #f2f2f7;
+    --on-surface-variant: rgba(235, 235, 245, .6);
+    --outline: rgba(235, 235, 245, .22);
+    --fill: rgba(120, 120, 128, .28);
+    --scrim: rgba(0, 0, 0, .5);
+    --secondary-container: rgba(10, 132, 255, .26);
     --tool-body: #6f6c7d;
     --tool-collar: #8d8a9b;
     --nib-edge: rgba(255, 255, 255, .5);
@@ -120,7 +140,7 @@ html, body {
   opacity: 0;
   transition: opacity var(--motion);
 }
-.icon-btn:hover::before { opacity: .08; }
+.icon-btn:hover::before { opacity: .07; }
 .icon-btn:active::before { opacity: .14; }
 .icon-btn.active { background: var(--primary-container); color: var(--on-primary-container); }
 .icon-btn.danger { color: var(--error); }
@@ -132,8 +152,24 @@ html, body {
   gap: 2px;
   padding: 6px;
   border-radius: var(--radius-pill);
-  background: var(--surface-2);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: .5px solid var(--glass-border);
   box-shadow: var(--shadow-2);
+}
+
+/*
+ * 书写时先把磨砂关掉。模糊层底下就是每帧都在变的画布，iPad 上每一帧都要重新
+ * 合成一次，落笔期间这点开销很要命；抬笔再恢复，视觉上察觉不到。
+ */
+:root[data-drawing] .pill,
+:root[data-drawing] .popover,
+:root[data-drawing] .notice,
+:root[data-drawing] .toast {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--glass-solid);
 }
 /* 工具栏上的当前颜色：深浅背景下都要看得见，所以描一圈中性色。 */
 .color-dot {
@@ -177,6 +213,34 @@ html, body {
 }
 #pk-host .pk-picker,
 #pk-host .pk-pop { pointer-events: auto; }
+/*
+ * 让那条工具盘也用磨砂：它自己的底色是实的，这里把它的颜色变量换成半透明，
+ * 再给容器加一层背景模糊，和白板其它控件统一。
+ */
+#pk-host {
+  --pk-bar: var(--glass);
+  --pk-bubble: var(--glass);
+  --pk-pop: var(--glass);
+  --pk-cp: var(--glass);
+}
+#pk-host .pk-picker,
+#pk-host .pk-pop {
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+:root[data-drawing] #pk-host .pk-picker {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--glass-solid);
+}
+
+/* 顶部停靠：阴影朝上，面板往下开（原实现只有下 / 左 / 右） */
+#pk-host .pk-picker[data-dock="top"] { --pk-shy: -1; }
+#pk-host .pk-pop[data-side="bottom"]::after {
+  left: calc(var(--ax) - 12px);
+  bottom: 100%;
+  clip-path: polygon(0 100%, 100% 100%, 50% 0);
+}
 /* 笔迹格式里还没有不透明度，先把相关的控件藏起来，面板高度跟着收一收 */
 #pk-host .pk-tp { height: 58px; }
 #pk-host .pk-tp-line,
@@ -201,7 +265,39 @@ html, body {
   margin-top: 2px;
   cursor: pointer;
 }
-.beta-row input { accent-color: var(--primary); width: 16px; height: 16px; }
+/* iOS 那种绿色小开关 */
+.beta-row input[type="checkbox"],
+.update-auto input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  border-radius: 13px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 .5px var(--glass-border);
+  cursor: pointer;
+  transition: background var(--motion);
+}
+.beta-row input[type="checkbox"]::after,
+.update-auto input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, .22);
+  transition: transform var(--motion);
+}
+.beta-row input[type="checkbox"]:checked,
+.update-auto input[type="checkbox"]:checked { background: #34c759; }
+.beta-row input[type="checkbox"]:checked::after,
+.update-auto input[type="checkbox"]:checked::after { transform: translateX(18px); }
 
 /* Mac 端右上角功能簇与右下角缩放簇 */
 #topright {
@@ -231,17 +327,17 @@ html, body {
 }
 #status::after {
   content: "";
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: var(--outline);
-  box-shadow: var(--shadow-1);
-  opacity: .8;
+  background: rgba(130, 130, 135, .55);
+  /* 和系统窗口按钮一样描一圈，浅色背景上也有边 */
+  box-shadow: inset 0 0 0 .5px rgba(0, 0, 0, .14), 0 1px 2px rgba(0, 0, 0, .12);
   transition: background var(--motion);
 }
-#status.online::after { background: #2e7d32; }
-#status.offline::after { background: var(--error); }
-#status.syncing::after { background: #ef8f00; }
+#status.online::after { background: var(--light-green); }
+#status.offline::after { background: var(--light-red); }
+#status.syncing::after { background: var(--light-amber); }
 
 /* ----------------------------------------------------------------- 弹层 */
 
@@ -249,7 +345,10 @@ html, body {
   position: absolute;
   padding: 10px;
   border-radius: var(--radius-l);
-  background: var(--surface-3);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: .5px solid var(--glass-border);
   box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
@@ -265,7 +364,7 @@ html, body {
   transition: transform var(--motion), border-color var(--motion);
 }
 .swatch:hover { transform: scale(1.08); }
-.swatch.active { border-color: var(--primary); transform: scale(1.12); }
+.swatch.active { border-color: var(--primary); transform: scale(1.1); }
 
 .widths { display: flex; align-items: center; gap: 6px; }
 .width-opt {
@@ -274,7 +373,7 @@ html, body {
   display: flex; align-items: center; justify-content: center;
   transition: background var(--motion);
 }
-.width-opt:hover { background: rgba(127, 127, 127, .16); }
+.width-opt:hover { background: var(--fill); }
 .width-opt.active { background: var(--primary-container); }
 .width-opt i { display: block; border-radius: 50%; background: var(--on-surface); }
 
@@ -291,9 +390,9 @@ html, body {
   top: 0; right: 0; bottom: 0;
   width: min(420px, 92vw);
   padding: 16px calc(16px + env(safe-area-inset-right)) 16px 16px;
-  background: var(--surface-1);
+  background: var(--surface);
   box-shadow: var(--shadow-3);
-  border-radius: var(--radius-l) 0 0 var(--radius-l);
+  border-radius: 20px 0 0 20px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -323,7 +422,7 @@ html, body {
 .board-card {
   position: relative;
   aspect-ratio: 4 / 3;
-  border-radius: var(--radius-l);
+  border-radius: 12px;
   border: 2px solid transparent;
   background: var(--paper) center/cover no-repeat;
   box-shadow: var(--shadow-1);
@@ -366,8 +465,8 @@ html, body {
 .kind-tile {
   width: 132px;
   height: 132px;
-  border-radius: var(--radius-l);
-  border: 2px solid var(--outline);
+  border-radius: 18px;
+  border: .5px solid var(--outline);
   background: var(--surface-1);
   color: var(--on-surface-variant);
   display: flex;
@@ -409,7 +508,8 @@ body.dropping::after {
 .card {
   display: flex; align-items: center; gap: 10px;
   padding: 12px; border-radius: var(--radius-m);
-  background: var(--surface-3);
+  background: var(--surface-1);
+  border: .5px solid var(--outline);
 }
 /* 只有这一处地址需要能选中复制（Mac 端设置面板里） */
 .card .addr {
@@ -482,7 +582,11 @@ body.dropping::after {
   transform: translateX(-50%);
   display: flex; align-items: center; gap: 8px;
   padding: 10px 16px; border-radius: var(--radius-pill);
-  background: var(--surface-3); color: var(--on-surface);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: .5px solid var(--glass-border);
+  color: var(--on-surface);
   box-shadow: var(--shadow-2);
   animation: pop var(--motion);
 }
@@ -500,7 +604,10 @@ body.dropping::after {
   gap: 10px;
   padding: 12px 16px;
   border-radius: var(--radius-l);
-  background: var(--surface-3);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: .5px solid var(--glass-border);
   color: var(--on-surface);
   box-shadow: var(--shadow-3);
   font-size: 13px;
@@ -513,8 +620,12 @@ body.dropping::after {
 .dialog {
   position: absolute; left: 50%; top: 50%;
   transform: translate(-50%, -50%);
-  padding: 20px; border-radius: 28px;
-  background: var(--surface-3); box-shadow: var(--shadow-3);
+  padding: 20px; border-radius: 20px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: .5px solid var(--glass-border);
+  box-shadow: var(--shadow-3);
   display: flex; gap: 16px; align-items: center;
   animation: pop var(--motion);
 }
@@ -596,17 +707,18 @@ body.dropping::after {
 .update-actions { display: flex; align-items: center; gap: 10px; }
 .update-actions .spacer { flex: 1; }
 
+/* iOS 那种灰底圆角按钮 */
 .btn {
   padding: 8px 16px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--outline);
-  background: var(--surface-2);
-  color: var(--on-surface);
-  font: 600 13px/1.2 inherit;
+  border-radius: 10px;
+  border: 0;
+  background: var(--fill);
+  color: var(--primary);
+  font: 590 13px/1.2 inherit;
   cursor: pointer;
   transition: background var(--motion), transform var(--motion), opacity var(--motion);
 }
-.btn:hover { background: var(--surface-3); }
+.btn:hover { background: color-mix(in srgb, var(--fill) 70%, var(--on-surface) 6%); }
 .btn:active { transform: scale(.98); }
 .btn[disabled] { opacity: .5; pointer-events: none; }
 .btn.primary {

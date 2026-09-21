@@ -99,6 +99,7 @@ export class UI {
     this.sheet = null;
     this.picker = loadPickerFlag();
     this.undoEnabled = false;
+    this.redoEnabled = false;
     this.build();
   }
 
@@ -151,6 +152,7 @@ export class UI {
     this.dock.apply(this.dock.dock, false);
     this.syncDockButton();
     this.setUndoEnabled(this.undoEnabled);
+    this.setRedoEnabled(this.redoEnabled);
     this.selectTool(this.tool.tool);
     if (this.picker) this.mountPicker();
   }
@@ -190,7 +192,8 @@ export class UI {
 
   appendEditButtons(bar) {
     this.undoButton = iconButton("undo", "撤销", () => this.actions.onUndo());
-    bar.append(this.undoButton);
+    this.redoButton = iconButton("redo", "重做", () => this.actions.onRedo());
+    bar.append(this.undoButton, this.redoButton);
     bar.append(iconButton("trash", "清屏", () => this.confirmClear(), "danger"));
   }
 
@@ -208,6 +211,7 @@ export class UI {
       const pk = new Picker(this.pkHost, { theme: "auto" });
       pk.onChange = (state) => this.onPickerChange(state);
       pk.onUndo = () => this.actions.onUndo();
+      pk.onRedo = () => this.actions.onRedo();
       pk.onClear = () => this.confirmClear();
       pk.onLeave = () => this.setPicker(false);
       pk.applyState({
@@ -217,7 +221,7 @@ export class UI {
         fingerDraws: this.fingerDraw,
       });
       this.pk = pk;
-      pk.setUndoEnabled(this.undoEnabled);
+      pk.setHistory(this.undoEnabled, this.redoEnabled);
       this.toolbar.classList.add("hidden");
     } catch (err) {
       this.picker = false;
@@ -401,7 +405,13 @@ export class UI {
   setUndoEnabled(enabled) {
     this.undoEnabled = !!enabled;
     if (this.undoButton) this.undoButton.toggleAttribute("disabled", !enabled);
-    if (this.pk) this.pk.setUndoEnabled(enabled);
+    if (this.pk) this.pk.setHistory(this.undoEnabled, this.redoEnabled);
+  }
+
+  setRedoEnabled(enabled) {
+    this.redoEnabled = !!enabled;
+    if (this.redoButton) this.redoButton.toggleAttribute("disabled", !enabled);
+    if (this.pk) this.pk.setHistory(this.undoEnabled, this.redoEnabled);
   }
 
   // ------------------------------------------------------------- 弹层

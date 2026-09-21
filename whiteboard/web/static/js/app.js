@@ -91,6 +91,7 @@ class App {
     );
     this.cache = new Cache();
     this.undoStack = [];
+    this.redoStack = [];
     this.remoteLive = new Map();
     this.eraseBatch = [];
     this.viewAnim = 0;
@@ -226,7 +227,11 @@ class App {
       const meta = event.metaKey || event.ctrlKey;
       if (meta && event.key.toLowerCase() === "z") {
         event.preventDefault();
-        this.undo();
+        if (event.shiftKey) this.redo();
+        else this.undo();
+      } else if (meta && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        this.redo();
       } else if (meta && (event.key === "0" || event.key === ")")) {
         event.preventDefault();
         this.fit();
@@ -354,6 +359,7 @@ class App {
   inputHooks() {
     return {
       onStrokeStart: (stroke) => {
+        document.documentElement.dataset.drawing = "1";
         this.ui.strokeStarted();
         this.net.sendLive({
           t: "live",
@@ -368,10 +374,12 @@ class App {
         this.net.sendLive({ t: "live", id: stroke.id, phase: "m", p: points });
       },
       onStrokeEnd: (stroke) => {
+        delete document.documentElement.dataset.drawing;
         this.net.sendLive({ t: "live", id: stroke.id, phase: "e" });
         this.commitStroke(stroke);
       },
       onStrokeCancel: (stroke) => {
+        delete document.documentElement.dataset.drawing;
         this.net.sendLive({ t: "live", id: stroke.id, phase: "x" });
       },
       onErase: (x, y, radius) => {
@@ -423,27 +431,42 @@ class App {
       reportError("笔画提交失败", { id: stroke.id, points: stroke.p.length / 3 });
       this.renderer.requestFull();
     }
-    this.pushUndo({ type: "added", ids: [stroke.id] });
+    // 重做要把这一笔原样放回去，所以连内容一起记下来
+    this.pushUndo({ type: "added", ids: [stroke.id], strokes: [plainStroke(stroke)] });
     this.net.sendOp({ op: "add", strokes: [plainStroke(stroke)] });
     this.saveCache();
     this.pushThumb();
   }
 
-  // ------------------------------------------------------------ 撤销
+  // ------------------------------------------------------- 撤销与重做
 
+  /**
+   * 一条历史记录长这样：``{type, ids, strokes}``。
+   *
+   * type 记的是「当初干了什么」：added 是画上去，removed 是擦掉 / 清屏。
+   * 撤销就是反着来，重做就是再来一遍，所以两边都要有完整的笔画内容——
+   * 只记 id 的话，撤销掉一笔之后就没东西可以放回去了。
+   */
   pushUndo(action) {
     this.undoStack.push(action);
     if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
-    this.ui.setUndoEnabled(true);
+    // 新动作一出现，原来那条重做的分支就作废了
+    this.redoStack.length = 0;
+    this.syncHistory();
   }
 
-  undo() {
-    const action = this.undoStack.pop();
+  syncHistory() {
     this.ui.setUndoEnabled(this.undoStack.length > 0);
-    if (!action) return;
-    if (action.type === "added") {
-      this.state.remove(action.ids);
-      this.net.sendOp({ op: "remove", ids: action.ids });
+    this.ui.setRedoEnabled(this.redoStack.length > 0);
+  }
+
+  /** 把一条记录正着或反着应用到白板上。 */
+  applyHistory(action, undoing) {
+    const removing = undoing ? action.type === "added" : action.type === "removed";
+    const ids = action.ids || action.strokes.map((s) => s.id);
+    if (removing) {
+      this.state.remove(ids);
+      this.net.sendOp({ op: "remove", ids });
     } else {
       this.state.add(action.strokes.map((s) => ({ ...s })));
       this.net.sendOp({ op: "restore", strokes: action.strokes });
@@ -451,6 +474,28 @@ class App {
     this.renderer.requestFull();
     this.saveCache();
     this.pushThumb();
+  }
+
+  undo() {
+    const action = this.undoStack.pop();
+    if (!action) {
+      this.syncHistory();
+      return;
+    }
+    this.applyHistory(action, true);
+    this.redoStack.push(action);
+    this.syncHistory();
+  }
+
+  redo() {
+    const action = this.redoStack.pop();
+    if (!action) {
+      this.syncHistory();
+      return;
+    }
+    this.applyHistory(action, false);
+    this.undoStack.push(action);
+    this.syncHistory();
   }
 
   clearBoard() {
@@ -495,6 +540,7 @@ class App {
     this.renderer.clearLive();
     if (switched) {
       this.undoStack = [];
+    this.redoStack = [];
       this.ui.setUndoEnabled(false);
     }
     this.applyBoard(msg.board, msg.strokes || [], msg.seq || 0, { keepView: !switched });
@@ -809,6 +855,7 @@ class App {
         this.tool = tool;
       },
       onUndo: () => this.undo(),
+      onRedo: () => this.redo(),
       onClear: () => this.clearBoard(),
       onZoom: (factor) => this.zoom(factor),
       onFit: () => this.fit(),

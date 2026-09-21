@@ -1069,9 +1069,149 @@ def test_pencilkit_picker_docks_and_minimizes(browser, server):
     ipad.wait_for_function(
         "() => document.querySelector('#pk-host .pk-picker').dataset.state === 'minimized'"
     )
-    ipad.click("#pk-host .pk-bubble")
+    # 用手指点那个圆（鼠标会先悬停，一靠近就自己展开了，见下一个用例）。
+    # 先等：收起来是带动画的，而且它会吞掉拖动结束后 400ms 内的点击。
+    ipad.wait_for_timeout(600)
+    spot = ipad.evaluate(
+        "() => { const r = document.querySelector('#pk-host .pk-picker').getBoundingClientRect();"
+        " return [r.left + r.width / 2, r.top + r.height / 2]; }"
+    )
+    ipad.touchscreen.tap(spot[0], spot[1])
     ipad.wait_for_function(
         "() => document.querySelector('#pk-host .pk-picker').dataset.state === 'docked'"
     )
     _mac.close()
     ipad.close()
+
+
+def test_undo_and_redo_round_trip(browser, server):
+    """撤销之后能重做回来，两端都跟着变；新动作会把重做那一支作废。"""
+    mac, ipad = open_pages(browser, server.port)
+    draw(ipad, [(300, 300), (380, 340), (460, 300)])
+    draw(ipad, [(300, 420), (380, 460), (460, 420)])
+    wait_strokes(mac, 2)
+
+    redo = 'button[title="重做"]'
+    assert ipad.is_disabled(redo)
+    ipad.click('button[title="撤销"]')
+    wait_strokes(mac, 1)
+    wait_strokes(ipad, 1)
+    assert not ipad.is_disabled(redo)
+
+    ipad.click(redo)
+    wait_strokes(mac, 2)  # 笔画回来了，对端也收到了
+    wait_strokes(ipad, 2)
+    assert ipad.is_disabled(redo)
+
+    # 擦除也能重做
+    ipad.click('button[title="橡皮擦"]')
+    spot = ipad.evaluate(
+        "() => { const s = whiteboard.state.strokes[0];"
+        " return whiteboard.viewport.toScreen(s.p[0], s.p[1]); }"
+    )
+    draw(ipad, [(spot[0], spot[1]), (spot[0] + 6, spot[1] + 4)])
+    wait_strokes(mac, 1)
+    ipad.click('button[title="撤销"]')
+    wait_strokes(mac, 2)
+    ipad.click(redo)
+    wait_strokes(mac, 1)
+
+    # 再画一笔，重做就没得可重做了
+    ipad.click('button[title="钢笔"]')
+    draw(ipad, [(600, 300), (660, 340)])
+    wait_strokes(mac, 2)
+    assert ipad.is_disabled(redo)
+    mac.close()
+    ipad.close()
+
+
+def test_keyboard_redo(browser, server):
+    mac, _ipad = open_pages(browser, server.port)
+    draw(mac, [(300, 300), (380, 340)], pointer_type="mouse")
+    wait_strokes(mac, 1)
+    mac.keyboard.press("Control+z")
+    wait_strokes(mac, 0)
+    mac.keyboard.press("Control+Shift+z")
+    wait_strokes(mac, 1)
+    mac.close()
+    _ipad.close()
+
+
+def test_picker_docks_to_the_top(browser, server):
+    """原实现只有下 / 左 / 右，顶部停靠是加的：笔要转过来，面板要往下开。"""
+    _mac, ipad = open_pages(browser, server.port)
+    enable_pk_picker(ipad)
+
+    def settle():
+        last = None
+        for _ in range(30):
+            now = ipad.evaluate(
+                "() => { const g = document.querySelector('#pk-host .pk-grip').getBoundingClientRect();"
+                " return [g.left + g.width / 2, g.top + g.height / 2]; }"
+            )
+            if last == now:
+                return now
+            last = now
+            ipad.wait_for_timeout(100)
+        return last
+
+    x, y = settle()
+    drag(ipad, x, y, 590, 24)
+    ipad.wait_for_function(
+        "() => document.querySelector('#pk-host .pk-picker').dataset.dock === 'top'"
+    )
+    # 贴边有动画，等它停下来再量
+    ipad.wait_for_function(
+        "() => document.querySelector('#pk-host .pk-picker').getBoundingClientRect().top < 80",
+        timeout=4000,
+    )
+    bar = ipad.evaluate("() => document.querySelector('#pk-host .pk-picker').getBoundingClientRect().top")
+
+    # 四支笔整支转了 180°，笔尖朝下
+    rotated = ipad.evaluate("() => whiteboard.ui.pk.el.pen.style.transform")
+    assert "rotate(180deg)" in rotated
+
+    # 粗细面板开在工具盘下面，箭头朝上
+    ipad.click('#pk-host [data-tool="pen"]')
+    ipad.wait_for_selector("#pk-host .pk-pop[data-open]")
+    box = ipad.evaluate(
+        "() => { const p = document.querySelector('#pk-host .pk-pop');"
+        " const r = p.getBoundingClientRect(); return [r.top, p.dataset.side]; }"
+    )
+    assert box[1] == "bottom" and box[0] > bar
+    _mac.close()
+    ipad.close()
+
+
+def test_picker_expands_when_the_pointer_comes_close(browser, server):
+    """收进角落之后，指针靠近就展开，不用非得点中那个圆。"""
+    _mac, ipad = open_pages(browser, server.port)
+    enable_pk_picker(ipad)
+    ipad.evaluate("() => { const pk = whiteboard.ui.pk; pk.minCorner = 'br';"
+                  " pk._setState('minimized'); pk._apply(pk._geom()); }")
+    ipad.wait_for_function("() => whiteboard.ui.pk.state === 'minimized'")
+
+    ipad.mouse.move(600, 400)  # 离得远，不动
+    ipad.wait_for_timeout(120)
+    assert ipad.evaluate("() => whiteboard.ui.pk.state") == "minimized"
+
+    bubble = ipad.evaluate(
+        "() => { const r = document.querySelector('#pk-host .pk-picker').getBoundingClientRect();"
+        " return [r.left, r.top]; }"
+    )
+    ipad.mouse.move(bubble[0] - 40, bubble[1] - 30)
+    ipad.wait_for_function("() => whiteboard.ui.pk.state === 'docked'", timeout=4000)
+    _mac.close()
+    ipad.close()
+
+
+def test_status_dot_uses_traffic_light_colours(browser, server):
+    mac, _ipad = open_pages(browser, server.port)
+    # 颜色是渐变过去的，等它停下来再读
+    mac.wait_for_function(
+        "() => getComputedStyle(document.getElementById('status'), '::after')"
+        ".backgroundColor === 'rgb(40, 200, 64)'",  # macOS 红绿灯的绿
+        timeout=4000,
+    )
+    mac.close()
+    _ipad.close()
