@@ -1169,13 +1169,13 @@ def test_picker_docks_to_the_top(browser, server):
 
     # 笔照旧立着，笔尖朝上（不翻转）
     assert "rotate" not in ipad.evaluate("() => whiteboard.ui.pk.el.pen.style.transform")
-    # 握把挪到了下边缘
+    # 握把还在上边缘（工具是往下沉的，下边让给它们）
     grip_y = ipad.evaluate(
         "() => { const p = document.querySelector('#pk-host .pk-picker').getBoundingClientRect();"
         " const g = document.querySelector('#pk-host .pk-grip').getBoundingClientRect();"
         " return (g.top - p.top) / p.height; }"
     )
-    assert grip_y > 0.7
+    assert grip_y < 0.2
 
     # 粗细面板开在工具盘下面，箭头朝上
     ipad.click('#pk-host [data-tool="pen"]')

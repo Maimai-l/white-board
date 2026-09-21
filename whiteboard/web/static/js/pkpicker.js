@@ -83,17 +83,6 @@ const LAYOUT = {
   },
 };
 
-// 顶部停靠：布局和底部那条一模一样，笔照旧立着（笔尖朝上），只把握把挪到
-// 下边缘。原实现只有下 / 左 / 右三种。
-LAYOUT.ht = {
-  ...LAYOUT.h,
-  items: Object.fromEntries(
-    Object.entries(LAYOUT.h.items).map(([key, item]) =>
-      key === "grip" ? [key, { ...item, y: LAYOUT.h.H - item.y - item.h }] : [key, item]
-    )
-  ),
-};
-
 // 我们的工具 → 那份实现里的工具造型
 export const TOOL_ART = { pen: "pen", marker: "pencil", highlighter: "marker", eraser: "eraser" };
 const ART_TOOL = Object.fromEntries(Object.entries(TOOL_ART).map(([k, v]) => [v, k]));
@@ -263,7 +252,8 @@ function makeClass(Base) {
     /* ---------------- 停靠：多一个顶部 ---------------- */
 
     get mode() {
-      return this.dock === "top" ? "ht" : super.mode;
+      // 顶部用的就是底部那套横排布局，只是摆的位置和面板方向不一样
+      return this.dock === "top" ? "h" : super.mode;
     }
 
     /** 松手：离哪条边近就贴哪条边，四条边都算；角落仍然缩成圆。 */
