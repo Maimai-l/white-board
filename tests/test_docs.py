@@ -110,10 +110,20 @@ def test_simplify_keeps_shape():
 
 def test_outline_is_closed_band():
     points = [(0.0, 0.0, 1.0), (10.0, 0.0, 1.0), (20.0, 0.0, 1.0)]
-    poly = inkpdf.outline(points, "pen", 4.0)
+    poly = inkpdf.flatten(inkpdf.outline_path(points, "pen", 4.0))
     assert len(poly) >= 2 * len(points)
     ys = [y for _, y in poly]
     assert max(ys) > 0 > min(ys)  # 两侧都有
+
+
+def test_every_stroke_is_one_filled_outline():
+    """不透明的笔也走填充轮廓：分段描边会在线宽变化处露出一串圆饼。"""
+    stroke = {"id": "p", "tool": "pen", "color": "#1b1b1f", "w": 9.0,
+              "p": [20, 20, 0.2, 40, 30, 0.9, 60, 20, 0.35, 80, 32, 0.8]}
+    raw, _ = inkpdf.content_stream([stroke])
+    assert raw.count(b"h f\n") == 1  # 整笔只填一次
+    assert b" S\n" not in raw and b" w\n" not in raw  # 没有描边、没有线宽
+    assert b" c\n" in raw  # 两侧是曲线，不是折线
 
 
 @pytest.mark.parametrize(
@@ -185,7 +195,11 @@ def test_export_pdf_without_strokes_does_not_grow(tmp_path):
 
 
 def test_export_pdf_stays_small(tmp_path):
-    """体积不能增加太多：一笔平均不超过 300 字节。"""
+    """体积不能增加太多：一笔平均不超过 450 字节。
+
+    这里的 wave 是 300pt 长、来回拐了十来次的一笔，比真写字要费。真机上用
+    马克笔连写 800 笔测下来约每笔 370 字节。
+    """
     src = make_pdf(tmp_path / "src.pdf")
     out = tmp_path / "out.pdf"
     boxes = docs.layout(docs.probe(src)["pages"])
@@ -195,7 +209,17 @@ def test_export_pdf_stays_small(tmp_path):
         strokes.append(wave(40, box["y"] + 40 + (index // 3) * 5, stroke_id="s%d" % index))
     docs.export_pdf(src, strokes, out)
     grew = out.stat().st_size - src.stat().st_size
-    assert grew / len(strokes) < 300
+    assert grew / len(strokes) < 450
+
+
+def test_thick_strokes_simplify_harder(tmp_path):
+    """粗笔的抽稀阈值跟着笔宽走，不然马克笔的点数会白白撑大体积。"""
+    assert inkpdf.epsilon(3.0) == inkpdf.SIMPLIFY
+    assert inkpdf.epsilon(33.8) == inkpdf.SIMPLIFY_MAX
+    points = inkpdf.points_of(wave(40, 100))
+    assert len(inkpdf.simplify(points, inkpdf.epsilon(33.8))) < len(
+        inkpdf.simplify(points, inkpdf.epsilon(3.0))
+    )
 
 
 def test_export_image_draws_ink(tmp_path):

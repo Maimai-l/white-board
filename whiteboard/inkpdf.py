@@ -7,10 +7,10 @@
 
 * 先做一次 Ramer–Douglas–Peucker 抽稀（240Hz 采样的笔画有大量冗余点）；
 * 坐标按 1/4 pt 取整，靠 ``cm`` 缩放回去，整数比小数好压得多；
-* 不透明的笔（钢笔 / 马克笔）走「描边折线」，压感按 0.5pt 分桶成几段；
-* 半透明的荧光笔仍然走「一次填充闭合轮廓」，重叠处才不会变深。
+* 每一笔都是「一次填充闭合轮廓」，和屏幕上的画法逐段对应：两侧是穿过中点的
+  曲线，笔尖是半圆。一次填充还顺带解决了半透明笔重叠处变深的问题。
 
-结果是每笔大约 110 字节，跟自家 .wbz 的矢量存储在同一量级。
+结果是每笔几百字节，和自家 .wbz 的矢量存储在同一量级。
 """
 
 from __future__ import annotations
@@ -19,17 +19,25 @@ import math
 import zlib
 from typing import Dict, Iterable, List, Sequence, Set, Tuple
 
-# 与前端 stroke.js 的 TOOLS 保持一致：(alpha, 宽度倍数)
-TOOLS = {
-    "pen": (1.0, 1.0),
-    "marker": (1.0, 2.6),
-    "highlighter": (0.3, 6.0),
-}
+# 与前端 stroke.js 的 TOOLS 保持一致。这里只取透明度：笔宽在落笔时就已经
+# 乘过工具倍数了（input.js 里 `w: tool.width * scale`），再乘一次就会粗一大圈。
+ALPHA = {"pen": 1.0, "marker": 1.0, "highlighter": 0.3}
 
 QUANT = 4  # 坐标网格：1/4 pt
-SIMPLIFY = 0.35  # 抽稀阈值（pt）
-WIDTH_STEP = 0.5  # 线宽分桶（pt）
-CAP_STEPS = 8
+SIMPLIFY = 0.35  # 抽稀阈值下限（pt）
+SIMPLIFY_MAX = 1.5  # 抽稀阈值上限（pt）
+# 抽稀允许的偏差取笔宽的这个比例：细笔差半点就看得见，马克笔差一点半也看不出来，
+# 而马克笔恰好是点最多、最占体积的那一类。
+SIMPLIFY_RATIO = 0.05
+# 二次曲线离弦不到这个距离就退化成直线：量化到 1/4 pt 之后本来也看不出来。
+FLAT = 0.18
+# 四分之一圆弧用一段三次贝塞尔近似时的控制点长度（误差约万分之二）
+ARC_K = 0.5522847498307936
+
+
+def epsilon(width: float) -> float:
+    """按笔宽定抽稀阈值，夹在 ``SIMPLIFY``～``SIMPLIFY_MAX`` 之间。"""
+    return min(SIMPLIFY_MAX, max(SIMPLIFY, width * SIMPLIFY_RATIO))
 
 
 def radius(tool: str, width: float, pressure: float) -> float:
@@ -73,17 +81,24 @@ def simplify(points: Sequence[Tuple[float, float, float]], eps: float):
     return [p for p, k in zip(points, keep) if k]
 
 
-def outline(points: Sequence[Tuple[float, float, float]], tool: str, width: float):
-    """笔画的闭合轮廓，与 stroke.js 的 buildPath 同一套几何（折线近似曲线）。"""
+def outline_path(points: Sequence[Tuple[float, float, float]], tool: str, width: float):
+    """笔画的闭合轮廓，和 stroke.js 的 buildPath 逐段对应。
+
+    返回一串路径指令：``('m', x, y)`` / ``('l', x, y)`` /
+    ``('c', x1, y1, x2, y2, x, y)``。两侧的曲线和屏幕上一样是穿过中点的二次
+    曲线（这里换算成三次贝塞尔，PDF 只有 ``c``），笔尖是半圆。
+
+    以前这里为了省体积把不透明的笔画成「按线宽分段的折线」，线宽一变就断一段，
+    每段两头还各有一个圆头——笔一粗就变成一串大小不一的圆饼。现在一律按轮廓填充，
+    屏幕上什么样导出就什么样。
+    """
     count = len(points)
     pts = [(x, y, max(0.35, radius(tool, width, pr))) for x, y, pr in points]
     if count == 1:
         x, y, r = pts[0]
-        steps = 16
-        return [
-            (x + r * math.cos(i * 2 * math.pi / steps), y + r * math.sin(i * 2 * math.pi / steps))
-            for i in range(steps)
-        ]
+        cmds = [("m", x + r, y)]
+        _arc(cmds, x, y, r, 0.0, 4)  # 一个点就画个整圆
+        return cmds
 
     left: List[Tuple[float, float]] = []
     right: List[Tuple[float, float]] = []
@@ -103,17 +118,101 @@ def outline(points: Sequence[Tuple[float, float, float]], tool: str, width: floa
             first = math.atan2(ny, nx)
         last = math.atan2(ny, nx)
 
-    def cap(cx: float, cy: float, r: float, angle: float):
-        return [
-            (cx + math.cos(angle - math.pi * i / CAP_STEPS) * r,
-             cy + math.sin(angle - math.pi * i / CAP_STEPS) * r)
-            for i in range(1, CAP_STEPS + 1)
-        ]
+    cmds: List[Tuple] = []
+    cursor = (0.0, 0.0)
 
-    poly = list(left)
-    poly += cap(pts[-1][0], pts[-1][1], pts[-1][2], last)
-    poly += list(reversed(right))
-    poly += cap(pts[0][0], pts[0][1], pts[0][2], first + math.pi)
+    def side(side_points: List[Tuple[float, float]], start_here: bool) -> None:
+        """一侧的轮廓线：Catmull-Rom 转三次贝塞尔，曲线穿过每一个点。
+
+        屏幕上用的是「穿过相邻两点中点」的二次曲线，点密的时候贴着折线走，
+        看不出差别；但导出前会先抽稀，点一疏，那套画法就开始切角——笔画拐弯
+        的地方会被削平。这里改成插值曲线，抽稀之后形状仍然跟得住。
+        """
+        nonlocal cursor
+        cmds.append(("m" if start_here else "l", side_points[0][0], side_points[0][1]))
+        cursor = side_points[0]
+        count = len(side_points)
+        for i in range(count - 1):
+            p0 = side_points[i - 1] if i > 0 else side_points[0]
+            p1 = side_points[i]
+            p2 = side_points[i + 1]
+            p3 = side_points[i + 2] if i + 2 < count else side_points[-1]
+            c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
+            c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
+            # 两个控制点都贴着弦时，画直线就够了
+            flat = max(
+                _line_gap(p1, p2, c1),
+                _line_gap(p1, p2, c2),
+            )
+            if flat <= FLAT:
+                cmds.append(("l", p2[0], p2[1]))
+            else:
+                cmds.append(("c", c1[0], c1[1], c2[0], c2[1], p2[0], p2[1]))
+            cursor = p2
+
+    def cap(cx: float, cy: float, r: float, angle: float) -> None:
+        nonlocal cursor
+        cursor = _arc(cmds, cx, cy, r, angle, 2)
+
+    side(left, True)
+    cap(pts[-1][0], pts[-1][1], pts[-1][2], last)
+    side(list(reversed(right)), False)
+    cap(pts[0][0], pts[0][1], pts[0][2], first + math.pi)
+    return cmds
+
+
+def _line_gap(a: Tuple[float, float], b: Tuple[float, float], p: Tuple[float, float]) -> float:
+    """点到线段所在直线的距离，用来判断这一段值不值得画成曲线。"""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = math.hypot(dx, dy)
+    if length < 1e-9:
+        return math.hypot(p[0] - a[0], p[1] - a[1])
+    return abs(dx * (a[1] - p[1]) - dy * (a[0] - p[0])) / length
+
+
+def _arc(cmds: List[Tuple], cx: float, cy: float, r: float, start: float, quarters: int):
+    """顺时针画 ``quarters`` 个四分之一圆弧，每段一条三次贝塞尔。
+
+    笔尖以前是十二段折线，光是两个笔尖就要二十四条指令；换成圆弧之后
+    两条指令搞定，还更圆。
+    """
+    angle = start
+    x = cx + math.cos(angle) * r
+    y = cy + math.sin(angle) * r
+    for _ in range(quarters):
+        nxt = angle - math.pi / 2
+        ex = cx + math.cos(nxt) * r
+        ey = cy + math.sin(nxt) * r
+        k = ARC_K * r
+        cmds.append((
+            "c",
+            x + math.sin(angle) * k, y - math.cos(angle) * k,
+            ex - math.sin(nxt) * k, ey + math.cos(nxt) * k,
+            ex, ey,
+        ))
+        angle, x, y = nxt, ex, ey
+    return (x, y)
+
+
+def flatten(cmds: Sequence[Tuple], steps: int = 8) -> List[Tuple[float, float]]:
+    """把路径指令摊成多边形，给栅格化（图片导出）用。"""
+    poly: List[Tuple[float, float]] = []
+    cursor = (0.0, 0.0)
+    for cmd in cmds:
+        if cmd[0] == "c":
+            x1, y1, x2, y2, x3, y3 = cmd[1:]
+            x0, y0 = cursor
+            for i in range(1, steps + 1):
+                t = i / steps
+                u = 1 - t
+                poly.append((
+                    u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
+                    u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3,
+                ))
+            cursor = (x3, y3)
+        else:
+            cursor = (cmd[1], cmd[2])
+            poly.append(cursor)
     return poly
 
 
@@ -157,49 +256,23 @@ class _Writer:
             )
             self.color = color
 
-    def _path(self, pts: Iterable[Tuple[float, float]]) -> List[bytes]:
+    def fill(self, cmds: Sequence[Tuple], color: str, alpha: float) -> None:
+        self._style(color, alpha)
         out: List[bytes] = []
-        last = None
-        for x, y in pts:
-            token = self._c(x) + b" " + self._c(y)
+        last: bytes | None = None
+        for cmd in cmds:
+            if cmd[0] == "c":
+                out.append(b" ".join(self._c(v) for v in cmd[1:]) + b" c\n")
+                last = None
+                continue
+            token = self._c(cmd[1]) + b" " + self._c(cmd[2])
             if token == last:
                 continue
-            out.append(token + (b" m\n" if last is None else b" l\n"))
+            out.append(token + (b" m\n" if cmd[0] == "m" else b" l\n"))
             last = token
-        return out
-
-    def fill(self, pts: Sequence[Tuple[float, float]], color: str, alpha: float) -> None:
-        self._style(color, alpha)
-        body = self._path(pts)
-        if len(body) < 2:
+        if len(out) < 2:
             return
-        self.parts.append(b"".join(body) + b"f\n")
-
-    def strokes(self, pts: Sequence[Tuple[float, float, float]], color: str, alpha: float) -> None:
-        """按线宽分段描边：同一宽度的连续线段合成一条子路径。"""
-        self._style(color, alpha)
-        if len(pts) == 1:
-            x, y, w = pts[0]
-            self._width(w)
-            self.parts.append(b"%s %s m %s %s l S\n" % (self._c(x), self._c(y), self._c(x), self._c(y)))
-            return
-        i = 0
-        while i < len(pts) - 1:
-            width = pts[i + 1][2]
-            run = [pts[i]]
-            while i < len(pts) - 1 and pts[i + 1][2] == width:
-                run.append(pts[i + 1])
-                i += 1
-            self._width(width)
-            body = self._path([(p[0], p[1]) for p in run])
-            if len(body) < 2:
-                continue
-            self.parts.append(b"".join(body) + b"S\n")
-
-    def _width(self, width: float) -> None:
-        if width != self.width:
-            self.parts.append(b"%s w\n" % _num(width * self.quant))
-            self.width = width
+        self.parts.append(b"".join(out) + b"h f\n")
 
     def data(self) -> bytes:
         return b"".join(self.parts)
@@ -210,13 +283,13 @@ def content_stream(
     origin: Tuple[float, float] = (0.0, 0.0),
     matrix: Sequence[float] | None = None,
     quant: int = QUANT,
-    eps: float = SIMPLIFY,
+    eps: float | None = None,
 ) -> Tuple[bytes, Set[int]]:
     """把若干笔画编成一段 PDF 内容流，返回 ``(未压缩字节, 用到的透明度)``。
 
     笔迹用的是世界坐标，``origin`` 是这一页左上角在世界里的位置；
     ``matrix`` 则把页面显示坐标（左上原点、y 向下）换算成 PDF 用户坐标，
-    顺带处理 /Rotate 和 CropBox 的偏移。
+    顺带处理 /Rotate 和 CropBox 的偏移。``eps`` 留空就按笔宽自动取。
     """
     ox, oy = origin
     writer = _Writer(quant)
@@ -224,20 +297,16 @@ def content_stream(
         points = points_of(stroke)
         if not points:
             continue
-        points = simplify(points, eps)
         tool = stroke.get("tool", "pen")
-        alpha, scale = TOOLS.get(tool, TOOLS["pen"])
-        width = float(stroke.get("w", 3.0)) * scale
+        alpha = ALPHA.get(tool, 1.0)
+        width = float(stroke.get("w", 3.0))
+        points = simplify(points, epsilon(width) if eps is None else eps)
         color = stroke.get("color", "#1b1b1f")
-        if alpha < 1.0 or len(points) == 1:
-            poly = [(x - ox, y - oy) for x, y in outline(points, tool, width)]
-            writer.fill(poly, color, alpha)
-            continue
-        shaped = []
-        for x, y, pressure in points:
-            w = max(0.7, round(2 * radius(tool, width, pressure) / WIDTH_STEP) * WIDTH_STEP)
-            shaped.append((x - ox, y - oy, w))
-        writer.strokes(shaped, color, alpha)
+        cmds = [
+            (cmd[0],) + tuple(v - (ox if i % 2 == 0 else oy) for i, v in enumerate(cmd[1:]))
+            for cmd in outline_path(points, tool, width)
+        ]
+        writer.fill(cmds, color, alpha)
 
     body = writer.data()
     if not body:
@@ -246,7 +315,7 @@ def content_stream(
     if matrix:
         head += b" ".join(_num(v) for v in matrix) + b" cm "
     scale = _num(1.0 / quant)
-    head += b"%s 0 0 %s 0 0 cm 1 J 1 j\n" % (scale, scale)
+    head += b"%s 0 0 %s 0 0 cm\n" % (scale, scale)
     return head + body + b"Q\n", writer.alphas
 
 

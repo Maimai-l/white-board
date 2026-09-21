@@ -4,7 +4,7 @@
 存在白板自己的 ``.wbz`` 里。导出时才把两者合到一起：
 
 * PDF —— 笔迹编成新的内容流追加到原页面上，原始内容流不重写，
-  所以体积只增加笔迹本身（实测每笔约 110 字节）。
+  所以体积只增加笔迹本身（实测每笔三四百字节）。
 * 图片 —— 笔迹按原分辨率栅格化后叠上去，JPEG 复用原来的量化表重编码，
   体积同样不会明显变大。
 
@@ -325,10 +325,11 @@ def export_image(src: str | Path, strokes: Sequence[Dict[str, Any]], out: str | 
         points = inkpdf.points_of(stroke)
         if not points:
             continue
-        points = inkpdf.simplify(points, inkpdf.SIMPLIFY)
         tool = stroke.get("tool", "pen")
-        alpha, scale = inkpdf.TOOLS.get(tool, inkpdf.TOOLS["pen"])
-        polygon = inkpdf.outline(points, tool, float(stroke.get("w", 3.0)) * scale)
+        alpha = inkpdf.ALPHA.get(tool, 1.0)
+        width = float(stroke.get("w", 3.0))
+        points = inkpdf.simplify(points, inkpdf.epsilon(width))
+        polygon = inkpdf.flatten(inkpdf.outline_path(points, tool, width))
         xs = [p[0] for p in polygon]
         ys = [p[1] for p in polygon]
         x0, y0 = math.floor(min(xs)) - 1, math.floor(min(ys)) - 1
