@@ -775,6 +775,77 @@ def test_board_switch_and_settings_follow(browser, server):
     ipad.close()
 
 
+def test_board_cards_show_names_and_dates(browser, server):
+    """卡片下面有名字和日期；没起名的显示默认叫法，改名之后两端都跟着变。"""
+    mac, ipad = open_pages(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title^="笔记"]')
+    mac.wait_for_function("() => whiteboard.state.kind === 'note'")
+    mac.click('button[title="白板"]')
+    mac.wait_for_selector(".board-item")
+
+    names = "() => [...document.querySelectorAll('.board-name')].map(i => [i.value, i.placeholder])"
+    assert mac.evaluate(names) == [["", "笔记"], ["", "白板"]]  # 没名字就按延伸方式给默认
+    assert mac.evaluate("() => document.querySelectorAll('.board-date').length") == 2
+
+    # 改名：输进去按回车，广播回来之后列表和 iPad 都认得
+    board_id = mac.evaluate("() => whiteboard.state.id")
+    field = mac.wait_for_selector(f'.board-name[data-focus-key="name:{board_id}"]')
+    field.click()
+    field.fill("  线性代数  ")
+    mac.keyboard.press("Enter")
+    mac.wait_for_function(
+        "() => whiteboard.ui.boards.some(b => b.name === '线性代数')", timeout=4000
+    )
+    ipad.wait_for_function(
+        "() => whiteboard.ui.boards.some(b => b.name === '线性代数')", timeout=4000
+    )
+    assert mac.evaluate("() => whiteboard.state.strokes.length") == 0  # 没把整块白板重发一遍
+    mac.close()
+    ipad.close()
+
+
+def test_board_search_filters_by_name(browser, server):
+    """搜索框按名字筛，搜不到给个空态；清空之后「新建」那块回来。"""
+    mac, ipad = open_pages(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title^="笔记"]')
+    mac.wait_for_function("() => whiteboard.state.kind === 'note'")
+    board_id = mac.evaluate("() => whiteboard.state.id")
+    mac.click('button[title="白板"]')
+    field = mac.wait_for_selector(f'.board-name[data-focus-key="name:{board_id}"]')
+    field.click()
+    field.fill("线性代数")
+    mac.keyboard.press("Enter")
+    mac.wait_for_function("() => whiteboard.ui.boards.some(b => b.name === '线性代数')")
+
+    count = "() => document.querySelectorAll('.board-item').length"
+    assert mac.evaluate(count) == 3  # 两块白板 + 新建
+
+    mac.click(".board-search")
+    mac.keyboard.type("线性")
+    mac.wait_for_function(f"{count} === 1")  # 搜索结果里不放「新建」
+    assert mac.evaluate("() => document.querySelector('.board-name').value") == "线性代数"
+
+    # 默认叫法也能搜到：另一块没起名，显示的是「白板」
+    mac.keyboard.press("Control+a")
+    mac.keyboard.type("白板")
+    mac.wait_for_function(f"{count} === 1")
+    assert mac.evaluate("() => document.querySelector('.board-name').placeholder") == "白板"
+
+    mac.keyboard.press("Control+a")
+    mac.keyboard.type("查无此板")
+    mac.wait_for_selector(".gallery-empty")
+
+    mac.keyboard.press("Escape")  # 清空搜索，不关界面
+    mac.wait_for_function(f"{count} === 3")
+    assert mac.query_selector(".gallery") is not None
+    mac.close()
+    ipad.close()
+
+
 def test_offline_drawing_is_flushed_after_server_restart(browser, server, tmp_path):
     mac, ipad = open_pages(browser, server.port)
     draw(ipad, [(300, 300), (380, 350)])

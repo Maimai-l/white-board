@@ -525,6 +525,14 @@ class App {
       case "live":
         this.onRemoteLive(msg);
         break;
+      case "boards":
+        // 只是列表变了（比如别处给某块白板改了名），不必重来一遍整块白板
+        if (msg.board && msg.board.id === this.state.id) {
+          this.state.meta = msg.board;
+          this.ui.setMeta(msg.board);
+        }
+        this.ui.setBoards(msg.boards || [], this.state.id);
+        break;
       default:
         break;
     }
@@ -870,6 +878,7 @@ class App {
         this.net.send({ t: "newboard", kind });
       },
       onDeleteBoard: (boardId) => this.net.send({ t: "delboard", board: boardId }),
+      onRenameBoard: (boardId, name) => this.net.send({ t: "rename", board: boardId, name }),
       onMeta: (patch) => {
         const meta = { ...this.state.meta, ...patch };
         this.state.meta = meta;

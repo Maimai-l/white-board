@@ -26,6 +26,38 @@ const PICKER_KEY = "whiteboard.picker";
 export const INK_TOOLS = ["pen", "marker", "highlighter"];
 export const ALL_TOOLS = [...INK_TOOLS, "eraser"];
 const TOOL_TITLES = { pen: "钢笔", marker: "马克笔", highlighter: "荧光笔", eraser: "橡皮擦" };
+const KIND_NAMES = { board: "白板", note: "笔记", doc: "文档" };
+
+/** 卡片上显示的名字。没起名就按延伸方式给个默认，文档板退回原件的文件名。 */
+export function boardLabel(board) {
+  if (board.name) return board.name;
+  const doc = board.kind === "doc" ? board.doc : null;
+  if (doc && doc.name) {
+    const dot = doc.name.lastIndexOf(".");
+    return dot > 0 ? doc.name.slice(0, dot) : doc.name;
+  }
+  return KIND_NAMES[board.kind] || KIND_NAMES.board;
+}
+
+/** 卡片下方那行时间：今天只给时刻，今年不给年份，其余给全。 */
+function boardDate(seconds) {
+  const when = new Date(seconds * 1000);
+  const now = new Date();
+  if (when.toDateString() === now.toDateString()) {
+    return when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  const sameYear = when.getFullYear() === now.getFullYear();
+  return when.toLocaleDateString(
+    [],
+    sameYear ? { month: "numeric", day: "numeric" } : { year: "numeric", month: "numeric", day: "numeric" }
+  );
+}
+
+/** 搜索匹配的范围：显示出来的名字，加上文档板的原件文件名。 */
+function boardHaystack(board) {
+  const doc = board.kind === "doc" && board.doc ? board.doc.name || "" : "";
+  return `${boardLabel(board)} ${board.name || ""} ${doc}`.toLowerCase();
+}
 
 /** 每件工具各记一套颜色和粗细，换笔不会把上一支的设置带过去。 */
 function defaultTool() {
@@ -94,6 +126,7 @@ export class UI {
     this.tool = loadTool();
     this.meta = null;
     this.boards = [];
+    this.boardQuery = "";
     this.info = null;
     this.popover = null;
     this.sheet = null;
@@ -750,70 +783,167 @@ export class UI {
 
   /** 打开选择界面前先把当前白板的缩略图刷新一遍，免得看到的是旧图。 */
   async openBoards() {
+    this.boardQuery = "";
     if (this.actions.onBoardsOpen) await this.actions.onBoardsOpen();
     this.renderBoards();
   }
 
-  /** Mac 端专门的白板选择界面：满屏缩略图，左上角标出延伸类型。 */
+  /** Mac 端专门的白板选择界面：满屏缩略图，左上角标出延伸类型，下面是名字和日期。 */
   renderBoards() {
+    // 列表随时可能被广播刷新（别处改了名、新建、删除），重建之前记住焦点落在哪，
+    // 建完再放回去，否则正在输入的搜索框或改名框会被抽走。
+    const active = document.activeElement;
+    const inside = active && this.gallery && this.gallery.contains(active);
+    const focusKey = inside ? active.dataset.focusKey : null;
+    const caret = focusKey && active.setSelectionRange ? [active.selectionStart, active.selectionEnd] : null;
+
     this.closeGallery();
     this.closeSheet();
-    const grid = el("div", { class: "gallery-grid" });
 
-    for (const board of this.boards) {
-      const card = el(
-        "div",
-        {
-          class: `board-card${board.id === this.currentBoardId ? " active" : ""}`,
-          style: {
-            backgroundImage: `url(/api/thumb/${board.id}?v=${Math.floor(board.updated)})`,
-          },
-          title: new Date(board.updated * 1000).toLocaleString(),
-          onclick: () => {
-            this.closeGallery();
-            this.actions.onSelectBoard(board.id);
-          },
-        },
-        [
-          el("span", {
-            class: "kind",
-            html: icon(["note", "doc"].includes(board.kind) ? board.kind : "board", 20),
-          }),
-        ]
-      );
-      if (this.boards.length > 1) {
-        card.append(
-          el("button", {
-            class: "del",
-            html: icon("close", 18),
-            title: "删除白板",
-            onclick: (event) => {
-              event.stopPropagation();
-              this.confirm("trash", () => this.actions.onDeleteBoard(board.id));
-            },
-          })
-        );
-      }
-      grid.append(card);
-    }
+    const search = el("input", {
+      class: "board-search",
+      type: "text",
+      placeholder: "搜索白板",
+      value: this.boardQuery,
+      spellcheck: "false",
+      "data-focus-key": "search",
+      oninput: () => {
+        this.boardQuery = search.value;
+        this.fillBoardGrid();
+      },
+      onkeydown: (event) => {
+        if (event.key !== "Escape" || !search.value) return;
+        event.stopPropagation(); // 别让 Esc 顺手把整个界面关掉
+        search.value = this.boardQuery = "";
+        this.fillBoardGrid();
+      },
+    });
 
-    grid.append(
-      el("button", {
-        class: "board-card add",
-        html: icon("add", 32),
-        title: "新建白板",
-        onclick: () => this.chooseKind(),
-      })
-    );
-
+    this.boardGrid = el("div", { class: "gallery-grid" });
     const gallery = el("div", { class: "gallery" }, [
       el("div", { class: "gallery-head" }, [
+        el("label", { class: "search-box" }, [
+          el("span", { class: "search-icon", html: icon("search", 18) }),
+          search,
+        ]),
         iconButton("close", "关闭", () => this.closeGallery()),
       ]),
-      grid,
+      this.boardGrid,
     ]);
     this.root.append(gallery);
     this.gallery = gallery;
+    this.fillBoardGrid();
+
+    if (!focusKey) return;
+    const back = gallery.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`);
+    if (!back) return;
+    back.focus();
+    if (caret && back.setSelectionRange) back.setSelectionRange(caret[0], caret[1]);
+  }
+
+  /** 只重铺格子。搜索时不碰上面那条，输入框和输入法状态才不会被打断。 */
+  fillBoardGrid() {
+    const grid = this.boardGrid;
+    if (!grid) return;
+    grid.textContent = "";
+    const query = this.boardQuery.trim().toLowerCase();
+    const matched = query ? this.boards.filter((b) => boardHaystack(b).includes(query)) : this.boards;
+
+    for (const board of matched) grid.append(this.boardItem(board));
+
+    if (query) {
+      if (!matched.length) {
+        grid.append(el("p", { class: "gallery-empty", text: "没有名字对得上的白板" }));
+      }
+      return; // 搜索结果里不放「新建」，免得点错
+    }
+    grid.append(
+      el("div", { class: "board-item" }, [
+        el("button", {
+          class: "board-card add",
+          html: icon("add", 32),
+          title: "新建白板",
+          onclick: () => this.chooseKind(),
+        }),
+      ])
+    );
+  }
+
+  /** 一块白板：缩略图 + 可以直接改的名字 + 最后一次写的时间。 */
+  boardItem(board) {
+    const card = el(
+      "div",
+      {
+        class: `board-card${board.id === this.currentBoardId ? " active" : ""}`,
+        style: {
+          backgroundImage: `url(/api/thumb/${board.id}?v=${Math.floor(board.updated)})`,
+        },
+        onclick: () => {
+          this.closeGallery();
+          this.actions.onSelectBoard(board.id);
+        },
+      },
+      [
+        el("span", {
+          class: "kind",
+          html: icon(["note", "doc"].includes(board.kind) ? board.kind : "board", 20),
+        }),
+      ]
+    );
+    if (this.boards.length > 1) {
+      card.append(
+        el("button", {
+          class: "del",
+          html: icon("close", 18),
+          title: "删除白板",
+          onclick: (event) => {
+            event.stopPropagation();
+            this.confirm("trash", () => this.actions.onDeleteBoard(board.id));
+          },
+        })
+      );
+    }
+
+    // 名字就是一个长得像文字的输入框：点一下直接改，清空就回到默认名。
+    const name = el("input", {
+      class: "board-name",
+      type: "text",
+      value: board.name || "",
+      placeholder: boardLabel(board),
+      title: "点一下改名",
+      spellcheck: "false",
+      maxlength: "64",
+      "data-focus-key": `name:${board.id}`,
+      onkeydown: (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          name.blur();
+        } else if (event.key === "Escape") {
+          event.stopPropagation();
+          name.value = board.name || "";
+          name.blur();
+        }
+      },
+      // change 只在值真的变了又失去焦点（或按了回车）时才发，正好是我们要的时机
+      onchange: () => {
+        const next = name.value.trim();
+        name.value = next;
+        if (next === (board.name || "")) return;
+        this.actions.onRenameBoard(board.id, next);
+      },
+    });
+
+    return el("div", { class: "board-item" }, [
+      card,
+      el("div", { class: "board-meta" }, [
+        name,
+        el("span", {
+          class: "board-date",
+          text: boardDate(board.updated),
+          title: new Date(board.updated * 1000).toLocaleString(),
+        }),
+      ]),
+    ]);
   }
 
   /** 弹一个文件选择框，选中的 PDF / 图片交给上层去建板。 */

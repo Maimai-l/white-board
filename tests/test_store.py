@@ -99,3 +99,33 @@ def test_unknown_board_returns_blank(tmp_path):
     meta, strokes = store.load_board("doesnotexist")
     assert strokes == []
     assert meta["background"] == "grid"
+
+
+def test_rename_updates_index_and_file(tmp_path):
+    """改名要同时写索引和 .wbz：只改索引的话，索引一重建名字就没了。"""
+    store = BoardStore(tmp_path)
+    meta = store.create_board()
+    store.save_board(meta, make_strokes())
+    assert store.rename_board(meta["id"], "  第三章 草稿  ") is True  # 首尾空白要去掉
+    assert store.get_meta(meta["id"])["name"] == "第三章 草稿"
+
+    (tmp_path / "index.json").unlink()
+    rebuilt = BoardStore(tmp_path)
+    assert rebuilt.get_meta(meta["id"])["name"] == "第三章 草稿"
+    _, strokes = rebuilt.load_board(meta["id"])
+    assert [s["id"] for s in strokes] == ["s0", "s1", "s2"]  # 笔画原样搬过去，没丢没变
+
+
+def test_rename_to_the_same_name_is_a_no_op(tmp_path):
+    store = BoardStore(tmp_path)
+    meta = store.create_board("讲义")
+    assert store.rename_board(meta["id"], "讲义") is False
+    assert store.rename_board("没有这块", "随便") is False
+
+
+def test_rename_to_empty_falls_back_to_the_default_name(tmp_path):
+    """清空名字是允许的：界面上会回到「白板」「笔记」这种默认叫法。"""
+    store = BoardStore(tmp_path)
+    meta = store.create_board("讲义")
+    assert store.rename_board(meta["id"], "") is True
+    assert store.get_meta(meta["id"])["name"] == ""

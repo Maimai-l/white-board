@@ -216,6 +216,53 @@ def test_mac_switches_board_and_ipad_follows(tmp_path):
     run(main())
 
 
+def test_mac_renames_any_board_and_ipad_hears_it(tmp_path):
+    """改名可以改不是当前这块的白板，所以只广播列表，不重发整块白板。"""
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            mac = await client.ws_connect("/ws")
+            ipad = await client.ws_connect("/ws")
+            await hello(mac, "mac", client_id="mac-1")
+            await hello(ipad, "ipad", client_id="ipad-1")
+
+            await mac.send_json({"t": "newboard"})
+            switched = await mac.receive_json()
+            await ipad.receive_json()
+            second = switched["board"]["id"]
+            first = next(m["id"] for m in switched["boards"] if m["id"] != second)
+
+            # 改的是另一块（当前停在 second 上）
+            await mac.send_json({"t": "rename", "board": first, "name": " 线性代数 "})
+            for side in (mac, ipad):
+                msg = await side.receive_json()
+                assert msg["t"] == "boards"
+                assert msg["board"]["id"] == second  # 当前白板没有被切走
+                assert {m["id"]: m["name"] for m in msg["boards"]}[first] == "线性代数"
+            assert hub.store.get_meta(first)["name"] == "线性代数"
+
+            await mac.close()
+            await ipad.close()
+
+    run(main())
+
+
+def test_ipad_cannot_rename(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            ws = await client.ws_connect("/ws")
+            await hello(ws, "ipad", client_id="ipad-1")
+            await ws.send_json({"t": "rename", "board": hub.current_id, "name": "偷偷改"})
+            await ws.send_json({"t": "ping", "ts": 7})
+            pong = await ws.receive_json()
+            assert pong["t"] == "pong"  # 改名那条被丢掉了，下一条才是回音
+            assert hub.store.get_meta(hub.current_id)["name"] == ""
+            await ws.close()
+
+    run(main())
+
+
 def test_unknown_messages_are_ignored(tmp_path):
     async def main():
         async with make_client(tmp_path) as (client, _app):

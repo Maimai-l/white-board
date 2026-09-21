@@ -10,7 +10,7 @@
 boards/<白板 id>.wbz     每块白板一个文件
 thumbs/<白板 id>.png     Mac 端选择界面用的缩略图（只是配图，不是内容）
 docs/<白板 id>.<扩展名>  文档板的原件副本（PDF / 图片），只读不改
-index.json               白板列表，未压缩；删掉能从 .wbz 重建
+index.json               白板列表，未压缩；删掉能从 .wbz 重建（所以改名要两边都写）
 ```
 
 ## 解开之后的结构
@@ -20,7 +20,7 @@ index.json               白板列表，未压缩；删掉能从 .wbz 重建
   "v": 1,
   "meta": {
     "id": "49b773c7c7c2",
-    "name": "",
+    "name": "",             // 空串表示没起名，界面上按 kind 给默认叫法
     "kind": "board",        // board 四向无限 / note 宽度固定只向下 / doc 文档板
     "background": "grid",   // blank / grid / lines / dots
     "created": 1758000000.0,

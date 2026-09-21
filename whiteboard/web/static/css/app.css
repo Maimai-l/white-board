@@ -454,12 +454,70 @@ html, body {
   padding: calc(12px + env(safe-area-inset-top)) 24px 32px;
   animation: fade var(--motion);
 }
-.gallery-head { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.gallery-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.search-box {
+  flex: 0 1 320px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-m);
+  background: var(--fill);
+  color: var(--on-surface-variant);
+}
+.search-box:focus-within { box-shadow: 0 0 0 3px var(--primary-container); }
+.gallery-head > .icon-btn { margin-left: auto; }
+.search-icon { display: flex; }
+.board-search {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--on-surface);
+  outline: none;
+}
 .gallery-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 18px;
+  align-items: start;
 }
+.gallery-empty {
+  grid-column: 1 / -1;
+  margin: 48px 0;
+  text-align: center;
+  color: var(--on-surface-variant);
+  font-size: 13.5px;
+}
+.board-item { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+/* 名字和日期一行，名字长了省略号，日期永远看得见 */
+.board-meta { display: flex; align-items: baseline; gap: 8px; padding: 0 2px; min-width: 0; }
+.board-name {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--on-surface);
+  text-overflow: ellipsis;
+  outline: none;
+  cursor: text;
+}
+.board-name::placeholder { color: var(--on-surface-variant); }
+.board-name:hover { background: var(--fill); }
+.board-name:focus {
+  background: var(--surface-1);
+  box-shadow: 0 0 0 2px var(--primary);
+  text-overflow: clip;
+}
+.board-date { flex: none; font-size: 12px; color: var(--on-surface-variant); }
 .board-card {
   position: relative;
   aspect-ratio: 4 / 3;

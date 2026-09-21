@@ -117,6 +117,7 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     name = raw.get("name", "")
     if not isinstance(name, str):
         name = ""
+    name = name.strip()
 
     board_id = raw.get("id", "")
     if not isinstance(board_id, str) or not _ID_RE.match(board_id):

@@ -334,6 +334,7 @@ class _Session:
             "sel": self._select,
             "newboard": self._new_board,
             "delboard": self._del_board,
+            "rename": self._rename,
             "ping": self._ping,
         }.get(kind)
         if handler is not None:
@@ -428,6 +429,24 @@ class _Session:
         kind = msg.get("kind")
         self.hub.create_board(kind if kind in models.KINDS else "board")
         await self._broadcast_switch()
+
+    async def _rename(self, msg: Dict[str, Any]) -> None:
+        """给白板改名。改的可能不是当前这块，所以只广播列表，不走整块 switch。"""
+        if self.client.role != "mac":
+            return
+        board_id = msg.get("board")
+        name = msg.get("name")
+        if not isinstance(board_id, str) or not isinstance(name, str):
+            return
+        if not self.hub.rename_board(board_id, name):
+            return
+        await self.hub.broadcast(
+            {
+                "t": "boards",
+                "boards": self.hub.store.list_metas(),
+                "board": dict(self.hub.board().meta),
+            }
+        )
 
     async def _del_board(self, msg: Dict[str, Any]) -> None:
         if self.client.role != "mac":

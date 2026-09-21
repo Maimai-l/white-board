@@ -26,6 +26,7 @@ export const ICONS = {
   zoomOut: `<circle cx="11" cy="11" r="6.2"/>` + path("M15.6 15.6L20 20") + path("M8.6 11h4.8"),
   fit: path("M4 9V4.8h4.4") + path("M15.6 4.8H20V9") + path("M20 15v4.2h-4.4") + path("M8.4 19.2H4V15"),
   close: path("M6 6l12 12") + path("M18 6L6 18"),
+  search: `<circle cx="10.6" cy="10.6" r="6"/>` + path("M15 15l4.6 4.6"),
   check: path("M5 12.5l4.5 4.5L19 7.5"),
   folder: path("M4 6.8h5.4l1.8 2.2H20v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18V6.8z"),
   folderOpen: path("M4 18.4V6.8h5.4l1.8 2.2h6.6v2.2") +

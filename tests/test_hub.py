@@ -104,3 +104,27 @@ def test_hub_delete_falls_back_to_another_board(tmp_path):
     assert hub.delete_board(first)
     assert hub.current_id != first
     assert hub.store.get_meta(first) is None
+
+
+def test_rename_loaded_board_survives_autosave(tmp_path):
+    """已经在内存里的白板改名不能直接写文件：自动保存会拿内存里那份覆盖回去。"""
+    store = BoardStore(tmp_path)
+    hub = Hub(store)
+    board_id = hub.current_id
+    runtime = hub.board(board_id)  # 载入内存
+    runtime.apply({"op": "add", "strokes": [stroke("a")]})
+
+    assert hub.rename_board(board_id, "线性代数") is True
+    assert store.get_meta(board_id)["name"] == "线性代数"  # 索引立刻就对
+    hub.save_all()
+    assert BoardStore(tmp_path).load_board(board_id)[0]["name"] == "线性代数"
+
+
+def test_rename_board_that_is_not_loaded(tmp_path):
+    store = BoardStore(tmp_path)
+    hub = Hub(store)
+    other = store.create_board()
+    assert other["id"] not in hub._boards
+    assert hub.rename_board(other["id"], "第二块") is True
+    assert BoardStore(tmp_path).get_meta(other["id"])["name"] == "第二块"
+    assert hub.rename_board(other["id"], "第二块") is False

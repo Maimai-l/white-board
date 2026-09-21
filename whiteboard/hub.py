@@ -197,6 +197,20 @@ class Hub:
         self.current_id = meta["id"]
         return meta
 
+    def rename_board(self, board_id: str, name: str) -> bool:
+        """给任意一块白板改名，不必是当前这块。改名不算「编辑」，不动 updated。"""
+        runtime = self._boards.get(board_id)
+        if runtime is None:
+            return self.store.rename_board(board_id, name)
+        # 已经在内存里的那块不能直接写文件：自动保存会拿内存里的 meta 覆盖回去。
+        merged = models.sanitize_meta(dict(runtime.meta, name=name if isinstance(name, str) else ""))
+        if merged == runtime.meta:
+            return False
+        runtime.meta = merged
+        runtime.dirty = True  # 索引先更新，文件交给自动保存
+        self.store.update_meta(merged)
+        return True
+
     def strokes_of(self, board_id: str) -> List[Dict[str, Any]]:
         """导出用：已经载入内存的用内存里的，其余的从磁盘读。"""
         runtime = self._boards.get(board_id)

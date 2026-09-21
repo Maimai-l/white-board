@@ -242,6 +242,31 @@ class BoardStore:
         _atomic_write(self._board_path(meta["id"]), blob)
         self.update_meta(meta)
 
+    def rename_board(self, board_id: str, name: str) -> bool:
+        """给白板改名。改动要同时落到索引和 ``.wbz`` 里：索引决定列表显示，
+        ``.wbz`` 里那份是索引丢失后重建的依据，只改一边早晚会对不上。
+
+        重写 ``.wbz`` 时笔画还是原来那串 base64，原样搬过去，不重新编解码。
+        """
+        current = self.get_meta(board_id)
+        if current is None:
+            return False
+        meta = models.sanitize_meta(dict(current, name=name if isinstance(name, str) else ""))
+        if meta == current:
+            return False
+        path = self._board_path(board_id)
+        if path.exists():
+            try:
+                payload = self._read_file(path)
+                payload["meta"] = meta
+                blob = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                _atomic_write(path, zlib.compress(blob, 6))
+            except (OSError, ValueError, zlib.error) as exc:
+                log.error("白板 %s 改名时写文件失败：%s", board_id, exc)
+                return False
+        self.update_meta(meta)
+        return True
+
     def update_meta(self, meta: Dict[str, Any]) -> None:
         meta = models.sanitize_meta(meta)
         boards = self._index["boards"]
