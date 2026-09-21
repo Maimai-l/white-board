@@ -235,25 +235,44 @@ html, body {
 }
 
 /*
- * 弹簧慢一点、弹一点。位置和形状分开两套时长：形状（展开 / 收拢）走弹簧，
- * 跟手时位置几乎是直给的，所以拖动随时能打断，不会有「追不上手」的滞后。
+ * 工具盘的动画由 js/pkpicker.js 在 .pk-picker 上设置 data-motion 切换。
+ * 时长和曲线写在 pkpicker.js 顶部的常量里，由它填进这几个 --pkm-* 变量，要调去那里调。
+ *   travel（默认）：圆的飞行，收成圆、飞到角落，不回弹
+ *   grow：「甩」之后的展开，以及上下两边之间直接滑过去的长条，带回弹
+ *   smooth：「慢放」之后的展开，以及在手底下已展开的长条贴到边上，不回弹
+ *   follow：拖动中跟手，位置几乎直给，圆与长条互变的形状单独用 morph
  */
 @media (prefers-reduced-motion: no-preference) {
   #pk-host .pk-picker {
-    --pk-spring: cubic-bezier(.24, 1.5, .32, 1);
     transition:
-      left .62s var(--pk-spring), top .62s var(--pk-spring),
-      width .62s var(--pk-spring), height .62s var(--pk-spring),
-      border-radius .62s var(--pk-spring),
+      left var(--pkm-travel), top var(--pkm-travel),
+      width var(--pkm-travel), height var(--pkm-travel),
+      border-radius var(--pkm-travel),
       box-shadow .3s ease, background-color .3s;
   }
-  #pk-host .pk-picker.is-following {
+  #pk-host .pk-picker[data-motion="grow"] {
     transition:
-      left .09s linear, top .09s linear,
-      width .62s var(--pk-spring), height .62s var(--pk-spring),
-      border-radius .62s var(--pk-spring),
+      left var(--pkm-grow), top var(--pkm-grow),
+      width var(--pkm-grow), height var(--pkm-grow),
+      border-radius var(--pkm-grow),
+      box-shadow .3s ease, background-color .3s;
+  }
+  #pk-host .pk-picker[data-motion="smooth"] {
+    transition:
+      left var(--pkm-smooth), top var(--pkm-smooth),
+      width var(--pkm-smooth), height var(--pkm-smooth),
+      border-radius var(--pkm-smooth),
+      box-shadow .3s ease, background-color .3s;
+  }
+  #pk-host .pk-picker[data-motion="follow"] {
+    transition:
+      left var(--pkm-follow), top var(--pkm-follow),
+      width var(--pkm-morph), height var(--pkm-morph),
+      border-radius var(--pkm-morph),
       box-shadow .3s ease;
   }
+  /* 圆里的笔转向 */
+  #pk-host .pk-bubble-art { transition: transform var(--pkm-turn); }
 }
 
 /* 顶部停靠：阴影朝上，面板往下开（原实现只有下 / 左 / 右） */

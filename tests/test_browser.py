@@ -935,6 +935,18 @@ def test_ipad_toolbar_can_move_to_the_top(browser, server):
 
 
 def drag(page, x0, y0, x1, y1, steps=12):
+    """慢放：终点停住一下再松手，速度归零，工具盘就以松手点为停点。"""
+    page.mouse.move(x0, y0)
+    page.mouse.down()
+    for i in range(1, steps + 1):
+        page.mouse.move(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)
+    page.wait_for_timeout(180)  # 超过 VELOCITY_WINDOW_MS，算作手停住了
+    page.mouse.move(x1, y1)
+    page.mouse.up()
+
+
+def fling(page, x0, y0, x1, y1, steps=12):
+    """甩：一路不停直接松手，工具盘按惯性推算停点。"""
     page.mouse.move(x0, y0)
     page.mouse.down()
     for i in range(1, steps + 1):
@@ -1189,14 +1201,15 @@ def test_picker_docks_to_the_top(browser, server):
     ipad.close()
 
 
+def pk_form(page):
+    return page.evaluate("() => [whiteboard.ui.pk.state, whiteboard.ui.pk.dock]")
+
+
 def test_picker_expands_while_dragging_to_an_edge(browser, server):
-    """拖到边上的范围里就当场展开成那条边的样子，不用等松手；拖回中间变回圆。"""
+    """在触发区里停够 DOCK_DWELL_MS 就当场展开成那条边的样子，不用等松手；出了触发区立刻变回圆。"""
     _mac, ipad = open_pages(browser, server.port)
     enable_pk_picker(ipad)
     ipad.wait_for_timeout(500)
-
-    def state():
-        return ipad.evaluate("() => [whiteboard.ui.pk.state, whiteboard.ui.pk.dock]")
 
     grip = ipad.evaluate(
         "() => { const g = document.querySelector('#pk-host .pk-grip').getBoundingClientRect();"
@@ -1204,27 +1217,67 @@ def test_picker_expands_while_dragging_to_an_edge(browser, server):
     )
     ipad.mouse.move(grip[0], grip[1])
     ipad.mouse.down()
-    for spot in [(560, 410), (560, 200), (560, 100), (480, 60)]:
-        ipad.mouse.move(*spot)
-    assert state() == ["docked", "top"]  # 还没松手就已经展开了
+    ipad.mouse.move(560, 410)  # 先拖到中间：不在任何触发区，立刻变成圆
+    assert pk_form(ipad)[0] == "moving"
 
-    # 但它只是展开，没有自己跑到边上去：整条栏还跟在手底下
-    box = ipad.evaluate(
-        "() => { const b = document.querySelector('#pk-host .pk-picker').getBoundingClientRect();"
-        " return [b.left, b.top, b.width]; }"
+    ipad.mouse.move(560, 120)  # 进顶部触发区，但还没停够
+    assert pk_form(ipad)[0] == "moving"
+    ipad.wait_for_function("() => whiteboard.ui.pk.state === 'docked'", timeout=2000)
+    assert pk_form(ipad) == ["docked", "top"]
+
+    # 但它只是展开，没有自己跑到边上去：整条栏还跟在手底下（形态变化是带动画的，等它铺开）
+    ipad.wait_for_function(
+        "() => document.querySelector('#pk-host .pk-picker').getBoundingClientRect().width > 400",
+        timeout=2000,
     )
-    assert box[2] > 400  # 已经是整条栏的宽度
-    assert box[1] > 40  # 还没贴到顶（贴上去是 20）
+    top = ipad.evaluate(
+        "() => document.querySelector('#pk-host .pk-picker').getBoundingClientRect().top"
+    )
+    assert top > 40  # 还没贴到顶（贴上去是 20）
 
-    for spot in [(400, 400), (120, 400), (50, 400)]:
-        ipad.mouse.move(*spot)
-    assert state() == ["docked", "left"]
+    ipad.mouse.move(60, 410)  # 换到左边触发区，重新计时
+    ipad.wait_for_function("() => whiteboard.ui.pk.dock === 'left'", timeout=2000)
 
-    ipad.mouse.move(590, 410)  # 回到中间又缩成圆
+    ipad.mouse.move(590, 410)  # 回到中间：出了触发区立刻缩成圆，不等
     assert ipad.evaluate("() => whiteboard.ui.pk.state") == "moving"
     ipad.mouse.move(1130, 780)  # 角落：松手收起来
+    ipad.wait_for_timeout(180)
     ipad.mouse.up()
     ipad.wait_for_function("() => whiteboard.ui.pk.state === 'minimized'", timeout=4000)
+    _mac.close()
+    ipad.close()
+
+
+def test_picker_fling_carries_past_the_release_point(browser, server):
+    """甩出去有惯性：同一个松手点，慢放落到最近的底边，甩出去要按推算的停点落到顶边。"""
+    _mac, ipad = open_pages(browser, server.port)
+    enable_pk_picker(ipad)
+    ipad.wait_for_timeout(500)
+
+    def grip():
+        last = None
+        for _ in range(30):
+            now = ipad.evaluate(
+                "() => { const g = document.querySelector('#pk-host .pk-grip').getBoundingClientRect();"
+                " return [g.left + g.width / 2, g.top + g.height / 2]; }"
+            )
+            if last == now:
+                return now
+            last = now
+            ipad.wait_for_timeout(100)
+        return last
+
+    # 慢放：松手点略偏下半屏，落到底边
+    x, y = grip()
+    drag(ipad, x, y, 590, 420)
+    ipad.wait_for_function("() => whiteboard.ui.pk.dock === 'bottom'", timeout=4000)
+
+    # 同一个松手点，一路向上甩：惯性把停点推过顶部触发区
+    x, y = grip()
+    fling(ipad, x, y, 590, 420)
+    ipad.wait_for_function("() => whiteboard.ui.pk.dock === 'top'", timeout=4000)
+    _mac.close()
+    ipad.close()
 
 
 def test_picker_only_snaps_to_the_edge_after_release(browser, server):
@@ -1252,8 +1305,6 @@ def test_picker_only_snaps_to_the_edge_after_release(browser, server):
     assert before > 60  # 松手之前没贴上去
     _mac.close()
     ipad.close()
-    _mac.close()
-    ipad.close()
 
 
 def test_picker_expands_when_the_pointer_comes_close(browser, server):
@@ -1268,10 +1319,19 @@ def test_picker_expands_when_the_pointer_comes_close(browser, server):
     ipad.wait_for_timeout(120)
     assert ipad.evaluate("() => whiteboard.ui.pk.state") == "minimized"
 
-    bubble = ipad.evaluate(
+    # 收进角落是带动画的，等它停稳再量，否则量到的是半路上的坐标
+    read = (
         "() => { const r = document.querySelector('#pk-host .pk-picker').getBoundingClientRect();"
         " return [r.left, r.top]; }"
     )
+    bubble = last = None
+    for _ in range(30):
+        bubble = ipad.evaluate(read)
+        if bubble == last:
+            break
+        last = bubble
+        ipad.wait_for_timeout(100)
+
     ipad.mouse.move(bubble[0] - 40, bubble[1] - 30)
     ipad.wait_for_function("() => whiteboard.ui.pk.state === 'docked'", timeout=4000)
     _mac.close()

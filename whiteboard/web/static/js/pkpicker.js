@@ -8,6 +8,11 @@
 // 完整的取色器（色板 / 色轮 / RGB 滑块）、拖动换边、丢进角落缩成一个圆、
 // 撤销按钮、「更多」里的自动最小化与手指绘图开关。
 //
+// 拖动与松手按 iPadOS 的手感重写过：圆进入边的触发区要停留一会儿才变成长条，
+// 长条一出触发区立即变回圆；松手时按惯性推算停点，决定去哪个角（圆）或哪条边（长条）。
+// 松手分「甩」和「慢放」两种：甩的时候先飞到位再展开、带回弹；慢放时飞行、转笔、展开
+// 几乎同时进行、不回弹。动画进行中可以随时拿起。手感参数都在下面。
+//
 // 没接的：不透明度（笔迹格式里还没有这个字段）、重做（白板没有重做）、
 // 直尺和套索（白板没有这两个功能，对应的按钮已经从布局里去掉）。
 
@@ -88,6 +93,72 @@ export const TOOL_ART = { pen: "pen", marker: "pencil", highlighter: "marker", e
 const ART_TOOL = Object.fromEntries(Object.entries(TOOL_ART).map(([k, v]) => [v, k]));
 const TITLES = { pen: "钢笔", marker: "马克笔", highlighter: "荧光笔", eraser: "橡皮擦" };
 
+/* ============================ 手感参数：都在这里调 ============================ */
+// 所有手感参数集中在 TUNING 里，改这里的数值即可。
+export const TUNING = {
+  // ---- 触发区：贴着边、沿边方向居中的长方形 ----
+  // 宽和高都以触发区所贴的那条边为参考：宽 = 沿着这条边的长度，高 = 从这条边伸进屏幕的深度。
+  // 上下两条边：宽占屏幕宽的比例；高（像素）
+  ZONE_TB_WIDTH_RATIO: 0.47,
+  ZONE_TB_HEIGHT_PX: 200,
+  // 左右两条边：宽占屏幕高的比例；高（像素）
+  ZONE_LR_WIDTH_RATIO: 0.35,
+  ZONE_LR_HEIGHT_PX: 180,
+  // 相邻两个触发区之间至少留出的间隔：上下触发区的两端至少让出「左右触发区的高 + 这个值」，
+  // 上下触发区的宽设得太大时会被自动缩短，保证与左右触发区互不接触
+  ZONE_GAP_PX: 24,
+
+  // ---- 拖动中 ----
+  // 圆进入某条边的触发区后，停留多少毫秒才变成这条边的长条（出触发区则立即变回圆）
+  DOCK_DWELL_MS: 250,
+  // 跟手时位置的延迟（线性）；手底下圆与长条互变的形状动画
+  FOLLOW_MS: 20,
+  MORPH_MS: 620,
+  MORPH_EASE: "cubic-bezier(.3, 1.3, .45, 1)",
+
+  // ---- 松手 ----
+  // 用松手前多少毫秒内的移动计算速度；松手前停住超过这个时间，就当作没有速度
+  VELOCITY_WINDOW_MS: 100,
+  // 松手速度达到多少（像素/秒）算「甩」，低于它算「慢放」（点击展开、悬停展开也算慢放）。
+  // 只有「甩」才按惯性推算停点；「慢放」就以松手点为停点
+  FLING_SPEED: 1200,
+  // 甩的时候：推算停点 = 松手点 + 速度（像素/秒）× 这个秒数，越大飞得越远
+  FLING_PROJECTION_S: 0.61,
+  // 甩的时候：推算停点离松手点最远多少像素（惯性滑行距离的上限）
+  FLING_MAX_PX: 600,
+
+  // ---- 圆的飞行：展开前的飞行、收成圆、飞到角落都用这一组，不回弹 ----
+  TRAVEL_MS: 660,
+  TRAVEL_EASE: "cubic-bezier(.25, .8, .25, 1)",
+  // 圆里的笔转向（去左边朝右、去右边朝左、去上下竖直；方向相同就不转）
+  TURN_MS: 300,
+  TURN_EASE: "cubic-bezier(.4, 0, .2, 1)",
+
+  // ---- 甩：长条先收成圆 → 转笔 → 飞到位 → 展开（带回弹） ----
+  // 起飞后多少毫秒开始转笔，留时间让长条先收成圆；FAST_TURN_AT_MS + TURN_MS 应不大于 TRAVEL_MS
+  FAST_TURN_AT_MS: 0,
+  // 飞行结束后停多少毫秒再展开；负数表示在飞行结束前提前展开。
+  // 飞行曲线前快后慢，圆看起来到位时离飞行结束还有一段时间，所以通常要设成负数才没有停顿感
+  FAST_EXPAND_PAUSE_MS: -350,
+  // 展开的时长与曲线，末尾略微超出再回弹；上下两边之间直接滑过去的长条也用这一组
+  BOUNCE_MS: 400,
+  BOUNCE_EASE: "cubic-bezier(.32, 1.28, .5, 1)",
+
+  // ---- 慢放：飞行、转笔同时开始，很快就开始展开（平滑，不回弹） ----
+  // 起飞后多少毫秒开始展开
+  SLOW_EXPAND_AT_MS: 50,
+  // 展开的时长与曲线；拖动中已在手底下展开的长条贴到边上也用这一组
+  SMOOTH_MS: 420,
+  SMOOTH_EASE: "cubic-bezier(.25, .8, .25, 1)",
+};
+
+/* ========================================================================== */
+
+// 各条边上笔的方向：左边的长条里笔朝右，右边朝左，上下竖直
+const EDGE_DEG = { left: 90, right: -90, top: 0, bottom: 0 };
+// vendor 里拖动中圆的直径（MOVE_D），笔转向时要绕圆心转，需要这个值
+const MOVE_D = 105;
+
 let loading = null;
 
 /** 按需加载：这份 vendor 文件有 400 多 KB，不开 beta 就不要去解析它。 */
@@ -129,6 +200,19 @@ function makeClass(Base) {
         button.title = TITLES[tool];
         button.setAttribute("aria-label", TITLES[tool]);
       }
+      // 动画的时长和曲线交给 css/pk-host.css 使用，数值只在本文件顶部的 TUNING 里维护
+      this._applyTuning();
+    }
+
+    /** 把 TUNING 里的动画时长和曲线写进 css/pk-host.css 使用的 --pkm-* 变量；改了 TUNING 后再调一次。 */
+    _applyTuning() {
+      const style = this.picker.style;
+      style.setProperty("--pkm-travel", `${TUNING.TRAVEL_MS}ms ${TUNING.TRAVEL_EASE}`);
+      style.setProperty("--pkm-grow", `${TUNING.BOUNCE_MS}ms ${TUNING.BOUNCE_EASE}`);
+      style.setProperty("--pkm-smooth", `${TUNING.SMOOTH_MS}ms ${TUNING.SMOOTH_EASE}`);
+      style.setProperty("--pkm-turn", `${TUNING.TURN_MS}ms ${TUNING.TURN_EASE}`);
+      style.setProperty("--pkm-follow", `${TUNING.FOLLOW_MS}ms linear`);
+      style.setProperty("--pkm-morph", `${TUNING.MORPH_MS}ms ${TUNING.MORPH_EASE}`);
     }
 
     _bind() {
@@ -146,6 +230,11 @@ function makeClass(Base) {
       this._on(window, "pointermove", (event) => this._dragMove(event));
       this._on(window, "pointerup", (event) => this._dragFinish(event));
       this._on(window, "pointercancel", (event) => this._dragFinish(event));
+      // vendor 在圆飞行途中（moving）不接受按下；这里补上，动画进行中也能直接拿起
+      this._on(this.picker, "pointerdown", (event) => {
+        if (this.state !== "moving" || this._pd || event.button > 0) return;
+        this._pd = { id: event.pointerId, x: event.clientX, y: event.clientY, drag: false };
+      });
       // 收起来之后，笔 / 光标靠近就提前展开，不用非得点中那个圆
       this._on(window, "pointermove", (event) => this._hoverExpand(event));
       // 「更多」里的开关不发事件，点完之后自己对一次；另外接住我们加的两行
@@ -162,10 +251,40 @@ function makeClass(Base) {
       });
     }
 
+    /* ---------------- 拖动 ---------------- */
+
     /**
-     * 拖动中：进到哪条边的范围里，就在手底下「展开」成那条边的样子——只是变形，
-     * 位置仍然跟着手走，不会自己跑到边上去；拖回中间再缩回圆。真正贴到边上是
-     * 松手之后的事，那一下走弹簧曲线。原实现是松手才贴边，拖的过程里只有一个圆。
+     * 开始拖动（手指移动超过 10px 时）。动画进行中拿起时，工具盘从画面上当前的位置、
+     * 大小和笔的角度接着变化，不会跳。长条被拿起时保持长条，并记住手指相对长条中心的
+     * 位置；圆被拿起时变成拖动中的大圆，圆里的笔保持原来的方向。
+     */
+    _dragStart() {
+      clearTimeout(this._settleT);
+      clearTimeout(this._turnT);
+      this._settleT = this._turnT = null;
+      this._closePop();
+      this._samples = [];
+      this._formWant = undefined;
+      this._grab = { x: 0, y: 0 };
+      // 这次拖动是不是从长条开始的（从哪条边）；甩的时候即使中途已变成圆，也按长条处理
+      this._dragFrom = this.state === "docked" ? this.dock : null;
+      if (this.state === "docked") {
+        const bar = this.picker.getBoundingClientRect();
+        this._grab = {
+          x: this._pd.x - (bar.left + bar.width / 2),
+          y: this._pd.y - (bar.top + bar.height / 2),
+        };
+      } else {
+        if (this.state === "minimized") this._setArt(0, MOVE_D, false);
+        this._setState("moving");
+      }
+      this.picker.dataset.motion = "follow";
+    }
+
+    /**
+     * 拖动中：指针所在的触发区（_dockZone）决定「想要」的形态，不在触发区就是圆。
+     * 出了触发区立即变圆；进入某条边的触发区则开始计时，停留够 DOCK_DWELL_MS 才变成
+     * 这条边的长条，中途换边重新计时。计时期间保持当前形态跟手。
      */
     _dragMove(event) {
       const drag = this._pd;
@@ -176,22 +295,61 @@ function makeClass(Base) {
         this._dragStart();
       }
       const pt = this._local(event);
-      const zone = this._dockZone(pt);
-      if (!zone) {
-        if (this.state !== "moving") this._setState("moving");
-        this._apply(this._geom("moving", pt));
+      this._lastPt = pt;
+      this._track(pt);
+
+      const want = this._dockZone(pt);
+      const have = this.state === "docked" ? this.dock : null;
+      if (want === have) {
+        clearTimeout(this._formT);
+        this._formT = null;
+        this._formWant = undefined;
+      } else if (!want) {
+        clearTimeout(this._formT);
+        this._formT = null;
+        this._formWant = undefined;
+        this._switchForm(null);
         return;
+      } else if (want !== this._formWant) {
+        clearTimeout(this._formT);
+        this._formWant = want;
+        this._formT = setTimeout(() => this._switchForm(want), TUNING.DOCK_DWELL_MS);
       }
-      if (this.state !== "docked" || this.dock !== zone) {
-        this.dock = zone;
+      this._follow(pt);
+    }
+
+    /**
+     * 在手底下切换形态：want 是某条边时变成那条边的长条；want 为 null 时变回圆，
+     * 圆里的笔先摆成原来长条里的方向，再转回竖直（从左右两边拖出来时会看到转正）。
+     */
+    _switchForm(want) {
+      this._formT = null;
+      this._formWant = undefined;
+      if (!this._pd || !this._pd.drag) return;
+      this._grab = { x: 0, y: 0 };
+      if (want) {
+        this.dock = want;
         this.minCorner = null;
         this._layoutBar();
         this._setState("docked");
+      } else {
+        this._setArt(EDGE_DEG[this.dock] || 0, MOVE_D, true);
+        this._setArt(0, MOVE_D, false);
+        this._setState("moving");
       }
-      this._apply(this._loose(pt));
+      this._follow(this._lastPt);
     }
 
-    /** 展开之后仍然跟着手：整条栏以指针为中心，别跑出屏幕就行。 */
+    /** 当前形态跟着指针走：长条保持被拿起时手指的相对位置，圆以指针为中心。 */
+    _follow(pt) {
+      if (this.state === "docked") {
+        this._apply(this._loose({ x: pt.x - this._grab.x, y: pt.y - this._grab.y }));
+      } else {
+        this._apply(this._geom("moving", pt));
+      }
+    }
+
+    /** 展开之后仍然跟着手：整条栏以给定点为中心，别跑出屏幕就行。 */
     _loose(pt) {
       const L = LAYOUT[this.mode];
       const scale = this._scale;
@@ -206,44 +364,79 @@ function makeClass(Base) {
       };
     }
 
+    /** 记录拖动轨迹，只保留最近 VELOCITY_WINDOW_MS 内的点（至少两个），用来算松手速度。 */
+    _track(pt) {
+      const now = performance.now();
+      const list = this._samples || (this._samples = []);
+      list.push({ x: pt.x, y: pt.y, t: now });
+      while (list.length > 2 && now - list[0].t > TUNING.VELOCITY_WINDOW_MS) list.shift();
+    }
+
+    /** 松手时的速度（像素/秒）。最后一次移动已经是很久以前，说明手停住了，速度为 0。 */
+    _velocity() {
+      const list = this._samples || [];
+      if (list.length < 2) return { x: 0, y: 0 };
+      const first = list[0];
+      const last = list[list.length - 1];
+      const dt = last.t - first.t;
+      if (dt <= 0 || performance.now() - last.t > TUNING.VELOCITY_WINDOW_MS) return { x: 0, y: 0 };
+      return { x: ((last.x - first.x) / dt) * 1000, y: ((last.y - first.y) / dt) * 1000 };
+    }
+
+    /**
+     * 松手：未到时间的形态切换一律作废。速度达到 FLING_SPEED 算「甩」，否则算「慢放」。
+     * 甩的时候按速度推算停点（滑行距离有上限，并限制在屏幕内），慢放以松手点为停点；
+     * 停点落在某条边的触发区里就展开到那条边；
+     * 否则交给 _dragDrop 按角落 / 最近的边处理。
+     */
     _dragFinish(event) {
       const drag = this._pd;
       if (!drag || drag.id !== event.pointerId) return;
       this._pd = null;
       if (!drag.drag) return;
+      clearTimeout(this._formT);
+      this._formT = null;
+      this._formWant = undefined;
+
       const pt = this._local(event);
-      if (!this._dockZone(pt)) {
-        this._dragDrop(pt); // 角落 / 中间：交给原来那套（会收成一个圆）
-        return;
-      }
-      // 松手才真的贴过去，这一下走弹簧
-      clearTimeout(this._followT);
-      this.picker.classList.remove("is-following");
+      const v = this._velocity();
+      const speed = Math.hypot(v.x, v.y);
+      const fast = speed >= TUNING.FLING_SPEED;
+      // 只有甩才有惯性滑行，滑行距离不超过 FLING_MAX_PX
+      const glide = fast ? Math.min(speed * TUNING.FLING_PROJECTION_S, TUNING.FLING_MAX_PX) : 0;
+      const target = {
+        x: clamp(pt.x + (speed ? (v.x / speed) * glide : 0), 0, this.W),
+        y: clamp(pt.y + (speed ? (v.y / speed) * glide : 0), 0, this.H),
+      };
       this._dragEnd = performance.now();
-      this._apply(this._geom());
-      this._emit("dock", this.dock);
+      // 松手时指针就在圆旁边，要等它先离开一次，悬停展开才重新生效
+      this._hoverArmed = false;
+      // 甩的时候，只要这次拖动是从长条开始的，就按「从那条边的长条出发」处理
+      const fromEdge = this.state === "docked" ? this.dock : fast ? this._dragFrom : null;
+      const zone = this._dockZone(target);
+      if (zone) this._openAt(zone, fast, fromEdge);
+      else this._dragDrop(target, fast, fromEdge);
     }
 
     /**
-     * 指针落在哪条边的贴边范围里。这一圈开得比较宽，拖过去不用瞄；
-     * 四个角仍然留给「收起来」，正中间一片返回 null（保持跟手的圆）。
+     * 指针落在哪条边的触发区里，不在任何触发区返回 null。
+     * 每个触发区是贴着边、沿边方向居中的长方形；上下两块的两端至少让出左右两块的高
+     * 再加 ZONE_GAP_PX，所以上下两块与左右两块在水平方向上错开，相邻触发区不会接触。
      */
     _dockZone(pt) {
-      const left = pt.x;
-      const right = this.W - pt.x;
-      const top = pt.y;
-      const bottom = this.H - pt.y;
-      const corner = Math.min(150, this.W / 5, this.H / 5);
-      if (Math.min(left, right) < corner && Math.min(top, bottom) < corner) return null;
-      const bandX = Math.min(280, this.W * 0.32);
-      const bandY = Math.min(280, this.H * 0.32);
-      const nearest = Math.min(left, right, top, bottom);
-      if (nearest === bottom || nearest === top) {
-        if (nearest > bandY) return null;
-        return nearest === bottom ? "bottom" : "top";
-      }
-      if (nearest > bandX) return null;
-      return nearest === left ? "left" : "right";
+      const W = this.W;
+      const H = this.H;
+      const tbDepth = Math.min(TUNING.ZONE_TB_HEIGHT_PX, H / 2 - TUNING.ZONE_GAP_PX);
+      const lrDepth = Math.min(TUNING.ZONE_LR_HEIGHT_PX, W / 2 - TUNING.ZONE_GAP_PX);
+      const tbMargin = Math.max((W - W * TUNING.ZONE_TB_WIDTH_RATIO) / 2, lrDepth + TUNING.ZONE_GAP_PX);
+      const lrMargin = (H - H * TUNING.ZONE_LR_WIDTH_RATIO) / 2;
+      const inTB = pt.x >= tbMargin && pt.x <= W - tbMargin;
+      const inLR = pt.y >= lrMargin && pt.y <= H - lrMargin;
+      if (inTB && pt.y <= tbDepth) return "top";
+      if (inTB && pt.y >= H - tbDepth) return "bottom";
+      if (inLR && pt.x <= lrDepth) return "left";
+      if (inLR && pt.x >= W - lrDepth) return "right";
+      return null;
     }
 
     /** 悬停到收起来的那个圆附近就展开（手指没有悬停，只能点）。 */
@@ -252,8 +445,13 @@ function makeClass(Base) {
       if (event.pointerType === "touch") return;
       const rect = this.picker.getBoundingClientRect();
       const pad = 56;
-      if (event.clientX < rect.left - pad || event.clientX > rect.right + pad) return;
-      if (event.clientY < rect.top - pad || event.clientY > rect.bottom + pad) return;
+      const inX = event.clientX >= rect.left - pad && event.clientX <= rect.right + pad;
+      const inY = event.clientY >= rect.top - pad && event.clientY <= rect.bottom + pad;
+      if (!inX || !inY) {
+        this._hoverArmed = true;
+        return;
+      }
+      if (!this._hoverArmed) return;
       this._expand();
     }
 
@@ -280,31 +478,147 @@ function makeClass(Base) {
       return this.dock === "top" ? "h" : super.mode;
     }
 
-    /** 松手：离哪条边近就贴哪条边，四条边都算；角落仍然缩成圆。 */
-    _dragDrop(pt) {
-      clearTimeout(this._followT);
-      this.picker.classList.remove("is-following");
+    /** 停点不在任何触发区里：落在角落就收成圆停在那个角，否则展开到最近的边。 */
+    _dragDrop(pt, fast, fromEdge) {
       const left = pt.x;
       const right = this.W - pt.x;
       const top = pt.y;
       const bottom = this.H - pt.y;
       const corner = Math.min(160, this.W / 4, this.H / 4);
-      this._dragEnd = performance.now();
       if (Math.min(left, right) < corner && Math.min(top, bottom) < corner) {
-        this.minCorner = (top < bottom ? "t" : "b") + (left < right ? "l" : "r");
-        this._setState("minimized");
-        this._apply(this._geom());
-        this._emit("dock", "corner");
+        this._settleCorner((top < bottom ? "t" : "b") + (left < right ? "l" : "r"));
         return;
       }
       const nearest = Math.min(left, right, top, bottom);
-      this.dock =
-        nearest === bottom ? "bottom" : nearest === top ? "top" : nearest === left ? "left" : "right";
+      this._openAt(
+        nearest === bottom ? "bottom" : nearest === top ? "top" : nearest === left ? "left" : "right",
+        fast,
+        fromEdge
+      );
+    }
+
+    /* ---------------- 展开与收起的动画 ---------------- */
+
+    /**
+     * 展开到 edge 这条边。fast 为 true 表示「甩」，否则为「慢放」。fromEdge 是出发时长条
+     * 所在的边，从圆出发时为空。
+     * 长条直接滑过去、不经过圆的两种情况：已经是这条边的长条；从上下两边之一甩到另一边
+     * （笔的方向不变；拖动中已经变成圆的，直接变回长条滑过去）。
+     * 其余情况经过圆：长条先收成圆，圆里的笔摆成原来长条的方向，飞向目标并转到目标方向。
+     *   甩：FAST_TURN_AT_MS 开始转笔，飞到位后再展开，带回弹。
+     *   慢放：转笔与飞行同时开始，SLOW_EXPAND_AT_MS 就开始展开，平滑不回弹。
+     * 点击圆、悬停展开都按慢放处理。
+     */
+    _openAt(edge, fast, fromEdge) {
+      clearTimeout(this._settleT);
+      clearTimeout(this._turnT);
+      this._settleT = this._turnT = null;
+      const fromBar = this.state === "docked";
+      const from = this.dock;
+      this.dock = edge;
       this.minCorner = null;
       this._layoutBar();
-      this._setState("docked");
+      const bar = this._geom("docked");
+      this._emit("dock", edge);
+
+      const flat = (e) => e === "top" || e === "bottom";
+      const sameBar = fromBar && from === edge;
+      const flatJump = fast && flat(fromEdge) && flat(edge);
+      if (sameBar || flatJump) {
+        this.picker.dataset.motion = fast ? "grow" : "smooth";
+        this._setState("docked");
+        this._apply(bar);
+        return;
+      }
+
+      const d = Math.min(bar.w, bar.h);
+      if (fromBar) this._setArt(EDGE_DEG[from] || 0, d, true);
+      else if (this.state === "minimized") this._setArt(0, d, false);
+      this._setState("moving");
+      this.picker.dataset.motion = "travel";
+      this._apply({
+        x: bar.x + bar.w / 2 - d / 2,
+        y: bar.y + bar.h / 2 - d / 2,
+        w: d,
+        h: d,
+        r: d / 2,
+      });
+
+      const deg = EDGE_DEG[edge];
+      if (fast) {
+        this._turnT = setTimeout(() => {
+          this._turnT = null;
+          this._setArt(deg, d, false);
+        }, TUNING.FAST_TURN_AT_MS);
+      } else {
+        this._setArt(deg, d, false);
+      }
+      this._settleT = setTimeout(() => {
+        this._settleT = null;
+        this.picker.dataset.motion = fast ? "grow" : "smooth";
+        this._setState("docked");
+        this._apply(this._geom());
+      }, fast ? Math.max(0, TUNING.TRAVEL_MS + TUNING.FAST_EXPAND_PAUSE_MS) : TUNING.SLOW_EXPAND_AT_MS);
+    }
+
+    /** 收成圆，停在 corner（"tl" / "tr" / "bl" / "br"）这个角；笔从原来的方向转回竖直。 */
+    _settleCorner(corner) {
+      this._toCircle();
+      this.minCorner = corner;
+      this._setState("minimized");
+      this.picker.dataset.motion = "travel";
       this._apply(this._geom());
-      this._emit("dock", this.dock);
+      this._emit("dock", "corner");
+    }
+
+    /** 自动最小化：收成圆，停在当前这条边上。 */
+    _minimize() {
+      this._toCircle();
+      this._closePop();
+      this.minCorner = null;
+      this._setState("minimized");
+      this.picker.dataset.motion = "travel";
+      this._apply(this._geom());
+    }
+
+    /** 收成最小化的圆之前的准备：停掉进行中的展开；从长条收起时，笔先摆成长条里的方向。 */
+    _toCircle() {
+      clearTimeout(this._settleT);
+      clearTimeout(this._turnT);
+      this._settleT = this._turnT = null;
+      if (this.state === "docked") this._setArt(EDGE_DEG[this.dock] || 0, MOVE_D, true);
+      this.bubbleArt.style.transform = "";
+      this._artDeg = 0;
+    }
+
+    /**
+     * 设置圆里的笔的角度。笔的图形高 105px、以工具盘顶边为基准摆放；这里把它的中心移到
+     * 高度为 height 的圆的圆心，并绕圆心转。instant 为 true 时不带动画，直接摆到这个角度。
+     * 始终写成同一种变换形式，角度变化时才会绕圆心平滑转动。
+     */
+    _setArt(deg, height, instant) {
+      const art = this.bubbleArt;
+      if (instant) art.style.transition = "none";
+      art.style.transform = `translateY(${height / 2}px) rotate(${deg}deg) translateY(-52.5px)`;
+      if (instant) {
+        void art.offsetWidth;
+        art.style.transition = "";
+      }
+      this._artDeg = deg;
+    }
+
+    /**
+     * 点击圆展开（悬停展开也走这里），按慢放处理。上一次停靠的是左边或右边时，
+     * 展开到离圆较近的左边或右边；其他情况展开到离圆较近的顶部或底部。
+     */
+    _expand() {
+      const root = this.root.getBoundingClientRect();
+      const circle = this.picker.getBoundingClientRect();
+      const cx = circle.left + circle.width / 2 - root.left;
+      const cy = circle.top + circle.height / 2 - root.top;
+      const side = this.dock === "left" || this.dock === "right";
+      const edge = side ? (cx < this.W / 2 ? "left" : "right") : cy < this.H / 2 ? "top" : "bottom";
+      this._openAt(edge, false);
     }
 
     /** 顶部停靠时面板往下开；其余方向沿用原实现。 */
@@ -464,6 +778,14 @@ function makeClass(Base) {
       }
       if (fingerDraws !== undefined) this.fingerDraws = !!fingerDraws;
       this._renderUI(true);
+    }
+
+    /** 卸载：先停掉本文件的计时器，再走 vendor 原有的清理。 */
+    destroy() {
+      clearTimeout(this._formT);
+      clearTimeout(this._settleT);
+      clearTimeout(this._turnT);
+      super.destroy();
     }
   };
   return Picker;
