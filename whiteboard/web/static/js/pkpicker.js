@@ -39,60 +39,58 @@ const LAYOUT = {
   },
   vl: {
     W: 105,
-    H: 448,
+    H: 499,
     items: {
-      more: { x: 36, y: 392, w: 31, h: 31, r: 0 },
+      more: { x: 36, y: 443, w: 31, h: 31, r: 0 },
       eraser: { x: 38, y: 212, w: 30, h: 105, r: 90 },
       pencil: { x: 38, y: 160, w: 30, h: 105, r: 90 },
       marker: { x: 38, y: 107, w: 30, h: 105, r: 90 },
       pen: { x: 38, y: 54, w: 30, h: 105, r: 90 },
-      grip: { x: 80, y: 222, w: 36, h: 5, r: 90 },
+      grip: { x: 80, y: 247, w: 36, h: 5, r: 90 },
       redo: { x: 58, y: 41, w: 31, h: 31, r: 0 },
       undo: { x: 16, y: 41, w: 31, h: 31, r: 0 },
     },
     swatches: [
-      { x: 58, y: 335, w: 30, h: 30, r: 0, c: "#53d669" },
-      { x: 18, y: 335, w: 30, h: 30, r: 0, c: "custom" },
-      { x: 58, y: 295, w: 30, h: 30, r: 0, c: "#157efa" },
-      { x: 18, y: 295, w: 30, h: 30, r: 0, c: "#fc3142" },
-      { x: 58, y: 254, w: 30, h: 30, r: 0, c: "#000000" },
-      { x: 18, y: 254, w: 30, h: 30, r: 0, c: "#fed031" },
+      { x: 58, y: 386, w: 30, h: 30, r: 0, c: "#53d669" },
+      { x: 18, y: 386, w: 30, h: 30, r: 0, c: "custom" },
+      { x: 58, y: 346, w: 30, h: 30, r: 0, c: "#157efa" },
+      { x: 18, y: 346, w: 30, h: 30, r: 0, c: "#fc3142" },
+      { x: 58, y: 305, w: 30, h: 30, r: 0, c: "#000000" },
+      { x: 18, y: 305, w: 30, h: 30, r: 0, c: "#fed031" },
     ],
   },
   vr: {
     W: 105,
-    H: 448,
+    H: 499,
     items: {
-      more: { x: 36, y: 392, w: 31, h: 31, r: 0 },
+      more: { x: 36, y: 443, w: 31, h: 31, r: 0 },
       eraser: { x: 38, y: 212, w: 30, h: 105, r: 270 },
       pencil: { x: 38, y: 160, w: 30, h: 105, r: 270 },
       marker: { x: 38, y: 107, w: 30, h: 105, r: 270 },
       pen: { x: 38, y: 54, w: 30, h: 105, r: 270 },
-      grip: { x: -10, y: 222, w: 36, h: 5, r: 90 },
+      grip: { x: -10, y: 247, w: 36, h: 5, r: 90 },
       redo: { x: 58, y: 41, w: 31, h: 31, r: 0 },
       undo: { x: 16, y: 41, w: 31, h: 31, r: 0 },
     },
     swatches: [
-      { x: 58, y: 335, w: 30, h: 30, r: 0, c: "#53d669" },
-      { x: 18, y: 335, w: 30, h: 30, r: 0, c: "custom" },
-      { x: 58, y: 295, w: 30, h: 30, r: 0, c: "#157efa" },
-      { x: 18, y: 295, w: 30, h: 30, r: 0, c: "#fc3142" },
-      { x: 58, y: 254, w: 30, h: 30, r: 0, c: "#000000" },
-      { x: 18, y: 254, w: 30, h: 30, r: 0, c: "#fed031" },
+      { x: 58, y: 386, w: 30, h: 30, r: 0, c: "#53d669" },
+      { x: 18, y: 386, w: 30, h: 30, r: 0, c: "custom" },
+      { x: 58, y: 346, w: 30, h: 30, r: 0, c: "#157efa" },
+      { x: 18, y: 346, w: 30, h: 30, r: 0, c: "#fc3142" },
+      { x: 58, y: 305, w: 30, h: 30, r: 0, c: "#000000" },
+      { x: 18, y: 305, w: 30, h: 30, r: 0, c: "#fed031" },
     ],
   },
 };
 
-// 顶部停靠：布局和底部那条一模一样，只是四支笔整支转 180°（笔尖朝着画布，
-// 没选中的往上沉进栏里），握把挪到下边缘。原实现只有下 / 左 / 右三种。
+// 顶部停靠：布局和底部那条一模一样，笔照旧立着（笔尖朝上），只把握把挪到
+// 下边缘。原实现只有下 / 左 / 右三种。
 LAYOUT.ht = {
   ...LAYOUT.h,
   items: Object.fromEntries(
-    Object.entries(LAYOUT.h.items).map(([key, item]) => {
-      if (["pen", "marker", "pencil", "eraser"].includes(key)) return [key, { ...item, r: 180 }];
-      if (key === "grip") return [key, { ...item, y: LAYOUT.h.H - item.y - item.h }];
-      return [key, item];
-    })
+    Object.entries(LAYOUT.h.items).map(([key, item]) =>
+      key === "grip" ? [key, { ...item, y: LAYOUT.h.H - item.y - item.h }] : [key, item]
+    )
   ),
 };
 
@@ -146,14 +144,19 @@ function makeClass(Base) {
 
     _bind() {
       super._bind();
-      // 它也绑了 ⌘Z / Esc / Delete，会和白板自己的快捷键打架，摘掉这一条
+      // 摘掉两处：一是它绑的 ⌘Z / Esc / Delete，会和白板自己的快捷键打架；
+      // 二是它的拖动过程，我们要在拖到边上时就直接展开，而不是松手才贴边。
+      const drop = new Set(["keydown", "pointermove", "pointerup", "pointercancel"]);
       this._subs = (this._subs || []).filter(([target, type, fn, opts]) => {
-        if (target === window && type === "keydown") {
+        if (target === window && drop.has(type)) {
           window.removeEventListener(type, fn, opts);
           return false;
         }
         return true;
       });
+      this._on(window, "pointermove", (event) => this._dragMove(event));
+      this._on(window, "pointerup", (event) => this._dragFinish(event));
+      this._on(window, "pointercancel", (event) => this._dragFinish(event));
       // 收起来之后，笔 / 光标靠近就提前展开，不用非得点中那个圆
       this._on(window, "pointermove", (event) => this._hoverExpand(event));
       // 「更多」里的开关不发事件，点完之后自己对一次；另外接住我们加的两行
@@ -168,6 +171,66 @@ function makeClass(Base) {
         if (what === "clear" && this.onClear) this.onClear();
         if (what === "leave" && this.onLeave) this.onLeave();
       });
+    }
+
+    /**
+     * 拖动中：贴到哪条边的范围里，就当场展开成那条边的样子；拖回中间再变回圆。
+     * 原实现是松手才贴边，拖的过程里只有一个跟着手指走的圆。
+     */
+    _dragMove(event) {
+      const drag = this._pd;
+      if (!drag || drag.id !== event.pointerId) return;
+      if (!drag.drag) {
+        if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 10) return;
+        drag.drag = true;
+        this._dragStart();
+      }
+      const pt = this._local(event);
+      const zone = this._dockZone(pt);
+      if (!zone) {
+        if (this.state !== "moving") this._setState("moving");
+        this._apply(this._geom("moving", pt));
+        return;
+      }
+      if (this.state !== "docked" || this.dock !== zone) {
+        this.dock = zone;
+        this.minCorner = null;
+        this._layoutBar();
+        this._setState("docked");
+      }
+      this._apply(this._geom());
+    }
+
+    _dragFinish(event) {
+      const drag = this._pd;
+      if (!drag || drag.id !== event.pointerId) return;
+      this._pd = null;
+      if (!drag.drag) return;
+      const pt = this._local(event);
+      if (!this._dockZone(pt)) {
+        this._dragDrop(pt); // 角落 / 中间：交给原来那套（会收成一个圆）
+        return;
+      }
+      clearTimeout(this._followT);
+      this.picker.classList.remove("is-following");
+      this._dragEnd = performance.now();
+      this._apply(this._geom());
+      this._emit("dock", this.dock);
+    }
+
+    /** 指针落在哪条边的贴边范围里；角落留给「收起来」，中间返回 null。 */
+    _dockZone(pt) {
+      const left = pt.x;
+      const right = this.W - pt.x;
+      const top = pt.y;
+      const bottom = this.H - pt.y;
+      const band = Math.min(160, this.W / 4, this.H / 4);
+      if (Math.min(left, right) < band && Math.min(top, bottom) < band) return null;
+      const nearest = Math.min(left, right, top, bottom);
+      if (nearest > band) return null;
+      if (nearest === bottom) return "bottom";
+      if (nearest === top) return "top";
+      return nearest === left ? "left" : "right";
     }
 
     /** 悬停到收起来的那个圆附近就展开（手指没有悬停，只能点）。 */

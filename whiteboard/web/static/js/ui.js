@@ -284,29 +284,31 @@ export class UI {
   }
 
   /** 关于：图标、名字、版本，以及更新相关的入口都收在这里。 */
+  /** 关于：图标、名字、一句说明、几行信息，链接在下面，检查更新在最底下。 */
   openAbout() {
     this.closeSheet();
     const info = this.info || {};
-    const version = info.version ? `版本 ${info.version}` : "";
+    const rows = [["版本", info.version || "—"]];
+    if (info.hostname) rows.push(["地址", `${info.hostname}:${info.port || ""}`]);
+
+    const link = (text, onclick) => el("button", { class: "link", text, onclick });
     const scrim = el("div", { class: "scrim", onclick: () => scrim.remove() });
     const dialog = el("div", { class: "dialog about" }, [
       el("img", { class: "about-icon", src: "/icon.png", alt: "" }),
       el("div", { class: "about-name", text: "白板" }),
-      el("div", { class: "about-meta", text: version }),
-      el("div", { class: "about-meta", text: "局域网共享白板" }),
-      this.updateRow(),
-      el("div", { class: "row about-links" }, [
-        el("button", {
-          class: "btn",
-          text: "更新日志",
-          onclick: () => this.actions.onOpenReleases(),
-        }),
-        el("button", {
-          class: "btn",
-          text: "日志文件",
-          onclick: () => this.actions.onOpenLog(),
-        }),
+      el(
+        "div",
+        { class: "about-rows" },
+        rows.flatMap(([key, value]) => [
+          el("span", { class: "about-key", text: key }),
+          el("span", { class: "about-val", text: String(value) }),
+        ])
+      ),
+      el("div", { class: "about-links" }, [
+        link("更新日志", () => this.actions.onOpenReleases()),
+        link("日志文件", () => this.actions.onOpenLog()),
       ]),
+      this.updateRow(),
     ]);
     dialog.addEventListener("click", (event) => event.stopPropagation());
     scrim.append(dialog);
@@ -314,7 +316,6 @@ export class UI {
     return scrim;
   }
 
-  /** 检查更新按钮 + 结果文字。 */
   updateRow() {
     const note = el("span", { class: "check-note" });
     const button = el("button", { class: "btn", text: "检查更新" });

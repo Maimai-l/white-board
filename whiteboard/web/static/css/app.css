@@ -327,8 +327,8 @@ html, body {
 }
 #status::after {
   content: "";
-  width: 12px;
-  height: 12px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: rgba(130, 130, 135, .55);
   /* 和系统窗口按钮一样描一圈，浅色背景上也有边 */
@@ -541,16 +541,39 @@ body.dropping::after {
   min-width: 280px;
   text-align: center;
 }
-.about-icon { width: 88px; height: 88px; margin-bottom: 6px; }
-.about-name { font-size: 19px; font-weight: 700; }
-.about-meta { font-size: 12.5px; color: var(--on-surface-variant); }
+.about-icon { width: 96px; height: 96px; margin-bottom: 12px; }
+.about-name { font-size: 22px; font-weight: 700; letter-spacing: .2px; }
+/* 版本这些：左边灰色小标题右对齐，右边等宽字体，和系统的关于窗口一个样 */
+.about-rows {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 5px 12px;
+  align-items: baseline;
+  margin: 20px 0 2px;
+}
+.about-key { font-size: 12.5px; color: var(--on-surface-variant); text-align: right; }
+.about-val {
+  font: 500 12.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* 更新日志 / 日志文件是链接，不是按钮 */
+.about-links { display: flex; gap: 18px; justify-content: center; margin-top: 14px; }
+.link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--primary);
+  font: 500 12.5px/1.3 inherit;
+  cursor: pointer;
+}
+.link:hover { text-decoration: underline; }
 .about-update {
-  margin-top: 14px;
+  margin-top: 16px;
   flex-direction: column;
   align-items: center;
   gap: 6px;
 }
-.about-links { margin-top: 4px; justify-content: center; }
 
 /* 设置面板里的小标题 */
 .row-label {

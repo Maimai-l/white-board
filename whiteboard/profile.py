@@ -110,10 +110,10 @@ def icon_png(size: int = 180, mac: bool = False) -> bytes:
             pixel = (0, 0, 0, 0)
 
             if inside > 0:
-                # 竖向渐变，用系统蓝（原来那版是 Material 的蓝紫色）
+                # 竖向渐变
                 t = (py - margin) / max(1.0, tile - 1)
                 t = min(1.0, max(0.0, t))
-                base = (round(10 + 10 * t), round(132 - 46 * t), round(255 - 41 * t))
+                base = (round(66 + 30 * t), round(97 + 20 * t), round(183 - 20 * t))
                 pixel = _blend(pixel, base, inside)
 
                 # 笔画：到曲线的最近「带宽距离」。曲线按 x 单调，只看附近那一段，

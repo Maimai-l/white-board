@@ -1167,9 +1167,15 @@ def test_picker_docks_to_the_top(browser, server):
     )
     bar = ipad.evaluate("() => document.querySelector('#pk-host .pk-picker').getBoundingClientRect().top")
 
-    # 四支笔整支转了 180°，笔尖朝下
-    rotated = ipad.evaluate("() => whiteboard.ui.pk.el.pen.style.transform")
-    assert "rotate(180deg)" in rotated
+    # 笔照旧立着，笔尖朝上（不翻转）
+    assert "rotate" not in ipad.evaluate("() => whiteboard.ui.pk.el.pen.style.transform")
+    # 握把挪到了下边缘
+    grip_y = ipad.evaluate(
+        "() => { const p = document.querySelector('#pk-host .pk-picker').getBoundingClientRect();"
+        " const g = document.querySelector('#pk-host .pk-grip').getBoundingClientRect();"
+        " return (g.top - p.top) / p.height; }"
+    )
+    assert grip_y > 0.7
 
     # 粗细面板开在工具盘下面，箭头朝上
     ipad.click('#pk-host [data-tool="pen"]')
@@ -1179,6 +1185,38 @@ def test_picker_docks_to_the_top(browser, server):
         " const r = p.getBoundingClientRect(); return [r.top, p.dataset.side]; }"
     )
     assert box[1] == "bottom" and box[0] > bar
+    _mac.close()
+    ipad.close()
+
+
+def test_picker_expands_while_dragging_to_an_edge(browser, server):
+    """拖到边上的范围里就当场展开成那条边的样子，不用等松手；拖回中间变回圆。"""
+    _mac, ipad = open_pages(browser, server.port)
+    enable_pk_picker(ipad)
+    ipad.wait_for_timeout(500)
+
+    def state():
+        return ipad.evaluate("() => [whiteboard.ui.pk.state, whiteboard.ui.pk.dock]")
+
+    grip = ipad.evaluate(
+        "() => { const g = document.querySelector('#pk-host .pk-grip').getBoundingClientRect();"
+        " return [g.left + g.width / 2, g.top + g.height / 2]; }"
+    )
+    ipad.mouse.move(grip[0], grip[1])
+    ipad.mouse.down()
+    for spot in [(560, 600), (560, 400), (560, 100), (560, 50)]:
+        ipad.mouse.move(*spot)
+    assert state() == ["docked", "top"]  # 还没松手就已经贴上去了
+
+    for spot in [(400, 400), (120, 400), (50, 400)]:
+        ipad.mouse.move(*spot)
+    assert state() == ["docked", "left"]
+
+    ipad.mouse.move(590, 410)  # 回到中间又缩成圆
+    assert ipad.evaluate("() => whiteboard.ui.pk.state") == "moving"
+    ipad.mouse.move(1130, 780)  # 角落：松手收起来
+    ipad.mouse.up()
+    ipad.wait_for_function("() => whiteboard.ui.pk.state === 'minimized'", timeout=4000)
     _mac.close()
     ipad.close()
 
