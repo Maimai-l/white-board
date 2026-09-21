@@ -1248,6 +1248,64 @@ def test_picker_expands_while_dragging_to_an_edge(browser, server):
     ipad.close()
 
 
+def test_picker_takes_a_tap_right_after_a_drag(browser, server):
+    """拖完立刻点就得生效（vendor 是松手后 400ms 内一律吞掉），但轻轻一蹭不能误选工具。"""
+    _mac, ipad = open_pages(browser, server.port)
+    enable_pk_picker(ipad)
+    ipad.wait_for_timeout(500)
+
+    def grip():
+        return ipad.evaluate(
+            "() => { const r = document.querySelector('#pk-host .pk-grip').getBoundingClientRect();"
+            " return [r.left + r.width / 2, r.top + r.height / 2]; }"
+        )
+
+    # 在底边触发区里原地小幅拖一下，长条贴回原位；松手后马上点马克笔（白板里是荧光笔）
+    x, y = grip()
+    ipad.mouse.move(x, y)
+    ipad.mouse.down()
+    for step in range(1, 7):
+        ipad.mouse.move(x, y + step * 4)
+    ipad.mouse.up()
+    box = ipad.evaluate(
+        '() => { const r = document.querySelector(`#pk-host [data-tool="marker"]`).getBoundingClientRect();'
+        " return [r.left + r.width / 2, r.top + r.height / 2]; }"
+    )
+    ipad.touchscreen.tap(*box)
+    ipad.wait_for_function("() => whiteboard.tool.tool === 'highlighter'", timeout=2000)
+
+    # 但松手当下那一下要挡住：长条以手指为中心跟手，手指正压在橡皮那一格上
+    ipad.evaluate("() => whiteboard.ui.pk.applyState({tool: 'pen', color: '#000000', sizeIndex: 1})")
+    x, y = grip()
+    ipad.mouse.move(x, y)
+    ipad.mouse.down()
+    for dy in (8, 16):
+        ipad.mouse.move(x, y - dy)
+        ipad.wait_for_timeout(30)
+    ipad.mouse.up()
+    ipad.wait_for_timeout(300)
+    assert ipad.evaluate("() => whiteboard.tool.tool") == "pen"
+
+    # 圆也一样：蹭一下不算点一下，不该展开
+    ipad.evaluate("() => { const pk = whiteboard.ui.pk; pk.minCorner = 'br';"
+                  " pk._setState('minimized'); pk._apply(pk._geom()); }")
+    ipad.wait_for_timeout(900)
+    spot = ipad.evaluate(
+        "() => { const r = document.querySelector('#pk-host .pk-picker').getBoundingClientRect();"
+        " return [r.left + r.width / 2, r.top + r.height / 2]; }"
+    )
+    ipad.mouse.move(*spot)
+    ipad.mouse.down()
+    for dx in (8, 16):
+        ipad.mouse.move(spot[0] - dx, spot[1])
+        ipad.wait_for_timeout(30)
+    ipad.mouse.up()
+    ipad.wait_for_timeout(300)
+    assert ipad.evaluate("() => whiteboard.ui.pk.state") == "minimized"
+    _mac.close()
+    ipad.close()
+
+
 def test_picker_fling_carries_past_the_release_point(browser, server):
     """甩出去有惯性：同一个松手点，慢放落到最近的底边，甩出去要按推算的停点落到顶边。"""
     _mac, ipad = open_pages(browser, server.port)

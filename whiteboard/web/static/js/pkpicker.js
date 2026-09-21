@@ -232,9 +232,22 @@ function makeClass(Base) {
       this._on(window, "pointercancel", (event) => this._dragFinish(event));
       // vendor 在圆飞行途中（moving）不接受按下；这里补上，动画进行中也能直接拿起
       this._on(this.picker, "pointerdown", (event) => {
+        this._eatClick = false; // 这是一次新的按下，上一次拖动留下的标记作废
         if (this.state !== "moving" || this._pd || event.button > 0) return;
         this._pd = { id: event.pointerId, x: event.clientX, y: event.clientY, drag: false };
       });
+      // 见 _dragFinish：只吞掉松手当下派生的那一次点击
+      this._on(
+        this.picker,
+        "click",
+        (event) => {
+          if (!this._eatClick) return;
+          this._eatClick = false;
+          event.stopPropagation();
+          event.preventDefault();
+        },
+        true
+      );
       // 收起来之后，笔 / 光标靠近就提前展开，不用非得点中那个圆
       this._on(window, "pointermove", (event) => this._hoverExpand(event));
       // 「更多」里的开关不发事件，点完之后自己对一次；另外接住我们加的两行
@@ -408,7 +421,13 @@ function makeClass(Base) {
         x: clamp(pt.x + (speed ? (v.x / speed) * glide : 0), 0, this.W),
         y: clamp(pt.y + (speed ? (v.y / speed) * glide : 0), 0, this.H),
       };
-      this._dragEnd = performance.now();
+      // vendor 的防误触是「松手后 400ms 内的点击一律吞掉」（pencilkit-picker.js:589），
+      // 代价是拖完要等 0.4 秒，第一下点击才生效。真正需要挡的只有松手当下派生的那一次：
+      // 长条是以手指为中心跟手的，手指松开时正压在橡皮那一格上，不挡就会误选橡皮；
+      // 圆同理，轻轻一蹭就会当成点一下、直接展开。所以把 vendor 那个时间窗关掉
+      // （_dragEnd 置 0），改成用 _eatClick 精确吞掉一次，没有任何死时间。
+      this._dragEnd = 0;
+      this._eatClick = true;
       // 松手时指针就在圆旁边，要等它先离开一次，悬停展开才重新生效
       this._hoverArmed = false;
       // 甩的时候，只要这次拖动是从长条开始的，就按「从那条边的长条出发」处理
