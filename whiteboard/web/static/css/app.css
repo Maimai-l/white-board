@@ -234,6 +234,28 @@ html, body {
   background: var(--glass-solid);
 }
 
+/*
+ * 弹簧慢一点、弹一点。位置和形状分开两套时长：形状（展开 / 收拢）走弹簧，
+ * 跟手时位置几乎是直给的，所以拖动随时能打断，不会有「追不上手」的滞后。
+ */
+@media (prefers-reduced-motion: no-preference) {
+  #pk-host .pk-picker {
+    --pk-spring: cubic-bezier(.24, 1.5, .32, 1);
+    transition:
+      left .62s var(--pk-spring), top .62s var(--pk-spring),
+      width .62s var(--pk-spring), height .62s var(--pk-spring),
+      border-radius .62s var(--pk-spring),
+      box-shadow .3s ease, background-color .3s;
+  }
+  #pk-host .pk-picker.is-following {
+    transition:
+      left .09s linear, top .09s linear,
+      width .62s var(--pk-spring), height .62s var(--pk-spring),
+      border-radius .62s var(--pk-spring),
+      box-shadow .3s ease;
+  }
+}
+
 /* 顶部停靠：阴影朝上，面板往下开（原实现只有下 / 左 / 右） */
 #pk-host .pk-picker[data-dock="top"] { --pk-shy: -1; }
 #pk-host .pk-pop[data-side="bottom"]::after {

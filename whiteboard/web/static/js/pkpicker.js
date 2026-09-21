@@ -163,8 +163,9 @@ function makeClass(Base) {
     }
 
     /**
-     * 拖动中：贴到哪条边的范围里，就当场展开成那条边的样子；拖回中间再变回圆。
-     * 原实现是松手才贴边，拖的过程里只有一个跟着手指走的圆。
+     * 拖动中：进到哪条边的范围里，就在手底下「展开」成那条边的样子——只是变形，
+     * 位置仍然跟着手走，不会自己跑到边上去；拖回中间再缩回圆。真正贴到边上是
+     * 松手之后的事，那一下走弹簧曲线。原实现是松手才贴边，拖的过程里只有一个圆。
      */
     _dragMove(event) {
       const drag = this._pd;
@@ -187,7 +188,22 @@ function makeClass(Base) {
         this._layoutBar();
         this._setState("docked");
       }
-      this._apply(this._geom());
+      this._apply(this._loose(pt));
+    }
+
+    /** 展开之后仍然跟着手：整条栏以指针为中心，别跑出屏幕就行。 */
+    _loose(pt) {
+      const L = LAYOUT[this.mode];
+      const scale = this._scale;
+      const w = L.W * scale;
+      const h = L.H * scale;
+      return {
+        x: clamp(pt.x - w / 2, 8, Math.max(8, this.W - w - 8)),
+        y: clamp(pt.y - h / 2, 8, Math.max(8, this.H - h - 8)),
+        w,
+        h,
+        r: 52.5 * scale,
+      };
     }
 
     _dragFinish(event) {
@@ -200,6 +216,7 @@ function makeClass(Base) {
         this._dragDrop(pt); // 角落 / 中间：交给原来那套（会收成一个圆）
         return;
       }
+      // 松手才真的贴过去，这一下走弹簧
       clearTimeout(this._followT);
       this.picker.classList.remove("is-following");
       this._dragEnd = performance.now();
@@ -207,18 +224,25 @@ function makeClass(Base) {
       this._emit("dock", this.dock);
     }
 
-    /** 指针落在哪条边的贴边范围里；角落留给「收起来」，中间返回 null。 */
+    /**
+     * 指针落在哪条边的贴边范围里。这一圈开得比较宽，拖过去不用瞄；
+     * 四个角仍然留给「收起来」，正中间一片返回 null（保持跟手的圆）。
+     */
     _dockZone(pt) {
       const left = pt.x;
       const right = this.W - pt.x;
       const top = pt.y;
       const bottom = this.H - pt.y;
-      const band = Math.min(160, this.W / 4, this.H / 4);
-      if (Math.min(left, right) < band && Math.min(top, bottom) < band) return null;
+      const corner = Math.min(150, this.W / 5, this.H / 5);
+      if (Math.min(left, right) < corner && Math.min(top, bottom) < corner) return null;
+      const bandX = Math.min(280, this.W * 0.32);
+      const bandY = Math.min(280, this.H * 0.32);
       const nearest = Math.min(left, right, top, bottom);
-      if (nearest > band) return null;
-      if (nearest === bottom) return "bottom";
-      if (nearest === top) return "top";
+      if (nearest === bottom || nearest === top) {
+        if (nearest > bandY) return null;
+        return nearest === bottom ? "bottom" : "top";
+      }
+      if (nearest > bandX) return null;
       return nearest === left ? "left" : "right";
     }
 

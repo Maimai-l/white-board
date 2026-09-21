@@ -1204,9 +1204,17 @@ def test_picker_expands_while_dragging_to_an_edge(browser, server):
     )
     ipad.mouse.move(grip[0], grip[1])
     ipad.mouse.down()
-    for spot in [(560, 600), (560, 400), (560, 100), (560, 50)]:
+    for spot in [(560, 410), (560, 200), (560, 100), (480, 60)]:
         ipad.mouse.move(*spot)
-    assert state() == ["docked", "top"]  # 还没松手就已经贴上去了
+    assert state() == ["docked", "top"]  # 还没松手就已经展开了
+
+    # 但它只是展开，没有自己跑到边上去：整条栏还跟在手底下
+    box = ipad.evaluate(
+        "() => { const b = document.querySelector('#pk-host .pk-picker').getBoundingClientRect();"
+        " return [b.left, b.top, b.width]; }"
+    )
+    assert box[2] > 400  # 已经是整条栏的宽度
+    assert box[1] > 40  # 还没贴到顶（贴上去是 20）
 
     for spot in [(400, 400), (120, 400), (50, 400)]:
         ipad.mouse.move(*spot)
@@ -1217,6 +1225,33 @@ def test_picker_expands_while_dragging_to_an_edge(browser, server):
     ipad.mouse.move(1130, 780)  # 角落：松手收起来
     ipad.mouse.up()
     ipad.wait_for_function("() => whiteboard.ui.pk.state === 'minimized'", timeout=4000)
+
+
+def test_picker_only_snaps_to_the_edge_after_release(browser, server):
+    """松手才真的贴到边上，拖的过程里它一直跟着手。"""
+    _mac, ipad = open_pages(browser, server.port)
+    enable_pk_picker(ipad)
+    ipad.wait_for_timeout(500)
+    grip = ipad.evaluate(
+        "() => { const g = document.querySelector('#pk-host .pk-grip').getBoundingClientRect();"
+        " return [g.left + g.width / 2, g.top + g.height / 2]; }"
+    )
+    ipad.mouse.move(grip[0], grip[1])
+    ipad.mouse.down()
+    for spot in [(560, 410), (500, 200), (460, 150)]:
+        ipad.mouse.move(*spot)
+        ipad.wait_for_timeout(60)
+    before = ipad.evaluate(
+        "() => document.querySelector('#pk-host .pk-picker').getBoundingClientRect().top"
+    )
+    ipad.mouse.up()
+    ipad.wait_for_function(
+        "() => document.querySelector('#pk-host .pk-picker').getBoundingClientRect().top < 40",
+        timeout=4000,
+    )
+    assert before > 60  # 松手之前没贴上去
+    _mac.close()
+    ipad.close()
     _mac.close()
     ipad.close()
 
