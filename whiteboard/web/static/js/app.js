@@ -2,7 +2,7 @@
 
 import { BoardState } from "./boardstate.js";
 import { Cache } from "./cache.js";
-import { InputController } from "./input.js";
+import { InputController, penAltitude } from "./input.js";
 import { Net } from "./net.js";
 import { PerfMonitor } from "./perf.js";
 import { Renderer } from "./renderer.js";
@@ -1029,3 +1029,4 @@ class App {
 window.whiteboard = new App();
 // 切笔画的几何是纯函数，挂出来给端到端测试直接调
 window.whiteboard.splitStroke = splitStroke;
+window.whiteboard.penAltitude = penAltitude;

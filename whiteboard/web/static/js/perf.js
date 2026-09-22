@@ -127,11 +127,17 @@ export class PerfMonitor {
     const marks = [...this.marks.entries()].map(([k, v]) => `${k} ${v}ms`).join("  ");
     const worst = this.worst.map(([t, ms]) => `${ms}ms@${t}s`).join("  ");
     const input = this.input || { down: 0, move: 0, cancel: 0, maxGap: 0, coalesced: 0, touch: 0 };
+    // 笔的倾斜：报不出来的浏览器 altitudeAngle 恒等于 90，看这一行就知道走的是哪一套
+    const tilt =
+      `倾斜 tiltX ${input.tiltX || 0} tiltY ${input.tiltY || 0}` +
+      `  altitude ${input.altRaw === null || input.altRaw === undefined ? "无" : input.altRaw + "°"}` +
+      `  实际取 ${input.tiltDeg === undefined ? 90 : input.tiltDeg}°`;
     this.node.textContent = [
       `帧 ${avg ? (1000 / avg).toFixed(0) : 0}fps  最长 ${max.toFixed(0)}ms`,
       `渲染 ${this.renderMs.toFixed(1)}ms  采样 ${rate}/s`,
       `笔 ${input.down}下 ${input.cancel}断  事件间隔 ${input.maxGap.toFixed(0)}ms  合并 ${input.coalesced}`,
       `触摸 ${input.touch || 0}  拦不住 ${input.uncancelable || 0}  笔被抢 ${input.penCancel || 0}`,
+      tilt,
       marks,
       worst ? `卡顿 ${worst}` : "",
     ]

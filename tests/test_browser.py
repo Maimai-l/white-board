@@ -1294,6 +1294,36 @@ def test_picker_is_the_default_on_touch_devices(browser, server):
     ctx.close()
 
 
+def test_pen_altitude_reads_both_tilt_apis(browser, server):
+    """倾斜有两套 API，都要认：tiltX / tiltY 优先，altitudeAngle 兜底。
+
+    只认 altitudeAngle 是不行的——规范规定设备报不出倾斜时它返回 π/2（竖直），
+    不支持这个属性的浏览器于是看起来「笔一直立着」，倾斜永远读不出来。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    deg = """(event) => Math.round((whiteboard.penAltitude(event) * 180) / Math.PI)"""
+
+    # Level 2 的 tiltX / tiltY，从竖直方向算起
+    assert ipad.evaluate(deg, {"tiltX": 0, "tiltY": 0}) == 90
+    assert ipad.evaluate(deg, {"tiltX": 45, "tiltY": 0}) == 45
+    assert ipad.evaluate(deg, {"tiltX": 60, "tiltY": 0}) == 30
+    assert ipad.evaluate(deg, {"tiltX": 0, "tiltY": 55}) == 35
+    assert ipad.evaluate(deg, {"tiltX": -60, "tiltY": 0}) == 30  # 往哪边倒都一样
+
+    # 没有 tiltX / tiltY 时才看 altitudeAngle，从屏幕平面算起
+    import math as _math
+
+    assert ipad.evaluate(deg, {"altitudeAngle": _math.pi / 2}) == 90
+    assert ipad.evaluate(deg, {"altitudeAngle": _math.pi / 4}) == 45
+    assert ipad.evaluate(deg, {"altitudeAngle": 0}) == 0  # 平贴屏幕，不是「没数据」
+    assert ipad.evaluate(deg, {}) == 90  # 两套都没有，按竖直算
+
+    # 两套都在时以 tiltX / tiltY 为准
+    assert ipad.evaluate(deg, {"tiltX": 60, "tiltY": 0, "altitudeAngle": _math.pi / 2}) == 30
+    mac.close()
+    ipad.close()
+
+
 def test_eraser_width_is_automatic(browser, server):
     """橡皮不用手动调粗细：对象橡皮擦一直是笔尖，像素橡皮擦跟着笔身角度走。"""
     mac, ipad = open_pages(browser, server.port)

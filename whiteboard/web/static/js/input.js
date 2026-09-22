@@ -47,6 +47,36 @@ export function loadFingerDraw() {
   }
 }
 
+/**
+ * 笔身与屏幕的夹角，弧度。0 是笔贴在屏幕上，π/2 是笔竖直。
+ *
+ * 同一件事有两套 API，必须都认：
+ *
+ * * ``tiltX`` / ``tiltY`` 是 Pointer Events Level 2 的，单位是度，从**竖直**方向
+ *   算起。Apple Pencil 在 Safari 上报的一直是这一对，各家浏览器也都支持。
+ * * ``altitudeAngle`` 是 Level 3 后加的，从**屏幕平面**算起。问题在于规范规定
+ *   「设备报不出倾斜时返回 π/2」，也就是竖直——只看它的话，凡是不支持这个属性
+ *   的浏览器都会被当成笔一直立着，倾斜永远读不出来。
+ *
+ * 所以以 tiltX / tiltY 为准，两个都是 0 时才去看 altitudeAngle。另外
+ * ``altitudeAngle === 0`` 是「笔平贴在屏幕上」这个合法读数，不能当成缺数据。
+ */
+export function penAltitude(event) {
+  const tiltX = typeof event.tiltX === "number" ? event.tiltX : 0;
+  const tiltY = typeof event.tiltY === "number" ? event.tiltY : 0;
+  if (tiltX || tiltY) {
+    // 规范附录里的换算：altitude = atan(1 / hypot(tan tiltX, tan tiltY))
+    const tx = Math.tan((clamp(tiltX, -89.9, 89.9) * Math.PI) / 180);
+    const ty = Math.tan((clamp(tiltY, -89.9, 89.9) * Math.PI) / 180);
+    return Math.atan(1 / Math.hypot(tx, ty));
+  }
+  const altitude = event.altitudeAngle;
+  if (typeof altitude === "number" && Number.isFinite(altitude)) {
+    return clamp(altitude, 0, Math.PI / 2);
+  }
+  return Math.PI / 2; // 什么都报不出来，按竖直算
+}
+
 export class InputController {
   constructor(options) {
     this.stage = options.stage;
@@ -74,6 +104,9 @@ export class InputController {
     this.stats = {
       down: 0, move: 0, up: 0, cancel: 0, maxGap: 0, coalesced: 0,
       touch: 0, uncancelable: 0, penCancel: 0,
+      // 诊断面板用：真机上没法接开发者工具，笔的倾斜到底报不报、报的是哪一套，
+      // 只能在屏幕上看
+      tiltX: 0, tiltY: 0, altRaw: null, tiltDeg: 90,
     };
     this.canceled = null;
     this.momentum = 0;
@@ -262,7 +295,10 @@ export class InputController {
     }
     this.stats.move += 1;
     this.lastInputAt = now;
-    if (event.pointerType === "pen") this.lastPenAt = performance.now();
+    if (event.pointerType === "pen") {
+      this.lastPenAt = performance.now();
+      this.noteTilt(event);
+    }
     const entry = this.pointers.get(event.pointerId);
     if (!entry) {
       // 系统有时会在书写途中发 pointercancel（手势识别、通知横幅之类），
@@ -339,14 +375,23 @@ export class InputController {
     return `${this.strokePrefix}-${this.counter.toString(36)}`;
   }
 
+  /** 把这一笔的倾斜读数记下来，诊断面板上能直接看到（连点状态圆点三下打开）。 */
+  noteTilt(event) {
+    this.stats.tiltX = Math.round(event.tiltX || 0);
+    this.stats.tiltY = Math.round(event.tiltY || 0);
+    this.stats.altRaw =
+      typeof event.altitudeAngle === "number"
+        ? Math.round((event.altitudeAngle * 180) / Math.PI)
+        : null;
+    this.stats.tiltDeg = Math.round((penAltitude(event) * 180) / Math.PI);
+  }
+
   pressureFor(event, sample) {
     if (event.pointerType === "pen") {
       let pressure = event.pressure > 0 ? event.pressure : 0.5;
-      if (typeof event.altitudeAngle === "number" && event.altitudeAngle > 0) {
-        // 笔身放平时笔迹变宽，模拟侧锋
-        const tilt = 1 - clamp(event.altitudeAngle / (Math.PI / 2), 0, 1);
-        pressure = clamp(pressure * (1 + tilt * 0.45), 0, 1);
-      }
+      // 笔身放平时笔迹变宽，模拟侧锋
+      const tilt = 1 - penAltitude(event) / (Math.PI / 2);
+      pressure = clamp(pressure * (1 + tilt * 0.45), 0, 1);
       return pressure;
     }
     // 鼠标 / 手指没有压感，用速度反推：走得快笔迹细。
@@ -501,11 +546,11 @@ export class InputController {
    */
   eraserRadius(event) {
     if (this.getTool().eraserMode !== "pixel") return ERASER_TIP / 2;
-    const altitude = event && event.pointerType === "pen" ? event.altitudeAngle : undefined;
     const span = (ERASER_WIDEST - ERASER_TIP) / 2;
-    if (typeof altitude !== "number" || !(altitude > 0)) return ERASER_TIP / 2 + span * 0.5;
+    // 鼠标和手指没有倾斜可依据，给中间那一档：一直是笔尖等于没法用，一直最粗又太凶
+    if (!event || event.pointerType !== "pen") return ERASER_TIP / 2 + span * 0.5;
     const full = (ERASER_FULL_DEG * Math.PI) / 180;
-    const t = clamp((Math.PI / 2 - altitude) / (Math.PI / 2 - full), 0, 1);
+    const t = clamp((Math.PI / 2 - penAltitude(event)) / (Math.PI / 2 - full), 0, 1);
     return ERASER_TIP / 2 + span * t ** ERASER_TILT_POWER;
   }
 
