@@ -301,6 +301,33 @@ html, body {
   color: var(--on-surface-variant);
   padding: 0 2px;
 }
+/* 二选一：橡皮的对象 / 像素，和笔具盘里那个长得一样 */
+.seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--fill);
+}
+.seg button {
+  flex: 1;
+  border: 0;
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--motion), color var(--motion);
+}
+.seg button.is-on {
+  background: var(--surface-1);
+  color: var(--on-surface);
+  box-shadow: var(--shadow-1);
+}
+
 .beta-row {
   display: flex;
   align-items: center;

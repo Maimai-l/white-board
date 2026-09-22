@@ -487,7 +487,7 @@ export class InputController {
   }
 
   startErase(event) {
-    this.erase = { pointerId: event.pointerId, ids: [], radius: this.eraserRadius() };
+    this.erase = { pointerId: event.pointerId, ids: [], radius: this.eraserRadius(), last: null };
     this.moveErase(event);
   }
 
@@ -496,7 +496,10 @@ export class InputController {
     if (!erase || erase.pointerId !== event.pointerId) return;
     const [wx, wy] = this.toWorld(event);
     this.renderer.cursor = { x: wx, y: wy, r: erase.radius };
-    const hit = this.hooks.onErase(wx, wy, erase.radius);
+    // 擦得快的时候两次事件之间能隔开一大段，判定要按扫过的这条线段来，
+    // 只看当前这个点会留下一串没擦到的缝
+    const hit = this.hooks.onErase(wx, wy, erase.radius, erase.last);
+    erase.last = [wx, wy];
     if (hit && hit.length) erase.ids.push(...hit);
   }
 

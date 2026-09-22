@@ -8,7 +8,7 @@ import { PerfMonitor } from "./perf.js";
 import { Renderer } from "./renderer.js";
 import { UI } from "./ui.js";
 import { Viewport } from "./viewport.js";
-import { strokeHit } from "./stroke.js";
+import { splitStroke, strokeHit } from "./stroke.js";
 import { debounce, plainStroke, uid } from "./util.js";
 import { contentBounds, downloadDataURL, exportDataURL, uploadThumb } from "./exporter.js";
 
@@ -100,6 +100,9 @@ class App {
     this.redoStack = [];
     this.remoteLive = new Map();
     this.eraseBatch = [];
+    // 像素橡皮擦一笔下去是「删掉原来那条、补上切剩的几段」，整个拖动过程攒在一起
+    // 才是一次撤销
+    this.pixelBatch = { removed: [], added: [] };
     this.viewAnim = 0;
     this.pendingRestored = false;
 
@@ -393,7 +396,8 @@ class App {
         delete document.documentElement.dataset.drawing;
         this.net.sendLive({ t: "live", id: stroke.id, phase: "x" });
       },
-      onErase: (x, y, radius) => {
+      onErase: (x, y, radius, from) => {
+        if (this.tool.eraserMode === "pixel") return this.erasePixels(x, y, radius, from);
         const ids = this.state.hitTest(x, y, radius, strokeHit);
         if (!ids.length) return [];
         const removed = this.state.remove(ids);
@@ -403,10 +407,17 @@ class App {
         return ids;
       },
       onEraseEnd: () => {
-        if (!this.eraseBatch.length) return;
-        this.pushUndo({ type: "removed", strokes: this.eraseBatch.map(plainStroke) });
+        const cut = this.pixelBatch;
+        if (cut.removed.length) {
+          this.pushUndo({ type: "split", removed: cut.removed, added: cut.added });
+          this.pixelBatch = { removed: [], added: [] };
+        } else if (this.eraseBatch.length) {
+          this.pushUndo({ type: "removed", strokes: this.eraseBatch.map(plainStroke) });
+        } else {
+          return;
+        }
         this.eraseBatch = [];
-    this.viewAnim = 0;
+        this.viewAnim = 0;
         this.saveCache();
         this.pushThumb();
       },
@@ -472,7 +483,66 @@ class App {
   }
 
   /** 把一条记录正着或反着应用到白板上。 */
+  /**
+   * 像素橡皮擦：把扫过的笔画切开，用切剩的几段换掉原来那一条。
+   *
+   * 笔迹仍然是矢量的，所以同步、撤销、导出都不用改格式——发出去的就是一条
+   * ``remove`` 加一条 ``restore``，切出来的段沿用原来那条的层叠序号 ``n``，
+   * 叠放关系不会变。
+   */
+  erasePixels(x, y, radius, from) {
+    const [fromX, fromY] = from || [x, y];
+    const removed = [];
+    const added = [];
+    for (const stroke of this.state.strokes.slice()) {
+      const runs = splitStroke(stroke, fromX, fromY, x, y, radius);
+      if (runs === null) continue;
+      const base = plainStroke(stroke);
+      removed.push(base);
+      for (const points of runs) added.push({ ...base, id: uid(12), p: points });
+    }
+    if (!removed.length) return [];
+
+    const ids = removed.map((s) => s.id);
+    this.state.remove(ids);
+    this.net.sendOp({ op: "remove", ids });
+    if (added.length) {
+      this.state.add(added.map((s) => ({ ...s })));
+      this.net.sendOp({ op: "restore", strokes: added });
+    }
+    // 一次拖动里切出来的段还可能被再切一次。撤销记录只保留最外面那一层：
+    // removed 是这次拖动开始前就存在的那些，added 是此刻还留在板上的那些，
+    // 中途产生又被切掉的段两边都不进。
+    const gone = new Set(ids);
+    const mine = new Set(this.pixelBatch.added.map((s) => s.id));
+    for (const stroke of removed) {
+      if (!mine.has(stroke.id)) this.pixelBatch.removed.push(stroke);
+    }
+    this.pixelBatch.added = this.pixelBatch.added.filter((s) => !gone.has(s.id));
+    this.pixelBatch.added.push(...added);
+    this.renderer.requestFull();
+    return ids;
+  }
+
   applyHistory(action, undoing) {
+    if (action.type === "split") {
+      // 撤销就是把切出来的段换回原来那几条，重做反过来
+      const gone = undoing ? action.added : action.removed;
+      const back = undoing ? action.removed : action.added;
+      const ids = gone.map((s) => s.id);
+      if (ids.length) {
+        this.state.remove(ids);
+        this.net.sendOp({ op: "remove", ids });
+      }
+      if (back.length) {
+        this.state.add(back.map((s) => ({ ...s })));
+        this.net.sendOp({ op: "restore", strokes: back });
+      }
+      this.renderer.requestFull();
+      this.saveCache();
+      this.pushThumb();
+      return;
+    }
     const removing = undoing ? action.type === "added" : action.type === "removed";
     const ids = action.ids || action.strokes.map((s) => s.id);
     if (removing) {
@@ -957,3 +1027,5 @@ class App {
 }
 
 window.whiteboard = new App();
+// 切笔画的几何是纯函数，挂出来给端到端测试直接调
+window.whiteboard.splitStroke = splitStroke;

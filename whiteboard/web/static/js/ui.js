@@ -19,9 +19,15 @@ export const COLORS = [
   "#43a047", "#00acc1", "#1e88e5", "#8e24aa", "#6d4c41",
 ];
 export const WIDTHS = [1.5, 3, 5, 8, 13];
-// 对象橡皮擦的命中范围（直径）。最细那一档就是笔尖，默认用它；最粗 50，再粗
-// 就不是「碰到哪一笔删哪一笔」而是在扫了。
+// 橡皮的命中范围（直径）。最细那一档就是笔尖，默认用它；最粗 50。
 export const ERASER_SIZES = [6, 12, 22, 34, 50];
+
+// 两种橡皮。对象：碰到哪一笔就整笔删掉。像素：把笔画从扫过的地方切开，留下两头。
+// 笔迹始终是矢量的，「像素」指的是擦起来的手感，不是真去抹位图。
+export const ERASER_MODES = [
+  { key: "object", title: "对象橡皮擦" },
+  { key: "pixel", title: "像素橡皮擦" },
+];
 
 const TOOL_KEY = "whiteboard.tool";
 const PICKER_KEY = "whiteboard.picker";
@@ -78,6 +84,7 @@ function defaultTool() {
     marker: { color: COLORS[2], widthIndex: 2 },
     highlighter: { color: COLORS[4], widthIndex: 3 },
     eraser: { color: COLORS[0], widthIndex: 0 }, // 默认就是笔尖那一档
+    eraserMode: "object", // object：碰到哪一笔删哪一笔；pixel：把笔画切开
   };
 }
 
@@ -100,6 +107,9 @@ function loadTool() {
     if (!saved) return fallback;
     const state = { ...fallback };
     state.tool = ALL_TOOLS.includes(saved.tool) ? saved.tool : "pen";
+    state.eraserMode = ERASER_MODES.some((m) => m.key === saved.eraserMode)
+      ? saved.eraserMode
+      : fallback.eraserMode;
     // 老版本只存了一套颜色 / 粗细，摊给每件工具，升级上来不会突然变样
     const flat = saved.color !== undefined || saved.widthIndex !== undefined ? saved : null;
     for (const key of ALL_TOOLS) state[key] = sanitizeEntry(saved[key] || flat, fallback[key]);
@@ -286,6 +296,7 @@ export class UI {
         color: this.ink.color,
         sizeIndex: this.ink.widthIndex,
         fingerDraws: this.fingerDraw,
+        eraserMode: this.tool.eraserMode,
       });
       this.pk = pk;
       pk.setHistory(this.undoEnabled, this.redoEnabled);
@@ -317,6 +328,10 @@ export class UI {
     if (entry) {
       entry.color = state.color;
       entry.widthIndex = Math.max(0, Math.min(WIDTHS.length - 1, state.sizeIndex));
+    }
+    if (state.eraserMode && state.eraserMode !== this.tool.eraserMode) {
+      this.tool.eraserMode = state.eraserMode;
+      this.rememberTool();
     }
     this.selectTool(state.tool);
   }
@@ -467,6 +482,7 @@ export class UI {
       color: ink.color,
       width: WIDTHS[ink.widthIndex],
       eraserSize: ERASER_SIZES[this.tool.eraser.widthIndex],
+      eraserMode: this.tool.eraserMode,
     };
   }
 
@@ -556,6 +572,31 @@ export class UI {
     return widths;
   }
 
+  /** 橡皮的两种模式，只在选中橡皮时出现在同一个面板里。 */
+  eraserModes() {
+    const row = el("div", { class: "seg", role: "radiogroup", "aria-label": "橡皮擦类型" });
+    for (const mode of ERASER_MODES) {
+      const button = el("button", {
+        class: this.tool.eraserMode === mode.key ? "is-on" : "",
+        role: "radio",
+        "aria-checked": String(this.tool.eraserMode === mode.key),
+        text: mode.title,
+        onclick: () => {
+          this.tool.eraserMode = mode.key;
+          this.rememberTool();
+          for (const node of row.children) {
+            node.classList.toggle("is-on", node === button);
+            node.setAttribute("aria-checked", String(node === button));
+          }
+          this.actions.onToolChange(this.toolState());
+          if (this.pk) this.pk.setEraserMode(mode.key);
+        },
+      });
+      row.append(button);
+    }
+    return row;
+  }
+
   /** 笔具盘的开关，放在颜色面板里；只有触摸设备才给（这条是给 iPad 的）。 */
   pickerRow() {
     if (!this.touchDevice) return null;
@@ -574,8 +615,10 @@ export class UI {
       return;
     }
     const parts = [];
-    if (this.tool.tool !== "eraser") parts.push(this.colorSwatches());
+    const eraser = this.tool.tool === "eraser";
+    if (!eraser) parts.push(this.colorSwatches());
     parts.push(this.widthOptions());
+    if (eraser) parts.push(this.eraserModes());
     const row = this.pickerRow();
     if (row) parts.push(row);
     this.showPopover(anchor, parts);

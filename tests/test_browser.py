@@ -1319,17 +1319,95 @@ def test_eraser_is_a_fixed_tip_sized_object_eraser(browser, server):
     ipad.close()
 
 
-def test_picker_offers_no_pixel_eraser(browser, server):
-    """笔具盘里那个「像素橡皮擦 / 对象橡皮擦」二选一去掉了：选了也不算数。"""
+def test_pixel_eraser_cuts_a_stroke_in_two(browser, server):
+    """像素橡皮擦把笔画从扫过的地方切开，两头留下来；撤销换回原来那一条。"""
+    mac, ipad = open_pages(browser, server.port)
+    draw(ipad, [(200 + i * 20, 400) for i in range(30)])  # 一条横线
+    wait_strokes(mac, 1)
+    original = ipad.evaluate("() => whiteboard.state.strokes[0].id")
+
+    ipad.click('button[title="橡皮擦"]')
+    ipad.click('button[title="颜色与粗细"]')
+    ipad.click(".popover .seg button:nth-child(2)")  # 像素橡皮擦
+    ipad.keyboard.press("Escape")
+    assert ipad.evaluate("() => whiteboard.tool.eraserMode") == "pixel"
+
+    # 从线的正中间竖着划过去
+    draw(ipad, [(400, 380), (400, 400), (400, 420)])
+    wait_strokes(ipad, 2)
+    wait_strokes(mac, 2)  # 对端收到的也是两条
+    ids = ipad.evaluate("() => whiteboard.state.strokes.map(s => s.id)")
+    assert original not in ids  # 原来那条没了，换成切出来的两段
+    left, right = ipad.evaluate(
+        "() => whiteboard.state.strokes.map(s => [Math.min(...s.p.filter((_, i) => i % 3 === 0)),"
+        " Math.max(...s.p.filter((_, i) => i % 3 === 0))])"
+    )
+    cut = ipad.evaluate("() => whiteboard.viewport.toWorld(400, 400)[0]")  # 橡皮那一刀的世界坐标
+    assert left[1] < cut < right[0]  # 一段在左、一段在右，中间是空的
+
+    # 切开算一次撤销，撤回去还是原来那一条
+    ipad.click('button[title="撤销"]')
+    wait_strokes(ipad, 1)
+    wait_strokes(mac, 1)
+    assert ipad.evaluate("() => whiteboard.state.strokes[0].id") == original
+    ipad.click('button[title="重做"]')
+    wait_strokes(ipad, 2)
+    mac.close()
+    ipad.close()
+
+
+def test_object_eraser_still_deletes_whole_strokes(browser, server):
+    """对象橡皮擦是默认的那一种，碰到哪一笔整笔删掉。"""
+    mac, ipad = open_pages(browser, server.port)
+    draw(ipad, [(200 + i * 20, 400) for i in range(30)])
+    wait_strokes(mac, 1)
+    assert ipad.evaluate("() => whiteboard.tool.eraserMode") == "object"
+
+    ipad.click('button[title="橡皮擦"]')
+    draw(ipad, [(400, 380), (400, 400), (400, 420)])
+    wait_strokes(ipad, 0)
+    wait_strokes(mac, 0)
+    mac.close()
+    ipad.close()
+
+
+def test_split_stroke_geometry(browser, server):
+    """切笔画本身：没碰到返回 null，整条被盖住返回空，只剩一个点的碎屑不留。"""
+    mac, ipad = open_pages(browser, server.port)
+    split = """([x0, y0, x1, y1, r]) => {
+      const flat = [];
+      for (let i = 0; i < 20; i++) flat.push(i * 10, 0, 0.6);
+      const stroke = { id: 'a', tool: 'pen', color: '#000000', w: 3, p: flat };
+      const runs = whiteboard.splitStroke(stroke, x0, y0, x1, y1, r);
+      return runs === null ? null : runs.map((p) => p.length / 3);
+    }"""
+    assert ipad.evaluate(split, [95, 400, 95, 500, 8]) is None  # 离得远，没碰到
+    assert ipad.evaluate(split, [95, -5, 95, 5, 8]) == [9, 9]  # 从中间切一刀
+    assert ipad.evaluate(split, [-50, 0, 250, 0, 30]) == []  # 整条都被扫掉
+    assert ipad.evaluate(split, [8, 0, 8, 0, 14]) == [17]  # 起点那头切掉，碎屑不留
+    mac.close()
+    ipad.close()
+
+
+def test_picker_switches_eraser_mode(browser, server):
+    """笔具盘里橡皮那个面板的「对象 / 像素」二选一，两边是同一个设置。"""
     mac, ipad = open_pages(browser, server.port, picker=True)
     ipad.wait_for_selector("#pk-host .pk-picker")
     ipad.click('#pk-host [data-tool="eraser"]')
     ipad.wait_for_function("() => whiteboard.tool.tool === 'eraser'")
     ipad.wait_for_timeout(500)  # vendor 会吞掉拖动结束后一小段时间内的点击
-    ipad.click('#pk-host [data-tool="eraser"]')  # 再点一次：原本会弹出那个面板
-    ipad.wait_for_timeout(400)
-    assert ipad.locator("#pk-host .pk-pop[data-open]").count() == 0
-    assert ipad.locator("#pk-host [data-emode]").count() == 0
+    ipad.click('#pk-host [data-tool="eraser"]')  # 再点一次弹出面板
+    ipad.wait_for_selector('#pk-host [data-emode="pixel"]')
+    ipad.click('#pk-host [data-emode="pixel"]')
+    ipad.wait_for_function("() => whiteboard.tool.eraserMode === 'pixel'")
+
+    # 换回普通工具栏，那边的二选一要跟着
+    ipad.evaluate("() => whiteboard.ui.setPicker(false)")
+    ipad.wait_for_selector("#toolbar", state="visible")
+    ipad.click('button[title="颜色与粗细"]')
+    assert ipad.evaluate(
+        "() => document.querySelector('.popover .seg button.is-on').textContent"
+    ) == "像素橡皮擦"
     mac.close()
     ipad.close()
 
