@@ -24,6 +24,17 @@ const WHEEL_SETTLE = 220;
 // ctrl + 滚轮缩放时，单个事件的 deltaY 上限（鼠标滚轮一格是 100，触控板只有几像素）
 const WHEEL_ZOOM_MAX = 25;
 
+// 橡皮的直径。对象橡皮擦是固定的一个笔尖；像素橡皮擦跟着笔身与屏幕的夹角走，
+// 立着还是笔尖，压到 ERASER_FULL_DEG 就已经是最粗。都不用手动调。
+const ERASER_TIP = 6;
+const ERASER_WIDEST = 50;
+// 比这更平的角度手摆不出来，没必要留给它行程。
+const ERASER_FULL_DEG = 35;
+// 90° 到 35° 这一段的响应曲线。三次方：常握笔的 50°～60° 还在很细的那一段，
+// 要有意把笔压下去才明显变宽。
+const ERASER_TILT_POWER = 3;
+const ERASER_SMOOTH = 0.35; // 宽度跟着走的快慢，倾斜读数本来就抖，直接跳会很难看
+
 const SMOOTH_PEN = 0.45;
 const SMOOTH_MOUSE = 0.6;
 const PRESSURE_SMOOTH = 0.25;
@@ -477,23 +488,41 @@ export class InputController {
   // --------------------------------------------------------------- 擦除
 
   /**
-   * 橡皮的半径，就是工具栏里选的那个尺寸，不随笔身角度或者速度变。
+   * 橡皮此刻的半径。
    *
-   * 白板的橡皮是**对象橡皮擦**：碰到哪一笔就整笔删掉，作用点在笔尖。会跟着
-   * 倾斜变粗的是**像素橡皮擦**——那是另一种东西，按笔迹的像素擦，白板没有做。
+   * **对象橡皮擦**碰到哪一笔就整笔删掉，作用点永远是笔尖那么大，不变。
+   *
+   * **像素橡皮擦**是把笔画切开，擦多宽就是切口多宽，所以跟着笔身与屏幕的夹角走：
+   * 立着还是笔尖，压下去才变宽，到 ``ERASER_FULL_DEG`` 就已经最粗。两种都不用
+   * 手动调尺寸——想擦大片就把笔压下去，想抠一笔就立起来。
+   *
+   * 鼠标、手指，以及报不出倾斜的笔，像素模式按中间那一档给：没有倾斜可依据时
+   * 一直是笔尖等于没法用，一直最粗又太凶。
    */
-  eraserRadius() {
-    return this.getTool().eraserSize / 2;
+  eraserRadius(event) {
+    if (this.getTool().eraserMode !== "pixel") return ERASER_TIP / 2;
+    const altitude = event && event.pointerType === "pen" ? event.altitudeAngle : undefined;
+    const span = (ERASER_WIDEST - ERASER_TIP) / 2;
+    if (typeof altitude !== "number" || !(altitude > 0)) return ERASER_TIP / 2 + span * 0.5;
+    const full = (ERASER_FULL_DEG * Math.PI) / 180;
+    const t = clamp((Math.PI / 2 - altitude) / (Math.PI / 2 - full), 0, 1);
+    return ERASER_TIP / 2 + span * t ** ERASER_TILT_POWER;
   }
 
   startErase(event) {
-    this.erase = { pointerId: event.pointerId, ids: [], radius: this.eraserRadius(), last: null };
+    this.erase = {
+      pointerId: event.pointerId,
+      ids: [],
+      radius: this.eraserRadius(event),
+      last: null,
+    };
     this.moveErase(event);
   }
 
   moveErase(event) {
     const erase = this.erase;
     if (!erase || erase.pointerId !== event.pointerId) return;
+    erase.radius += (this.eraserRadius(event) - erase.radius) * ERASER_SMOOTH;
     const [wx, wy] = this.toWorld(event);
     this.renderer.cursor = { x: wx, y: wy, r: erase.radius };
     // 擦得快的时候两次事件之间能隔开一大段，判定要按扫过的这条线段来，
@@ -517,7 +546,7 @@ export class InputController {
       return;
     }
     const [wx, wy] = this.toWorld(event);
-    this.renderer.cursor = { x: wx, y: wy, r: this.eraserRadius() };
+    this.renderer.cursor = { x: wx, y: wy, r: this.eraserRadius(event) };
   }
 
   // --------------------------------------------------------- 平移 / 缩放

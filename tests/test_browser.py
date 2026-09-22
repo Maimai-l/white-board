@@ -1294,27 +1294,45 @@ def test_picker_is_the_default_on_touch_devices(browser, server):
     ctx.close()
 
 
-def test_eraser_is_a_fixed_tip_sized_object_eraser(browser, server):
-    """白板只有对象橡皮擦：碰到哪一笔整笔删掉，作用点就在笔尖，大小不随笔身角度变。
-
-    会跟着倾斜变粗的是像素橡皮擦，白板的笔迹是矢量的，没有这回事。
-    """
+def test_eraser_width_is_automatic(browser, server):
+    """橡皮不用手动调粗细：对象橡皮擦一直是笔尖，像素橡皮擦跟着笔身角度走。"""
     mac, ipad = open_pages(browser, server.port)
     ipad.click('button[title="橡皮擦"]')
 
-    sizes = ipad.evaluate("() => whiteboard.tool.eraserSize")
-    assert sizes == 6  # 默认就是最细那一档：笔尖
-
-    radius = """(deg) => whiteboard.input.eraserRadius({
-      pointerType: 'pen', altitudeAngle: (deg * Math.PI) / 180 })"""
-    widths = [ipad.evaluate(radius, deg) for deg in (88, 60, 45, 35, 15)]
-    assert widths == [sizes / 2] * 5  # 立着、压着、贴着都一样粗
-
-    # 最粗那一档是 50，再粗就不是「碰到哪一笔删哪一笔」而是在扫了
+    # 橡皮的面板里只有模式二选一，没有粗细那一排
     ipad.click('button[title="颜色与粗细"]')
-    ipad.click(".popover .width-opt:nth-child(5)")
+    assert ipad.locator(".popover .seg button").count() == 2
+    assert ipad.locator(".popover .width-opt").count() == 0
     ipad.keyboard.press("Escape")
-    assert ipad.evaluate("() => whiteboard.tool.eraserSize") == 50
+
+    radius = """([deg, mode]) => {
+      whiteboard.tool.eraserMode = mode;
+      return whiteboard.input.eraserRadius({
+        pointerType: 'pen', altitudeAngle: (deg * Math.PI) / 180 });
+    }"""
+    tip = 3  # ERASER_TIP / 2
+
+    # 对象橡皮擦：立着、压着、贴着都是笔尖
+    assert [ipad.evaluate(radius, [deg, "object"]) for deg in (88, 60, 45, 35, 15)] == [tip] * 5
+
+    # 像素橡皮擦：跟着角度一路变宽，35° 到顶，再平也不会更宽
+    upright = ipad.evaluate(radius, [88, "pixel"])
+    normal = ipad.evaluate(radius, [60, "pixel"])
+    pressed = ipad.evaluate(radius, [45, "pixel"])
+    limit = ipad.evaluate(radius, [35, "pixel"])
+    beyond = ipad.evaluate(radius, [15, "pixel"])
+    assert abs(upright - tip) < 0.1
+    assert upright < normal < pressed < limit
+    assert normal < tip + (25 - tip) * 0.2  # 常握笔的角度还在很细的那一段
+    assert limit == 25 and beyond == 25  # 最粗直径 50
+
+    # 报不出倾斜的笔和鼠标给中间那一档，不然等于没法用
+    middle = ipad.evaluate(
+        "() => { whiteboard.tool.eraserMode = 'pixel';"
+        " return whiteboard.input.eraserRadius({ pointerType: 'mouse' }); }"
+    )
+    assert tip < middle < 25
+    ipad.evaluate("() => { whiteboard.tool.eraserMode = 'object'; }")
     mac.close()
     ipad.close()
 

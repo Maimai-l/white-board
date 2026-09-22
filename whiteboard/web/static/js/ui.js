@@ -19,15 +19,14 @@ export const COLORS = [
   "#43a047", "#00acc1", "#1e88e5", "#8e24aa", "#6d4c41",
 ];
 export const WIDTHS = [1.5, 3, 5, 8, 13];
-// 橡皮的命中范围（直径）。最细那一档就是笔尖，默认用它；最粗 50。
-export const ERASER_SIZES = [6, 12, 22, 34, 50];
-
 // 两种橡皮。对象：碰到哪一笔就整笔删掉。像素：把笔画从扫过的地方切开，留下两头。
 // 笔迹始终是矢量的，「像素」指的是擦起来的手感，不是真去抹位图。
 export const ERASER_MODES = [
   { key: "object", title: "对象橡皮擦" },
   { key: "pixel", title: "像素橡皮擦" },
 ];
+// 橡皮的粗细不用手动调：对象橡皮擦一直是笔尖，像素橡皮擦跟着笔身角度走，
+// 数值都在 input.js 的 ERASER_* 里。
 
 const TOOL_KEY = "whiteboard.tool";
 const PICKER_KEY = "whiteboard.picker";
@@ -83,7 +82,7 @@ function defaultTool() {
     pen: { color: COLORS[0], widthIndex: 1 },
     marker: { color: COLORS[2], widthIndex: 2 },
     highlighter: { color: COLORS[4], widthIndex: 3 },
-    eraser: { color: COLORS[0], widthIndex: 0 }, // 默认就是笔尖那一档
+    eraser: { color: COLORS[0], widthIndex: 0 },
     eraserMode: "object", // object：碰到哪一笔删哪一笔；pixel：把笔画切开
   };
 }
@@ -481,7 +480,6 @@ export class UI {
       tool: this.tool.tool,
       color: ink.color,
       width: WIDTHS[ink.widthIndex],
-      eraserSize: ERASER_SIZES[this.tool.eraser.widthIndex],
       eraserMode: this.tool.eraserMode,
     };
   }
@@ -548,17 +546,16 @@ export class UI {
     return swatches;
   }
 
-  /** 粗细；橡皮擦用的是自己那套尺寸，所以点大小按工具走。 */
+  /** 粗细。橡皮没有这一档：它的粗细不用手动调，见 input.js 的 eraserRadius。 */
   widthOptions() {
-    const eraser = this.tool.tool === "eraser";
     const widths = el("div", { class: "widths" });
     WIDTHS.forEach((width, index) => {
-      const size = eraser ? 6 + index * 3.6 : 4 + index * 4;
+      const size = 4 + index * 4;
       const button = el(
         "button",
         {
           class: `width-opt${index === this.ink.widthIndex ? " active" : ""}`,
-          title: `${eraser ? ERASER_SIZES[index] : width}`,
+          title: `${width}`,
           onclick: () => {
             this.setInk({ widthIndex: index });
             for (const node of widths.children) node.classList.remove("active");
@@ -615,10 +612,11 @@ export class UI {
       return;
     }
     const parts = [];
-    const eraser = this.tool.tool === "eraser";
-    if (!eraser) parts.push(this.colorSwatches());
-    parts.push(this.widthOptions());
-    if (eraser) parts.push(this.eraserModes());
+    if (this.tool.tool === "eraser") {
+      parts.push(this.eraserModes());
+    } else {
+      parts.push(this.colorSwatches(), this.widthOptions());
+    }
     const row = this.pickerRow();
     if (row) parts.push(row);
     this.showPopover(anchor, parts);
