@@ -19,7 +19,9 @@ export const COLORS = [
   "#43a047", "#00acc1", "#1e88e5", "#8e24aa", "#6d4c41",
 ];
 export const WIDTHS = [1.5, 3, 5, 8, 13];
-export const ERASER_SIZES = [16, 28, 44, 66, 96];
+// 对象橡皮擦的命中范围（直径）。最细那一档就是笔尖，默认用它；最粗 50，再粗
+// 就不是「碰到哪一笔删哪一笔」而是在扫了。
+export const ERASER_SIZES = [6, 12, 22, 34, 50];
 
 const TOOL_KEY = "whiteboard.tool";
 const PICKER_KEY = "whiteboard.picker";
@@ -75,7 +77,7 @@ function defaultTool() {
     pen: { color: COLORS[0], widthIndex: 1 },
     marker: { color: COLORS[2], widthIndex: 2 },
     highlighter: { color: COLORS[4], widthIndex: 3 },
-    eraser: { color: COLORS[0], widthIndex: 1 },
+    eraser: { color: COLORS[0], widthIndex: 0 }, // 默认就是笔尖那一档
   };
 }
 

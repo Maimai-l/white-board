@@ -24,13 +24,6 @@ const WHEEL_SETTLE = 220;
 // ctrl + 滚轮缩放时，单个事件的 deltaY 上限（鼠标滚轮一格是 100，触控板只有几像素）
 const WHEEL_ZOOM_MAX = 25;
 
-// 橡皮：笔（Apple Pencil）擦的时候按笔身倾斜和移动速度算宽度，默认很细。
-const ERASER_MIN = 4; // 最细时的直径（世界单位）
-const ERASER_TILT_POWER = 4; // 倾斜的响应曲线；四次方把常握的角度压在很细的那一段
-const ERASER_FAST_FROM = 1.6; // 屏幕 px/ms，低于这个速度不加宽
-const ERASER_FAST_TO = 4.0; // 到这个速度就铺满选定的尺寸
-const ERASER_SMOOTH = 0.35; // 宽度跟着走的快慢，直接跳会很难看
-
 const SMOOTH_PEN = 0.45;
 const SMOOTH_MOUSE = 0.6;
 const PRESSURE_SMOOTH = 0.25;
@@ -484,49 +477,23 @@ export class InputController {
   // --------------------------------------------------------------- 擦除
 
   /**
-   * 橡皮此刻的半径。
+   * 橡皮的半径，就是工具栏里选的那个尺寸，不随笔身角度或者速度变。
    *
-   * 用笔擦的时候默认非常细，平常跟着笔身倾斜走；只有笔放得很平、或者擦得很快，
-   * 才铺开到工具栏里选的那个尺寸。倾斜走四次方：常握笔的那个角度落在很细的
-   * 那一段，手腕一压下去才明显变宽。
-   *
-   * 鼠标和手指没有倾斜可言，一律用选定的尺寸，否则拿鼠标擦东西会细得没法用。
+   * 白板的橡皮是**对象橡皮擦**：碰到哪一笔就整笔删掉，作用点在笔尖。会跟着
+   * 倾斜变粗的是**像素橡皮擦**——那是另一种东西，按笔迹的像素擦，白板没有做。
    */
-  eraserRadius(event, speed = 0) {
-    const max = this.getTool().eraserSize / 2;
-    if (event.pointerType !== "pen") return max;
-    const min = Math.min(ERASER_MIN / 2, max);
-    let tilt = 0;
-    if (typeof event.altitudeAngle === "number" && event.altitudeAngle > 0) {
-      tilt = clamp(1 - event.altitudeAngle / (Math.PI / 2), 0, 1);
-    }
-    const byTilt = tilt ** ERASER_TILT_POWER;
-    const bySpeed = clamp((speed - ERASER_FAST_FROM) / (ERASER_FAST_TO - ERASER_FAST_FROM), 0, 1);
-    return min + (max - min) * Math.max(byTilt, bySpeed);
+  eraserRadius() {
+    return this.getTool().eraserSize / 2;
   }
 
   startErase(event) {
-    this.erase = {
-      pointerId: event.pointerId,
-      ids: [],
-      radius: this.eraserRadius(event),
-      lastTime: event.timeStamp,
-      lastScreen: this.toScreen(event),
-    };
+    this.erase = { pointerId: event.pointerId, ids: [], radius: this.eraserRadius() };
     this.moveErase(event);
   }
 
   moveErase(event) {
     const erase = this.erase;
     if (!erase || erase.pointerId !== event.pointerId) return;
-    const [screenX, screenY] = this.toScreen(event);
-    const dt = Math.max(1, event.timeStamp - erase.lastTime);
-    const speed = Math.hypot(screenX - erase.lastScreen[0], screenY - erase.lastScreen[1]) / dt;
-    erase.lastTime = event.timeStamp;
-    erase.lastScreen = [screenX, screenY];
-    const target = this.eraserRadius(event, speed);
-    erase.radius += (target - erase.radius) * ERASER_SMOOTH;
-
     const [wx, wy] = this.toWorld(event);
     this.renderer.cursor = { x: wx, y: wy, r: erase.radius };
     const hit = this.hooks.onErase(wx, wy, erase.radius);
@@ -547,8 +514,7 @@ export class InputController {
       return;
     }
     const [wx, wy] = this.toWorld(event);
-    // 悬停时还没开始擦，速度按 0 算：光标圈显示的就是落下去那一刻的粗细
-    this.renderer.cursor = { x: wx, y: wy, r: this.eraserRadius(event) };
+    this.renderer.cursor = { x: wx, y: wy, r: this.eraserRadius() };
   }
 
   // --------------------------------------------------------- 平移 / 缩放

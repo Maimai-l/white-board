@@ -815,6 +815,20 @@ function makeClass(Base) {
       return { x: (this.W - w) / 2, y: this.H - h - 20, w, h, r };
     }
 
+    /**
+     * 点中已经选中的工具会弹出对应的面板。橡皮那个面板原本只有「像素橡皮擦 /
+     * 对象橡皮擦」二选一，而白板只做了对象橡皮擦——碰到哪一笔就整笔删掉；
+     * 像素橡皮擦要按笔迹的像素擦，白板的笔迹是矢量的，没有这回事。留着一个
+     * 选了不算数的选项比没有更糟，所以橡皮不弹面板。
+     */
+    _onTool(tool, button) {
+      if (tool === "eraser" && this.current === tool) {
+        this._closePop();
+        return;
+      }
+      super._onTool(tool, button);
+    }
+
     /** 「更多」菜单里补上白板自己的两项。 */
     _popHTML(kind) {
       const html = super._popHTML(kind);

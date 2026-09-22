@@ -1294,28 +1294,42 @@ def test_picker_is_the_default_on_touch_devices(browser, server):
     ctx.close()
 
 
-def test_pen_eraser_is_thin_until_tilted_or_fast(browser, server):
-    """橡皮默认非常细，平常跟着笔身倾斜走；笔放得很平或者擦得很快才铺开。"""
+def test_eraser_is_a_fixed_tip_sized_object_eraser(browser, server):
+    """白板只有对象橡皮擦：碰到哪一笔整笔删掉，作用点就在笔尖，大小不随笔身角度变。
+
+    会跟着倾斜变粗的是像素橡皮擦，白板的笔迹是矢量的，没有这回事。
+    """
     mac, ipad = open_pages(browser, server.port)
     ipad.click('button[title="橡皮擦"]')
 
-    radius = """([altitude, speed, type]) => whiteboard.input.eraserRadius(
-      { pointerType: type, altitudeAngle: altitude }, speed)"""
-    full = ipad.evaluate("() => whiteboard.tool.eraserSize / 2")
-    upright = ipad.evaluate(radius, [1.5, 0, "pen"])   # 笔基本立着
-    normal = ipad.evaluate(radius, [0.9, 0, "pen"])    # 平常握笔的角度
-    flat = ipad.evaluate(radius, [0.15, 0, "pen"])     # 几乎贴在屏幕上
-    fast = ipad.evaluate(radius, [1.5, 6, "pen"])      # 立着但擦得飞快
-    mouse = ipad.evaluate(radius, [None, 0, "mouse"])
+    sizes = ipad.evaluate("() => whiteboard.tool.eraserSize")
+    assert sizes == 6  # 默认就是最细那一档：笔尖
 
-    thin = 2  # ERASER_MIN / 2，最细时的半径
-    span = full - thin
-    assert abs(upright - thin) < 0.1  # 笔立着就是最细的那一档
-    assert normal < thin + span * 0.1  # 常握的角度还在很细的那一段
-    assert upright < normal < flat  # 中间这一段确实跟着倾斜走
-    assert flat > thin + span * 0.5  # 放平了才真的宽
-    assert fast > thin + span * 0.9  # 擦得快直接铺满
-    assert mouse == full  # 鼠标没有倾斜可言，还是选定的尺寸
+    radius = """(deg) => whiteboard.input.eraserRadius({
+      pointerType: 'pen', altitudeAngle: (deg * Math.PI) / 180 })"""
+    widths = [ipad.evaluate(radius, deg) for deg in (88, 60, 45, 35, 15)]
+    assert widths == [sizes / 2] * 5  # 立着、压着、贴着都一样粗
+
+    # 最粗那一档是 50，再粗就不是「碰到哪一笔删哪一笔」而是在扫了
+    ipad.click('button[title="颜色与粗细"]')
+    ipad.click(".popover .width-opt:nth-child(5)")
+    ipad.keyboard.press("Escape")
+    assert ipad.evaluate("() => whiteboard.tool.eraserSize") == 50
+    mac.close()
+    ipad.close()
+
+
+def test_picker_offers_no_pixel_eraser(browser, server):
+    """笔具盘里那个「像素橡皮擦 / 对象橡皮擦」二选一去掉了：选了也不算数。"""
+    mac, ipad = open_pages(browser, server.port, picker=True)
+    ipad.wait_for_selector("#pk-host .pk-picker")
+    ipad.click('#pk-host [data-tool="eraser"]')
+    ipad.wait_for_function("() => whiteboard.tool.tool === 'eraser'")
+    ipad.wait_for_timeout(500)  # vendor 会吞掉拖动结束后一小段时间内的点击
+    ipad.click('#pk-host [data-tool="eraser"]')  # 再点一次：原本会弹出那个面板
+    ipad.wait_for_timeout(400)
+    assert ipad.locator("#pk-host .pk-pop[data-open]").count() == 0
+    assert ipad.locator("#pk-host [data-emode]").count() == 0
     mac.close()
     ipad.close()
 
