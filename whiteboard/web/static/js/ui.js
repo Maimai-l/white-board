@@ -4,7 +4,8 @@
 // 描述文件）、导出与缩放。
 //
 // 工具栏有两套：默认那条是一排图标，位置（上 / 下）由 toolpicker.js 的 ToolDock 管；
-// 勾上「笔具盘 beta」之后这条收起来，换成 pkpicker.js 接进来的 PencilKit 工具盘。
+// 触摸设备上默认走 pkpicker.js 接进来的那条 PencilKit 工具盘，普通那条收起来；
+// 在笔具盘的「更多」里可以换回普通工具栏，选择记在本机。
 
 import { icon } from "./icons.js";
 import { loadFingerDraw } from "./input.js";
@@ -106,12 +107,17 @@ function loadTool() {
   }
 }
 
-/** 笔具盘（beta）：iPad 上换成 PencilKit 那条工具盘，见 pkpicker.js。 */
-function loadPickerFlag() {
+/**
+ * 笔具盘：PencilKit 那条工具盘，见 pkpicker.js。触摸设备上默认就用它，
+ * 关掉之后记在本机；没有触摸的设备（Mac 窗口）一直是普通工具栏。
+ */
+function loadPickerFlag(touchDevice) {
+  if (!touchDevice) return false;
   try {
-    return localStorage.getItem(PICKER_KEY) === "1";
+    const saved = localStorage.getItem(PICKER_KEY);
+    return saved === null ? true : saved === "1";
   } catch (err) {
-    return false;
+    return true;
   }
 }
 
@@ -139,7 +145,9 @@ export class UI {
     this.info = null;
     this.popover = null;
     this.sheet = null;
-    this.picker = loadPickerFlag();
+    // 默认只认 Apple Pencil，手指负责平移缩放；没有 Pencil 的人在设置里打开手指书写。
+    this.touchDevice = this.role === "ipad" || navigator.maxTouchPoints > 1;
+    this.picker = loadPickerFlag(this.touchDevice);
     this.undoEnabled = false;
     this.redoEnabled = false;
     this.build();
@@ -156,8 +164,6 @@ export class UI {
     });
     this.root.append(this.status);
 
-    // 默认只认 Apple Pencil，手指负责平移缩放；没有 Pencil 的人在这里打开手指书写。
-    this.touchDevice = this.role === "ipad" || navigator.maxTouchPoints > 1;
     this.fingerDraw = loadFingerDraw();
 
     this.toolbar = el("div", { id: "toolbar", class: "pill" });
@@ -255,7 +261,7 @@ export class UI {
     }
   }
 
-  /* ------------------------------------------------ 笔具盘（beta） */
+  /* ---------------------------------------------------- 笔具盘 */
 
   /** 挂上 PencilKit 那条工具盘：原来那条藏起来，输入照旧走白板的画布。 */
   async mountPicker() {
@@ -556,7 +562,7 @@ export class UI {
     input.addEventListener("change", () => this.setPicker(input.checked));
     return el("label", { class: "beta-row" }, [
       input,
-      el("span", { text: "笔具盘 beta" }),
+      el("span", { text: "笔具盘" }),
     ]);
   }
 

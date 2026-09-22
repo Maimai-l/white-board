@@ -1,4 +1,4 @@
-// 把 vendor/pencilkit-picker.js 里的那条工具盘接到白板上（beta，只在 iPad 端用）。
+// 把 vendor/pencilkit-picker.js 里的那条工具盘接到白板上（触摸设备上的默认工具栏）。
 //
 // 那份实现是「PencilKit 工具栏 + 画布」的整套复刻。我们只要工具栏：画布、直尺、
 // 套索、历史记录都归白板自己管，所以这里用继承的方式把画布那一半摘掉，
@@ -192,7 +192,7 @@ function easeFn(css) {
 
 let loading = null;
 
-/** 按需加载：这份 vendor 文件有 400 多 KB，不开 beta 就不要去解析它。 */
+/** 按需加载：这份 vendor 文件有 400 多 KB，用不上它的设备就不要去解析。 */
 export async function loadPicker() {
   if (!loading) {
     loading = import("../vendor/pencilkit-picker.js").then(() => window.PencilBoard);

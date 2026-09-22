@@ -62,12 +62,16 @@ def server(tmp_path):
     thread.stop()
 
 
-def open_pages(browser, port):
+def open_pages(browser, port, picker=False):
+    """开两个页面。iPad 上笔具盘是默认的，这里默认关掉，让用例明说自己要哪一条。"""
     mac = browser.new_page(viewport={"width": 1200, "height": 800})
     mac.goto(f"http://127.0.0.1:{port}/?role=mac")
     ipad = browser.new_context(
         viewport={"width": 1180, "height": 820}, user_agent=IPAD_UA, has_touch=True
     ).new_page()
+    ipad.add_init_script(
+        "try { localStorage.setItem('whiteboard.picker', '%s'); } catch (e) {}" % ("1" if picker else "0")
+    )
     ipad.goto(f"http://127.0.0.1:{port}/?role=ipad")
     for page in (mac, ipad):
         page.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
@@ -1257,6 +1261,63 @@ def fling(page, x0, y0, x1, y1, steps=12):
     for i in range(1, steps + 1):
         page.mouse.move(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)
     page.mouse.up()
+
+
+def test_picker_is_the_default_on_touch_devices(browser, server):
+    """笔具盘现在是触摸设备上的默认工具栏；关掉之后记在本机，Mac 一直是普通那条。"""
+    ctx = browser.new_context(
+        viewport={"width": 1180, "height": 820}, user_agent=IPAD_UA, has_touch=True
+    )
+    ipad = ctx.new_page()
+    ipad.goto(f"http://127.0.0.1:{server.port}/?role=ipad")  # 本机什么都没存过
+    ipad.wait_for_selector("#pk-host .pk-picker", timeout=20000)
+    assert ipad.is_hidden("#toolbar")
+
+    # 在「更多」里换回普通工具栏，这个选择要记住
+    ipad.click("#pk-host button[data-act='more']")
+    ipad.click("#pk-host .pk-pop [data-wb='leave']")
+    ipad.wait_for_selector("#toolbar", state="visible")
+    ipad.reload()
+    ipad.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    ipad.wait_for_selector("#toolbar", state="visible")
+    assert ipad.query_selector("#pk-host") is None
+
+    # Mac 窗口没有触摸，一直是普通工具栏，连那个开关都不给
+    mac = browser.new_page(viewport={"width": 1200, "height": 800})
+    mac.goto(f"http://127.0.0.1:{server.port}/?role=mac")
+    mac.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    assert mac.evaluate("() => whiteboard.ui.picker") is False
+    mac.click('button[title="颜色与粗细"]')
+    assert mac.locator(".popover .beta-row").count() == 0
+    mac.close()
+    ipad.close()
+    ctx.close()
+
+
+def test_pen_eraser_is_thin_until_tilted_or_fast(browser, server):
+    """橡皮默认非常细，平常跟着笔身倾斜走；笔放得很平或者擦得很快才铺开。"""
+    mac, ipad = open_pages(browser, server.port)
+    ipad.click('button[title="橡皮擦"]')
+
+    radius = """([altitude, speed, type]) => whiteboard.input.eraserRadius(
+      { pointerType: type, altitudeAngle: altitude }, speed)"""
+    full = ipad.evaluate("() => whiteboard.tool.eraserSize / 2")
+    upright = ipad.evaluate(radius, [1.5, 0, "pen"])   # 笔基本立着
+    normal = ipad.evaluate(radius, [0.9, 0, "pen"])    # 平常握笔的角度
+    flat = ipad.evaluate(radius, [0.15, 0, "pen"])     # 几乎贴在屏幕上
+    fast = ipad.evaluate(radius, [1.5, 6, "pen"])      # 立着但擦得飞快
+    mouse = ipad.evaluate(radius, [None, 0, "mouse"])
+
+    thin = 2  # ERASER_MIN / 2，最细时的半径
+    span = full - thin
+    assert abs(upright - thin) < 0.1  # 笔立着就是最细的那一档
+    assert normal < thin + span * 0.1  # 常握的角度还在很细的那一段
+    assert upright < normal < flat  # 中间这一段确实跟着倾斜走
+    assert flat > thin + span * 0.5  # 放平了才真的宽
+    assert fast > thin + span * 0.9  # 擦得快直接铺满
+    assert mouse == full  # 鼠标没有倾斜可言，还是选定的尺寸
+    mac.close()
+    ipad.close()
 
 
 def test_classic_toolbar_still_shares_one_colour(browser, server):
