@@ -1345,21 +1345,22 @@ def test_eraser_width_is_automatic(browser, server):
     # 对象橡皮擦：立着、压着、贴着都是笔尖
     assert [ipad.evaluate(radius, [deg, "object"]) for deg in (88, 60, 45, 35, 15)] == [tip] * 5
 
-    # 像素橡皮擦：40° 以上都是笔尖，40°～25° 之间过渡，25° 以下都是最粗
-    for deg in (90, 60, 45, 41):
+    # 像素橡皮擦：25° 以上都是笔尖，25°～15° 之间过渡，15° 以下都是最粗
+    widest = 22.5  # ERASER_WIDEST / 2
+    for deg in (90, 45, 30, 26):
         assert abs(ipad.evaluate(radius, [deg, "pixel"]) - tip) < 0.01, deg
-    ramp = [ipad.evaluate(radius, [deg, "pixel"]) for deg in (37, 35, 32, 30, 27)]
+    ramp = [ipad.evaluate(radius, [deg, "pixel"]) for deg in (23, 21, 19, 17)]
     assert ramp == sorted(ramp) and len(set(ramp)) == len(ramp)  # 一路变宽，没有平台
-    assert tip < ramp[0] < 25
-    for deg in (25, 20, 5):
-        assert ipad.evaluate(radius, [deg, "pixel"]) == 25, deg  # 最粗直径 50
+    assert tip < ramp[0] < widest
+    for deg in (15, 10, 2):
+        assert ipad.evaluate(radius, [deg, "pixel"]) == widest, deg  # 最粗直径 45
 
     # 报不出倾斜的笔和鼠标给中间那一档，不然等于没法用
     middle = ipad.evaluate(
         "() => { whiteboard.tool.eraserMode = 'pixel';"
         " return whiteboard.input.eraserRadius({ pointerType: 'mouse' }); }"
     )
-    assert tip < middle < 25
+    assert tip < middle < widest
     ipad.evaluate("() => { whiteboard.tool.eraserMode = 'object'; }")
     mac.close()
     ipad.close()
@@ -1468,6 +1469,46 @@ def test_erase_keeps_up_on_a_crowded_board(browser, server):
     large = ipad.evaluate(bench, [4000])
     # 笔画数翻十倍，耗时不该跟着翻。留足余量，这是防回归不是跑分
     assert large < small * 4 + 20, (small, large)
+    mac.close()
+    ipad.close()
+
+
+def test_erase_only_repaints_what_it_touched(browser, server):
+    """擦除不整屏重绘，只重画被动过的那一块——iPad 上卡就卡在这里。
+
+    加笔画可以直接往底图上叠，删笔画不行：墨迹已经合成进去了，只能把那一块
+    连背景一起重画。整屏重绘是「和白板上一共有多少笔成正比」，几千笔的板上
+    每帧都要十几毫秒，而擦除每一帧都要重来一次。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    for row in range(5):
+        draw(ipad, [(200 + i * 18, 250 + row * 60) for i in range(35)])
+    wait_strokes(mac, 5)
+
+    result = ipad.evaluate("""() => {
+      const r = whiteboard.renderer;
+      r.requestFull();
+      r.tick();
+      let fulls = 0;
+      const realFull = r.fullRedraw.bind(r);
+      r.fullRedraw = () => { fulls += 1; realFull(); };
+      whiteboard.tool.eraserMode = 'pixel';
+      const p = whiteboard.state.strokes[2].p;
+      const at = Math.floor(p.length / 3 / 2) * 3;
+      let prev = null;
+      for (let i = 0; i < 6; i++) {
+        const pt = [p[at] + i * 3, p[at + 1]];
+        whiteboard.input.hooks.onErase(pt[0], pt[1], 12, prev);
+        prev = pt;
+        whiteboard.flushErase();
+        r.tick();                       // 每帧一次
+      }
+      const dirty = r.dirty;
+      r.fullRedraw = realFull;
+      return { fulls, dirty, strokes: whiteboard.state.strokes.length };
+    }""")
+    assert result["fulls"] == 0  # 一次整屏重绘都没有
+    assert result["strokes"] > 5  # 确实切开了
     mac.close()
     ipad.close()
 

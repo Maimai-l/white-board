@@ -27,12 +27,12 @@ const WHEEL_ZOOM_MAX = 25;
 // 橡皮的直径。对象橡皮擦是固定的一个笔尖；像素橡皮擦跟着笔身与屏幕的夹角走，
 // 都不用手动调。
 const ERASER_TIP = 6;
-const ERASER_WIDEST = 50;
+const ERASER_WIDEST = 45;
 // 夹角比 ERASER_MIN_DEG 大（笔更立）就是笔尖，比 ERASER_MAX_DEG 小（笔更平）
 // 就是最粗，中间这一段是过渡。常握笔的角度落在 40° 以上，所以平时一直是笔尖，
 // 要有意把笔压下去才开始变宽。
-const ERASER_MIN_DEG = 40;
-const ERASER_MAX_DEG = 25;
+const ERASER_MIN_DEG = 25;
+const ERASER_MAX_DEG = 15;
 const ERASER_SMOOTH = 0.35; // 宽度跟着走的快慢，倾斜读数本来就抖，直接跳会很难看
 
 const SMOOTH_PEN = 0.45;

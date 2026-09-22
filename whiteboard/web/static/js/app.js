@@ -8,7 +8,7 @@ import { PerfMonitor } from "./perf.js";
 import { Renderer } from "./renderer.js";
 import { UI } from "./ui.js";
 import { Viewport } from "./viewport.js";
-import { splitStroke, strokeHit } from "./stroke.js";
+import { splitStroke, strokeBBox, strokeHit } from "./stroke.js";
 import { debounce, plainStroke, uid } from "./util.js";
 import { contentBounds, downloadDataURL, exportDataURL, uploadThumb } from "./exporter.js";
 
@@ -405,7 +405,8 @@ class App {
         if (!ids.length) return [];
         const removed = this.state.remove(ids);
         this.eraseBatch.push(...removed);
-        this.renderer.requestFull();
+        // 只重画被删掉的那几笔占的地方，整屏重绘在笔多的板上每帧要十几毫秒
+        this.dirtyFor(removed);
         this.queueErase(removed, []);
         return ids;
       },
@@ -515,6 +516,8 @@ class App {
     this.state.remove(ids);
     if (added.length) this.state.add(added.map((s) => ({ ...s })));
     this.queueErase(removed, added);
+    // 被切的那几笔原来占的地方就是要重画的范围，切剩的段还在里面
+    this.dirtyFor(removed);
     // 一次拖动里切出来的段还可能被再切一次。撤销记录只保留最外面那一层：
     // removed 是这次拖动开始前就存在的那些，added 是此刻还留在板上的那些，
     // 中途产生又被切掉的段两边都不进。
@@ -525,8 +528,15 @@ class App {
     }
     this.pixelBatch.added = this.pixelBatch.added.filter((s) => !gone.has(s.id));
     this.pixelBatch.added.push(...added);
-    this.renderer.requestFull();
     return ids;
+  }
+
+  /** 把这几笔占的地方标成脏区，下一帧只重画这一块。 */
+  dirtyFor(strokes) {
+    for (const stroke of strokes) {
+      const box = strokeBBox(stroke);
+      this.renderer.requestRect(box.x0, box.y0, box.x1, box.y1);
+    }
   }
 
   /**

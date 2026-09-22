@@ -82,6 +82,7 @@ export class Renderer {
     this._liveDrawn = false;
     this._liveClip = null;
     // 文档板的页面底图：解码完一页就重画一次
+    this.dirty = null;
     this.docPages = new DocPages(() => this.requestFull());
     this.resize();
   }
@@ -101,6 +102,28 @@ export class Renderer {
 
   requestFull() {
     this.fullDirty = true;
+    this.dirty = null;
+  }
+
+  /**
+   * 只重画世界坐标里的这一块。擦除用它：整屏重绘是「和白板上一共有多少笔成正比」，
+   * 几千笔的板上一次就要十几毫秒，而擦除每一帧都要重来一次——iPad 上就是这里卡。
+   *
+   * 加笔画有 drawCommitted 可以直接往上叠，删笔画不行：墨迹已经合成在底图里了，
+   * 只能把那一块连背景一起重画。好在有了空间索引，重画一小块只需要碰到那一小块
+   * 里的笔画。
+   */
+  requestRect(x0, y0, x1, y1) {
+    if (this.fullDirty) return;
+    const box = this.dirty;
+    if (!box) {
+      this.dirty = { x0, y0, x1, y1 };
+      return;
+    }
+    if (x0 < box.x0) box.x0 = x0;
+    if (y0 < box.y0) box.y0 = y0;
+    if (x1 > box.x1) box.x1 = x1;
+    if (y1 > box.y1) box.y1 = y1;
   }
 
   _applyTransform(ctx) {
@@ -236,6 +259,40 @@ export class Renderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
+  /** 只重画脏矩形那一块：背景和落在里面的笔画，都夹在这块里画。 */
+  redrawRect(box) {
+    const ctx = this.baseCtx;
+    const { scale, x, y } = this.viewport;
+    const pad = 2;
+    const left = Math.max(0, Math.floor(box.x0 * scale + x) - pad);
+    const top = Math.max(0, Math.floor(box.y0 * scale + y) - pad);
+    const right = Math.min(this.viewW, Math.ceil(box.x1 * scale + x) + pad);
+    const bottom = Math.min(this.viewH, Math.ceil(box.y1 * scale + y) + pad);
+    if (right <= left || bottom <= top) return;
+    // 一整屏都脏了的话，夹着画反而多一层开销，不如老老实实整屏来
+    if ((right - left) * (bottom - top) > this.viewW * this.viewH * 0.6) {
+      this.fullRedraw();
+      return;
+    }
+
+    ctx.save();
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.beginPath();
+    ctx.rect(left, top, right - left, bottom - top);
+    ctx.clip();
+    this.drawBackground(ctx);
+    const clipped = this.clipToPage(ctx);
+    this._applyTransform(ctx);
+    for (const stroke of this.state.near(box.x0, box.y0, box.x1, box.y1, 0)) {
+      const bbox = strokeBBox(stroke);
+      if (bbox.x1 < box.x0 || bbox.x0 > box.x1 || bbox.y1 < box.y0 || bbox.y0 > box.y1) continue;
+      drawStroke(ctx, stroke);
+    }
+    if (clipped) ctx.restore();
+    ctx.restore();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
   /** 增量画一条已提交的笔画，避免整屏重绘。 */
   drawCommitted(stroke) {
     if (this.fullDirty) return;
@@ -316,7 +373,12 @@ export class Renderer {
   tick() {
     if (this.fullDirty) {
       this.fullDirty = false;
+      this.dirty = null;
       this.fullRedraw();
+    } else if (this.dirty) {
+      const box = this.dirty;
+      this.dirty = null;
+      this.redrawRect(box);
     }
     const hasLive = this.liveStrokes.size > 0 || this.cursor !== null;
     if (hasLive || this._liveDrawn) {
