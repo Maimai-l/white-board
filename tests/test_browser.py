@@ -779,6 +779,35 @@ def test_clear_asks_before_it_wipes_the_board(browser, server):
     ipad.close()
 
 
+def test_dialog_stays_solid_while_the_scrim_darkens(browser, server):
+    """弹窗不能跟着那层暗底一起变透明，否则暗底直接透过来，看着像弹窗自己也黑了。
+
+    暗底一旦用 opacity 淡入，它就成了子元素的 backdrop root：弹窗既跟着它一起
+    半透明，磨砂又只采样得到这层暗底。所以暗底只淡背景色，弹窗的透明度在开头
+    那一小段里就走完。这里把动画拉长，在中途去量。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    values = mac.evaluate(
+        """async () => {
+          document.documentElement.style.setProperty('--motion', '1200ms linear');
+          document.querySelector('button[title="清空白板"]').click();
+          await new Promise(r => setTimeout(r, 600));  // 动画正中间
+          const scrim = document.querySelector('.scrim');
+          const dialog = document.querySelector('.dialog.ask');
+          return {
+            scrim: getComputedStyle(scrim).opacity,
+            dialog: getComputedStyle(dialog).opacity,
+            shade: getComputedStyle(scrim).backgroundColor,
+          };
+        }"""
+    )
+    assert values["scrim"] == "1"  # 暗底自己不透明，只是背景色在变深
+    assert values["dialog"] == "1"  # 弹窗早就到位了
+    assert values["shade"] not in ("rgba(0, 0, 0, 0)", "transparent")  # 确实在变深
+    mac.close()
+    ipad.close()
+
+
 def test_clear_button_disappears_without_the_permission(browser, server):
     """没给清空权限的设备，工具栏上连这个按钮都没有。"""
     mac, ipad = open_pages(browser, server.port)

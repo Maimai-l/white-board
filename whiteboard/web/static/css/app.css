@@ -406,7 +406,14 @@ html, body {
   gap: 10px;
   animation: pop var(--motion);
 }
-@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.96); } }
+/*
+ * 弹窗进场。透明度只在开头那一小段里走完，剩下的时间只做位移和缩放：弹窗是
+ * 磨砂的，半透明的时候底下那层暗底会直接透过来，看着像弹窗自己也黑了一下。
+ */
+@keyframes pop {
+  from { opacity: 0; transform: translateY(6px) scale(.96); }
+  30% { opacity: 1; }
+}
 
 .swatches { display: grid; grid-template-columns: repeat(5, 36px); gap: 8px; }
 .swatch {
@@ -430,10 +437,17 @@ html, body {
 
 /* --------------------------------------------------------------- 侧板 */
 
+/*
+ * 压在全屏上的那层暗底。**只能淡入背景色，不能淡入 opacity**：opacity 小于 1 的
+ * 元素会成为子元素的 backdrop root，弹窗就变成两件事一起发生——它跟着这层一起
+ * 半透明（暗底直接透过来），而且它的磨砂只采样得到这层暗底、采样不到底下的画布。
+ * 结果就是弹窗自己先黑一下，动画结束才回到正常颜色。
+ */
 .scrim {
   position: absolute; inset: 0; background: var(--scrim);
-  animation: fade var(--motion);
+  animation: scrim-in var(--motion);
 }
+@keyframes scrim-in { from { background-color: transparent; } }
 @keyframes fade { from { opacity: 0; } }
 
 .sheet {
