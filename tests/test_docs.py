@@ -386,3 +386,66 @@ def test_export_matches_rendered_orientation(tmp_path):
             assert min(rest.tobytes()) > 200, f"第 {index} 页笔迹跑到别处去了"
     finally:
         pdf.close()
+
+
+def bloat_with_revisions(path, rounds=4, payload_kb=120):
+    """手工追加几次「增量保存」：每次新写一个内容流，旧的留在文件里没人引用。
+
+    iPad 上反复批注保存就是这个形状——批注没多，文件却一版版堆上去。
+    """
+    for _ in range(rounds):
+        data = path.read_bytes()
+        reader = pypdf.PdfReader(str(path))
+        page = reader.pages[0]
+        num = reader.trailer["/Root"]["/Pages"]["/Kids"][0].idnum
+        new_num = max(max(v.keys()) for v in reader.xref.values() if v) + 1
+        blob = ("q " + ("0 0 m 1 1 l S " * (payload_kb * 1024 // 14)) + "Q").encode()
+        out = bytearray(data)
+        if not out.endswith(b"\n"):
+            out += b"\n"
+        offsets = {new_num: len(out)}
+        out += f"{new_num} 0 obj\n<< /Length {len(blob)} >>\nstream\n".encode()
+        out += blob + b"\nendstream\nendobj\n"
+        offsets[num] = len(out)
+        out += f"{num} 0 obj\n<< /Type /Page /Parent {page.raw_get('/Parent').idnum} 0 R".encode()
+        out += f" /MediaBox [0 0 595 842] /Contents {new_num} 0 R /Resources << >> >>\nendobj\n".encode()
+        start = len(out)
+        prev_at = data.rfind(b"startxref")
+        prev_off = int(data[prev_at + 9 :].split()[0])
+        out += b"xref\n"
+        for obj, off in sorted(offsets.items()):
+            out += f"{obj} 1\n{off:010d} 00000 n \n".encode()
+        root = reader.trailer.raw_get("/Root").idnum
+        out += f"trailer\n<< /Size {new_num + 1} /Root {root} 0 R /Prev {prev_off} >>".encode()
+        out += f"\nstartxref\n{start}\n%%EOF\n".encode()
+        path.write_bytes(bytes(out))
+    return path
+
+
+def test_export_drops_the_originals_dead_revisions(tmp_path):
+    """原件里堆了多少次增量保存，导出时都会被甩掉——只留还被引用的那一版。
+
+    PDF 允许把改动追加在文件末尾、旧版本原样留着，反复保存就会一版版堆起来。
+    导出走的是「把可达的对象重新写一遍」，没人引用的自然不会跟过来。
+    """
+    src = bloat_with_revisions(make_pdf(tmp_path / "src.pdf", sizes=((595, 842),)))
+    assert src.read_bytes().count(b"%%EOF") == 5  # 原件里有五版
+    assert src.stat().st_size > 400 * 1024
+
+    out = tmp_path / "out.pdf"
+    docs.export_pdf(src, [wave(60, 200, stroke_id="s1")], out)
+    assert out.read_bytes().count(b"%%EOF") == 1  # 导出的是干干净净一版
+    # 四版里只有最后一版还被引用，那一版理应留着，前三版的内容流全掉了
+    assert out.stat().st_size < src.stat().st_size / 3
+
+
+def test_repeated_exports_do_not_grow(tmp_path):
+    """同一块白板导出多少次都一样大：原件只读，笔迹另存，每次都是从头写一遍。"""
+    src = make_pdf(tmp_path / "src.pdf", sizes=((595, 842),))
+    strokes = [wave(60, 120 + i * 9, stroke_id="s%d" % i) for i in range(20)]
+    sizes = []
+    for _ in range(5):
+        out = tmp_path / "out.pdf"
+        docs.export_pdf(src, strokes, out)
+        sizes.append(out.stat().st_size)
+    assert len(set(sizes)) == 1, sizes
