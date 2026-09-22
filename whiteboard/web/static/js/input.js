@@ -25,14 +25,14 @@ const WHEEL_SETTLE = 220;
 const WHEEL_ZOOM_MAX = 25;
 
 // 橡皮的直径。对象橡皮擦是固定的一个笔尖；像素橡皮擦跟着笔身与屏幕的夹角走，
-// 立着还是笔尖，压到 ERASER_FULL_DEG 就已经是最粗。都不用手动调。
+// 都不用手动调。
 const ERASER_TIP = 6;
 const ERASER_WIDEST = 50;
-// 比这更平的角度手摆不出来，没必要留给它行程。
-const ERASER_FULL_DEG = 35;
-// 90° 到 35° 这一段的响应曲线。三次方：常握笔的 50°～60° 还在很细的那一段，
-// 要有意把笔压下去才明显变宽。
-const ERASER_TILT_POWER = 3;
+// 夹角比 ERASER_MIN_DEG 大（笔更立）就是笔尖，比 ERASER_MAX_DEG 小（笔更平）
+// 就是最粗，中间这一段是过渡。常握笔的角度落在 40° 以上，所以平时一直是笔尖，
+// 要有意把笔压下去才开始变宽。
+const ERASER_MIN_DEG = 40;
+const ERASER_MAX_DEG = 25;
 const ERASER_SMOOTH = 0.35; // 宽度跟着走的快慢，倾斜读数本来就抖，直接跳会很难看
 
 const SMOOTH_PEN = 0.45;
@@ -549,9 +549,11 @@ export class InputController {
     const span = (ERASER_WIDEST - ERASER_TIP) / 2;
     // 鼠标和手指没有倾斜可依据，给中间那一档：一直是笔尖等于没法用，一直最粗又太凶
     if (!event || event.pointerType !== "pen") return ERASER_TIP / 2 + span * 0.5;
-    const full = (ERASER_FULL_DEG * Math.PI) / 180;
-    const t = clamp((Math.PI / 2 - penAltitude(event)) / (Math.PI / 2 - full), 0, 1);
-    return ERASER_TIP / 2 + span * t ** ERASER_TILT_POWER;
+    const low = (ERASER_MAX_DEG * Math.PI) / 180;
+    const high = (ERASER_MIN_DEG * Math.PI) / 180;
+    const t = clamp((high - penAltitude(event)) / (high - low), 0, 1);
+    // smoothstep：两端斜率为零，40° 和 25° 这两个拐点不会有突兀的折角
+    return ERASER_TIP / 2 + span * t * t * (3 - 2 * t);
   }
 
   startErase(event) {

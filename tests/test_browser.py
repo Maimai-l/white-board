@@ -1345,16 +1345,14 @@ def test_eraser_width_is_automatic(browser, server):
     # 对象橡皮擦：立着、压着、贴着都是笔尖
     assert [ipad.evaluate(radius, [deg, "object"]) for deg in (88, 60, 45, 35, 15)] == [tip] * 5
 
-    # 像素橡皮擦：跟着角度一路变宽，35° 到顶，再平也不会更宽
-    upright = ipad.evaluate(radius, [88, "pixel"])
-    normal = ipad.evaluate(radius, [60, "pixel"])
-    pressed = ipad.evaluate(radius, [45, "pixel"])
-    limit = ipad.evaluate(radius, [35, "pixel"])
-    beyond = ipad.evaluate(radius, [15, "pixel"])
-    assert abs(upright - tip) < 0.1
-    assert upright < normal < pressed < limit
-    assert normal < tip + (25 - tip) * 0.2  # 常握笔的角度还在很细的那一段
-    assert limit == 25 and beyond == 25  # 最粗直径 50
+    # 像素橡皮擦：40° 以上都是笔尖，40°～25° 之间过渡，25° 以下都是最粗
+    for deg in (90, 60, 45, 41):
+        assert abs(ipad.evaluate(radius, [deg, "pixel"]) - tip) < 0.01, deg
+    ramp = [ipad.evaluate(radius, [deg, "pixel"]) for deg in (37, 35, 32, 30, 27)]
+    assert ramp == sorted(ramp) and len(set(ramp)) == len(ramp)  # 一路变宽，没有平台
+    assert tip < ramp[0] < 25
+    for deg in (25, 20, 5):
+        assert ipad.evaluate(radius, [deg, "pixel"]) == 25, deg  # 最粗直径 50
 
     # 报不出倾斜的笔和鼠标给中间那一档，不然等于没法用
     middle = ipad.evaluate(
@@ -1433,6 +1431,72 @@ def test_split_stroke_geometry(browser, server):
     assert ipad.evaluate(split, [95, -5, 95, 5, 8]) == [9, 9]  # 从中间切一刀
     assert ipad.evaluate(split, [-50, 0, 250, 0, 30]) == []  # 整条都被扫掉
     assert ipad.evaluate(split, [8, 0, 8, 0, 14]) == [17]  # 起点那头切掉，碎屑不留
+    mac.close()
+    ipad.close()
+
+
+def test_erase_keeps_up_on_a_crowded_board(browser, server):
+    """擦除的开销只跟扫过的那一片有关，不跟白板上一共有多少笔有关。
+
+    以前每个指针事件都要把整块白板过一遍（还顺带整个数组重排一次），笔一多就卡。
+    现在按空间网格取候选，插入和删除也改成只动该动的那几条。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    bench = """([count]) => {
+      const strokes = [];
+      for (let i = 0; i < count; i++) {
+        const p = [];
+        const x0 = 100 + Math.floor(i / 40) * 26;
+        const y0 = 100 + (i % 40) * 22;
+        for (let j = 0; j < 14; j++) p.push(x0 + j * 1.8, y0 + j * 0.4, 0.6);
+        strokes.push({ id: 'b' + i, tool: 'pen', color: '#1b1b1f', w: 3, p, n: i });
+      }
+      whiteboard.state.reset(whiteboard.state.meta, strokes);
+      whiteboard.net.send = () => {};
+      whiteboard.tool.eraserMode = 'pixel';
+      const t0 = performance.now();
+      let prev = null;
+      for (let i = 0; i < 60; i++) {
+        const pt = [120 + i * 7, 300];
+        whiteboard.input.hooks.onErase(pt[0], pt[1], 25, prev);
+        prev = pt;
+        whiteboard.flushErase();
+      }
+      return performance.now() - t0;
+    }"""
+    small = ipad.evaluate(bench, [400])
+    large = ipad.evaluate(bench, [4000])
+    # 笔画数翻十倍，耗时不该跟着翻。留足余量，这是防回归不是跑分
+    assert large < small * 4 + 20, (small, large)
+    mac.close()
+    ipad.close()
+
+
+def test_erase_sends_one_batch_per_frame(browser, server):
+    """一次拖动里的擦除操作攒起来每帧发一次，不是每个指针事件发一条。"""
+    mac, ipad = open_pages(browser, server.port)
+    draw(ipad, [(200 + i * 20, 400) for i in range(30)])
+    wait_strokes(mac, 1)
+
+    ops = ipad.evaluate("""() => {
+      const sent = [];
+      const real = whiteboard.net.send.bind(whiteboard.net);
+      whiteboard.net.send = (m) => { if (m.t === 'op') sent.push(m.op.op); real(m); };
+      whiteboard.tool.eraserMode = 'pixel';
+      // onErase 收的是世界坐标，照着那一笔自己的点走
+      const p = whiteboard.state.strokes[0].p;
+      let prev = null;
+      for (let i = 0; i < 12; i++) {           // 一帧之内连发 12 个事件
+        const at = (Math.floor(p.length / 3 / 2) + i) * 3;
+        const pt = [p[at], p[at + 1]];
+        whiteboard.input.hooks.onErase(pt[0], pt[1], 12, prev);
+        prev = pt;
+      }
+      whiteboard.flushErase();                  // 到帧末才冲出去
+      whiteboard.net.send = real;
+      return sent;
+    }""")
+    assert ops == ["remove", "restore"]  # 十二个事件合成一删一补
     mac.close()
     ipad.close()
 

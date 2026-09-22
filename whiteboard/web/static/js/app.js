@@ -103,6 +103,9 @@ class App {
     // 像素橡皮擦一笔下去是「删掉原来那条、补上切剩的几段」，整个拖动过程攒在一起
     // 才是一次撤销
     this.pixelBatch = { removed: [], added: [] };
+    // 擦除产生的操作先攒在这里，每帧发一次，见 queueErase
+    this.eraseQueue = { remove: new Map(), add: new Map() };
+    this.eraseFlush = 0;
     this.viewAnim = 0;
     this.pendingRestored = false;
 
@@ -403,10 +406,11 @@ class App {
         const removed = this.state.remove(ids);
         this.eraseBatch.push(...removed);
         this.renderer.requestFull();
-        this.net.sendOp({ op: "remove", ids });
+        this.queueErase(removed, []);
         return ids;
       },
       onEraseEnd: () => {
+        this.flushErase();
         const cut = this.pixelBatch;
         if (cut.removed.length) {
           this.pushUndo({ type: "split", removed: cut.removed, added: cut.added });
@@ -494,7 +498,11 @@ class App {
     const [fromX, fromY] = from || [x, y];
     const removed = [];
     const added = [];
-    for (const stroke of this.state.strokes.slice()) {
+    // 只看扫过的那几格里的笔画。以前是每个事件把整块白板过一遍，笔画一多，
+    // 擦得越快每个事件要走的距离越长、要比的笔画却一点没少。
+    // near() 拿到的是候选，精确判定照旧在 splitStroke 里做。
+    const candidates = this.state.near(fromX, fromY, x, y, radius);
+    for (const stroke of candidates) {
       const runs = splitStroke(stroke, fromX, fromY, x, y, radius);
       if (runs === null) continue;
       const base = plainStroke(stroke);
@@ -505,11 +513,8 @@ class App {
 
     const ids = removed.map((s) => s.id);
     this.state.remove(ids);
-    this.net.sendOp({ op: "remove", ids });
-    if (added.length) {
-      this.state.add(added.map((s) => ({ ...s })));
-      this.net.sendOp({ op: "restore", strokes: added });
-    }
+    if (added.length) this.state.add(added.map((s) => ({ ...s })));
+    this.queueErase(removed, added);
     // 一次拖动里切出来的段还可能被再切一次。撤销记录只保留最外面那一层：
     // removed 是这次拖动开始前就存在的那些，added 是此刻还留在板上的那些，
     // 中途产生又被切掉的段两边都不进。
@@ -522,6 +527,40 @@ class App {
     this.pixelBatch.added.push(...added);
     this.renderer.requestFull();
     return ids;
+  }
+
+  /**
+   * 擦除产生的操作攒起来每帧发一次，而不是每个指针事件发一条。
+   *
+   * 擦得快的时候指针事件本来就密（iPad 上 120Hz），像素橡皮擦一次还要发
+   * 「删掉原来那条」加「补上切剩的几段」两条，一次拖动能发出两百多条、上百 KB。
+   * 攒一帧再发，顺带把「这一帧里刚切出来又被再切掉」的段两边对消掉，
+   * 那些段从来没出现在别的设备上，根本不用发。
+   */
+  queueErase(removed, added) {
+    const queue = this.eraseQueue;
+    for (const stroke of removed) {
+      if (queue.add.has(stroke.id)) queue.add.delete(stroke.id);
+      else queue.remove.set(stroke.id, stroke);
+    }
+    for (const stroke of added) queue.add.set(stroke.id, stroke);
+    if (!this.eraseFlush) {
+      this.eraseFlush = requestAnimationFrame(() => this.flushErase());
+    }
+  }
+
+  flushErase() {
+    if (this.eraseFlush) {
+      cancelAnimationFrame(this.eraseFlush);
+      this.eraseFlush = 0;
+    }
+    const queue = this.eraseQueue;
+    const ids = [...queue.remove.keys()];
+    const strokes = [...queue.add.values()];
+    queue.remove.clear();
+    queue.add.clear();
+    if (ids.length) this.net.sendOp({ op: "remove", ids });
+    if (strokes.length) this.net.sendOp({ op: "restore", strokes });
   }
 
   applyHistory(action, undoing) {
