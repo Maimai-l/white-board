@@ -32,6 +32,7 @@ const KIND_NAMES = { board: "白板", note: "笔记", doc: "文档" };
 const PERMISSIONS = [
   { key: "manage", title: "管理白板", note: "切换、新建或删除白板" },
   { key: "settings", title: "设置白板", note: "背景纹理" },
+  { key: "clear", title: "清空白板", note: "" },
   { key: "export", title: "导出白板", note: "" }, // 没有必要写note, 而且UI上的文字需要仔细推敲的, 不是让你在上面写random prose的, 比如至少短语结构应该统一
 ];
 
@@ -249,7 +250,9 @@ export class UI {
     this.undoButton = iconButton("undo", "撤销", () => this.actions.onUndo());
     this.redoButton = iconButton("redo", "重做", () => this.actions.onRedo());
     bar.append(this.undoButton, this.redoButton);
-    bar.append(iconButton("trash", "清屏", () => this.confirmClear(), "danger"));
+    if (this.may("clear")) {
+      bar.append(iconButton("trash", "清空白板", () => this.confirmClear(), "danger"));
+    }
   }
 
   /* ------------------------------------------------ 笔具盘（beta） */
@@ -267,6 +270,7 @@ export class UI {
       pk.onChange = (state) => this.onPickerChange(state);
       pk.onUndo = () => this.actions.onUndo();
       pk.onRedo = () => this.actions.onRedo();
+      pk.allowClear = this.may("clear");
       pk.onClear = () => this.confirmClear();
       pk.onLeave = () => this.setPicker(false);
       pk.applyState({
@@ -748,15 +752,20 @@ export class UI {
     }
   }
 
-  confirm(iconName, onYes) {
+  /** 问一句再动手。``question`` 就是那句话，图标只是陪衬。 */
+  confirm(iconName, question, onYes) {
     const scrim = el("div", { class: "scrim", onclick: () => scrim.remove() });
-    const dialog = el("div", { class: "dialog" }, [
-      el("div", { html: icon(iconName), style: { color: "var(--error)" } }),
-      iconButton("close", "取消", () => scrim.remove()),
-      iconButton("check", "确定", () => {
-        scrim.remove();
-        onYes();
-      }),
+    const dialog = el("div", { class: "dialog ask" }, [
+      el("div", { class: "ask-icon", html: icon(iconName, 28) }),
+      el("p", { class: "ask-text", text: question }),
+      el("div", { class: "ask-actions" }, [
+        iconButton("close", "取消", () => scrim.remove()),
+        // 要动手的那个染成警示色，两个灰勾灰叉分不清谁是谁
+        iconButton("check", "确定", () => {
+          scrim.remove();
+          onYes();
+        }, "danger"),
+      ]),
     ]);
     scrim.append(dialog);
     dialog.addEventListener("click", (event) => event.stopPropagation());
@@ -764,7 +773,7 @@ export class UI {
   }
 
   confirmClear() {
-    this.confirm("trash", () => this.actions.onClear());
+    this.confirm("trash", "清空白板？", () => this.actions.onClear());
   }
 
   // ------------------------------------------------------------- 侧板
@@ -920,7 +929,7 @@ export class UI {
           title: "删除白板",
           onclick: (event) => {
             event.stopPropagation();
-            this.confirm("trash", () => this.actions.onDeleteBoard(board.id));
+            this.confirm("trash", "删除白板？", () => this.actions.onDeleteBoard(board.id));
           },
         })
       );

@@ -21,6 +21,8 @@ const FLING_MAX = 4;
 const FLING_TAU = 220; // 衰减时间常数，越大滑得越远
 const FLING_STOP = 0.015;
 const WHEEL_SETTLE = 220;
+// ctrl + 滚轮缩放时，单个事件的 deltaY 上限（鼠标滚轮一格是 100，触控板只有几像素）
+const WHEEL_ZOOM_MAX = 25;
 
 const SMOOTH_PEN = 0.45;
 const SMOOTH_MOUSE = 0.6;
@@ -65,6 +67,7 @@ export class InputController {
     this.canceled = null;
     this.momentum = 0;
     this._wheelTimer = 0;
+    this._pinch = null;
     this._rect = null;
 
     const stage = this.stage;
@@ -74,6 +77,13 @@ export class InputController {
     stage.addEventListener("pointercancel", (e) => this.onUp(e, true));
     stage.addEventListener("pointerleave", (e) => this.onLeave(e));
     stage.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
+    // 触控板捏合：Chrome / Firefox 发的是 ctrl + wheel（在 onWheel 里），
+    // WebKit（Safari 和 Mac 窗口用的 WKWebView）发的是这套非标准的 gesture 事件，
+    // 两条路都得接，不然 Mac 应用里捏合是没反应的。挂在 window 上：应用窗口里
+    // 任何地方都不该缩放网页本身，哪怕指针停在工具栏上。
+    window.addEventListener("gesturestart", (e) => this.onPinchStart(e), { passive: false });
+    window.addEventListener("gesturechange", (e) => this.onPinch(e), { passive: false });
+    window.addEventListener("gestureend", (e) => this.onPinchEnd(e), { passive: false });
     stage.addEventListener("contextmenu", (e) => e.preventDefault());
 
     // iPadOS 上光有 touch-action: none 还不够：书写快一点，Safari 的选择 / 查词
@@ -636,12 +646,51 @@ export class InputController {
     clearTimeout(this._wheelTimer);
     this._wheelTimer = setTimeout(() => this.hooks.onGestureEnd?.(), WHEEL_SETTLE);
     const [x, y] = this.toScreen(event);
+    const factor = event.deltaMode === 1 ? 16 : 1;
     if (event.ctrlKey || event.metaKey) {
-      this.viewport.zoomAt(Math.exp(-event.deltaY * 0.01), x, y);
+      // 触控板捏合一次只来几个像素，鼠标滚轮一格就是 100：不夹住的话，
+      // 滚轮一格直接缩掉三分之二。夹到一格约等于按一次缩放按钮。
+      const step = clamp(event.deltaY * factor, -WHEEL_ZOOM_MAX, WHEEL_ZOOM_MAX);
+      this.viewport.zoomAt(Math.exp(-step * 0.01), x, y);
     } else {
-      const factor = event.deltaMode === 1 ? 16 : 1;
       this.viewport.panBy(-event.deltaX * factor, -event.deltaY * factor);
     }
     this.hooks.onViewChange();
+  }
+
+  /* ---------------- 触控板捏合（WebKit 的 gesture 事件） ---------------- */
+
+  onPinchStart(event) {
+    event.preventDefault(); // 不让浏览器去缩放网页本身
+    this._pinch = null;
+    // iPad 上的双指缩放是自己用 pointer 事件做的，WebKit 同时还会发这套 gesture
+    // 事件，不挡住就会缩两次。手上有指针就说明是屏幕上的手势，这里不接。
+    if (this.gesture || this.pointers.size) return;
+    // 指针停在工具栏、面板上时只拦默认行为，不动画布
+    if (event.target && event.target.closest && event.target.closest("#ui")) return;
+    this.stopMomentum();
+    clearTimeout(this._wheelTimer);
+    this._wheelTimer = 0;
+    // event.scale 是从手势开始算起的累计倍数，这里记着上一次的值算增量
+    this._pinch = { scale: event.scale || 1 };
+  }
+
+  onPinch(event) {
+    event.preventDefault();
+    if (!this._pinch) return;
+    const scale = event.scale || 1;
+    const ratio = this._pinch.scale > 0 ? scale / this._pinch.scale : 1;
+    this._pinch.scale = scale;
+    if (!Number.isFinite(ratio) || ratio <= 0) return;
+    const [x, y] = this.toScreen(event);
+    this.viewport.zoomAt(ratio, x, y);
+    this.hooks.onViewChange();
+  }
+
+  onPinchEnd(event) {
+    event.preventDefault();
+    if (!this._pinch) return;
+    this._pinch = null;
+    this.hooks.onGestureEnd?.();  // 和松手一样，给一次吸附的机会
   }
 }

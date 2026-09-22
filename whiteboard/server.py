@@ -46,6 +46,10 @@ def detect_role(user_agent: str, override: Optional[str] = None) -> str:
     return "mac"
 
 
+# 这几项只有 Mac 那套界面里才有入口，iPad 端连按钮都没有。
+_MAC_ONLY = frozenset({"manage", "settings"})
+
+
 def permissions(request: web.Request) -> FrozenSet[str]:
     """这个请求被允许做哪几件事。
 
@@ -359,8 +363,14 @@ class _Session:
         self.client_id = "-"
 
     def _may(self, permission: str) -> bool:
-        """能不能做这件事。既要是 Mac 那套界面，也要这条连接拿到了这个权限。"""
-        return self.client.role == "mac" and permission in self.client.allowed
+        """能不能做这件事：这条连接拿到了这个权限，并且界面上确实有这个入口。
+
+        白板管理只在 Mac 那套界面里做，所以多一道 role 判断；清屏两边都有按钮，
+        只看权限。
+        """
+        if permission in _MAC_ONLY and self.client.role != "mac":
+            return False
+        return permission in self.client.allowed
 
     async def dispatch(self, msg: Dict[str, Any]) -> None:
         kind = msg.get("t")
@@ -437,8 +447,12 @@ class _Session:
     async def _op(self, msg: Dict[str, Any]) -> None:
         raw = msg.get("op")
         runtime = self.hub.board()
-        if isinstance(raw, dict) and raw.get("op") == "meta" and not self._may("settings"):
-            raw = None  # 背景这些属于白板设置
+        if isinstance(raw, dict):
+            kind = raw.get("op")
+            if kind == "meta" and not self._may("settings"):
+                raw = None  # 背景这些属于白板设置
+            elif kind == "clear" and not self._may("clear"):
+                raw = None  # 一下把整块白板抹掉，单独一项权限
         op = runtime.apply(raw) if raw is not None else None
         cid = msg.get("cid")
         if op is None:

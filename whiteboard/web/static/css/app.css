@@ -779,6 +779,18 @@ body.dropping::after {
 }
 .notice svg { flex: 0 0 auto; color: var(--primary); }
 
+/* 问一句再动手：图标、一句话、两个按钮，竖着排 */
+.dialog.ask {
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px 28px 18px;
+  min-width: 220px;
+  text-align: center;
+}
+.ask-icon { color: var(--error); display: flex; }
+.ask-text { margin: 0; font-size: 15px; color: var(--on-surface); }
+.ask-actions { display: flex; gap: 12px; }
+
 .dialog {
   position: absolute; left: 50%; top: 50%;
   transform: translate(-50%, -50%);

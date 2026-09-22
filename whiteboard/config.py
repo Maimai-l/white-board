@@ -19,7 +19,7 @@ DEFAULT_PORT = 8848
 APP_NAME = "Whiteboard"
 
 # 局域网上别的设备可以被授予的权限。名字同时是配置的键和界面上的分组。
-REMOTE_PERMISSIONS = ("manage", "settings", "export")
+REMOTE_PERMISSIONS = ("manage", "settings", "clear", "export")
 
 
 def app_support_dir() -> Path:

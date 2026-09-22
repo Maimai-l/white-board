@@ -819,8 +819,11 @@ function makeClass(Base) {
     _popHTML(kind) {
       const html = super._popHTML(kind);
       if (kind !== "more") return html;
+      // 清空白板是一项单独的权限，白板那边没给就别把这一行画出来
       const rows =
-        `<button type="button" class="pk-row" data-wb="clear"><span>清屏</span></button>` +
+        (this.allowClear === false
+          ? ""
+          : `<button type="button" class="pk-row" data-wb="clear"><span>清空白板</span></button>`) +
         `<button type="button" class="pk-row" data-wb="leave"><span>换回普通工具栏</span></button>`;
       return html.replace(/<\/div>$/, rows + "</div>");
     }

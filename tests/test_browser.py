@@ -128,7 +128,7 @@ def test_undo_erase_and_clear(browser, server):
     mac.click('button[title="钢笔"]')
     draw(mac, [(300, 300), (380, 340)], pointer_type="mouse")
     wait_strokes(ipad, 1)
-    ipad.click('button[title="清屏"]')
+    ipad.click('button[title="清空白板"]')
     ipad.click('.dialog button[title="确定"]')
     wait_strokes(mac, 0)
     ipad.click('button[title="撤销"]')
@@ -631,7 +631,7 @@ def test_release_notes_are_escaped(browser, server):
 # 「关于」「连接 iPad」「存储目录」这几段只有本地进程里才有意义，界面按
 # window.pywebview 在不在来决定给不给，所以要在页面加载之前就把它放好。
 NATIVE_STUB = """
-  window.__perms = { manage: false, settings: false, export: false };
+  window.__perms = { manage: false, settings: false, clear: false, export: false };
   window.pywebview = { api: {
     info: async () => ({ native: true, version: '0.9.4', packaged: true,
       data_dir: '/tmp/boards',
@@ -644,6 +644,9 @@ NATIVE_STUB = """
     },
   }};
 """
+
+
+ALL_PERMS = 'data-perms="clear export manage settings"'
 
 
 def as_native(page):
@@ -689,17 +692,18 @@ def test_permission_switches_are_separate(browser, server):
     mac.wait_for_selector(".sheet .perm-row")
 
     rows = "() => [...document.querySelectorAll('.sheet .perm-row input')].map(i => i.checked)"
-    assert mac.evaluate(rows) == [False, False, False]
+    assert mac.evaluate(rows) == [False, False, False, False]
     assert mac.evaluate(
         "() => [...document.querySelectorAll('.sheet .perm-title')].map(s => s.textContent)"
-    ) == ["管理白板", "设置白板", "导出白板"]
+    ) == ["管理白板", "设置白板", "清空白板", "导出白板"]
 
-    mac.locator(".sheet .perm-row input").nth(2).click()
+    mac.locator(".sheet .perm-row input").nth(3).click()
     mac.wait_for_function("() => whiteboard.ui.info.remote_permissions.export === true")
-    assert mac.evaluate(rows) == [False, False, True]
+    assert mac.evaluate(rows) == [False, False, False, True]
     assert mac.evaluate("() => window.__perms") == {
         "manage": False,
         "settings": False,
+        "clear": False,
         "export": True,
     }
     mac.close()
@@ -719,7 +723,7 @@ def test_the_ui_only_draws_the_entries_it_is_allowed(browser, server):
     # 装成局域网里的别的设备：把服务端发下来的那份清单改成只有 export
     def only_export(route):
         response = route.fetch()
-        body = response.text().replace('data-perms="export manage settings"', 'data-perms="export"')
+        body = response.text().replace(ALL_PERMS, 'data-perms="export"')
         route.fulfill(response=response, body=body)
 
     index = re.compile(r"^http://127\.0\.0\.1:\d+/(\?.*)?$")
@@ -735,13 +739,125 @@ def test_the_ui_only_draws_the_entries_it_is_allowed(browser, server):
 
     def no_perms(route):
         response = route.fetch()
-        body = response.text().replace('data-perms="export manage settings"', 'data-perms=""')
+        body = response.text().replace(ALL_PERMS, 'data-perms=""')
         route.fulfill(response=response, body=body)
 
     mac.route(index, no_perms)
     mac.reload()
     mac.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
     assert mac.evaluate("() => !document.getElementById('topright')")
+    mac.close()
+    ipad.close()
+
+
+def test_clear_asks_before_it_wipes_the_board(browser, server):
+    """垃圾桶点开要说清楚问的是什么，别让人对着一个图标猜。"""
+    mac, ipad = open_pages(browser, server.port)
+    draw(ipad, [(300, 300), (380, 340)])
+    wait_strokes(mac, 1)
+
+    ipad.click('button[title="清空白板"]')
+    ask = ipad.wait_for_selector(".dialog.ask")
+    assert ipad.locator(".dialog.ask .ask-text").inner_text() == "清空白板？"
+    ipad.click('.dialog button[title="取消"]')
+    assert stroke_count(ipad) == 1  # 取消就是什么都没发生
+
+    ipad.click('button[title="清空白板"]')
+    ipad.click('.dialog button[title="确定"]')
+    wait_strokes(mac, 0)
+
+    # 白板列表里那个垃圾桶问的是另一件事
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title^="笔记"]')
+    mac.click('button[title="白板"]')
+    mac.locator(".board-card").first.hover()  # 删除按钮悬停才出来
+    mac.locator(".board-card .del").first.click()
+    mac.wait_for_selector(".dialog.ask")
+    assert mac.locator(".dialog.ask .ask-text").inner_text() == "删除白板？"
+    mac.close()
+    ipad.close()
+
+
+def test_clear_button_disappears_without_the_permission(browser, server):
+    """没给清空权限的设备，工具栏上连这个按钮都没有。"""
+    mac, ipad = open_pages(browser, server.port)
+    assert ipad.locator('button[title="清空白板"]').count() == 1
+
+    index = re.compile(r"^http://127\.0\.0\.1:\d+/(\?.*)?$")
+
+    def without_clear(route):
+        response = route.fetch()
+        body = response.text().replace(ALL_PERMS, 'data-perms="export manage settings"')
+        route.fulfill(response=response, body=body)
+
+    ipad.route(index, without_clear)
+    ipad.reload()
+    ipad.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    assert ipad.locator('button[title="清空白板"]').count() == 0
+    assert ipad.locator('button[title="撤销"]').count() == 1  # 别的按钮照旧
+    mac.close()
+    ipad.close()
+
+
+def test_trackpad_pinch_zooms(browser, server):
+    """触控板捏合：WebKit 发的是 gesture 事件，Chrome 发的是 ctrl + wheel，两条都要认。"""
+    mac, ipad = open_pages(browser, server.port)
+    read = "() => whiteboard.viewport.scale"
+    mac.evaluate("() => { whiteboard.viewport.scale = 1; whiteboard.renderer.requestFull(); }")
+
+    # WebKit 那套：scale 是从手势开始算起的累计倍数
+    mac.evaluate(
+        """() => {
+          const stage = document.getElementById('stage');
+          const fire = (type, scale) => stage.dispatchEvent(Object.assign(
+            new Event(type, { bubbles: true, cancelable: true }),
+            { scale, rotation: 0, clientX: 600, clientY: 400 }));
+          fire('gesturestart', 1);
+          fire('gesturechange', 1.5);
+          fire('gesturechange', 2);
+          fire('gestureend', 2);
+        }"""
+    )
+    assert abs(mac.evaluate(read) - 2) < 0.05
+
+    # Chrome 那套：ctrl + wheel，一格鼠标滚轮（deltaY 100）会被夹住，不会一下缩掉三分之二
+    mac.evaluate("() => { whiteboard.viewport.scale = 1; }")
+    mac.evaluate(
+        """() => document.getElementById('stage').dispatchEvent(new WheelEvent('wheel', {
+          deltaY: 100, ctrlKey: true, clientX: 600, clientY: 400,
+          bubbles: true, cancelable: true }))"""
+    )
+    after = mac.evaluate(read)
+    assert 0.7 < after < 0.85, after
+
+    mac.evaluate("() => { whiteboard.viewport.scale = 1; }")
+    mac.evaluate(
+        """() => document.getElementById('stage').dispatchEvent(new WheelEvent('wheel', {
+          deltaY: -6, ctrlKey: true, clientX: 600, clientY: 400,
+          bubbles: true, cancelable: true }))"""
+    )
+    assert mac.evaluate(read) > 1  # 捏开就是放大
+
+    # 指针停在工具栏上时不动画布（浏览器的整页缩放仍然被拦下）
+    mac.evaluate("() => { whiteboard.viewport.scale = 1; }")
+    pinch = """(where) => {
+      const node = document.querySelector(where);
+      const fire = (type, scale) => node.dispatchEvent(Object.assign(
+        new Event(type, { bubbles: true, cancelable: true }),
+        { scale, rotation: 0, clientX: 600, clientY: 400 }));
+      fire('gesturestart', 1);
+      fire('gesturechange', 2);
+      fire('gestureend', 2);
+    }"""
+    mac.evaluate(pinch, "#toolbar")
+    assert mac.evaluate(read) == 1
+
+    # iPad 上双指是自己用 pointer 事件做的，WebKit 还会同时发 gesture，别缩两次
+    ipad.evaluate("() => { whiteboard.viewport.scale = 1; whiteboard.input.gesture = {}; }")
+    ipad.evaluate(pinch, "#stage")
+    assert ipad.evaluate(read) == 1
+    ipad.evaluate("() => { whiteboard.input.gesture = null; }")
     mac.close()
     ipad.close()
 

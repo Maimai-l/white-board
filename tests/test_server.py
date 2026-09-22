@@ -615,7 +615,7 @@ def test_this_machine_gets_every_permission(tmp_path):
     async def main():
         async with make_client(tmp_path) as (client, _app):
             body = await (await client.get("/")).text()
-            assert 'data-perms="export manage settings"' in body
+            assert 'data-perms="clear export manage settings"' in body
 
     run(main())
 
@@ -699,6 +699,47 @@ def test_remote_device_cannot_manage_over_websocket(tmp_path, remote):
             ack = await ws.receive_json()
             assert ack["op"]["op"] == "add"
             await ws.close()
+
+    run(main())
+
+
+def test_remote_device_cannot_clear_until_allowed(tmp_path, remote):
+    """清空白板单独一项权限：没给之前，别的设备连 iPad 那套界面也清不掉。"""
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            ws = await client.ws_connect("/ws")
+            await hello(ws, "ipad", client_id="pad-1")
+            add = {
+                "t": "op",
+                "cid": "a",
+                "op": {
+                    "op": "add",
+                    "strokes": [
+                        {"id": "s1", "tool": "pen", "color": "#000000", "w": 2,
+                         "p": [0, 0, 0.5, 1, 1, 0.5]}
+                    ],
+                },
+            }
+            await ws.send_json(add)
+            await ws.receive_json()
+            assert len(hub.board().strokes) == 1
+
+            await ws.send_json({"t": "op", "cid": "c", "op": {"op": "clear"}})
+            ack = await ws.receive_json()
+            assert "op" not in ack  # 被丢掉了
+            assert len(hub.board().strokes) == 1
+
+            app[CONFIG_KEY].set_remote_permission("clear", True)
+            ws2 = await client.ws_connect("/ws")  # 权限在连接建立时定下，要重连才生效
+            await hello(ws2, "ipad", client_id="pad-2")
+            await ws2.send_json({"t": "op", "cid": "c", "op": {"op": "clear"}})
+            ack = await ws2.receive_json()
+            assert ack["op"]["op"] == "clear"
+            assert not hub.board().strokes
+
+            await ws.close()
+            await ws2.close()
 
     run(main())
 
