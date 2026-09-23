@@ -47,7 +47,8 @@ export function plainStroke(stroke) {
     n: stroke.n,
     dev: stroke.dev,
   };
-  // 没被橡皮切过的笔画不带这个字段，省得每一笔都多一个 0
+  // 没被橡皮动过的笔画不带这两个字段，省得每一笔都多一个 0 和一个空数组
   if (stroke.cut) plain.cut = stroke.cut;
+  if (stroke.m && stroke.m.length) plain.m = stroke.m.map((chain) => chain.slice());
   return plain;
 }

@@ -592,7 +592,8 @@ export class InputController {
     const erase = this.erase;
     this.erase = null;
     this.renderer.cursor = null;
-    if (erase && erase.ids.length) this.hooks.onEraseEnd(erase.ids);
+    // 一律通知抬笔：啃边不删任何笔画，ids 是空的，但撤销记录要在这里收口
+    if (erase) this.hooks.onEraseEnd(erase.ids);
   }
 
   updateCursor(event) {

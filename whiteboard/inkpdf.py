@@ -199,6 +199,38 @@ def outline_path(
     return cmds
 
 
+def mask_path(chains: Sequence[Sequence[float]], bbox: Tuple[float, float, float, float]):
+    """裁剪路径：外框减去所有胶囊，用 even-odd。
+
+    和 stroke.js 的 maskPath 对应。PDF 的 ``W* n`` 就是 even-odd 裁剪，
+    外框套着胶囊按 even-odd 算，留下的正是「框内、胶囊外」那一块，
+    所以啃掉的缺口在导出里也是真矢量，不会退化成一张栅格图。
+    """
+    x0, y0, x1, y1 = bbox
+    cmds: List[Tuple] = [
+        ("m", x0, y0), ("l", x1, y0), ("l", x1, y1), ("l", x0, y1), ("l", x0, y0),
+    ]
+    for chain in chains:
+        r = chain[0]
+        count = (len(chain) - 1) // 2
+        if count == 1:
+            cx, cy = chain[1], chain[2]
+            cmds.append(("m", cx + r, cy))
+            _arc(cmds, cx, cy, r, 0.0, 2 * math.pi)
+            continue
+        for i in range(count - 1):
+            ax, ay = chain[1 + i * 2], chain[2 + i * 2]
+            bx, by = chain[3 + i * 2], chain[4 + i * 2]
+            a = math.atan2(by - ay, bx - ax) + math.pi / 2
+            # 一段一个独立子路径，绕向一致，even-odd 下正好抠掉它们的并集
+            cmds.append(("m", ax + math.cos(a) * r, ay + math.sin(a) * r))
+            cmds.append(("l", bx + math.cos(a) * r, by + math.sin(a) * r))
+            _arc(cmds, bx, by, r, a, -math.pi)
+            cmds.append(("l", ax + math.cos(a - math.pi) * r, ay + math.sin(a - math.pi) * r))
+            _arc(cmds, ax, ay, r, a + math.pi, -math.pi)
+    return cmds
+
+
 def _line_gap(a: Tuple[float, float], b: Tuple[float, float], p: Tuple[float, float]) -> float:
     """点到线段所在直线的距离，用来判断这一段值不值得画成曲线。"""
     dx, dy = b[0] - a[0], b[1] - a[1]
@@ -269,6 +301,13 @@ def flatten(cmds: Sequence[Tuple], steps: int = 8) -> List[Tuple[float, float]]:
     return poly
 
 
+def _bounds(cmds: Sequence[Tuple]) -> Tuple[float, float, float, float]:
+    """路径的包围盒，外扩一点，给裁剪用的外框。"""
+    xs = [v for cmd in cmds for v in cmd[1::2]]
+    ys = [v for cmd in cmds for v in cmd[2::2]]
+    return (min(xs) - 1, min(ys) - 1, max(xs) + 1, max(ys) + 1)
+
+
 def _num(value: float) -> bytes:
     text = ("%.4f" % value).rstrip("0").rstrip(".")
     return (text or "0").encode("ascii")
@@ -327,6 +366,30 @@ class _Writer:
             return
         self.parts.append(b"".join(out) + b"h f\n")
 
+    def fill_clipped(
+        self, cmds: Sequence[Tuple], clip: Sequence[Tuple], color: str, alpha: float
+    ) -> None:
+        """先用 even-odd 裁剪，再填充。裁剪只在 q/Q 之间生效，不影响后面的笔画。"""
+        self.parts.append(b"q\n")
+        # 裁剪路径本身不画出来：W* 之后跟 n（什么都不画）
+        clip_out: List[bytes] = []
+        for cmd in clip:
+            if cmd[0] == "c":
+                clip_out.append(b" ".join(self._c(v) for v in cmd[1:]) + b" c\n")
+            else:
+                clip_out.append(
+                    self._c(cmd[1]) + b" " + self._c(cmd[2])
+                    + (b" m\n" if cmd[0] == "m" else b" l\n")
+                )
+        self.parts.append(b"".join(clip_out) + b"h W* n\n")
+        # q 会把图形状态一起存下来，Q 之后颜色和透明度都要重新设
+        self.color = ""
+        self.alpha = -1.0
+        self.fill(cmds, color, alpha)
+        self.parts.append(b"Q\n")
+        self.color = ""
+        self.alpha = -1.0
+
     def data(self) -> bytes:
         return b"".join(self.parts)
 
@@ -355,11 +418,16 @@ def content_stream(
         width = float(stroke.get("w", 3.0))
         points = simplify(points, epsilon(width) if eps is None else eps)
         color = stroke.get("color", "#1b1b1f")
-        cmds = [
+        shift = lambda path: [
             (cmd[0],) + tuple(v - (ox if i % 2 == 0 else oy) for i, v in enumerate(cmd[1:]))
-            for cmd in outline_path(points, tool, width, int(stroke.get("cut") or 0))
+            for cmd in path
         ]
-        writer.fill(cmds, color, alpha)
+        cmds = shift(outline_path(points, tool, width, int(stroke.get("cut") or 0)))
+        chains = stroke.get("m") or []
+        if chains:
+            writer.fill_clipped(cmds, shift(mask_path(chains, _bounds(cmds))), color, alpha)
+        else:
+            writer.fill(cmds, color, alpha)
 
     body = writer.data()
     if not body:

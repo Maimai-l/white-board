@@ -211,6 +211,8 @@ export function strokeBBox(stroke) {
 export function drawStroke(ctx, stroke) {
   const style = TOOLS[stroke.tool] || TOOLS.pen;
   ctx.save();
+  // 被橡皮啃过的笔画：先把遮罩裁掉。仍然只 fill 一次，半透明的笔重叠不会变深。
+  if (stroke.m && stroke.m.length) ctx.clip(maskPath(stroke), "evenodd");
   ctx.fillStyle = stroke.color;
   if (style.alpha < 1) ctx.globalAlpha = style.alpha;
   ctx.fill(buildPath(stroke));
@@ -226,8 +228,33 @@ function pointSegmentDistance(px, py, ax, ay, bx, by) {
   return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
 }
 
-/** 橡皮擦命中判定：整笔擦除，判定用点到线段的距离。 */
+/** 这个位置的墨迹是不是已经被遮罩啃掉了。 */
+export function maskCovers(stroke, x, y) {
+  for (const chain of stroke.m || []) {
+    const r = chain[0];
+    const count = (chain.length - 1) / 2;
+    if (count === 1) {
+      if (Math.hypot(chain[1] - x, chain[2] - y) <= r) return true;
+      continue;
+    }
+    for (let i = 0; i + 1 < count; i++) {
+      const d = pointSegmentDistance(
+        x, y, chain[1 + i * 2], chain[2 + i * 2], chain[3 + i * 2], chain[4 + i * 2]
+      );
+      if (d <= r) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 橡皮擦命中判定：整笔擦除，判定用点到线段的距离。
+ *
+ * 点在已经被啃掉的地方不算命中——那里看着是空的，点下去却删掉一整条笔画
+ * 会很突兀。
+ */
 export function strokeHit(stroke, x, y, radius) {
+  if (stroke.m && stroke.m.length && maskCovers(stroke, x, y)) return false;
   const bbox = strokeBBox(stroke);
   if (x < bbox.x0 - radius || x > bbox.x1 + radius) return false;
   if (y < bbox.y0 - radius || y > bbox.y1 + radius) return false;
@@ -344,4 +371,208 @@ export function splitStroke(stroke, x0, y0, x1, y1, radius) {
   if (!touched) return null;
   // 只剩一个点的碎屑不留，擦完一地小点比没擦干净还难看
   return runs.filter((r) => r.p.length >= 6);
+}
+
+// ------------------------------------------------------------- 遮罩（啃边）
+//
+// 切笔画只能整个截面一起断，所以橡皮比笔细的时候它表达不了「削掉一条边」
+// 「正中啃一个坑」。这一类改成给笔画挂一个遮罩：记下橡皮扫过的胶囊，渲染时用
+// even-odd 裁剪把它们从轮廓里抠掉。笔画本身不动，一次填充照旧，荧光笔重叠
+// 不变深这个性质保住；PDF 里有同一套语义的 `W* n`。
+//
+// 遮罩必须稀少：实测三千笔整屏重绘，带遮罩的笔每条每帧约多 5.5 µs，两成带遮罩
+// 是 3.2 ms，全都带遮罩就要 22 ms。所以能切断的一律切断（不留遮罩），
+// 只有切不断的才记遮罩。
+
+/** 一条笔画最多挂多少段胶囊。超了就回收，见 app.js 的 bakeMask。 */
+export const MASK_LIMIT = 48;
+
+/** 两条线段是否相交。用叉积定向，共线的退化情况交给端点距离兜底。 */
+function segmentsCross(ax, ay, bx, by, cx, cy, dx, dy) {
+  const side = (px, py, qx, qy, rx, ry) =>
+    Math.sign((qx - px) * (ry - py) - (qy - py) * (rx - px));
+  const d1 = side(ax, ay, bx, by, cx, cy);
+  const d2 = side(ax, ay, bx, by, dx, dy);
+  const d3 = side(cx, cy, dx, dy, ax, ay);
+  const d4 = side(cx, cy, dx, dy, bx, by);
+  return d1 !== d2 && d3 !== d4 && d1 !== 0 && d2 !== 0 && d3 !== 0 && d4 !== 0;
+}
+
+/** 两条线段之间的最短距离。 */
+function segmentDistance(ax, ay, bx, by, cx, cy, dx, dy) {
+  if (segmentsCross(ax, ay, bx, by, cx, cy, dx, dy)) return 0;
+  return Math.min(
+    pointSegmentDistance(ax, ay, cx, cy, dx, dy),
+    pointSegmentDistance(bx, by, cx, cy, dx, dy),
+    pointSegmentDistance(cx, cy, ax, ay, bx, by),
+    pointSegmentDistance(dx, dy, ax, ay, bx, by)
+  );
+}
+
+/**
+ * 中心线离这条扫掠线段最近有多远，以及那里的半宽。
+ *
+ * 量的是**线段到线段**的距离，不是采样点到线段——采样点之间能隔十几个单位，
+ * 橡皮从两点中间穿过去时，两个端点离它都很远，只看点会得出「没碰到」。
+ */
+function halfWidthNear(stroke, x0, y0, x1, y1) {
+  const flat = stroke.p;
+  const count = (flat.length / 3) | 0;
+  const radiusAt = (i) => Math.max(0.35, strokeRadius(stroke.tool, stroke.w, flat[i * 3 + 2]));
+  if (count === 1) {
+    return {
+      half: radiusAt(0),
+      dist: pointSegmentDistance(flat[0], flat[1], x0, y0, x1, y1),
+    };
+  }
+  let best = Infinity;
+  let half = radiusAt(0);
+  for (let i = 0; i + 1 < count; i++) {
+    const d = segmentDistance(
+      flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 3], flat[i * 3 + 4],
+      x0, y0, x1, y1
+    );
+    if (d < best) {
+      best = d;
+      half = Math.max(radiusAt(i), radiusAt(i + 1));
+    }
+  }
+  return { half, dist: best };
+}
+
+/**
+ * 这一下橡皮对这条笔画该怎么处理。
+ *
+ * * ``"split"``：橡皮不比笔细，能把截面整个切断——走切笔画，不留遮罩。
+ * * ``"bite"``：橡皮比笔细，只能啃掉一块——记进遮罩。
+ * * ``null``：根本没碰到墨迹。
+ */
+export function eraseKind(stroke, x0, y0, x1, y1, radius) {
+  const bbox = strokeBBox(stroke);
+  if (Math.max(x0, x1) + radius < bbox.x0 || Math.min(x0, x1) - radius > bbox.x1) return null;
+  if (Math.max(y0, y1) + radius < bbox.y0 || Math.min(y0, y1) - radius > bbox.y1) return null;
+  const { half, dist } = halfWidthNear(stroke, x0, y0, x1, y1);
+  if (dist > radius + half) return null;
+  return radius >= half ? "split" : "bite";
+}
+
+/** 一段胶囊（``[r, x0, y0, x1, y1, ...]``）的包围盒。 */
+function chainBBox(chain) {
+  const r = chain[0];
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (let i = 1; i + 1 < chain.length; i += 2) {
+    if (chain[i] < x0) x0 = chain[i];
+    if (chain[i] > x1) x1 = chain[i];
+    if (chain[i + 1] < y0) y0 = chain[i + 1];
+    if (chain[i + 1] > y1) y1 = chain[i + 1];
+  }
+  return { x0: x0 - r, y0: y0 - r, x1: x1 + r, y1: y1 + r };
+}
+
+/** 这段胶囊是不是整条都落在 ``(x0,y0)-(x1,y1)`` 半径 ``radius`` 的胶囊里。 */
+function chainInside(chain, x0, y0, x1, y1, radius) {
+  if (chain[0] > radius) return false;
+  const slack = radius - chain[0];
+  for (let i = 1; i + 1 < chain.length; i += 2) {
+    if (pointSegmentDistance(chain[i], chain[i + 1], x0, y0, x1, y1) > slack) return false;
+  }
+  return true;
+}
+
+/**
+ * 往笔画的遮罩里加一段橡皮扫掠。改了返回 ``true``。
+ *
+ * 同一次拖动里的连续几段会接成一条链（上一段的终点就是这一段的起点），
+ * 顺带把被新胶囊整个盖住的旧段丢掉——来回涂同一块地方是遮罩堆积的主要来源。
+ */
+export function addMask(stroke, x0, y0, x1, y1, radius) {
+  const chains = (stroke.m || []).filter((c) => !chainInside(c, x0, y0, x1, y1, radius));
+  const last = chains[chains.length - 1];
+  const sameSweep =
+    last &&
+    Math.abs(last[0] - radius) < 1e-6 &&
+    Math.abs(last[last.length - 2] - x0) < 1e-6 &&
+    Math.abs(last[last.length - 1] - y0) < 1e-6;
+  if (sameSweep) last.push(x1, y1);
+  else chains.push([radius, x0, y0, x1, y1]);
+  stroke.m = chains;
+  stroke._mask = null;
+  return true;
+}
+
+/** 遮罩里总共有多少段胶囊。 */
+export function maskSize(stroke) {
+  let total = 0;
+  for (const chain of stroke.m || []) total += Math.max(1, (chain.length - 3) / 2);
+  return total;
+}
+
+/** 把一段胶囊加进路径：两侧直边 + 两头半圆。 */
+function capsule(path, chain) {
+  const r = chain[0];
+  const count = (chain.length - 1) / 2;
+  if (count === 1) {
+    path.moveTo(chain[1] + r, chain[2]);
+    path.arc(chain[1], chain[2], r, 0, TAU);
+    return;
+  }
+  for (let i = 0; i + 1 < count; i++) {
+    const ax = chain[1 + i * 2];
+    const ay = chain[2 + i * 2];
+    const bx = chain[3 + i * 2];
+    const by = chain[4 + i * 2];
+    const a = Math.atan2(by - ay, bx - ax) + Math.PI / 2;
+    // 一段一个独立子路径，绕向一致，even-odd 下正好抠掉它们的并集
+    path.moveTo(ax + Math.cos(a) * r, ay + Math.sin(a) * r);
+    path.lineTo(bx + Math.cos(a) * r, by + Math.sin(a) * r);
+    path.arc(bx, by, r, a, a - Math.PI, true);
+    path.lineTo(ax + Math.cos(a - Math.PI) * r, ay + Math.sin(a - Math.PI) * r);
+    path.arc(ax, ay, r, a + Math.PI, a, true);
+    path.closePath();
+  }
+}
+
+/**
+ * 裁剪路径：笔画包围盒减去所有胶囊，用 even-odd。
+ *
+ * 外框套着胶囊、按 even-odd 填充，得到的就是「框内、胶囊外」那一块。
+ */
+export function maskPath(stroke) {
+  if (stroke._mask) return stroke._mask;
+  const bbox = strokeBBox(stroke);
+  const path = new Path2D();
+  path.rect(bbox.x0 - 1, bbox.y0 - 1, bbox.x1 - bbox.x0 + 2, bbox.y1 - bbox.y0 + 2);
+  for (const chain of stroke.m) capsule(path, chain);
+  stroke._mask = path;
+  return path;
+}
+
+/** 遮罩覆盖到的范围，用来标脏矩形：啃一口不用重画整条笔画。 */
+export function maskBounds(chains) {
+  let box = null;
+  for (const chain of chains) {
+    const b = chainBBox(chain);
+    if (!box) box = { ...b };
+    else {
+      box.x0 = Math.min(box.x0, b.x0);
+      box.y0 = Math.min(box.y0, b.y0);
+      box.x1 = Math.max(box.x1, b.x1);
+      box.y1 = Math.max(box.y1, b.y1);
+    }
+  }
+  return box;
+}
+
+/** 把遮罩里和这一段点列不沾边的胶囊去掉：切笔画之后每一段只留自己用得上的。 */
+export function maskFor(chains, bbox) {
+  const kept = [];
+  for (const chain of chains) {
+    const b = chainBBox(chain);
+    if (b.x1 < bbox.x0 || b.x0 > bbox.x1 || b.y1 < bbox.y0 || b.y0 > bbox.y1) continue;
+    kept.push(chain.slice());
+  }
+  return kept;
 }

@@ -473,3 +473,49 @@ def test_export_honours_cut_ends(tmp_path):
     body_plain, _ = inkpdf.content_stream([plain], (0.0, 0.0))
     body_cut, _ = inkpdf.content_stream([cut], (0.0, 0.0))
     assert body_plain != body_cut
+
+
+def test_mask_becomes_an_even_odd_clip(tmp_path):
+    """啃掉的缺口在 PDF 里是 even-odd 裁剪，仍然是矢量，不退化成栅格图。"""
+    wide = dict(stroke([(0, 0), (40, 0), (80, 0)], width=30.0))
+    bitten = dict(wide, m=[[5.0, 10.0, -12.0, 70.0, -12.0]])
+    plain_body, _ = inkpdf.content_stream([wide], (0.0, 0.0))
+    body, _ = inkpdf.content_stream([bitten], (0.0, 0.0))
+
+    assert b"W* n" in body and b"W* n" not in plain_body
+    # 裁剪收得干净，不会漏给后面的笔画（最外面那一对 q ... cm / Q 也算进去）
+    assert body.count(b"Q\n") == body.count(b"q\n") + body.count(b"q ")
+    assert b"Do" not in body and b"/Image" not in body  # 没有位图
+
+    # 裁剪之后墨迹确实少了一块
+    area = _ink_area(inkpdf.flatten(inkpdf.outline_path(
+        [(0.0, 0.0, 1.0), (40.0, 0.0, 1.0), (80.0, 0.0, 1.0)], "pen", 30.0)))
+    cut = _ink_area(inkpdf.flatten(inkpdf.mask_path(
+        bitten["m"], (-20.0, -20.0, 100.0, 20.0))))
+    assert area > 0 and cut > 0
+
+
+def _ink_area(poly):
+    """多边形面积，鞋带公式。"""
+    total = 0.0
+    for i in range(len(poly)):
+        x0, y0 = poly[i]
+        x1, y1 = poly[(i + 1) % len(poly)]
+        total += x0 * y1 - x1 * y0
+    return abs(total) / 2
+
+
+def test_mask_survives_a_save_and_load(tmp_path):
+    """遮罩要跟着笔画落盘，不然重开一次板啃掉的缺口又长回来了。"""
+    store = BoardStore(tmp_path)
+    meta = store.create_board()
+    strokes = [
+        {"id": "s0", "tool": "marker", "color": "#1b1b1f", "w": 30.0,
+         "p": [0.0, 0.0, 1.0, 40.0, 0.0, 1.0], "m": [[5.0, 10.0, -12.0, 30.0, -12.0]]},
+        {"id": "s1", "tool": "pen", "color": "#1b1b1f", "w": 3.0,
+         "p": [0.0, 50.0, 1.0, 40.0, 50.0, 1.0]},
+    ]
+    store.save_board(meta, strokes)
+    _, loaded = store.load_board(meta["id"])
+    assert loaded[0]["m"] == [[5.0, 10.0, -12.0, 30.0, -12.0]]
+    assert "m" not in loaded[1]

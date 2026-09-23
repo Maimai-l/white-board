@@ -235,6 +235,7 @@ class BoardStore:
                     "dev": s.get("dev", ""),
                     "p": codec.encode_points_b64(s["p"]),
                     **({"cut": s["cut"]} if s.get("cut") else {}),
+                    **({"m": s["m"]} if s.get("m") else {}),
                 }
                 for i, s in enumerate(strokes)
             ],

@@ -2151,3 +2151,150 @@ def test_screen_and_pdf_outlines_agree(browser, server):
 
     mac.close()
     ipad.close()
+
+
+def test_thin_eraser_bites_instead_of_cutting(browser, server):
+    """橡皮比笔细的时候只能啃掉一块，不能把整条截面切断。
+
+    切笔画只能整个截面一起断，所以「沿荧光笔上沿削一道」这种它表达不了——
+    以前的做法是把整条笔画切断，一蹭到边就消失一整截。现在这一类记成遮罩。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    setup = """([half, radius, offset]) => {
+      const p = [];
+      for (let x = 0; x <= 400; x += 10) p.push(x, 0, 1);
+      const stroke = { id: 'wide', tool: 'pen', color: '#1b1b1f', w: half * 2, p, n: 0 };
+      whiteboard.state.reset(whiteboard.state.meta, [stroke]);
+      whiteboard.net.send = () => {};
+      whiteboard.tool.eraserMode = 'pixel';
+      whiteboard.input.hooks.onErase(320, offset, radius, [80, offset]);
+      whiteboard.flushErase();
+      const now = whiteboard.state.strokes;
+      return [now.length, now[0] && now[0].id, now[0] && (now[0].m || []).length];
+    }"""
+    # 笔半宽 15、橡皮半径 5：切不断，只能沿上沿啃一道 —— 笔画还是那一条，多了遮罩
+    count, ident, chains = ipad.evaluate(setup, [15, 5, -12])
+    assert [count, ident, chains] == [1, "wide", 1]
+
+    # 同一条笔画上再啃一道，接成同一条链而不是两条
+    again = ipad.evaluate(
+        "() => { whiteboard.input.hooks.onErase(360, -12, 5, [320, -12]);"
+        " whiteboard.flushErase();"
+        " return whiteboard.state.strokes[0].m.map((c) => (c.length - 1) / 2); }"
+    )
+    assert again == [3]  # 一条链、三个点，不是两条链
+
+    # 橡皮和笔一样粗就该切断，不再记遮罩
+    count, ident, chains = ipad.evaluate(setup, [5, 6, 0])
+    assert count == 2 and chains == 0
+    ipad.evaluate("() => { whiteboard.tool.eraserMode = 'object'; }")
+    mac.close()
+    ipad.close()
+
+
+def test_bite_syncs_and_undoes(browser, server):
+    """啃出来的遮罩要同步到对端，撤销要把它收回去。"""
+    mac, ipad = open_pages(browser, server.port)
+    # 马克笔画一条粗的：笔尖那么大的橡皮切不断它，只能啃
+    ipad.evaluate(
+        "() => { whiteboard.tool.tool = 'marker'; whiteboard.tool.width = 12; }"
+    )
+    draw(ipad, [(200 + i * 20, 400) for i in range(20)], pressure=1.0)
+    wait_strokes(mac, 1)
+    ident = ipad.evaluate("() => whiteboard.state.strokes[0].id")
+    half = ipad.evaluate("() => whiteboard.state.strokes[0].w / 2")
+    assert half > 8, half  # 确实比橡皮尖（半径 3）粗得多
+
+    ipad.click('button[title="橡皮擦"]')
+    ipad.click('button[title="颜色与粗细"]')
+    ipad.click(".popover .seg button:nth-child(2)")
+    ipad.keyboard.press("Escape")
+    # 沿上沿削一道：贴着笔画边缘走，够不到中心线
+    edge = 400 - int(half) + 2
+    draw(ipad, [(300, edge), (400, edge), (500, edge)])
+
+    def chains(op):
+        return (
+            "([id]) => { const s = whiteboard.state.byId.get(id);"
+            " return !!s && (s.m || []).length %s; }" % op
+        )
+
+    ipad.wait_for_function(chains("> 0"), arg=[ident])
+    mac.wait_for_function(chains("> 0"), arg=[ident])  # 对端也收到了
+    assert ipad.evaluate("() => whiteboard.state.strokes.length") == 1  # 没被切断
+
+    ipad.click('button[title="撤销"]')
+    ipad.wait_for_function(chains("=== 0"), arg=[ident])
+    mac.wait_for_function(chains("=== 0"), arg=[ident])
+    ipad.click('button[title="重做"]')
+    ipad.wait_for_function(chains("> 0"), arg=[ident])
+    mac.close()
+    ipad.close()
+
+
+def test_mask_does_not_grow_without_bound(browser, server):
+    """遮罩不能无限堆：裁剪开销和胶囊数成正比，来回涂同一块地方是堆积的主要来源。
+
+    新胶囊整个盖住的旧胶囊直接丢掉；攒过上限就看看是不是已经啃断了，断了就
+    落实成独立笔画、把用掉的胶囊丢掉。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    scrub = """([passes]) => {
+      const p = [];
+      for (let x = 0; x <= 600; x += 10) p.push(x, 0, 1);
+      whiteboard.state.reset(whiteboard.state.meta,
+        [{ id: 'wide', tool: 'pen', color: '#1b1b1f', w: 40, p, n: 0 }]);
+      whiteboard.net.send = () => {};
+      whiteboard.tool.eraserMode = 'pixel';
+      for (let i = 0; i < passes; i++) {
+        const y = -16;
+        whiteboard.input.hooks.onErase(560, y, 6, [40, y]);   // 来回涂同一条
+        whiteboard.input.hooks.onErase(40, y, 6, [560, y]);
+      }
+      whiteboard.flushErase();
+      const s = whiteboard.state.byId.get('wide');
+      return s ? whiteboard.maskSize(s) : 0;
+    }"""
+    assert ipad.evaluate(scrub, [1]) <= 4
+    # 涂五十个来回，胶囊数不该跟着涨五十倍
+    assert ipad.evaluate(scrub, [50]) <= 8
+
+    # 啃够 MASK_LIMIT 次不同的地方，遮罩落实成切分、清空
+    baked = """() => {
+      const p = [];
+      for (let x = 0; x <= 1200; x += 10) p.push(x, 0, 1);
+      whiteboard.state.reset(whiteboard.state.meta,
+        [{ id: 'wide', tool: 'pen', color: '#1b1b1f', w: 40, p, n: 0 }]);
+      whiteboard.net.send = () => {};
+      whiteboard.tool.eraserMode = 'pixel';
+      for (let i = 0; i < 60; i++) {
+        const x = 20 + i * 20;
+        whiteboard.input.hooks.onErase(x, 16, 6, [x, -16]);  // 每次啃一个新地方
+      }
+      whiteboard.flushErase();
+      const strokes = whiteboard.state.strokes;
+      return [strokes.length, Math.max(...strokes.map((s) => whiteboard.maskSize(s)))];
+    }"""
+    count, biggest = ipad.evaluate(baked)
+    assert count > 1  # 落实成了好几条
+    assert biggest <= 48  # 没有哪一条还挂着超过上限的遮罩
+    ipad.evaluate("() => { whiteboard.tool.eraserMode = 'object'; }")
+    mac.close()
+    ipad.close()
+
+
+def test_object_eraser_ignores_bitten_away_ink(browser, server):
+    """点在已经被啃掉的地方不算命中：那里看着是空的，点下去却删掉一整条会很突兀。"""
+    mac, ipad = open_pages(browser, server.port)
+    probe = """([x, y]) => {
+      const p = [];
+      for (let i = 0; i <= 40; i++) p.push(i * 10, 0, 1);
+      const s = { id: 'wide', tool: 'pen', color: '#1b1b1f', w: 40, p,
+                  m: [[8, 100, 0, 300, 0]] };
+      return whiteboard.strokeHit(s, x, y, 3);
+    }"""
+    assert probe and ipad.evaluate(probe, [200, 0]) is False  # 正在缺口里
+    assert ipad.evaluate(probe, [200, 14]) is True  # 缺口旁边还有墨迹
+    assert ipad.evaluate(probe, [20, 0]) is True  # 没被啃过的一段
+    mac.close()
+    ipad.close()

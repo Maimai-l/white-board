@@ -89,6 +89,28 @@ class BoardRuntime:
                 self.strokes.pop(stroke_id, None)
             return self._record({"op": "remove", "ids": ids})
 
+        if kind == "mask":
+            # 遮罩发的是全量而不是增量：遮罩本来就小，全量在断线重连、乱序到达
+            # 的情况下都不会错，不用管顺序。
+            changed: List[Dict[str, Any]] = []
+            for item in raw.get("masks", [])[:2000]:
+                if not isinstance(item, dict):
+                    continue
+                stroke = self.strokes.get(item.get("id"))
+                if stroke is None:
+                    continue
+                mask = models.sanitize_mask(item.get("m"))
+                if mask == stroke.get("m", []):
+                    continue
+                if mask:
+                    stroke["m"] = mask
+                else:
+                    stroke.pop("m", None)
+                changed.append({"id": stroke["id"], "m": mask})
+            if not changed:
+                return None
+            return self._record({"op": "mask", "masks": changed})
+
         if kind == "clear":
             if not self.strokes:
                 return None

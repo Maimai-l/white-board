@@ -31,6 +31,10 @@ MAX_DOC_PAGES = 400
 TOOLS = ("pen", "marker", "highlighter")
 
 MAX_POINTS_PER_STROKE = 20000
+# 遮罩的上限。一条笔画攒到 stroke.js 的 MASK_LIMIT 就会回收，这里只是防止
+# 伪造的消息把内存撑爆，留了很宽的余量。
+MAX_MASK_CHAINS = 64
+MAX_MASK_POINTS = 256
 MIN_WIDTH = 0.5
 MAX_WIDTH = 96.0
 
@@ -186,6 +190,9 @@ def sanitize_stroke(raw: Any) -> Optional[Dict[str, Any]]:
         "p": points,
         "dev": device[:16],
     }
+    mask = sanitize_mask(raw.get("m"))
+    if mask:
+        stroke["m"] = mask
     # 橡皮切出来的端头：1 = 起点是切口，2 = 终点是切口，画平口而不是圆笔尖
     cut = raw.get("cut")
     if isinstance(cut, int) and not isinstance(cut, bool) and 1 <= cut <= 3:
@@ -194,6 +201,31 @@ def sanitize_stroke(raw: Any) -> Optional[Dict[str, Any]]:
     if isinstance(n, int) and 0 <= n < 1 << 40:
         stroke["n"] = n
     return stroke
+
+
+def sanitize_mask(raw: Any) -> List[List[float]]:
+    """遮罩：``[[半径, x0, y0, x1, y1, ...], ...]``，橡皮啃掉的那几块。
+
+    比笔细的橡皮切不断截面，只能啃；啃出来的形状用胶囊记下来，渲染和导出时
+    从轮廓里裁掉。非法数据整条丢掉而不是抛错，和 sanitize_stroke 一个原则。
+    """
+    if not isinstance(raw, list):
+        return []
+    out: List[List[float]] = []
+    for chain in raw[:MAX_MASK_CHAINS]:
+        if not isinstance(chain, list) or len(chain) < 5 or len(chain) % 2 == 0:
+            continue
+        values: List[float] = []
+        for value in chain[: MAX_MASK_POINTS * 2 + 1]:
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                break
+            if value != value or value in (float("inf"), float("-inf")):
+                break
+            values.append(float(value))
+        else:
+            if values[0] > 0:
+                out.append(values)
+    return out
 
 
 def sanitize_ids(raw: Any, limit: int = 5000) -> List[str]:

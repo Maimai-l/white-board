@@ -45,6 +45,7 @@
                         "p":[x,y,压感, ...],"n":42,"dev":"ipad"}]}
 {"op":"remove","ids":["c3f1-17"]}       // 擦除，或撤销一笔
 {"op":"restore","strokes":[...]}        // 撤销擦除 / 撤销清屏，按原 n 复位层叠关系
+{"op":"mask","masks":[{"id":"c3f1-17","m":[[5,120,40,180,40]]}]}   // 橡皮啃掉的缺口
 {"op":"clear"}
 {"op":"meta","meta":{"background":"grid","name":"随便起的名字"}}   // 仅 Mac
 ```

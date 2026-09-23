@@ -8,7 +8,18 @@ import { PerfMonitor } from "./perf.js";
 import { Renderer } from "./renderer.js";
 import { UI } from "./ui.js";
 import { Viewport } from "./viewport.js";
-import { buildPath, splitStroke, strokeBBox, strokeHit } from "./stroke.js";
+import {
+  addMask,
+  buildPath,
+  eraseKind,
+  maskBounds,
+  maskFor,
+  maskSize,
+  MASK_LIMIT,
+  splitStroke,
+  strokeBBox,
+  strokeHit,
+} from "./stroke.js";
 import { debounce, plainStroke, uid } from "./util.js";
 import { contentBounds, downloadDataURL, exportDataURL, uploadThumb } from "./exporter.js";
 
@@ -102,9 +113,9 @@ class App {
     this.eraseBatch = [];
     // 像素橡皮擦一笔下去是「删掉原来那条、补上切剩的几段」，整个拖动过程攒在一起
     // 才是一次撤销
-    this.pixelBatch = { removed: [], added: [] };
+    this.pixelBatch = { removed: [], added: [], bites: new Map() };
     // 擦除产生的操作先攒在这里，每帧发一次，见 queueErase
-    this.eraseQueue = { remove: new Map(), add: new Map() };
+    this.eraseQueue = { remove: new Map(), add: new Map(), mask: new Map() };
     this.eraseFlush = 0;
     this.viewAnim = 0;
     this.pendingRestored = false;
@@ -413,9 +424,19 @@ class App {
       onEraseEnd: () => {
         this.flushErase();
         const cut = this.pixelBatch;
-        if (cut.removed.length) {
-          this.pushUndo({ type: "split", removed: cut.removed, added: cut.added });
-          this.pixelBatch = { removed: [], added: [] };
+        if (cut.removed.length || cut.bites.size) {
+          const bites = [...cut.bites.entries()].map(([id, before]) => ({
+            id,
+            before,
+            after: (this.state.byId.get(id) || {}).m || null,
+          }));
+          this.pushUndo({
+            type: "split",
+            removed: cut.removed,
+            added: cut.added,
+            bites: bites.filter((b) => b.after || b.before),
+          });
+          this.pixelBatch = { removed: [], added: [], bites: new Map() };
         } else if (this.eraseBatch.length) {
           this.pushUndo({ type: "removed", strokes: this.eraseBatch.map(plainStroke) });
         } else {
@@ -502,16 +523,39 @@ class App {
     // 只看扫过的那几格里的笔画。以前是每个事件把整块白板过一遍，笔画一多，
     // 擦得越快每个事件要走的距离越长、要比的笔画却一点没少。
     // near() 拿到的是候选，精确判定照旧在 splitStroke 里做。
+    const bitten = [];
     const candidates = this.state.near(fromX, fromY, x, y, radius);
     for (const stroke of candidates) {
+      // 橡皮不比笔细就切断，比笔细就只能啃——啃出来的形状切笔画表达不了
+      const kind = eraseKind(stroke, fromX, fromY, x, y, radius);
+      if (kind === null) continue;
+      if (kind === "bite") {
+        const before = stroke.m ? stroke.m.map((c) => c.slice()) : null;
+        addMask(stroke, fromX, fromY, x, y, radius);
+        if (maskSize(stroke) > MASK_LIMIT) {
+          const baked = this.bakeMask(stroke);
+          if (baked) {
+            removed.push(baked.removed);
+            added.push(...baked.added);
+            continue;
+          }
+        }
+        bitten.push({ stroke, before });
+        continue;
+      }
       const runs = splitStroke(stroke, fromX, fromY, x, y, radius);
       if (runs === null) continue;
       const base = plainStroke(stroke);
       removed.push(base);
       for (const run of runs) {
-        added.push({ ...base, id: uid(12), p: run.p, cut: run.cut });
+        const piece = { ...base, id: uid(12), p: run.p, cut: run.cut };
+        // 切出来的每一段只留自己够得着的那几段胶囊
+        if (base.m) piece.m = maskFor(base.m, strokeBBox(piece));
+        if (piece.m && !piece.m.length) delete piece.m;
+        added.push(piece);
       }
     }
+    if (bitten.length) this.noteBites(bitten, fromX, fromY, x, y, radius);
     if (!removed.length) return [];
 
     const ids = removed.map((s) => s.id);
@@ -533,6 +577,77 @@ class App {
     return ids;
   }
 
+  /**
+   * 记下这一帧的啃咬：发一条 mask 操作、只标胶囊那一小块脏区、并入撤销批次。
+   *
+   * mask 操作发的是整条笔画当前的遮罩而不是增量——遮罩本来就小，全量发在
+   * 断线重连、乱序到达的情况下都不会错，不用管顺序。
+   */
+  noteBites(bitten, fromX, fromY, x, y, radius) {
+    const box = maskBounds([[radius, fromX, fromY, x, y]]);
+    this.renderer.requestRect(box.x0, box.y0, box.x1, box.y1);
+    for (const { stroke, before } of bitten) {
+      // 一次拖动里同一条笔画会被啃很多下，撤销只记这次拖动开始前的那个遮罩
+      if (!this.pixelBatch.bites.has(stroke.id)) {
+        this.pixelBatch.bites.set(stroke.id, before);
+      }
+      this.eraseQueue.mask.set(stroke.id, stroke.m.map((c) => c.slice()));
+    }
+    if (!this.eraseFlush) {
+      this.eraseFlush = requestAnimationFrame(() => this.flushErase());
+    }
+  }
+
+  /**
+   * 遮罩攒到上限了：把它落实成切分，换掉原来那一条笔画。
+   *
+   * 裁剪开销和胶囊数成正比，所以遮罩不能无限堆。日常来回涂同一块地方由
+   * addMask 的「新胶囊盖住旧的就丢掉」挡掉；真涂够 MASK_LIMIT 次不同的地方，
+   * 就按这些胶囊把笔画切开，遮罩清空。
+   *
+   * 切分表达不了「削掉半边」，所以这一步会把贴着边的细条一起清掉。涂到这个
+   * 次数本来就是在使劲擦，把残边一起清掉是符合意图的。
+   */
+  bakeMask(stroke) {
+    const base = plainStroke(stroke);
+    if (!base.m || !base.m.length) return null;
+    let pieces = [{ p: base.p, cut: base.cut | 0 }];
+    for (const chain of base.m) {
+      const radius = chain[0];
+      for (let i = 1; i + 3 < chain.length; i += 2) {
+        const next = [];
+        for (const piece of pieces) {
+          const probe = { tool: base.tool, w: base.w, p: piece.p };
+          const runs = splitStroke(
+            probe, chain[i], chain[i + 1], chain[i + 2], chain[i + 3], radius
+          );
+          if (runs === null) {
+            next.push(piece);
+            continue;
+          }
+          runs.forEach((run, index) => {
+            let cut = run.cut;
+            // 这一段最外面那两头沿用原来那一段的切口标记
+            if (index === 0) cut |= piece.cut & 1;
+            if (index === runs.length - 1) cut |= piece.cut & 2;
+            next.push({ p: run.p, cut });
+          });
+        }
+        pieces = next;
+      }
+    }
+    delete base.m;
+    return {
+      removed: { ...base, m: stroke.m },
+      added: pieces.map((piece) => ({
+        ...base,
+        id: uid(12),
+        p: piece.p,
+        cut: piece.cut,
+      })),
+    };
+  }
+
   /** 把这几笔占的地方标成脏区，下一帧只重画这一块。 */
   dirtyFor(strokes) {
     for (const stroke of strokes) {
@@ -552,6 +667,7 @@ class App {
   queueErase(removed, added) {
     const queue = this.eraseQueue;
     for (const stroke of removed) {
+      queue.mask.delete(stroke.id);
       if (queue.add.has(stroke.id)) queue.add.delete(stroke.id);
       else queue.remove.set(stroke.id, stroke);
     }
@@ -569,10 +685,16 @@ class App {
     const queue = this.eraseQueue;
     const ids = [...queue.remove.keys()];
     const strokes = [...queue.add.values()];
+    const masks = [...queue.mask.entries()].map(([id, m]) => ({ id, m }));
     queue.remove.clear();
     queue.add.clear();
+    queue.mask.clear();
     if (ids.length) this.net.sendOp({ op: "remove", ids });
     if (strokes.length) this.net.sendOp({ op: "restore", strokes });
+    // 被删掉的笔画不用再发它的遮罩
+    const gone = new Set(ids);
+    const live = masks.filter((entry) => !gone.has(entry.id));
+    if (live.length) this.net.sendOp({ op: "mask", masks: live });
   }
 
   applyHistory(action, undoing) {
@@ -580,6 +702,7 @@ class App {
       // 撤销就是把切出来的段换回原来那几条，重做反过来
       const gone = undoing ? action.added : action.removed;
       const back = undoing ? action.removed : action.added;
+
       const ids = gone.map((s) => s.id);
       if (ids.length) {
         this.state.remove(ids);
@@ -589,6 +712,18 @@ class App {
         this.state.add(back.map((s) => ({ ...s })));
         this.net.sendOp({ op: "restore", strokes: back });
       }
+      // 遮罩要在笔画换回来之后再设，不然会落到已经被删掉的 id 上
+      const masks = [];
+      for (const bite of action.bites || []) {
+        const stroke = this.state.byId.get(bite.id);
+        if (!stroke) continue;
+        const m = undoing ? bite.before : bite.after;
+        if (m && m.length) stroke.m = m.map((c) => c.slice());
+        else delete stroke.m;
+        stroke._mask = null;
+        masks.push({ id: bite.id, m: stroke.m || [] });
+      }
+      if (masks.length) this.net.sendOp({ op: "mask", masks });
       this.renderer.requestFull();
       this.saveCache();
       this.pushThumb();
@@ -737,6 +872,17 @@ class App {
         break;
       case "restore": {
         this.state.add((op.strokes || []).map((s) => ({ ...s })));
+        this.renderer.requestFull();
+        break;
+      }
+      case "mask": {
+        for (const entry of op.masks || []) {
+          const stroke = this.state.byId.get(entry.id);
+          if (!stroke) continue;
+          if (entry.m && entry.m.length) stroke.m = entry.m.map((c) => c.slice());
+          else delete stroke.m;
+          stroke._mask = null;
+        }
         this.renderer.requestFull();
         break;
       }
@@ -1081,4 +1227,9 @@ window.whiteboard = new App();
 // 切笔画的几何是纯函数，挂出来给端到端测试直接调
 window.whiteboard.splitStroke = splitStroke;
 window.whiteboard.buildPath = buildPath;
+window.whiteboard.eraseKind = eraseKind;
+window.whiteboard.strokeBBox = strokeBBox;
+window.whiteboard.plainStroke = plainStroke;
+window.whiteboard.maskSize = maskSize;
+window.whiteboard.strokeHit = strokeHit;
 window.whiteboard.penAltitude = penAltitude;
