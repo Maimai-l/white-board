@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 import zlib
-from typing import Dict, Iterable, List, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
 # 与前端 stroke.js 的 TOOLS 保持一致。这里只取透明度：笔宽在落笔时就已经
 # 乘过工具倍数了（input.js 里 `w: tool.width * scale`），再乘一次就会粗一大圈。
@@ -33,6 +33,8 @@ SIMPLIFY_RATIO = 0.05
 FLAT = 0.18
 # 四分之一圆弧用一段三次贝塞尔近似时的控制点长度（误差约万分之二）
 ARC_K = 0.5522847498307936
+# 折角阈值，和 stroke.js 的 CORNER 一致：转角超过它就断开轮廓、转一段圆弧
+CORNER = math.radians(45)
 
 
 def epsilon(width: float) -> float:
@@ -87,82 +89,113 @@ def outline_path(
     """笔画的闭合轮廓，和 stroke.js 的 buildPath 逐段对应。
 
     返回一串路径指令：``('m', x, y)`` / ``('l', x, y)`` /
-    ``('c', x1, y1, x2, y2, x, y)``。两侧的曲线和屏幕上一样是穿过中点的二次
-    曲线（这里换算成三次贝塞尔，PDF 只有 ``c``），笔尖是半圆。
+    ``('c', x1, y1, x2, y2, x, y)``。
 
-    以前这里为了省体积把不透明的笔画成「按线宽分段的折线」，线宽一变就断一段，
+    两侧是穿过每一个偏移点的三次贝塞尔（Catmull-Rom），偏移量用斜接的
+    ``r / cos(转角/2)``；转角超过 ``CORNER`` 的点当折角处理，曲线在那里收尾、
+    沿笔尖圆转过去、再重新起头。``cut`` 标出哪一头是橡皮切出来的，切口画平口。
+
+    以前这里为了省体积把不透明的笔画画成「按线宽分段的折线」，线宽一变就断一段，
     每段两头还各有一个圆头——笔一粗就变成一串大小不一的圆饼。现在一律按轮廓填充，
     屏幕上什么样导出就什么样。
     """
-    count = len(points)
-    pts = [(x, y, max(0.35, radius(tool, width, pr))) for x, y, pr in points]
-    if count == 1:
-        x, y, r = pts[0]
-        cmds = [("m", x + r, y)]
-        _arc(cmds, x, y, r, 0.0, 4)  # 一个点就画个整圆
-        return cmds
-
-    left: List[Tuple[float, float]] = []
-    right: List[Tuple[float, float]] = []
-    nx, ny = 0.0, -1.0
-    first = last = 0.0
-    for i in range(count):
-        px, py, _ = pts[max(0, i - 1)]
-        qx, qy, _ = pts[min(count - 1, i + 1)]
-        dx, dy = qx - px, qy - py
-        length = math.hypot(dx, dy)
-        if length > 1e-6:
-            nx, ny = -dy / length, dx / length
-        x, y, r = pts[i]
-        left.append((x + nx * r, y + ny * r))
-        right.append((x - nx * r, y - ny * r))
-        if i == 0:
-            first = math.atan2(ny, nx)
-        last = math.atan2(ny, nx)
+    pts = []
+    for x, y, pr in points:
+        r = max(0.35, radius(tool, width, pr))
+        # 去掉重合点：方向角要靠相邻点算，两点重合会得到无意义的角度
+        if pts and abs(x - pts[-1][0]) < 1e-7 and abs(y - pts[-1][1]) < 1e-7:
+            continue
+        pts.append((x, y, r))
 
     cmds: List[Tuple] = []
-    cursor = (0.0, 0.0)
+    if not pts:
+        return cmds
+    if len(pts) == 1:
+        x, y, r = pts[0]
+        cmds.append(("m", x + r, y))
+        _arc(cmds, x, y, r, 0.0, 2 * math.pi)
+        return cmds
 
-    def side(side_points: List[Tuple[float, float]], start_here: bool) -> None:
-        """一侧的轮廓线：Catmull-Rom 转三次贝塞尔，曲线穿过每一个点。
+    count = len(pts)
+    dirs = [
+        math.atan2(pts[i + 1][1] - pts[i][1], pts[i + 1][0] - pts[i][0])
+        for i in range(count - 1)
+    ]
 
-        屏幕上用的是「穿过相邻两点中点」的二次曲线，点密的时候贴着折线走，
-        看不出差别；但导出前会先抽稀，点一疏，那套画法就开始切角——笔画拐弯
-        的地方会被削平。这里改成插值曲线，抽稀之后形状仍然跟得住。
-        """
-        nonlocal cursor
-        cmds.append(("m" if start_here else "l", side_points[0][0], side_points[0][1]))
-        cursor = side_points[0]
-        count = len(side_points)
-        for i in range(count - 1):
-            p0 = side_points[i - 1] if i > 0 else side_points[0]
-            p1 = side_points[i]
-            p2 = side_points[i + 1]
-            p3 = side_points[i + 2] if i + 2 < count else side_points[-1]
+    # 每个采样点在两侧各给一项：普通点是一个斜接偏移点，折角是一段圆弧
+    left: List[Any] = []
+    right: List[Any] = []
+    for i in range(count):
+        before = dirs[i - 1] if i > 0 else dirs[0]
+        after = dirs[i] if i < count - 1 else dirs[-1]
+        turn = _turn(before, after)
+        x, y, r = pts[i]
+        if abs(turn) > CORNER and 0 < i < count - 1:
+            left.append(((x, y, r), before + math.pi / 2, after + math.pi / 2))
+            right.append(((x, y, r), before - math.pi / 2, after - math.pi / 2))
+            continue
+        half = turn / 2
+        reach = r / math.cos(half)
+        normal = before + half + math.pi / 2
+        dx, dy = math.cos(normal) * reach, math.sin(normal) * reach
+        left.append((x + dx, y + dy))
+        right.append((x - dx, y - dy))
+
+    started = False
+
+    def step(point: Tuple[float, float]) -> None:
+        nonlocal started
+        cmds.append(("l" if started else "m", point[0], point[1]))
+        started = True
+
+    def curve(run: List[Tuple[float, float]]) -> None:
+        """一段连续偏移点：Catmull-Rom 转三次贝塞尔，曲线穿过每一个点。"""
+        if not run:
+            return
+        step(run[0])
+        for i in range(len(run) - 1):
+            p0 = run[i - 1] if i > 0 else run[0]
+            p1, p2 = run[i], run[i + 1]
+            p3 = run[i + 2] if i + 2 < len(run) else run[-1]
             c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
             c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
             # 两个控制点都贴着弦时，画直线就够了
-            flat = max(
-                _line_gap(p1, p2, c1),
-                _line_gap(p1, p2, c2),
-            )
-            if flat <= FLAT:
+            if max(_line_gap(p1, p2, c1), _line_gap(p1, p2, c2)) <= FLAT:
                 cmds.append(("l", p2[0], p2[1]))
             else:
                 cmds.append(("c", c1[0], c1[1], c2[0], c2[1], p2[0], p2[1]))
-            cursor = p2
 
-    def cap(cx: float, cy: float, r: float, angle: float) -> None:
-        nonlocal cursor
-        cursor = _arc(cmds, cx, cy, r, angle, 2)
+    def side(items: Sequence[Any]) -> None:
+        run: List[Tuple[float, float]] = []
+        for item in items:
+            if len(item) == 2:
+                run.append(item)
+                continue
+            curve(run)
+            run = []
+            (cx, cy, r), a0, a1 = item
+            if not started:
+                step((cx + math.cos(a0) * r, cy + math.sin(a0) * r))
+            else:
+                cmds.append(("l", cx + math.cos(a0) * r, cy + math.sin(a0) * r))
+            _arc(cmds, cx, cy, r, a0, _turn(a0, a1))
+        curve(run)
 
-    # cut 的两位标出哪一头是橡皮切出来的，切口画平口而不是半圆笔尖，与 stroke.js 一致
-    side(left, True)
+    first = dirs[0] + math.pi / 2
+    last = dirs[-1] + math.pi / 2
+    tx, ty, tr = pts[-1]
+    hx, hy, hr = pts[0]
+
+    side(left)
     if not cut & 2:
-        cap(pts[-1][0], pts[-1][1], pts[-1][2], last)
-    side(list(reversed(right)), False)
+        _arc(cmds, tx, ty, tr, last, -math.pi)
+    # 反着走另一侧：到达和离开的角度对调
+    side([
+        (item[0], item[2], item[1]) if len(item) == 3 else item
+        for item in reversed(right)
+    ])
     if not cut & 1:
-        cap(pts[0][0], pts[0][1], pts[0][2], first + math.pi)
+        _arc(cmds, hx, hy, hr, first + math.pi, -math.pi)
     return cmds
 
 
@@ -175,24 +208,39 @@ def _line_gap(a: Tuple[float, float], b: Tuple[float, float], p: Tuple[float, fl
     return abs(dx * (a[1] - p[1]) - dy * (a[0] - p[0])) / length
 
 
-def _arc(cmds: List[Tuple], cx: float, cy: float, r: float, start: float, quarters: int):
-    """顺时针画 ``quarters`` 个四分之一圆弧，每段一条三次贝塞尔。
+def _turn(before: float, after: float) -> float:
+    """角差折算到 (-π, π]，和 stroke.js 的 turnOf 一致。"""
+    delta = after - before
+    while delta > math.pi:
+        delta -= 2 * math.pi
+    while delta <= -math.pi:
+        delta += 2 * math.pi
+    return delta
+
+
+def _arc(cmds: List[Tuple], cx: float, cy: float, r: float, start: float, sweep: float):
+    """从 ``start`` 转过 ``sweep``（带符号）的圆弧，按 90° 切段，每段一条三次贝塞尔。
 
     笔尖以前是十二段折线，光是两个笔尖就要二十四条指令；换成圆弧之后
-    两条指令搞定，还更圆。
+    半个笔尖两条指令就够，还更圆。折角接头用的也是它。
     """
     angle = start
     x = cx + math.cos(angle) * r
     y = cy + math.sin(angle) * r
-    for _ in range(quarters):
-        nxt = angle - math.pi / 2
+    if abs(sweep) < 1e-9:
+        return (x, y)
+    steps = max(1, math.ceil(abs(sweep) / (math.pi / 2) - 1e-9))
+    piece = sweep / steps
+    # 控制点长度按张角算，90° 时退化成 ARC_K
+    k = (4 / 3) * math.tan(piece / 4) * r
+    for _ in range(steps):
+        nxt = angle + piece
         ex = cx + math.cos(nxt) * r
         ey = cy + math.sin(nxt) * r
-        k = ARC_K * r
         cmds.append((
             "c",
-            x + math.sin(angle) * k, y - math.cos(angle) * k,
-            ex - math.sin(nxt) * k, ey + math.cos(nxt) * k,
+            x - math.sin(angle) * k, y + math.cos(angle) * k,
+            ex + math.sin(nxt) * k, ey - math.cos(nxt) * k,
             ex, ey,
         ))
         angle, x, y = nxt, ex, ey

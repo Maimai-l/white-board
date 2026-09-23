@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import time
 from pathlib import Path
@@ -13,6 +14,7 @@ import pytest
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
+from whiteboard import inkpdf
 from whiteboard.config import Config
 from whiteboard.runner import ServerThread
 
@@ -2087,3 +2089,65 @@ def test_status_dot_uses_traffic_light_colours(browser, server):
     )
     mac.close()
     _ipad.close()
+
+
+def test_screen_and_pdf_outlines_agree(browser, server):
+    """屏幕的 buildPath 和导出的 outline_path 必须画出同一个形状。
+
+    两边是两份独立实现（一份 JS 一份 Python），任何一边动了几何都可能悄悄跑偏，
+    而跑偏只会在导出的 PDF 里看出来。这里让 Python 算出导出用的路径指令，
+    交给浏览器用同样的光栅化画一遍，和 buildPath 的结果逐像素比。
+    """
+    mac, ipad = open_pages(browser, server.port)
+
+    # 一笔里同时有平滑段、急弯和两个折角，压感也在变
+    points = []
+    for i in range(60):
+        t = i / 59
+        points.append((60 + t * 300, 200 + math.sin(t * 4) * 60, 0.4 + 0.5 * t))
+    points += [(360, 260, 0.9), (250, 90, 0.9), (330, 250, 0.9)]
+
+    compare = """([cmds, flat, width, cut]) => {
+      const W = 460, H = 340, S = 2;
+      const draw = (build) => {
+        const c = document.createElement('canvas');
+        c.width = W * S; c.height = H * S;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.setTransform(S, 0, 0, S, 0, 0);
+        ctx.fillStyle = '#000';
+        ctx.fill(build(), 'nonzero');
+        const d = ctx.getImageData(0, 0, c.width, c.height).data;
+        const m = new Uint8Array(d.length / 4);
+        for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 3] > 127 ? 1 : 0;
+        return m;
+      };
+      const screen = draw(() => whiteboard.buildPath(
+        { id: 'x', tool: 'pen', color: '#000', w: width, cut, p: flat }));
+      const pdf = draw(() => {
+        const path = new Path2D();
+        for (const c of cmds) {
+          if (c[0] === 'm') path.moveTo(c[1], c[2]);
+          else if (c[0] === 'l') path.lineTo(c[1], c[2]);
+          else path.bezierCurveTo(c[1], c[2], c[3], c[4], c[5], c[6]);
+        }
+        path.closePath();
+        return path;
+      });
+      let diff = 0, area = 0;
+      for (let i = 0; i < screen.length; i++) {
+        if (screen[i] !== pdf[i]) diff++;
+        if (screen[i]) area++;
+      }
+      return [100 * diff / Math.max(1, area), area];
+    }"""
+
+    for width, cut in ((4.0, 0), (20.0, 0), (20.0, 3)):
+        cmds = [list(c) for c in inkpdf.outline_path(points, "pen", width, cut)]
+        flat = [v for point in points for v in point]
+        pct, area = ipad.evaluate(compare, [cmds, flat, width, cut])
+        assert area > 8000, (width, cut, area)  # 真的画上去了
+        # 只剩抗锯齿边缘的差别：两条轮廓之间差一个像素都会让这个数大起来
+        assert pct < 1.2, (width, cut, pct)
+
+    mac.close()
+    ipad.close()

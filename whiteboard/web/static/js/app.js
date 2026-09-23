@@ -8,7 +8,7 @@ import { PerfMonitor } from "./perf.js";
 import { Renderer } from "./renderer.js";
 import { UI } from "./ui.js";
 import { Viewport } from "./viewport.js";
-import { splitStroke, strokeBBox, strokeHit } from "./stroke.js";
+import { buildPath, splitStroke, strokeBBox, strokeHit } from "./stroke.js";
 import { debounce, plainStroke, uid } from "./util.js";
 import { contentBounds, downloadDataURL, exportDataURL, uploadThumb } from "./exporter.js";
 
@@ -1080,4 +1080,5 @@ class App {
 window.whiteboard = new App();
 // 切笔画的几何是纯函数，挂出来给端到端测试直接调
 window.whiteboard.splitStroke = splitStroke;
+window.whiteboard.buildPath = buildPath;
 window.whiteboard.penAltitude = penAltitude;

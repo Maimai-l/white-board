@@ -12,7 +12,21 @@ export const TOOLS = {
   highlighter: { alpha: 0.3, scale: 6 },
 };
 
-const CAP_STEPS = 12;
+// 折角阈值：相邻两段方向差超过这个角度就当硬角处理——轮廓在这里断开、转一段
+// 圆弧再继续，而不是让样条把角磨圆。真实手写在屏幕采样密度下，非折角处每个顶点
+// 的转角远低于这个值，所以它只会在真的拐角上触发。
+const CORNER = (45 * Math.PI) / 180;
+// 斜接偏移的最大倍数。折角已经单独处理，剩下的转角都不超过 CORNER，
+// 所以这个值就是 1 / cos(CORNER / 2)，包围盒按它留余量。
+const MITER_MAX = 1 / Math.cos(CORNER / 2);
+
+/** 把角差折算到 (-π, π]，用来判断转了多少、往哪边转。 */
+function turnOf(from, to) {
+  let delta = to - from;
+  while (delta > Math.PI) delta -= TAU;
+  while (delta <= -Math.PI) delta += TAU;
+  return delta;
+}
 
 /** 单点半径：钢笔跟随压感，马克笔和荧光笔等宽（和 iPad 上的手感一致）。 */
 export function strokeRadius(tool, width, pressure) {
@@ -22,30 +36,81 @@ export function strokeRadius(tool, width, pressure) {
   return half * (0.42 + 0.58 * Math.pow(p, 0.8));
 }
 
-function sidePath(path, points, start) {
-  if (start) path.moveTo(points[0].x, points[0].y);
-  else path.lineTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length - 1; i++) {
-    const mx = (points[i].x + points[i + 1].x) / 2;
-    const my = (points[i].y + points[i + 1].y) / 2;
-    path.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+/** 去掉重合点：方向角要靠相邻点算，两点重合会得到无意义的角度。 */
+function samplesOf(stroke) {
+  const flat = stroke.p;
+  const count = (flat.length / 3) | 0;
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const x = flat[i * 3];
+    const y = flat[i * 3 + 1];
+    if (out.length) {
+      const last = out[out.length - 1];
+      if (Math.abs(x - last.x) < 1e-7 && Math.abs(y - last.y) < 1e-7) continue;
+    }
+    out.push({ x, y, r: Math.max(0.35, strokeRadius(stroke.tool, stroke.w, flat[i * 3 + 2])) });
   }
-  const last = points[points.length - 1];
-  path.lineTo(last.x, last.y);
+  return out;
 }
 
-/** 半圆笔尖：从 angle 起顺着行笔方向转半圈。 */
-function cap(path, cx, cy, radius, angle) {
-  for (let i = 1; i <= CAP_STEPS; i++) {
-    const a = angle - (Math.PI * i) / CAP_STEPS;
-    path.lineTo(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius);
+/**
+ * 一侧的轮廓：连续的偏移点画成穿过每一个点的三次贝塞尔（Catmull-Rom），
+ * 遇到折角就收尾、沿笔尖圆转过去、再重新起头。
+ *
+ * 以前这里用的是「穿过相邻两点中点」的二次曲线，控制点是偏移点本身——二次贝塞尔
+ * 永远不经过自己的控制点，所以每个采样点处的轮廓都被往内侧拽，转角越急、采样越疏
+ * 削得越平。换成插值曲线之后轮廓真的经过每一个偏移点。
+ */
+function sideOutline(path, items, startHere) {
+  let started = !startHere;
+  const step = (p) => {
+    if (started) path.lineTo(p.x, p.y);
+    else {
+      path.moveTo(p.x, p.y);
+      started = true;
+    }
+  };
+  let run = [];
+  const flush = () => {
+    if (!run.length) return;
+    step(run[0]);
+    for (let i = 0; i + 1 < run.length; i++) {
+      const p0 = run[i > 0 ? i - 1 : 0];
+      const p1 = run[i];
+      const p2 = run[i + 1];
+      const p3 = run[i + 2 < run.length ? i + 2 : run.length - 1];
+      path.bezierCurveTo(
+        p1.x + (p2.x - p0.x) / 6,
+        p1.y + (p2.y - p0.y) / 6,
+        p2.x - (p3.x - p1.x) / 6,
+        p2.y - (p3.y - p1.y) / 6,
+        p2.x,
+        p2.y
+      );
+    }
+    run = [];
+  };
+  for (const item of items) {
+    if (!item.corner) {
+      run.push(item);
+      continue;
+    }
+    flush();
+    const { x, y, r } = item.corner;
+    if (!started) {
+      path.moveTo(x + Math.cos(item.a0) * r, y + Math.sin(item.a0) * r);
+      started = true;
+    }
+    // Path2D.arc 是真圆弧，画布在绘制时按当时的缩放展平，放大不会看出棱
+    path.arc(x, y, r, item.a0, item.a1, turnOf(item.a0, item.a1) < 0);
   }
+  flush();
 }
 
 export function buildPath(stroke) {
   if (stroke._path) return stroke._path;
-  const flat = stroke.p;
-  const count = (flat.length / 3) | 0;
+  const pts = samplesOf(stroke);
+  const count = pts.length;
   const path = new Path2D();
 
   if (count === 0) {
@@ -53,54 +118,67 @@ export function buildPath(stroke) {
     return path;
   }
   if (count === 1) {
-    const r = Math.max(0.35, strokeRadius(stroke.tool, stroke.w, flat[2]));
-    path.moveTo(flat[0] + r, flat[1]);
-    path.arc(flat[0], flat[1], r, 0, TAU);
+    const { x, y, r } = pts[0];
+    path.moveTo(x + r, y);
+    path.arc(x, y, r, 0, TAU);
     stroke._path = path;
     return path;
   }
 
-  const pts = new Array(count);
-  for (let i = 0; i < count; i++) {
-    pts[i] = {
-      x: flat[i * 3],
-      y: flat[i * 3 + 1],
-      r: Math.max(0.35, strokeRadius(stroke.tool, stroke.w, flat[i * 3 + 2])),
-    };
+  // 每一段自己的方向角。法线 = 方向 + 90°。
+  const dir = new Array(count - 1);
+  for (let i = 0; i + 1 < count; i++) {
+    dir[i] = Math.atan2(pts[i + 1].y - pts[i].y, pts[i + 1].x - pts[i].x);
   }
 
+  // 每个采样点在两侧各给一项：普通点是一个斜接偏移点，折角是一段圆弧。
+  //
+  // 斜接偏移量是 r / cos(转角/2)，不是 r。以前用前后差分的法线配上 r，
+  // 等于把外侧的偏移点往里收了 cos(转角/2) 倍——笔画在每个转角都会缩细，
+  // 90° 转角只剩 76% 宽，采样一疏更少。
   const left = new Array(count);
   const right = new Array(count);
-  let nx = 0;
-  let ny = -1;
-  let firstAngle = 0;
-  let lastAngle = 0;
   for (let i = 0; i < count; i++) {
-    const prev = pts[Math.max(0, i - 1)];
-    const next = pts[Math.min(count - 1, i + 1)];
-    const dx = next.x - prev.x;
-    const dy = next.y - prev.y;
-    const len = Math.hypot(dx, dy);
-    if (len > 1e-6) {
-      // 法线 = 切线逆时针转 90°
-      nx = -dy / len;
-      ny = dx / len;
+    const before = dir[i > 0 ? i - 1 : 0];
+    const after = dir[i < count - 1 ? i : count - 2];
+    const turn = turnOf(before, after);
+    const point = pts[i];
+    if (Math.abs(turn) > CORNER && i > 0 && i < count - 1) {
+      left[i] = { corner: point, a0: before + Math.PI / 2, a1: after + Math.PI / 2 };
+      right[i] = { corner: point, a0: before - Math.PI / 2, a1: after - Math.PI / 2 };
+      continue;
     }
-    const p = pts[i];
-    left[i] = { x: p.x + nx * p.r, y: p.y + ny * p.r };
-    right[i] = { x: p.x - nx * p.r, y: p.y - ny * p.r };
-    if (i === 0) firstAngle = Math.atan2(ny, nx);
-    lastAngle = Math.atan2(ny, nx);
+    const half = turn / 2;
+    const reach = point.r / Math.cos(half);
+    const normal = before + half + Math.PI / 2;
+    const dx = Math.cos(normal) * reach;
+    const dy = Math.sin(normal) * reach;
+    left[i] = { x: point.x + dx, y: point.y + dy };
+    right[i] = { x: point.x - dx, y: point.y - dy };
   }
 
   // cut 的两位分别表示「这一头是橡皮切出来的」：1 = 起点，2 = 终点。
   // 切口不补半圆笔尖，直接连过去就是一道平口——橡皮扫过去时留下的本来就是
   // 胶囊的直边，补个圆头反而会把缺口填回去一大半。
   const cut = stroke.cut | 0;
-  sidePath(path, left, true);
-  if (!(cut & 2)) cap(path, pts[count - 1].x, pts[count - 1].y, pts[count - 1].r, lastAngle);
-  sidePath(path, right.reverse(), false);
-  if (!(cut & 1)) cap(path, pts[0].x, pts[0].y, pts[0].r, firstAngle + Math.PI);
+  const first = dir[0] + Math.PI / 2;
+  const last = dir[count - 2] + Math.PI / 2;
+  const tail = pts[count - 1];
+  const head = pts[0];
+
+  sideOutline(path, left, true);
+  // 切口不画笔尖：下一侧的第一条线段（以及 closePath）自然把平口连出来
+  if (!(cut & 2)) path.arc(tail.x, tail.y, tail.r, last, last - Math.PI, true);
+  // 反着走另一侧：到达和离开的角度对调
+  sideOutline(
+    path,
+    right
+      .slice()
+      .reverse()
+      .map((item) => (item.corner ? { corner: item.corner, a0: item.a1, a1: item.a0 } : item)),
+    false
+  );
+  if (!(cut & 1)) path.arc(head.x, head.y, head.r, first + Math.PI, first, true);
   path.closePath();
 
   stroke._path = path;
@@ -123,6 +201,8 @@ export function strokeBBox(stroke) {
     const r = strokeRadius(stroke.tool, stroke.w, flat[i + 2]);
     if (r > maxR) maxR = r;
   }
+  // 斜接偏移最多到 r * MITER_MAX，包围盒按它留余量，不然折角处会漏出脏矩形
+  maxR *= MITER_MAX;
   const bbox = { x0: x0 - maxR, y0: y0 - maxR, x1: x1 + maxR, y1: y1 + maxR, r: maxR };
   stroke._bbox = bbox;
   return bbox;
