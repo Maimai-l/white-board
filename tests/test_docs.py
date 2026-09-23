@@ -449,3 +449,27 @@ def test_repeated_exports_do_not_grow(tmp_path):
         docs.export_pdf(src, strokes, out)
         sizes.append(out.stat().st_size)
     assert len(set(sizes)) == 1, sizes
+
+
+def test_cut_ends_are_flat_in_the_pdf_too(tmp_path):
+    """切口在屏幕上是平口，导出也得是平口，不然导出一次缺口又被圆头填回去。"""
+    points = [(0.0, 0.0, 1.0), (40.0, 0.0, 1.0), (80.0, 0.0, 1.0)]
+    round_ends = inkpdf.outline_path(points, "pen", 16.0, 0)
+    both_cut = inkpdf.outline_path(points, "pen", 16.0, 3)
+    start_cut = inkpdf.outline_path(points, "pen", 16.0, 1)
+
+    # 一个半圆笔尖是两段四分之一圆弧，也就是两条 'c'
+    assert len(round_ends) - len(both_cut) == 4
+    assert len(round_ends) - len(start_cut) == 2
+    # 平口不是把端点丢掉：两头的极值坐标不变
+    xs = [c[-2] for c in both_cut]
+    assert min(xs) == pytest.approx(0.0) and max(xs) == pytest.approx(80.0)
+
+
+def test_export_honours_cut_ends(tmp_path):
+    """导出时 cut 要真的传下去，不是只有 outline_path 支持。"""
+    plain = dict(stroke([(0, 0), (40, 0), (80, 0)], width=16.0))
+    cut = dict(plain, cut=3)
+    body_plain, _ = inkpdf.content_stream([plain], (0.0, 0.0))
+    body_cut, _ = inkpdf.content_stream([cut], (0.0, 0.0))
+    assert body_plain != body_cut

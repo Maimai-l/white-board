@@ -1419,19 +1419,89 @@ def test_object_eraser_still_deletes_whole_strokes(browser, server):
 
 
 def test_split_stroke_geometry(browser, server):
-    """切笔画本身：没碰到返回 null，整条被盖住返回空，只剩一个点的碎屑不留。"""
+    """切笔画本身：没碰到返回 null，整条被盖住返回空，只剩一个点的碎屑不留。
+
+    每一段还带 ``cut``，标出哪一头是切出来的（1 = 起点，2 = 终点），
+    渲染时那一头画平口。
+    """
     mac, ipad = open_pages(browser, server.port)
     split = """([x0, y0, x1, y1, r]) => {
       const flat = [];
       for (let i = 0; i < 20; i++) flat.push(i * 10, 0, 0.6);
       const stroke = { id: 'a', tool: 'pen', color: '#000000', w: 3, p: flat };
       const runs = whiteboard.splitStroke(stroke, x0, y0, x1, y1, r);
-      return runs === null ? null : runs.map((p) => p.length / 3);
+      return runs === null ? null : runs.map((run) => [run.p.length / 3, run.cut]);
     }"""
     assert ipad.evaluate(split, [95, 400, 95, 500, 8]) is None  # 离得远，没碰到
-    assert ipad.evaluate(split, [95, -5, 95, 5, 8]) == [9, 9]  # 从中间切一刀
+    # 从中间切一刀：两头各留 9 个原采样点，再各加一个落在交点上的新点
+    assert ipad.evaluate(split, [95, -5, 95, 5, 8]) == [[10, 2], [10, 1]]
     assert ipad.evaluate(split, [-50, 0, 250, 0, 30]) == []  # 整条都被扫掉
-    assert ipad.evaluate(split, [8, 0, 8, 0, 14]) == [17]  # 起点那头切掉，碎屑不留
+    # 起点那头切掉：留下交点 + 后面 17 个点，起点是切口
+    assert ipad.evaluate(split, [8, 0, 8, 0, 14]) == [[18, 1]]
+    mac.close()
+    ipad.close()
+
+
+def test_eraser_gap_matches_its_diameter(browser, server):
+    """缺口宽度等于橡皮直径，跟采样密度无关。
+
+    以前切口只能落在采样点上，缺口因此跟着采样密度走：同样是直径 16 的橡皮，
+    密采样缺口 42、疏采样 84。判定里还额外加了笔画自己的半宽，橡皮只要蹭到外沿
+    就把整个截面切断。两条都改了，现在缺口恒等于直径。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    gap = """([spacing, r]) => {
+      const flat = [];
+      for (let x = 0; x <= 400; x += spacing) flat.push(x, 0, 1);
+      const stroke = { id: 'a', tool: 'pen', color: '#000000', w: 16, p: flat };
+      const runs = whiteboard.splitStroke(stroke, 200, -60, 200, 60, r);
+      const left = runs[0].p;
+      return runs[1].p[0] - left[left.length - 3];
+    }"""
+    for spacing in (4, 14, 28, 60):
+        assert abs(ipad.evaluate(gap, [spacing, 8]) - 16) < 0.1, spacing
+        assert abs(ipad.evaluate(gap, [spacing, 3]) - 6) < 0.1, spacing
+
+    # 只蹭到外沿：中心线没被盖住，这一笔不该动
+    graze = """([offset]) => {
+      const flat = [];
+      for (let x = 0; x <= 400; x += 10) flat.push(x, 0, 1);
+      const stroke = { id: 'a', tool: 'pen', color: '#000000', w: 30, p: flat };
+      return whiteboard.splitStroke(stroke, 200, offset, 200, offset, 7);
+    }"""
+    # 笔半宽 15、橡皮半径 7：圆心在 20 时圆已经压进外沿 2，但离中心线还有 20
+    # （老代码比的是 radius + half = 22 ≥ 20，所以这一下会把整条笔画切断）
+    assert ipad.evaluate(graze, [20]) is None
+    assert ipad.evaluate(graze, [6]) is not None  # 盖住中心线了才切
+    mac.close()
+    ipad.close()
+
+
+def test_eraser_size_is_fixed_on_screen(browser, server):
+    """橡皮的尺寸恒定在屏幕上：放大等于擦得更细，而不是橡皮跟着变大。
+
+    以前 eraserRadius 的返回值被直接当世界坐标用，放到 8 倍时最粗的 45 在屏幕上
+    是 360 px，而且放大完全不提高擦除精度。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    radius = """([scale]) => {
+      whiteboard.viewport.scale = scale;
+      let seen = null;
+      const real = whiteboard.input.hooks.onErase;
+      whiteboard.input.hooks.onErase = (x, y, r) => { seen = r; return []; };
+      whiteboard.input.erase = { pointerId: 1, ids: [], radius: 12, last: null };
+      whiteboard.input.moveErase({ pointerId: 1, pointerType: 'pen',
+        clientX: 300, clientY: 300, tiltX: 0, tiltY: 0 });
+      whiteboard.input.erase = null;
+      whiteboard.input.hooks.onErase = real;
+      return [seen, whiteboard.renderer.cursor.r];
+    }"""
+    at1 = ipad.evaluate(radius, [1])
+    at4 = ipad.evaluate(radius, [4])
+    # 世界半径随缩放反比变化，屏幕上看到的那个圈大小不变
+    assert abs(at4[0] - at1[0] / 4) < 1e-6
+    assert at4[1] == at4[0]  # 光标圈和判定用的是同一个值
+    ipad.evaluate("() => { whiteboard.viewport.scale = 1; }")
     mac.close()
     ipad.close()
 

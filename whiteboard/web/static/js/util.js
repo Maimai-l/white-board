@@ -38,7 +38,7 @@ export function debounce(fn, ms) {
 
 /** 供 JSON / IndexedDB 使用：去掉缓存字段（Path2D 不可序列化）。 */
 export function plainStroke(stroke) {
-  return {
+  const plain = {
     id: stroke.id,
     tool: stroke.tool,
     color: stroke.color,
@@ -47,4 +47,7 @@ export function plainStroke(stroke) {
     n: stroke.n,
     dev: stroke.dev,
   };
+  // 没被橡皮切过的笔画不带这个字段，省得每一笔都多一个 0
+  if (stroke.cut) plain.cut = stroke.cut;
+  return plain;
 }

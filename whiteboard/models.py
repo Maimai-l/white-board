@@ -186,6 +186,10 @@ def sanitize_stroke(raw: Any) -> Optional[Dict[str, Any]]:
         "p": points,
         "dev": device[:16],
     }
+    # 橡皮切出来的端头：1 = 起点是切口，2 = 终点是切口，画平口而不是圆笔尖
+    cut = raw.get("cut")
+    if isinstance(cut, int) and not isinstance(cut, bool) and 1 <= cut <= 3:
+        stroke["cut"] = cut
     n = raw.get("n")
     if isinstance(n, int) and 0 <= n < 1 << 40:
         stroke["n"] = n

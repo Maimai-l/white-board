@@ -81,7 +81,9 @@ def simplify(points: Sequence[Tuple[float, float, float]], eps: float):
     return [p for p, k in zip(points, keep) if k]
 
 
-def outline_path(points: Sequence[Tuple[float, float, float]], tool: str, width: float):
+def outline_path(
+    points: Sequence[Tuple[float, float, float]], tool: str, width: float, cut: int = 0
+):
     """笔画的闭合轮廓，和 stroke.js 的 buildPath 逐段对应。
 
     返回一串路径指令：``('m', x, y)`` / ``('l', x, y)`` /
@@ -154,10 +156,13 @@ def outline_path(points: Sequence[Tuple[float, float, float]], tool: str, width:
         nonlocal cursor
         cursor = _arc(cmds, cx, cy, r, angle, 2)
 
+    # cut 的两位标出哪一头是橡皮切出来的，切口画平口而不是半圆笔尖，与 stroke.js 一致
     side(left, True)
-    cap(pts[-1][0], pts[-1][1], pts[-1][2], last)
+    if not cut & 2:
+        cap(pts[-1][0], pts[-1][1], pts[-1][2], last)
     side(list(reversed(right)), False)
-    cap(pts[0][0], pts[0][1], pts[0][2], first + math.pi)
+    if not cut & 1:
+        cap(pts[0][0], pts[0][1], pts[0][2], first + math.pi)
     return cmds
 
 
@@ -304,7 +309,7 @@ def content_stream(
         color = stroke.get("color", "#1b1b1f")
         cmds = [
             (cmd[0],) + tuple(v - (ox if i % 2 == 0 else oy) for i, v in enumerate(cmd[1:]))
-            for cmd in outline_path(points, tool, width)
+            for cmd in outline_path(points, tool, width, int(stroke.get("cut") or 0))
         ]
         writer.fill(cmds, color, alpha)
 

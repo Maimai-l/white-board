@@ -24,8 +24,10 @@ const WHEEL_SETTLE = 220;
 // ctrl + 滚轮缩放时，单个事件的 deltaY 上限（鼠标滚轮一格是 100，触控板只有几像素）
 const WHEEL_ZOOM_MAX = 25;
 
-// 橡皮的直径。对象橡皮擦是固定的一个笔尖；像素橡皮擦跟着笔身与屏幕的夹角走，
-// 都不用手动调。
+// 橡皮的直径，单位是**屏幕像素**。橡皮是工具不是墨水，尺寸恒定在屏幕上，
+// 放大就等于擦得更细；以前这个值被当世界坐标用，放到 8 倍时最粗的 45 在屏幕上
+// 是 360 px，而且放大完全不提高擦除精度。
+// 对象橡皮擦是固定的一个笔尖；像素橡皮擦跟着笔身与屏幕的夹角走，都不用手动调。
 const ERASER_TIP = 6;
 const ERASER_WIDEST = 45;
 // 夹角比 ERASER_MIN_DEG 大（笔更立）就是笔尖，比 ERASER_MAX_DEG 小（笔更平）
@@ -566,15 +568,22 @@ export class InputController {
     this.moveErase(event);
   }
 
+  /** 屏幕半径换算成世界半径：判定和光标都在世界坐标里做。 */
+  worldRadius(screenRadius) {
+    return screenRadius / this.viewport.scale;
+  }
+
   moveErase(event) {
     const erase = this.erase;
     if (!erase || erase.pointerId !== event.pointerId) return;
+    // 平滑在屏幕尺度上做：倾斜读数给的本来就是屏幕上该有多粗
     erase.radius += (this.eraserRadius(event) - erase.radius) * ERASER_SMOOTH;
     const [wx, wy] = this.toWorld(event);
-    this.renderer.cursor = { x: wx, y: wy, r: erase.radius };
+    const radius = this.worldRadius(erase.radius);
+    this.renderer.cursor = { x: wx, y: wy, r: radius };
     // 擦得快的时候两次事件之间能隔开一大段，判定要按扫过的这条线段来，
     // 只看当前这个点会留下一串没擦到的缝
-    const hit = this.hooks.onErase(wx, wy, erase.radius, erase.last);
+    const hit = this.hooks.onErase(wx, wy, radius, erase.last);
     erase.last = [wx, wy];
     if (hit && hit.length) erase.ids.push(...hit);
   }
@@ -593,7 +602,7 @@ export class InputController {
       return;
     }
     const [wx, wy] = this.toWorld(event);
-    this.renderer.cursor = { x: wx, y: wy, r: this.eraserRadius(event) };
+    this.renderer.cursor = { x: wx, y: wy, r: this.worldRadius(this.eraserRadius(event)) };
   }
 
   // --------------------------------------------------------- 平移 / 缩放

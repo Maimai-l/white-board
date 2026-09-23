@@ -508,7 +508,9 @@ class App {
       if (runs === null) continue;
       const base = plainStroke(stroke);
       removed.push(base);
-      for (const points of runs) added.push({ ...base, id: uid(12), p: points });
+      for (const run of runs) {
+        added.push({ ...base, id: uid(12), p: run.p, cut: run.cut });
+      }
     }
     if (!removed.length) return [];
 

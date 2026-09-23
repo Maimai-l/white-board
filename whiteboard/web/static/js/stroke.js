@@ -93,10 +93,14 @@ export function buildPath(stroke) {
     lastAngle = Math.atan2(ny, nx);
   }
 
+  // cut 的两位分别表示「这一头是橡皮切出来的」：1 = 起点，2 = 终点。
+  // 切口不补半圆笔尖，直接连过去就是一道平口——橡皮扫过去时留下的本来就是
+  // 胶囊的直边，补个圆头反而会把缺口填回去一大半。
+  const cut = stroke.cut | 0;
   sidePath(path, left, true);
-  cap(path, pts[count - 1].x, pts[count - 1].y, pts[count - 1].r, lastAngle);
+  if (!(cut & 2)) cap(path, pts[count - 1].x, pts[count - 1].y, pts[count - 1].r, lastAngle);
   sidePath(path, right.reverse(), false);
-  cap(path, pts[0].x, pts[0].y, pts[0].r, firstAngle + Math.PI);
+  if (!(cut & 1)) cap(path, pts[0].x, pts[0].y, pts[0].r, firstAngle + Math.PI);
   path.closePath();
 
   stroke._path = path;
@@ -160,40 +164,27 @@ export function strokeHit(stroke, x, y, radius) {
 
 // ------------------------------------------------------- 像素橡皮擦（切笔画）
 
-/** 两条线段是否相交。用叉积定向，共线的退化情况交给下面的端点距离兜底。 */
-function segmentsCross(ax, ay, bx, by, cx, cy, dx, dy) {
-  const side = (px, py, qx, qy, rx, ry) =>
-    Math.sign((qx - px) * (ry - py) - (qy - py) * (rx - px));
-  const d1 = side(ax, ay, bx, by, cx, cy);
-  const d2 = side(ax, ay, bx, by, dx, dy);
-  const d3 = side(cx, cy, dx, dy, ax, ay);
-  const d4 = side(cx, cy, dx, dy, bx, by);
-  return d1 !== d2 && d3 !== d4 && d1 !== 0 && d2 !== 0 && d3 !== 0 && d4 !== 0;
-}
-
-/** 两条线段之间的最短距离。 */
-function segmentDistance(ax, ay, bx, by, cx, cy, dx, dy) {
-  if (segmentsCross(ax, ay, bx, by, cx, cy, dx, dy)) return 0;
-  return Math.min(
-    pointSegmentDistance(ax, ay, cx, cy, dx, dy),
-    pointSegmentDistance(bx, by, cx, cy, dx, dy),
-    pointSegmentDistance(cx, cy, ax, ay, bx, by),
-    pointSegmentDistance(dx, dy, ax, ay, bx, by)
-  );
-}
-
 /**
  * 像素橡皮擦：橡皮从 ``(x0,y0)`` 扫到 ``(x1,y1)``、半径 ``radius``，
  * 把一条笔画切成还活着的几段。
  *
  * 返回 ``null`` 表示这一笔没被碰到，调用方什么都不用做；返回数组表示原来那一笔
- * 要换成这几段点列（空数组就是整笔都没了）。笔迹始终是矢量的，所谓「像素橡皮擦」
- * 是把笔画切开，不是往位图上抹——位图在无限画布上没有分辨率可言，导出 PDF 时
- * 也会退化成一张栅格图。
+ * 要换成这几段（空数组就是整笔都没了）。每一段是 ``{ p, cut }``，``cut`` 标出
+ * 哪一头是切出来的，渲染时那一头画平口而不是圆笔尖。
  *
- * 判定用的是「笔迹够不够得着橡皮扫过的那条线段」，也就是中心线的距离要减去
- * 笔自己的半宽。所以比橡皮粗的笔会被整条切断，而不是被啃掉一半——切笔画这个
- * 做法本来就只能整个截面一起断。
+ * 两条判定规则，和以前不一样：
+ *
+ * * 判「橡皮圆盘盖没盖住**中心线**」，不再加笔画自己的半宽。加了半宽的后果是
+ *   橡皮只蹭到笔画外沿，中心线上那个点就被判死，而删掉一个中心线点等于把整个
+ *   截面切断——擦到边缘就消失一整截。
+ * * 切口落在**真正的交点**上，用二分求出来，不再只能落在采样点上。以前缺口宽度
+ *   取决于采样密度（同样的橡皮，密采样缺口 42、疏采样 84），现在恒等于橡皮直径。
+ *
+ * 笔迹始终是矢量的，所谓「像素橡皮擦」是把笔画切开，不是往位图上抹——位图在
+ * 无限画布上没有分辨率可言，导出 PDF 时也会退化成一张栅格图。
+ *
+ * 切笔画只能整个截面一起断，所以「把一条粗笔画削掉半边」这种它表达不了，
+ * 那一类要靠遮罩，见 docs/format.md。
  */
 export function splitStroke(stroke, x0, y0, x1, y1, radius) {
   const flat = stroke.p;
@@ -201,55 +192,76 @@ export function splitStroke(stroke, x0, y0, x1, y1, radius) {
   if (count < 1) return null;
 
   const bbox = strokeBBox(stroke);
-  const lo = Math.min(x0, x1) - radius;
-  const hi = Math.max(x0, x1) + radius;
-  if (hi < bbox.x0 || lo > bbox.x1) return null;
-  const top = Math.min(y0, y1) - radius;
-  const bottom = Math.max(y0, y1) + radius;
-  if (bottom < bbox.y0 || top > bbox.y1) return null;
+  if (Math.max(x0, x1) + radius < bbox.x0 || Math.min(x0, x1) - radius > bbox.x1) return null;
+  if (Math.max(y0, y1) + radius < bbox.y0 || Math.min(y0, y1) - radius > bbox.y1) return null;
 
-  const half = (i) => strokeRadius(stroke.tool, stroke.w, flat[i * 3 + 2]);
-  const hit = new Array(count).fill(false);
-  let any = false;
-  for (let i = 0; i < count; i++) {
-    const d = pointSegmentDistance(flat[i * 3], flat[i * 3 + 1], x0, y0, x1, y1);
-    if (d <= radius + half(i)) {
-      hit[i] = true;
-      any = true;
-    }
-  }
-  // 采样点之间可能隔得很开（写得快的时候），橡皮从两点中间穿过去时两端都没命中，
-  // 这里再按线段判一次，否则快速划过只会留下一串没断开的笔画。
-  for (let i = 0; i + 1 < count; i++) {
-    // 只补「两端都没命中、橡皮却从中间穿过去」这一种；有一端已经命中就不用再判，
-    // 否则会把另一端那个离得很远的点也一起标掉，切口白白宽出一截
-    if (hit[i] || hit[i + 1]) continue;
-    const reach = radius + Math.max(half(i), half(i + 1));
-    const d = segmentDistance(
-      flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 3], flat[i * 3 + 4],
-      x0, y0, x1, y1
-    );
-    if (d <= reach) {
-      hit[i] = true;
-      hit[i + 1] = true;
-      any = true;
-    }
-  }
-  if (!any) return null;
+  const inside = (px, py) => pointSegmentDistance(px, py, x0, y0, x1, y1) <= radius;
 
   const runs = [];
   let run = null;
-  for (let i = 0; i < count; i++) {
-    if (hit[i]) {
-      run = null;
-      continue;
-    }
-    if (!run) {
-      run = [];
-      runs.push(run);
-    }
-    run.push(flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 2]);
+  let touched = false;
+  const open = (cutStart) => {
+    run = { p: [], cut: cutStart ? 1 : 0 };
+    runs.push(run);
+  };
+  const add = (x, y, pressure) => run.p.push(x, y, pressure);
+
+  let cur = inside(flat[0], flat[1]);
+  if (cur) touched = true;
+  else {
+    open(false);
+    add(flat[0], flat[1], flat[2]);
   }
+
+  for (let i = 0; i + 1 < count; i++) {
+    const ax = flat[i * 3];
+    const ay = flat[i * 3 + 1];
+    const ap = flat[i * 3 + 2];
+    const bx = flat[i * 3 + 3];
+    const by = flat[i * 3 + 4];
+    const bp = flat[i * 3 + 5];
+    // 在这一段上撒点找出入边界。撒多密按橡皮大小定：一段里橡皮最多进出一次，
+    // 半个橡皮的步长足够不漏。
+    const span = Math.hypot(bx - ax, by - ay);
+    const steps = clamp(Math.ceil(span / Math.max(0.5, radius / 2)), 1, 32);
+    let curT = 0;
+    for (let k = 1; k <= steps; k++) {
+      const t = k / steps;
+      const next = inside(ax + (bx - ax) * t, ay + (by - ay) * t);
+      if (next === cur) continue;
+      touched = true;
+      // 二分收窄到内外分界：lo 在外、hi 在内
+      let lo = next ? curT : t;
+      let hi = next ? t : curT;
+      for (let step = 0; step < 12; step++) {
+        const mid = (lo + hi) / 2;
+        if (inside(ax + (bx - ax) * mid, ay + (by - ay) * mid)) hi = mid;
+        else lo = mid;
+      }
+      const tc = (lo + hi) / 2;
+      const cx = ax + (bx - ax) * tc;
+      const cy = ay + (by - ay) * tc;
+      const cp = ap + (bp - ap) * tc;
+      if (next) {
+        if (run) {
+          add(cx, cy, cp);
+          run.cut |= 2;
+        }
+        run = null;
+      } else {
+        open(true);
+        add(cx, cy, cp);
+      }
+      cur = next;
+      curT = t;
+    }
+    if (cur) touched = true;
+    else {
+      if (!run) open(false);
+      add(bx, by, bp);
+    }
+  }
+  if (!touched) return null;
   // 只剩一个点的碎屑不留，擦完一地小点比没擦干净还难看
-  return runs.filter((points) => points.length >= 6);
+  return runs.filter((r) => r.p.length >= 6);
 }

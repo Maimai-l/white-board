@@ -129,3 +129,16 @@ def test_rename_to_empty_falls_back_to_the_default_name(tmp_path):
     meta = store.create_board("讲义")
     assert store.rename_board(meta["id"], "") is True
     assert store.get_meta(meta["id"])["name"] == ""
+
+
+def test_cut_ends_survive_a_save_and_load(tmp_path):
+    """橡皮切出来的端头标记要跟着笔画落盘，不然重开一次板切口又变回圆笔尖。"""
+    store = BoardStore(tmp_path)
+    meta = store.create_board()
+    strokes = make_strokes()
+    strokes[0]["cut"] = 2
+    strokes[1]["cut"] = 3
+    store.save_board(meta, strokes)
+
+    _, loaded = store.load_board(meta["id"])
+    assert [s.get("cut") for s in loaded] == [2, 3, None]
