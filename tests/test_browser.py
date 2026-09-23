@@ -1345,11 +1345,11 @@ def test_eraser_width_is_automatic(browser, server):
     # 对象橡皮擦：立着、压着、贴着都是笔尖
     assert [ipad.evaluate(radius, [deg, "object"]) for deg in (88, 60, 45, 35, 15)] == [tip] * 5
 
-    # 像素橡皮擦：25° 以上都是笔尖，25°～15° 之间过渡，15° 以下都是最粗
+    # 像素橡皮擦：20° 以上都是笔尖，20°～15° 之间过渡，15° 以下都是最粗
     widest = 22.5  # ERASER_WIDEST / 2
-    for deg in (90, 45, 30, 26):
+    for deg in (90, 45, 30, 21):
         assert abs(ipad.evaluate(radius, [deg, "pixel"]) - tip) < 0.01, deg
-    ramp = [ipad.evaluate(radius, [deg, "pixel"]) for deg in (23, 21, 19, 17)]
+    ramp = [ipad.evaluate(radius, [deg, "pixel"]) for deg in (19, 18, 17, 16)]
     assert ramp == sorted(ramp) and len(set(ramp)) == len(ramp)  # 一路变宽，没有平台
     assert tip < ramp[0] < widest
     for deg in (15, 10, 2):

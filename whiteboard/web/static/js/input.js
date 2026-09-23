@@ -31,7 +31,7 @@ const ERASER_WIDEST = 45;
 // 夹角比 ERASER_MIN_DEG 大（笔更立）就是笔尖，比 ERASER_MAX_DEG 小（笔更平）
 // 就是最粗，中间这一段是过渡。常握笔的角度落在 40° 以上，所以平时一直是笔尖，
 // 要有意把笔压下去才开始变宽。
-const ERASER_MIN_DEG = 25;
+const ERASER_MIN_DEG = 20;
 const ERASER_MAX_DEG = 15;
 const ERASER_SMOOTH = 0.35; // 宽度跟着走的快慢，倾斜读数本来就抖，直接跳会很难看
 
@@ -552,7 +552,7 @@ export class InputController {
     const low = (ERASER_MAX_DEG * Math.PI) / 180;
     const high = (ERASER_MIN_DEG * Math.PI) / 180;
     const t = clamp((high - penAltitude(event)) / (high - low), 0, 1);
-    // smoothstep：两端斜率为零，40° 和 25° 这两个拐点不会有突兀的折角
+    // smoothstep：两端斜率为零，20° 和 15° 这两个拐点不会有突兀的折角
     return ERASER_TIP / 2 + span * t * t * (3 - 2 * t);
   }
 
