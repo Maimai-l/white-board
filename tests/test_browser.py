@@ -1413,8 +1413,12 @@ def test_eraser_width_follows_the_native_curve(browser, server):
     ipad.close()
 
 
-def test_pixel_eraser_cuts_a_stroke_in_two(browser, server):
-    """像素橡皮擦把笔画从扫过的地方切开，两头留下来；撤销换回原来那一条。"""
+def test_pixel_eraser_severs_without_splitting(browser, server):
+    """像素橡皮横穿一条笔画：视觉上断成两截，但仍然是同一条笔画，只是多了遮罩。
+
+    断开是遮罩把它截断的结果，不是另一种模式——原生也是这样，断开之后两段各自
+    还带着自己的遮罩。撤销把遮罩收回去。
+    """
     mac, ipad = open_pages(browser, server.port)
     draw(ipad, [(200 + i * 20, 400) for i in range(30)])  # 一条横线
     wait_strokes(mac, 1)
@@ -1428,24 +1432,43 @@ def test_pixel_eraser_cuts_a_stroke_in_two(browser, server):
 
     # 从线的正中间竖着划过去
     draw(ipad, [(400, 380), (400, 400), (400, 420)])
-    wait_strokes(ipad, 2)
-    wait_strokes(mac, 2)  # 对端收到的也是两条
-    ids = ipad.evaluate("() => whiteboard.state.strokes.map(s => s.id)")
-    assert original not in ids  # 原来那条没了，换成切出来的两段
-    left, right = ipad.evaluate(
-        "() => whiteboard.state.strokes.map(s => [Math.min(...s.p.filter((_, i) => i % 3 === 0)),"
-        " Math.max(...s.p.filter((_, i) => i % 3 === 0))])"
-    )
-    cut = ipad.evaluate("() => whiteboard.viewport.toWorld(400, 400)[0]")  # 橡皮那一刀的世界坐标
-    assert left[1] < cut < right[0]  # 一段在左、一段在右，中间是空的
 
-    # 切开算一次撤销，撤回去还是原来那一条
+    def chains(op):
+        return (
+            "([id]) => { const s = whiteboard.state.byId.get(id);"
+            " return !!s && (s.m || []).length %s; }" % op
+        )
+
+    ipad.wait_for_function(chains("> 0"), arg=[original])
+    mac.wait_for_function(chains("> 0"), arg=[original])  # 对端也收到了
+    assert ipad.evaluate("() => whiteboard.state.strokes.length") == 1  # 没被拆成两条
+
+    # 墨迹真的断了：沿中心线采样，橡皮走过的那一小段不许有墨
+    gone = ipad.evaluate(
+        """() => {
+          const s = whiteboard.state.strokes[0];
+          const bounds = whiteboard.state.contentBounds();
+          const canvas = whiteboard.Renderer.renderToCanvas(whiteboard.state,
+            { scale: 1, background: false, bounds });
+          const ctx = canvas.getContext('2d');
+          const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          const y = Math.round(s.p[1] - bounds.y0);
+          const runs = [];
+          let start = null;
+          for (let x = 0; x < canvas.width; x++) {
+            const on = d[(y * canvas.width + x) * 4 + 3] > 127;
+            if (!on && start === null) start = x;
+            if (on && start !== null) { runs.push(x - start); start = null; }
+          }
+          return runs.filter((n) => n > 2);
+        }"""
+    )
+    assert len(gone) == 1, gone  # 中间正好一个缺口
+
     ipad.click('button[title="撤销"]')
-    wait_strokes(ipad, 1)
-    wait_strokes(mac, 1)
+    ipad.wait_for_function(chains("=== 0"), arg=[original])
+    mac.wait_for_function(chains("=== 0"), arg=[original])
     assert ipad.evaluate("() => whiteboard.state.strokes[0].id") == original
-    ipad.click('button[title="重做"]')
-    wait_strokes(ipad, 2)
     mac.close()
     ipad.close()
 
@@ -1622,10 +1645,12 @@ def test_erase_only_repaints_what_it_touched(browser, server):
       }
       const dirty = r.dirty;
       r.fullRedraw = realFull;
-      return { fulls, dirty, strokes: whiteboard.state.strokes.length };
+      return { fulls, dirty, strokes: whiteboard.state.strokes.length,
+               masked: whiteboard.state.strokes.filter(x => x.m && x.m.length).length };
     }""")
     assert result["fulls"] == 0  # 一次整屏重绘都没有
-    assert result["strokes"] > 5  # 确实切开了
+    assert result["strokes"] == 5  # 像素橡皮不拆笔画，只记遮罩
+    assert result["masked"] > 0  # 确实擦到了
     mac.close()
     ipad.close()
 
@@ -1654,7 +1679,7 @@ def test_erase_sends_one_batch_per_frame(browser, server):
       whiteboard.net.send = real;
       return sent;
     }""")
-    assert ops == ["remove", "restore"]  # 十二个事件合成一删一补
+    assert ops == ["mask"]  # 十二个事件合成一条遮罩操作
     mac.close()
     ipad.close()
 
@@ -2198,11 +2223,12 @@ def test_screen_and_pdf_outlines_agree(browser, server):
     ipad.close()
 
 
-def test_thin_eraser_bites_instead_of_cutting(browser, server):
-    """橡皮比笔细的时候只能啃掉一块，不能把整条截面切断。
+def test_pixel_eraser_always_masks(browser, server):
+    """像素橡皮只有一种处理方式：记遮罩，不拆笔画。
 
-    切笔画只能整个截面一起断，所以「沿荧光笔上沿削一道」这种它表达不了——
-    以前的做法是把整条笔画切断，一蹭到边就消失一整截。现在这一类记成遮罩。
+    曾经按「橡皮半径是否不小于笔画半宽」分成切断和啃两种走法。压感沿笔画变化、
+    局部半宽跟着变，同一次拖动走到一半判定就会跨过阈值，前半截被切出平口断面、
+    后半截变成啃，来回跳。原生也是只记遮罩。
     """
     mac, ipad = open_pages(browser, server.port)
     setup = """([half, radius, offset]) => {
@@ -2229,9 +2255,11 @@ def test_thin_eraser_bites_instead_of_cutting(browser, server):
     )
     assert again == [3]  # 一条链、三个点，不是两条链
 
-    # 橡皮和笔一样粗就该切断，不再记遮罩
+    # 橡皮和笔一样粗也还是遮罩，不会把笔画拆成两条——拆不拆由遮罩的形状决定，
+    # 不是另一种模式。按半宽分流会让同一次拖动走到一半换判定，前半截切出平口
+    # 断面、后半截变成啃。
     count, ident, chains = ipad.evaluate(setup, [5, 6, 0])
-    assert count == 2 and chains == 0
+    assert [count, ident] == [1, "wide"] and chains == 1
     ipad.evaluate("() => { whiteboard.tool.eraserMode = 'object'; }")
     mac.close()
     ipad.close()
@@ -2304,25 +2332,27 @@ def test_mask_does_not_grow_without_bound(browser, server):
     # 涂五十个来回，胶囊数不该跟着涨五十倍
     assert ipad.evaluate(scrub, [50]) <= 8
 
-    # 啃够 MASK_LIMIT 次不同的地方，遮罩落实成切分、清空
-    baked = """() => {
+    # 擦够 MASK_LIMIT 次不同的地方，遮罩落实成切分、清空
+    baked = """([passes]) => {
       const p = [];
-      for (let x = 0; x <= 1200; x += 10) p.push(x, 0, 1);
+      for (let x = 0; x <= 12000; x += 10) p.push(x, 0, 1);
       whiteboard.state.reset(whiteboard.state.meta,
         [{ id: 'wide', tool: 'pen', color: '#1b1b1f', w: 40, p, n: 0 }]);
       whiteboard.net.send = () => {};
       whiteboard.tool.eraserMode = 'pixel';
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < passes; i++) {
         const x = 20 + i * 20;
-        whiteboard.input.hooks.onErase(x, 16, 6, [x, -16]);  // 每次啃一个新地方
+        whiteboard.input.hooks.onErase(x, 16, 6, [x, -16]);  // 每次擦一个新地方
       }
       whiteboard.flushErase();
       const strokes = whiteboard.state.strokes;
       return [strokes.length, Math.max(...strokes.map((s) => whiteboard.maskSize(s)))];
     }"""
-    count, biggest = ipad.evaluate(baked)
-    assert count > 1  # 落实成了好几条
-    assert biggest <= 48  # 没有哪一条还挂着超过上限的遮罩
+    count, biggest = ipad.evaluate(baked, [60])
+    assert count == 1 and biggest == 60  # 没到上限，还是一条笔画挂着遮罩
+    count, biggest = ipad.evaluate(baked, [500])
+    assert count > 1  # 过了上限，落实成了好几条
+    assert biggest <= 400
     ipad.evaluate("() => { whiteboard.tool.eraserMode = 'object'; }")
     mac.close()
     ipad.close()
@@ -2402,5 +2432,28 @@ def test_erased_trace_is_continuous(browser, server):
         assert got["带遮罩"] > 0, got
         assert got["残留"] == 0, (radius, got)
     ipad.evaluate("() => { whiteboard.tool.eraserMode = 'object'; }")
+    mac.close()
+    ipad.close()
+
+
+def test_eraser_does_not_grow_when_zoomed_out(browser, server):
+    """放大时橡皮按缩放等比变细，缩小时不跟着变粗。
+
+    放大那一半有实测依据：同一个倾角在 zoom 1 和 zoom 2.02 下，原生印记在 drawing
+    坐标里差一倍。缩小那一半是下界：一份 zoom 0.25 的录制里，原生橡皮有 200 个
+    采样点直接压在可见墨迹上，最终二十条笔画一个遮罩都没有，原生在那个缩放下
+    几乎不擦。所以这里只保证「不放大」。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    world = """([scale]) => {
+      whiteboard.viewport.scale = scale;
+      return whiteboard.input.worldRadius(12);
+    }"""
+    at1 = ipad.evaluate(world, [1])
+    assert ipad.evaluate(world, [2]) == pytest.approx(at1 / 2)
+    assert ipad.evaluate(world, [4]) == pytest.approx(at1 / 4)
+    assert ipad.evaluate(world, [0.5]) == at1  # 缩小不变粗
+    assert ipad.evaluate(world, [0.25]) == at1
+    ipad.evaluate("() => { whiteboard.viewport.scale = 1; }")
     mac.close()
     ipad.close()

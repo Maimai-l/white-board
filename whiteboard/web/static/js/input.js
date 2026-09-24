@@ -603,9 +603,17 @@ export class InputController {
     this.moveErase(event);
   }
 
-  /** 屏幕半径换算成世界半径：判定和光标都在世界坐标里做。 */
+  /**
+   * 屏幕半径换算成世界半径：判定和光标都在世界坐标里做。
+   *
+   * 放大时按缩放等比缩小（原生就是这样：同一个倾角在 zoom 1 和 zoom 2.02 下，
+   * 印记在 drawing 坐标里差一倍）。**缩小时不跟着变大**：一份 zoom 0.25 的录制里，
+   * 原生橡皮有 200 个采样点直接压在可见墨迹上、448 个落在 10 个单位以内，最终
+   * 二十条笔画一个遮罩都没有——原生在那个缩放下几乎不擦。具体规则还没测出来，
+   * 这里只做到「不放大」，是有依据的下界，不是拟合出来的值。
+   */
   worldRadius(screenRadius) {
-    return screenRadius / this.viewport.scale;
+    return screenRadius / Math.max(this.viewport.scale, 1);
   }
 
   moveErase(event) {

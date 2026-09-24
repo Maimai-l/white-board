@@ -386,8 +386,14 @@ export function splitStroke(stroke, x0, y0, x1, y1, radius) {
 // 是 3.2 ms，全都带遮罩就要 22 ms。所以能切断的一律切断（不留遮罩），
 // 只有切不断的才记遮罩。
 
-/** 一条笔画最多挂多少段胶囊。超了就回收，见 app.js 的 bakeMask。 */
-export const MASK_LIMIT = 48;
+/**
+ * 一条笔画最多挂多少段胶囊。超了就把遮罩落实成切分，见 app.js 的 bakeMask。
+ *
+ * 渲染改成「在胶囊的并集里把背景画回去」之后，开销不再和带遮罩的笔画数成正比，
+ * 只和路径本身的大小有关，所以这个上限可以放得比原来宽很多。落实那一步会把
+ * 贴边的细条一起清掉，是看得见的变化，要尽量少触发。
+ */
+export const MASK_LIMIT = 400;
 
 /** 两条线段是否相交。用叉积定向，共线的退化情况交给端点距离兜底。 */
 function segmentsCross(ax, ay, bx, by, cx, cy, dx, dy) {
@@ -443,19 +449,23 @@ function halfWidthNear(stroke, x0, y0, x1, y1) {
 }
 
 /**
- * 这一下橡皮对这条笔画该怎么处理。
+ * 这一下橡皮有没有碰到这条笔画的墨迹。
  *
- * * ``"split"``：橡皮不比笔细，能把截面整个切断——走切笔画，不留遮罩。
- * * ``"bite"``：橡皮比笔细，只能啃掉一块——记进遮罩。
- * * ``null``：根本没碰到墨迹。
+ * 像素橡皮只有一种处理方式：记进遮罩。曾经按「橡皮半径是否不小于笔画半宽」
+ * 分成「切断」和「啃」两种走法，那是错的——压感沿笔画变化，局部半宽跟着变，
+ * 同一次拖动走到一半判定就会跨过阈值：前半截被切出平口断面、后半截变成啃，
+ * 来回跳。实测一条压感由轻到重的笔画，笔宽 26 时一次拖动里 11 个事件走切断、
+ * 77 个走啃，中途换了两次。
+ *
+ * 原生也是只记遮罩：笔画断开是遮罩把它截断的结果，不是另一种模式，断开之后
+ * 两段各自还带着自己的遮罩。
  */
 export function eraseKind(stroke, x0, y0, x1, y1, radius) {
   const bbox = strokeBBox(stroke);
   if (Math.max(x0, x1) + radius < bbox.x0 || Math.min(x0, x1) - radius > bbox.x1) return null;
   if (Math.max(y0, y1) + radius < bbox.y0 || Math.min(y0, y1) - radius > bbox.y1) return null;
   const { half, dist } = halfWidthNear(stroke, x0, y0, x1, y1);
-  if (dist > radius + half) return null;
-  return radius >= half ? "split" : "bite";
+  return dist > radius + half ? null : "bite";
 }
 
 /** 一段胶囊（``[r, x0, y0, x1, y1, ...]``）的包围盒。 */

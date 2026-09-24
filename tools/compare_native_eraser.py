@@ -21,7 +21,7 @@
 沿采样点扫出胶囊链。两边都画到 renderRect 上，scale 相同。
 """
 import json, math, os, re, sys
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "sessions"
 JS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -80,18 +80,22 @@ def signed_area(poly):
     return a / 2
 
 
-def render_native_holes(strokes, rect, scale):
-    x0, y0, w, h = rect
-    img = Image.new("1", (int(w * scale), int(h * scale)), 0)
-    d = ImageDraw.Draw(img)
-    for s in strokes:
-        if not s.get("mask"):
-            continue
-        for poly in subpaths(s["mask"]):
-            if len(poly) < 3 or signed_area(poly) >= 0:
-                continue  # 正绕向是外轮廓，负的才是被擦掉的洞
-            d.polygon([((px - x0) * scale, (py - y0) * scale) for px, py in poly], fill=1)
-    return img
+def render_native_erased(inner, region, scale):
+    """原生实际擦掉的区域 = 完整路径占的地方 − 导出底图里还看得见的墨。
+
+    不能只数 mask 里的洞：橡皮擦穿一条笔画时 PencilKit 会把它拆成几条独立笔画，
+    被擦掉的那一段不再是某条笔画里的洞，而是落在每一片的外轮廓之外，数洞会漏掉
+    绝大部分。实测一个会话里 4 条笔画被拆成 15 条，数洞只统计到实际擦除量的四分之一。
+
+    用导出的 render-transparent@2x.png 当真值最稳：它就是原生渲染出来的结果。
+    """
+    png = Image.open(os.path.join(inner, "final", "render-transparent@2x.png"))
+    if png.size != region.size:
+        png = png.resize(region.size)
+    alpha = png.split()[-1]
+    visible = alpha.point(lambda a: 255 if a > 32 else 0).convert("1")
+    gone = ImageChops.subtract(region.convert("L"), visible.convert("L")).convert("1")
+    return gone
 
 
 def render_our_marks(sequences, rect, scale):
@@ -140,22 +144,23 @@ def render_ink_region(strokes, rect, scale):
 
 
 def compare(name):
+    # zip 解出来有时会多一层同名目录，两种布局都认
     inner = os.path.join(ROOT, name, name)
+    if not os.path.isfile(os.path.join(inner, "meta.json")):
+        inner = os.path.join(ROOT, name)
     st = json.load(open(os.path.join(inner, "final", "strokes.json")))
     inp = json.load(open(os.path.join(inner, "input.json")))
     rect = st["renderRect"]
-    scale = 1.0
-    native = render_native_holes(st["strokes"], rect, scale)
-    ours = render_our_marks(inp["sequences"], rect, scale)
-    # 两边都和真实墨迹求交：橡皮划过空白处不算擦除，遮罩伸到墨迹外的部分也不算
+    scale = 2.0
+    # 比较只在「墨迹本来占的地方」里做：橡皮划过空白不算擦除
     region = render_ink_region(st["strokes"], rect, scale)
-    blank = Image.new("1", ours.size, 0)
-    ours = Image.composite(ours, blank, region)
-    native = Image.composite(native, blank, region)
+    native = render_native_erased(inner, region, scale)
+    ours = render_our_marks(inp["sequences"], rect, scale)
+    ours = Image.composite(ours, Image.new("1", ours.size, 0), region)
 
-    nb, ob = native.tobytes(), ours.tobytes()
-    n = list(native.getdata())
-    o = list(ours.getdata())
+    # mode "1" 的 getdata 返回 0/255，两边统一成 0/1 再数
+    n = [1 if v else 0 for v in native.getdata()]
+    o = [1 if v else 0 for v in ours.getdata()]
     inter = sum(1 for a, b in zip(n, o) if a and b)
     na = sum(n)
     oa = sum(o)
@@ -177,5 +182,8 @@ def compare(name):
 
 
 for name in sorted(os.listdir(ROOT)):
-    if os.path.isdir(os.path.join(ROOT, name, name)):
+    base = os.path.join(ROOT, name)
+    if os.path.isfile(os.path.join(base, "meta.json")) or os.path.isfile(
+        os.path.join(base, name, "meta.json")
+    ):
         compare(name)
