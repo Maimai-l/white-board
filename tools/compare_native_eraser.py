@@ -135,11 +135,20 @@ def render_ink_region(strokes, rect, scale):
     img = Image.new("1", (int(w * scale), int(h * scale)), 0)
     d = ImageDraw.Draw(img)
     for s in strokes:
-        pts = s.get("interpolatedPoints") or s.get("points") or []
+        # 只能用 points（控制点），不能用 interpolatedPoints：后者带 rangeIndex，
+        # 只覆盖遮罩之后还活着的那几段，正好把擦掉的地方挖空了，拿它当「擦之前的
+        # 墨迹」会让橡皮路径整条落在区域之外。控制点走的是完整路径，路径本身不受
+        # 遮罩影响（WWDC20 session 10148：strokes are masked, but stroke paths are not）。
+        pts = s.get("points") or []
+        prev = None
         for q in pts:
             r = max(q.get("width", 1.0), q.get("height", 1.0)) / 2 * scale
             px, py = (q["x"] - x0) * scale, (q["y"] - y0) * scale
             d.ellipse([px - r, py - r, px + r, py + r], fill=1)
+            # 控制点之间可能隔着几个单位，补上中间的带子
+            if prev is not None:
+                d.line([prev[0], prev[1], px, py], fill=1, width=max(1, int(round(2 * r))))
+            prev = (px, py, r)
     return img
 
 
