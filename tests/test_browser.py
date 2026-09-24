@@ -653,6 +653,30 @@ NATIVE_STUB = """
 
 
 ALL_PERMS = 'data-perms="clear export manage settings"'
+INDEX_URL = re.compile(r"^http://127\.0\.0\.1:\d+/(\?.*)?$")
+
+
+def serve_with_perms(page, perms):
+    """让这一页重新加载时拿到一份改过权限清单的首页。
+
+    服务端是按对端地址发权限的，测试里连不上非本机地址，只能在中间把首页改掉。
+
+    不要用 ``route.fulfill(response=response, ...)``：那会把原始响应头原样透传，
+    其中的 ``Content-Length`` 还是改之前的长度，浏览器会一直等那几个永远不来的
+    字节，导航就挂住了（Playwright 1.63 不重算这个头）。自己给 content_type，
+    长度交给 Playwright 算。
+    """
+
+    def handler(route):
+        response = route.fetch()
+        body = response.text().replace(ALL_PERMS, 'data-perms="%s"' % perms)
+        assert 'data-perms="%s"' % perms in body, "首页里的权限清单没对上 ALL_PERMS"
+        route.fulfill(status=200, content_type="text/html; charset=utf-8", body=body)
+
+    page.unroute(INDEX_URL)
+    page.route(INDEX_URL, handler)
+    page.reload()
+    page.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
 
 
 def as_native(page):
@@ -727,30 +751,13 @@ def test_the_ui_only_draws_the_entries_it_is_allowed(browser, server):
     assert mac.evaluate(titles) == ["白板", "白板设置", "导出 PNG", "连接 iPad", "关于"]
 
     # 装成局域网里的别的设备：把服务端发下来的那份清单改成只有 export
-    def only_export(route):
-        response = route.fetch()
-        body = response.text().replace(ALL_PERMS, 'data-perms="export"')
-        route.fulfill(response=response, body=body)
-
-    index = re.compile(r"^http://127\.0\.0\.1:\d+/(\?.*)?$")
-    mac.route(index, only_export)
     mac.add_init_script("delete window.pywebview;")  # 别的设备不是本地进程
-    mac.reload()
-    mac.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    serve_with_perms(mac, "export")
     assert mac.evaluate("() => document.documentElement.dataset.perms") == "export"
     assert mac.evaluate(titles) == ["导出 PNG"]
 
     # 没有任何权限时，那一簇整个不出现
-    mac.unroute(index)
-
-    def no_perms(route):
-        response = route.fetch()
-        body = response.text().replace(ALL_PERMS, 'data-perms=""')
-        route.fulfill(response=response, body=body)
-
-    mac.route(index, no_perms)
-    mac.reload()
-    mac.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    serve_with_perms(mac, "")
     assert mac.evaluate("() => !document.getElementById('topright')")
     mac.close()
     ipad.close()
@@ -819,16 +826,7 @@ def test_clear_button_disappears_without_the_permission(browser, server):
     mac, ipad = open_pages(browser, server.port)
     assert ipad.locator('button[title="清空白板"]').count() == 1
 
-    index = re.compile(r"^http://127\.0\.0\.1:\d+/(\?.*)?$")
-
-    def without_clear(route):
-        response = route.fetch()
-        body = response.text().replace(ALL_PERMS, 'data-perms="export manage settings"')
-        route.fulfill(response=response, body=body)
-
-    ipad.route(index, without_clear)
-    ipad.reload()
-    ipad.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    serve_with_perms(ipad, "export manage settings")
     assert ipad.locator('button[title="清空白板"]').count() == 0
     assert ipad.locator('button[title="撤销"]').count() == 1  # 别的按钮照旧
     mac.close()
