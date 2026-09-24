@@ -208,11 +208,13 @@ export function strokeBBox(stroke) {
   return bbox;
 }
 
+/**
+ * 画一条笔画。遮罩不在这里处理——擦掉的地方由 renderer.js 在这一笔画完之后
+ * 把背景重新画回去，见 paintStrokes。
+ */
 export function drawStroke(ctx, stroke) {
   const style = TOOLS[stroke.tool] || TOOLS.pen;
   ctx.save();
-  // 被橡皮啃过的笔画：先把遮罩裁掉。仍然只 fill 一次，半透明的笔重叠不会变深。
-  if (stroke.m && stroke.m.length) ctx.clip(maskPath(stroke), "evenodd");
   ctx.fillStyle = stroke.color;
   if (style.alpha < 1) ctx.globalAlpha = style.alpha;
   ctx.fill(buildPath(stroke));
@@ -499,7 +501,6 @@ export function addMask(stroke, x0, y0, x1, y1, radius) {
   if (sameSweep) last.push(x1, y1);
   else chains.push([radius, x0, y0, x1, y1]);
   stroke.m = chains;
-  stroke._mask = null;
   return true;
 }
 
@@ -536,17 +537,19 @@ function capsule(path, chain) {
 }
 
 /**
- * 裁剪路径：笔画包围盒减去所有胶囊，用 even-odd。
+ * 把这条笔画被啃掉的那几块**并集**加进路径，用 nonzero 填充。
  *
- * 外框套着胶囊、按 even-odd 填充，得到的就是「框内、胶囊外」那一块。
+ * 原来这里是「外框减去胶囊、按 even-odd 裁剪」，那是错的：even-odd 算的是对称差
+ * 不是并集，而一次拖动里相邻两段胶囊在共用的那个圆端点处必然重叠，重叠区域被算
+ * 两次成了偶数，于是判定成「不擦」——擦痕每隔一个采样点就留下一块正好等于橡皮
+ * 直径的没擦掉的方块，看上去是一排断开的小块。
+ *
+ * 现在不减了，改成把并集画出来：同向绕的子路径用 nonzero 正好是并集，重叠多少次
+ * 都不会互相抵消。渲染时在这块并集里把背景重新画一遍，见 renderer.js 的
+ * paintStrokes。
  */
-export function maskPath(stroke) {
-  if (stroke._mask) return stroke._mask;
-  const bbox = strokeBBox(stroke);
-  const path = new Path2D();
-  path.rect(bbox.x0 - 1, bbox.y0 - 1, bbox.x1 - bbox.x0 + 2, bbox.y1 - bbox.y0 + 2);
-  for (const chain of stroke.m) capsule(path, chain);
-  stroke._mask = path;
+export function addMaskPath(path, stroke) {
+  for (const chain of stroke.m || []) capsule(path, chain);
   return path;
 }
 

@@ -4,7 +4,7 @@
 // live：正在书写的笔画（本机的和对端的）。每帧清空重画，保证落笔即见。
 
 import { DocPages } from "./docpages.js";
-import { drawStroke, strokeBBox } from "./stroke.js";
+import { addMaskPath, drawStroke, maskBounds, strokeBBox } from "./stroke.js";
 import { TAU } from "./util.js";
 
 const PAPER = "#ffffff";
@@ -63,6 +63,58 @@ function drawPattern(ctx, kind, scale, tx, ty, width, height) {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+/** 两个包围盒有没有交叠。 */
+function overlaps(a, b) {
+  return !(a.x1 < b.x0 || a.x0 > b.x1 || a.y1 < b.y0 || a.y0 > b.y1);
+}
+
+/**
+ * 按层叠顺序画一批笔画，并把被橡皮啃掉的地方用背景补回去。
+ *
+ * 为什么是「把背景画回去」而不是「从墨迹里减掉」：减掉一组互相重叠的胶囊做不到。
+ * even-odd 算的是对称差不是并集，而一次拖动里相邻两段胶囊在共用的那个圆端点处
+ * 必然重叠，重叠处被算两次成了偶数、判定成「不擦」，擦痕就成了一排断开的小块；
+ * nonzero 换个绕向也减不干净。反过来，把并集**填**出来是容易的：同向绕的子路径
+ * 用 nonzero 正好就是并集。
+ *
+ * 顺序上：一条笔画的遮罩可以盖住它自己和它下面的笔画——下面那些当时被同一下橡皮
+ * 一起擦到了，盖住是对的；它上面的笔画是擦完之后才画的，不能盖。所以遇到一条压在
+ * 待补区域上、自己又没有遮罩的笔画时，先把背景补上再画它。
+ *
+ * 同一下橡皮擦到的那些笔画在层叠顺序上通常是连着的，所以这里攒成一批补一次，
+ * 而不是每条笔画补一次。
+ */
+function paintStrokes(ctx, strokes, repaintBackground) {
+  let path = null;
+  let box = null;
+  const flush = () => {
+    if (!path) return;
+    ctx.save();
+    ctx.clip(path);
+    repaintBackground(ctx);
+    ctx.restore();
+    path = null;
+    box = null;
+  };
+  for (const stroke of strokes) {
+    const masked = stroke.m && stroke.m.length;
+    if (box && !masked && overlaps(strokeBBox(stroke), box)) flush();
+    drawStroke(ctx, stroke);
+    if (!masked) continue;
+    if (!path) path = new Path2D();
+    addMaskPath(path, stroke);
+    const grown = maskBounds(stroke.m);
+    if (!box) box = grown;
+    else {
+      box.x0 = Math.min(box.x0, grown.x0);
+      box.y0 = Math.min(box.y0, grown.y0);
+      box.x1 = Math.max(box.x1, grown.x1);
+      box.y1 = Math.max(box.y1, grown.y1);
+    }
+  }
+  flush();
 }
 
 export class Renderer {
@@ -248,13 +300,11 @@ export class Renderer {
     const clipped = this.clipToPage(ctx);
     this._applyTransform(ctx);
     const view = this.viewport.visibleRect(this.viewW, this.viewH);
-    for (const stroke of this.state.strokes) {
+    const visible = this.state.strokes.filter((stroke) => {
       const bbox = strokeBBox(stroke);
-      if (bbox.x1 < view.x0 || bbox.x0 > view.x1 || bbox.y1 < view.y0 || bbox.y0 > view.y1) {
-        continue;
-      }
-      drawStroke(ctx, stroke);
-    }
+      return !(bbox.x1 < view.x0 || bbox.x0 > view.x1 || bbox.y1 < view.y0 || bbox.y0 > view.y1);
+    });
+    paintStrokes(ctx, visible, (target) => this.drawBackground(target));
     if (clipped) ctx.restore();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
@@ -283,11 +333,11 @@ export class Renderer {
     this.drawBackground(ctx);
     const clipped = this.clipToPage(ctx);
     this._applyTransform(ctx);
-    for (const stroke of this.state.near(box.x0, box.y0, box.x1, box.y1, 0)) {
+    const inside = this.state.near(box.x0, box.y0, box.x1, box.y1, 0).filter((stroke) => {
       const bbox = strokeBBox(stroke);
-      if (bbox.x1 < box.x0 || bbox.x0 > box.x1 || bbox.y1 < box.y0 || bbox.y0 > box.y1) continue;
-      drawStroke(ctx, stroke);
-    }
+      return !(bbox.x1 < box.x0 || bbox.x0 > box.x1 || bbox.y1 < box.y0 || bbox.y0 > box.y1);
+    });
+    paintStrokes(ctx, inside, (target) => this.drawBackground(target));
     if (clipped) ctx.restore();
     ctx.restore();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -404,7 +454,20 @@ export class Renderer {
       drawPattern(ctx, kind, scale, -area.x0 * scale, -area.y0 * scale, width, height);
     }
     ctx.setTransform(scale, 0, 0, scale, -area.x0 * scale, -area.y0 * scale);
-    for (const stroke of state.strokes) drawStroke(ctx, stroke);
+    const paper = (target) => {
+      target.save();
+      target.setTransform(1, 0, 0, 1, 0, 0);
+      if (background) {
+        target.fillStyle = PAPER;
+        target.fillRect(0, 0, width, height);
+        const kind = state.meta ? state.meta.background : "blank";
+        drawPattern(target, kind, scale, -area.x0 * scale, -area.y0 * scale, width, height);
+      } else {
+        target.clearRect(0, 0, width, height);
+      }
+      target.restore();
+    };
+    paintStrokes(ctx, state.strokes, paper);
     return canvas;
   }
 }

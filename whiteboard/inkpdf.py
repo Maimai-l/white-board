@@ -199,36 +199,91 @@ def outline_path(
     return cmds
 
 
-def mask_path(chains: Sequence[Sequence[float]], bbox: Tuple[float, float, float, float]):
-    """裁剪路径：外框减去所有胶囊，用 even-odd。
+def _capsules(chains: Sequence[Sequence[float]]) -> List[Tuple[float, float, float, float, float]]:
+    """把几条胶囊链摊成 ``(x0, y0, x1, y1, r)`` 的列表，顺带抽稀。
 
-    和 stroke.js 的 maskPath 对应。PDF 的 ``W* n`` 就是 even-odd 裁剪，
-    外框套着胶囊按 even-odd 算，留下的正是「框内、胶囊外」那一块，
-    所以啃掉的缺口在导出里也是真矢量，不会退化成一张栅格图。
+    一次擦除拖动会产生上百段，而相邻几段在近乎笔直的一段上几乎完全重合。
+    按 RDP 抽稀到 ``r / 6``，形状看不出变化，段数少一个量级。
     """
-    x0, y0, x1, y1 = bbox
-    cmds: List[Tuple] = [
-        ("m", x0, y0), ("l", x1, y0), ("l", x1, y1), ("l", x0, y1), ("l", x0, y0),
-    ]
+    out = []
     for chain in chains:
         r = chain[0]
-        count = (len(chain) - 1) // 2
-        if count == 1:
-            cx, cy = chain[1], chain[2]
-            cmds.append(("m", cx + r, cy))
-            _arc(cmds, cx, cy, r, 0.0, 2 * math.pi)
+        pts = [(chain[i], chain[i + 1]) for i in range(1, len(chain) - 1, 2)]
+        if len(pts) == 1:
+            out.append((pts[0][0], pts[0][1], pts[0][0], pts[0][1], r))
             continue
-        for i in range(count - 1):
-            ax, ay = chain[1 + i * 2], chain[2 + i * 2]
-            bx, by = chain[3 + i * 2], chain[4 + i * 2]
+        thin = simplify([(x, y, 1.0) for x, y in pts], r / 6)
+        for i in range(len(thin) - 1):
+            out.append((thin[i][0], thin[i][1], thin[i + 1][0], thin[i + 1][1], r))
+    return out
+
+
+def _disjoint_groups(caps) -> List[List]:
+    """把胶囊分成几组，每组内部互不重叠。
+
+    ``W*`` 是 even-odd：同一条裁剪路径里两段胶囊一旦重叠，重叠处就被算了两次、
+    判定成「不裁」——而一次拖动里相邻两段在共用的圆端点处必然重叠，结果是擦痕
+    每隔一段就留一块没擦掉。所以不能把它们塞进同一条路径。
+
+    好在裁剪是可以叠加的：`W* n` 连着来几次就是几个区域求交，而
+    「补集的交 = 并集的补集」，正是要的结果。组内不重叠就不会互相抵消，
+    组数通常只有两三组。
+    """
+    groups: List[List] = []
+    for cap in caps:
+        for group in groups:
+            if all(not _caps_overlap(cap, other) for other in group):
+                group.append(cap)
+                break
+        else:
+            groups.append([cap])
+    return groups
+
+
+def _caps_overlap(a, b) -> bool:
+    return _segment_distance(a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]) <= a[4] + b[4]
+
+
+def _segment_distance(ax, ay, bx, by, cx, cy, dx, dy) -> float:
+    def point_seg(px, py, qx, qy, rx, ry):
+        ux, uy = rx - qx, ry - qy
+        span = ux * ux + uy * uy
+        t = 0.0 if span <= 0 else ((px - qx) * ux + (py - qy) * uy) / span
+        t = 0.0 if t < 0 else (1.0 if t > 1 else t)
+        return math.hypot(px - (qx + ux * t), py - (qy + uy * t))
+
+    return min(
+        point_seg(ax, ay, cx, cy, dx, dy), point_seg(bx, by, cx, cy, dx, dy),
+        point_seg(cx, cy, ax, ay, bx, by), point_seg(dx, dy, ax, ay, bx, by),
+    )
+
+
+def mask_clips(chains: Sequence[Sequence[float]], bbox: Tuple[float, float, float, float]):
+    """啃掉的那几块对应的裁剪路径，一组一条，按顺序求交。
+
+    每一条是「外框减去这一组胶囊」，用 even-odd；组内的胶囊互不重叠，所以不会
+    互相抵消。几条依次 `W* n` 叠加，得到的就是「框内、所有胶囊之外」那一块。
+    缺口在导出里因此仍然是真矢量，不会退化成一张栅格图。
+    """
+    x0, y0, x1, y1 = bbox
+    clips = []
+    for group in _disjoint_groups(_capsules(chains)):
+        cmds: List[Tuple] = [
+            ("m", x0, y0), ("l", x1, y0), ("l", x1, y1), ("l", x0, y1), ("l", x0, y0),
+        ]
+        for ax, ay, bx, by, r in group:
+            if abs(bx - ax) < 1e-9 and abs(by - ay) < 1e-9:
+                cmds.append(("m", ax + r, ay))
+                _arc(cmds, ax, ay, r, 0.0, 2 * math.pi)
+                continue
             a = math.atan2(by - ay, bx - ax) + math.pi / 2
-            # 一段一个独立子路径，绕向一致，even-odd 下正好抠掉它们的并集
             cmds.append(("m", ax + math.cos(a) * r, ay + math.sin(a) * r))
             cmds.append(("l", bx + math.cos(a) * r, by + math.sin(a) * r))
             _arc(cmds, bx, by, r, a, -math.pi)
             cmds.append(("l", ax + math.cos(a - math.pi) * r, ay + math.sin(a - math.pi) * r))
             _arc(cmds, ax, ay, r, a + math.pi, -math.pi)
-    return cmds
+        clips.append(cmds)
+    return clips
 
 
 def _line_gap(a: Tuple[float, float], b: Tuple[float, float], p: Tuple[float, float]) -> float:
@@ -367,21 +422,22 @@ class _Writer:
         self.parts.append(b"".join(out) + b"h f\n")
 
     def fill_clipped(
-        self, cmds: Sequence[Tuple], clip: Sequence[Tuple], color: str, alpha: float
+        self, cmds: Sequence[Tuple], clips: Sequence[Sequence[Tuple]], color: str, alpha: float
     ) -> None:
-        """先用 even-odd 裁剪，再填充。裁剪只在 q/Q 之间生效，不影响后面的笔画。"""
+        """依次叠加几条 even-odd 裁剪，再填充。裁剪只在 q/Q 之间生效。"""
         self.parts.append(b"q\n")
         # 裁剪路径本身不画出来：W* 之后跟 n（什么都不画）
-        clip_out: List[bytes] = []
-        for cmd in clip:
-            if cmd[0] == "c":
-                clip_out.append(b" ".join(self._c(v) for v in cmd[1:]) + b" c\n")
-            else:
-                clip_out.append(
-                    self._c(cmd[1]) + b" " + self._c(cmd[2])
-                    + (b" m\n" if cmd[0] == "m" else b" l\n")
-                )
-        self.parts.append(b"".join(clip_out) + b"h W* n\n")
+        for clip in clips:
+            clip_out: List[bytes] = []
+            for cmd in clip:
+                if cmd[0] == "c":
+                    clip_out.append(b" ".join(self._c(v) for v in cmd[1:]) + b" c\n")
+                else:
+                    clip_out.append(
+                        self._c(cmd[1]) + b" " + self._c(cmd[2])
+                        + (b" m\n" if cmd[0] == "m" else b" l\n")
+                    )
+            self.parts.append(b"".join(clip_out) + b"h W* n\n")
         # q 会把图形状态一起存下来，Q 之后颜色和透明度都要重新设
         self.color = ""
         self.alpha = -1.0
@@ -425,7 +481,8 @@ def content_stream(
         cmds = shift(outline_path(points, tool, width, int(stroke.get("cut") or 0)))
         chains = stroke.get("m") or []
         if chains:
-            writer.fill_clipped(cmds, shift(mask_path(chains, _bounds(cmds))), color, alpha)
+            clips = [shift(clip) for clip in mask_clips(chains, _bounds(cmds))]
+            writer.fill_clipped(cmds, clips, color, alpha)
         else:
             writer.fill(cmds, color, alpha)
 

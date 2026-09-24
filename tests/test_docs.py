@@ -475,10 +475,57 @@ def test_export_honours_cut_ends(tmp_path):
     assert body_plain != body_cut
 
 
-def test_mask_becomes_an_even_odd_clip(tmp_path):
-    """啃掉的缺口在 PDF 里是 even-odd 裁剪，仍然是矢量，不退化成栅格图。"""
+def test_erased_trace_has_no_leftover_ink(tmp_path):
+    """橡皮扫过的地方不许有残留墨迹——沿路径采样，一个点都不许剩。
+
+    这一条抓的是「擦痕断成一排小块」那个 bug：裁剪路径原来把一次拖动的所有胶囊
+    塞进同一条 even-odd 路径，而相邻两段在共用的圆端点处必然重叠，重叠处被算了
+    两次、判定成「不裁」，于是每隔一段就留下一块正好等于橡皮直径的墨。
+
+    以前所有用例用的都是单独一段胶囊，穿孔只在两段以上时出现，所以测不出来。
+    """
+    import pypdfium2 as pdfium
+
+    radius = 6.0
+    # 一条很粗的横笔，橡皮沿着它中间横着划过去（多段，相邻段必然重叠）
+    ink = stroke([(40 + i * 10, 200) for i in range(40)], width=60.0)
+    path = [(60.0 + i * 7, 200.0) for i in range(50)]
+    chain = [radius] + [v for point in path for v in point]
+    bitten = dict(ink, m=[chain])
+
+    src = make_pdf(tmp_path / "a.pdf", sizes=((595, 842),))
+    out = tmp_path / "out.pdf"
+    box = docs.layout(docs.probe(src)["pages"])[0]
+    shifted = dict(bitten, p=[
+        v + (box["x"] if i % 3 == 0 else box["y"] if i % 3 == 1 else 0)
+        for i, v in enumerate(bitten["p"])
+    ], m=[[chain[0]] + [
+        v + (box["x"] if i % 2 == 0 else box["y"]) for i, v in enumerate(chain[1:])
+    ]])
+    docs.export_pdf(src, [shifted], out)
+
+    scale = 2.0
+    pdf = pdfium.PdfDocument(str(out))
+    try:
+        image = pdf[0].render(scale=scale).to_pil().convert("L")
+    finally:
+        pdf.close()
+
+    # 沿橡皮中心线采样：每个点周围半个橡皮半径内都该是白的
+    dark = []
+    for px, py in path[2:-2]:
+        x = int(px * scale)
+        y = int((box["h"] - py + box["y"] - box["y"]) * scale) if False else int(py * scale)
+        patch = image.crop((x - 2, y - 2, x + 3, y + 3))
+        if min(patch.tobytes()) < 128:
+            dark.append((px, py))
+    assert not dark, f"橡皮路径上还剩 {len(dark)} 处墨迹，例如 {dark[:5]}"
+
+
+def test_mask_exports_as_vector_clips(tmp_path):
+    """啃掉的缺口在 PDF 里是矢量裁剪，不退化成位图；裁剪要收得干净。"""
     wide = dict(stroke([(0, 0), (40, 0), (80, 0)], width=30.0))
-    bitten = dict(wide, m=[[5.0, 10.0, -12.0, 70.0, -12.0]])
+    bitten = dict(wide, m=[[5.0, 10.0, -12.0, 40.0, -12.0, 70.0, -12.0]])
     plain_body, _ = inkpdf.content_stream([wide], (0.0, 0.0))
     body, _ = inkpdf.content_stream([bitten], (0.0, 0.0))
 
@@ -487,12 +534,23 @@ def test_mask_becomes_an_even_odd_clip(tmp_path):
     assert body.count(b"Q\n") == body.count(b"q\n") + body.count(b"q ")
     assert b"Do" not in body and b"/Image" not in body  # 没有位图
 
-    # 裁剪之后墨迹确实少了一块
-    area = _ink_area(inkpdf.flatten(inkpdf.outline_path(
-        [(0.0, 0.0, 1.0), (40.0, 0.0, 1.0), (80.0, 0.0, 1.0)], "pen", 30.0)))
-    cut = _ink_area(inkpdf.flatten(inkpdf.mask_path(
-        bitten["m"], (-20.0, -20.0, 100.0, 20.0))))
-    assert area > 0 and cut > 0
+    # 共线的点会被抽稀合并，所以这一条只需要一组
+    assert body.count(b"W* n") == 1
+
+    # 真正的不变量：同一组里的胶囊互不重叠。重叠了 even-odd 就会互相抵消，
+    # 擦痕上就会留下没擦掉的块。
+    wiggle = [4.0]
+    for i in range(30):
+        wiggle += [10.0 + i * 5, (-1) ** i * 6.0]
+    caps = inkpdf._capsules([wiggle])
+    groups = inkpdf._disjoint_groups(caps)
+    assert len(groups) >= 2, "这么密的一条链不可能一组装得下"
+    assert sum(len(g) for g in groups) == len(caps)  # 一段都不许丢
+    for group in groups:
+        for i, a in enumerate(group):
+            for b in group[i + 1:]:
+                assert not inkpdf._caps_overlap(a, b), (a, b)
+    assert len(inkpdf.mask_clips([wiggle], (-40.0, -40.0, 200.0, 40.0))) == len(groups)
 
 
 def _ink_area(poly):

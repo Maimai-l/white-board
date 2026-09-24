@@ -1346,8 +1346,26 @@ def test_pen_altitude_reads_both_tilt_apis(browser, server):
     ipad.close()
 
 
-def test_eraser_width_is_automatic(browser, server):
-    """橡皮不用手动调粗细：对象橡皮擦一直是笔尖，像素橡皮擦跟着笔身角度走。"""
+# iPad 原生 PencilKit 像素橡皮的实测印记：(笔身与屏幕的夹角°, 直径)。
+#
+# 采集方式见 docs/eraser.md：在一大片实心墨迹上点一排孤立的橡皮点，每个点固定
+# 一个角度，再把 PKStroke.mask 里对应那个洞的面积换算成等效直径。
+NATIVE_ERASER = [
+    (83.3, 6.9), (82.0, 6.3), (81.1, 7.2), (80.0, 9.0), (79.1, 8.1),
+    (50.3, 16.5), (50.1, 17.7), (49.8, 17.6), (49.7, 18.2), (49.7, 15.9),
+    (35.0, 35.2), (34.4, 40.7), (33.7, 45.0), (32.5, 50.5), (31.8, 54.1),
+    (28.5, 72.2), (27.3, 78.7),
+    (20.3, 80.7), (14.8, 82.1), (12.6, 81.2), (12.1, 80.3),
+]
+
+
+def test_eraser_width_follows_the_native_curve(browser, server):
+    """像素橡皮的直径要跟着倾角走，而且要对得上原生实测。
+
+    原来是「20° 以上一律笔尖 6、15° 以下一律 45」，全是拍脑袋定的。实测下来
+    原生从 80° 就开始变粗、25° 左右饱和在 81；常握笔大约 50°，那里原生已经是 17，
+    而原来的实现还停在 6——细得没法用橡皮写字，这就是那个「擦痕像针」的直接原因。
+    """
     mac, ipad = open_pages(browser, server.port)
     ipad.click('button[title="橡皮擦"]')
 
@@ -1362,27 +1380,30 @@ def test_eraser_width_is_automatic(browser, server):
       return whiteboard.input.eraserRadius({
         pointerType: 'pen', altitudeAngle: (deg * Math.PI) / 180 });
     }"""
-    tip = 3  # ERASER_TIP / 2
 
-    # 对象橡皮擦：立着、压着、贴着都是笔尖
-    assert [ipad.evaluate(radius, [deg, "object"]) for deg in (88, 60, 45, 35, 15)] == [tip] * 5
+    # 对象橡皮擦：立着、压着、贴着都是笔尖，它是整笔删除，作用点本来就只是一个点
+    assert [ipad.evaluate(radius, [deg, "object"]) for deg in (88, 60, 45, 35, 15)] == [3] * 5
 
-    # 像素橡皮擦：20° 以上都是笔尖，20°～15° 之间过渡，15° 以下都是最粗
-    widest = 22.5  # ERASER_WIDEST / 2
-    for deg in (90, 45, 30, 21):
-        assert abs(ipad.evaluate(radius, [deg, "pixel"]) - tip) < 0.01, deg
-    ramp = [ipad.evaluate(radius, [deg, "pixel"]) for deg in (19, 18, 17, 16)]
-    assert ramp == sorted(ramp) and len(set(ramp)) == len(ramp)  # 一路变宽，没有平台
-    assert tip < ramp[0] < widest
-    for deg in (15, 10, 2):
-        assert ipad.evaluate(radius, [deg, "pixel"]) == widest, deg  # 最粗直径 45
+    worst = 0.0
+    for deg, native in NATIVE_ERASER:
+        ours = ipad.evaluate(radius, [deg, "pixel"]) * 2
+        # 同一角度原生自己就有散布（50° 那五个点是 15.9～18.2），所以按相对误差比
+        error = abs(ours - native) / native
+        worst = max(worst, error)
+        assert error < 0.18, (deg, native, ours)
+    assert worst < 0.18
 
-    # 报不出倾斜的笔和鼠标给中间那一档，不然等于没法用
+    # 单调：笔越平擦得越宽，中间不许有回头
+    widths = [ipad.evaluate(radius, [deg, "pixel"]) for deg in range(85, 5, -5)]
+    assert widths == sorted(widths), widths
+    assert widths[0] * 2 < 8 and widths[-1] * 2 > 78  # 两端分别贴着笔尖和饱和值
+
+    # 报不出倾斜的笔和鼠标按常握笔那一档给，不然一直是笔尖等于没法用
     middle = ipad.evaluate(
         "() => { whiteboard.tool.eraserMode = 'pixel';"
         " return whiteboard.input.eraserRadius({ pointerType: 'mouse' }); }"
     )
-    assert tip < middle < widest
+    assert 8 < middle * 2 < 26
     ipad.evaluate("() => { whiteboard.tool.eraserMode = 'object'; }")
     mac.close()
     ipad.close()
@@ -2316,5 +2337,66 @@ def test_object_eraser_ignores_bitten_away_ink(browser, server):
     assert probe and ipad.evaluate(probe, [200, 0]) is False  # 正在缺口里
     assert ipad.evaluate(probe, [200, 14]) is True  # 缺口旁边还有墨迹
     assert ipad.evaluate(probe, [20, 0]) is True  # 没被啃过的一段
+    mac.close()
+    ipad.close()
+
+
+def test_erased_trace_is_continuous(browser, server):
+    """橡皮扫过的地方不许有残留墨迹——沿路径逐点采样，一个点都不许剩。
+
+    这一条抓的是「擦痕断成一排小块」那个 bug：遮罩原来用 even-odd 裁剪，而
+    even-odd 算的是对称差不是并集，一次拖动里相邻两段胶囊在共用的圆端点处必然
+    重叠，重叠处被算两次、判定成「不擦」，于是每隔一个采样点就留下一块正好等于
+    橡皮直径的墨。
+
+    以前所有用例和所有对照图用的都是**单独一段**胶囊，穿孔只在两段以上时出现，
+    所以全绿也测不出来。这里必须是连续拖动。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    result = """([radius]) => {
+      // 一大片实心墨迹，像用马克笔来回涂出来的那样
+      const strokes = [];
+      for (let row = 0; row < 12; row++) {
+        const p = [];
+        for (let i = 0; i <= 24; i++) p.push(120 + i * 22, 160 + row * 16, 1);
+        strokes.push({ id: 'f' + row, tool: 'marker', color: '#1b1b1f', w: 34, p, n: row });
+      }
+      whiteboard.state.reset(whiteboard.state.meta, strokes);
+      whiteboard.net.send = () => {};
+      whiteboard.tool.eraserMode = 'pixel';
+
+      // 橡皮走一条带弯的路径，一路擦过去
+      const path = [];
+      for (let i = 0; i < 70; i++) {
+        const t = i / 69;
+        path.push([180 + t * 440, 200 + Math.sin(t * 5) * 70 + t * 40]);
+      }
+      let prev = null;
+      for (const pt of path) {
+        whiteboard.input.hooks.onErase(pt[0], pt[1], radius, prev);
+        prev = pt;
+      }
+      whiteboard.flushErase();
+
+      // 把这一块单独渲染出来，逐点看橡皮中心还有没有墨
+      const bounds = whiteboard.state.contentBounds();
+      const canvas = whiteboard.Renderer.renderToCanvas(whiteboard.state,
+        { scale: 1, background: false, bounds });
+      const ctx = canvas.getContext('2d');
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let left = 0;
+      for (const [px, py] of path.slice(3, -3)) {
+        const x = Math.round(px - bounds.x0);
+        const y = Math.round(py - bounds.y0);
+        if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) continue;
+        if (data[(y * canvas.width + x) * 4 + 3] > 127) left++;
+      }
+      return { 残留: left, 采样: path.length - 6, 带遮罩: whiteboard.state.strokes.filter(s => s.m && s.m.length).length };
+    }"""
+    for radius in (5, 9, 16):
+        got = ipad.evaluate(result, [radius])
+        assert got["带遮罩"] > 0, got
+        assert got["残留"] == 0, (radius, got)
+    ipad.evaluate("() => { whiteboard.tool.eraserMode = 'object'; }")
     mac.close()
     ipad.close()

@@ -25,17 +25,52 @@ const WHEEL_SETTLE = 220;
 const WHEEL_ZOOM_MAX = 25;
 
 // 橡皮的直径，单位是**屏幕像素**。橡皮是工具不是墨水，尺寸恒定在屏幕上，
-// 放大就等于擦得更细；以前这个值被当世界坐标用，放到 8 倍时最粗的 45 在屏幕上
-// 是 360 px，而且放大完全不提高擦除精度。
-// 对象橡皮擦是固定的一个笔尖；像素橡皮擦跟着笔身与屏幕的夹角走，都不用手动调。
+// 放大就等于擦得更细。这一条有实测依据：同一个倾角在 zoom 1 和 zoom 2.02 下，
+// 印记在 drawing 坐标里差一倍，乘回缩放之后对得上（见 docs/eraser.md）。
 const ERASER_TIP = 6;
-const ERASER_WIDEST = 45;
-// 夹角比 ERASER_MIN_DEG 大（笔更立）就是笔尖，比 ERASER_MAX_DEG 小（笔更平）
-// 就是最粗，中间这一段是过渡。常握笔的角度落在 40° 以上，所以平时一直是笔尖，
-// 要有意把笔压下去才开始变宽。
-const ERASER_MIN_DEG = 20;
-const ERASER_MAX_DEG = 15;
+
+/**
+ * 像素橡皮的直径随笔身与屏幕的夹角变化，实测自 iPad 原生 PencilKit。
+ *
+ * 采集方式：在一大片实心墨迹上点一排孤立的像素橡皮点，每个点固定一个笔身角度，
+ * 再把 PKStroke.mask 里对应的那个洞的面积换算成等效直径。二十一个点全部对上，
+ * 中心偏差都在 3 pt 以内。
+ *
+ * 结论有三条，都和我原来拍脑袋定的不一样：
+ *
+ * * 变粗从 80° 就开始，25° 左右饱和——不是 20° 以上一律笔尖。常握笔大约 50°，
+ *   那里原生已经是 17 了，而原来的实现还停在 6，细得没法用橡皮写字。
+ * * 最粗约 81，不是 45。
+ * * 力度不参与：同一倾角段里力度从 0.15 到 0.51，直径不跟着动。
+ *
+ * 中间那两段（50°～35°）原生没采到样，按线性插值走。
+ */
+const ERASER_CURVE = [
+  [90, 6],
+  [80, 7.5],
+  [50, 17],
+  [35, 35],
+  [32, 52],
+  [28, 75],
+  [25, 81],
+  [0, 81],
+];
 const ERASER_SMOOTH = 0.35; // 宽度跟着走的快慢，倾斜读数本来就抖，直接跳会很难看
+
+/** 查 ERASER_CURVE，按角度线性插值出直径。 */
+function eraserDiameter(deg) {
+  const curve = ERASER_CURVE;
+  if (deg >= curve[0][0]) return curve[0][1];
+  for (let i = 0; i + 1 < curve.length; i++) {
+    const [aHigh, dHigh] = curve[i];
+    const [aLow, dLow] = curve[i + 1];
+    if (deg >= aLow) {
+      const t = (aHigh - deg) / (aHigh - aLow);
+      return dHigh + (dLow - dHigh) * t;
+    }
+  }
+  return curve[curve.length - 1][1];
+}
 
 const SMOOTH_PEN = 0.45;
 const SMOOTH_MOUSE = 0.6;
@@ -548,14 +583,9 @@ export class InputController {
    */
   eraserRadius(event) {
     if (this.getTool().eraserMode !== "pixel") return ERASER_TIP / 2;
-    const span = (ERASER_WIDEST - ERASER_TIP) / 2;
-    // 鼠标和手指没有倾斜可依据，给中间那一档：一直是笔尖等于没法用，一直最粗又太凶
-    if (!event || event.pointerType !== "pen") return ERASER_TIP / 2 + span * 0.5;
-    const low = (ERASER_MAX_DEG * Math.PI) / 180;
-    const high = (ERASER_MIN_DEG * Math.PI) / 180;
-    const t = clamp((high - penAltitude(event)) / (high - low), 0, 1);
-    // smoothstep：两端斜率为零，20° 和 15° 这两个拐点不会有突兀的折角
-    return ERASER_TIP / 2 + span * t * t * (3 - 2 * t);
+    // 鼠标和手指没有倾斜可依据，按常握笔的角度给一档，不然一直是笔尖等于没法用
+    if (!event || event.pointerType !== "pen") return eraserDiameter(50) / 2;
+    return eraserDiameter((penAltitude(event) * 180) / Math.PI) / 2;
   }
 
   startErase(event) {

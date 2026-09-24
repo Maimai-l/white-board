@@ -720,7 +720,6 @@ class App {
         const m = undoing ? bite.before : bite.after;
         if (m && m.length) stroke.m = m.map((c) => c.slice());
         else delete stroke.m;
-        stroke._mask = null;
         masks.push({ id: bite.id, m: stroke.m || [] });
       }
       if (masks.length) this.net.sendOp({ op: "mask", masks });
@@ -881,8 +880,7 @@ class App {
           if (!stroke) continue;
           if (entry.m && entry.m.length) stroke.m = entry.m.map((c) => c.slice());
           else delete stroke.m;
-          stroke._mask = null;
-        }
+          }
         this.renderer.requestFull();
         break;
       }
@@ -1231,5 +1229,6 @@ window.whiteboard.eraseKind = eraseKind;
 window.whiteboard.strokeBBox = strokeBBox;
 window.whiteboard.plainStroke = plainStroke;
 window.whiteboard.maskSize = maskSize;
+window.whiteboard.Renderer = Renderer;
 window.whiteboard.strokeHit = strokeHit;
 window.whiteboard.penAltitude = penAltitude;
