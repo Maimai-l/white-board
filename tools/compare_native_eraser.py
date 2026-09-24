@@ -7,7 +7,7 @@
 会打印 IoU、多擦/漏擦的比例，并为每个会话生成一张差异图：
 灰 = 两边都擦了，红 = 只有原生擦了（我们漏），蓝 = 只有我们擦了（我们多）。
 
-度量上有三处必须注意，都是踩过的坑：
+度量上有四处必须注意，都是踩过的坑：
 
 1. 橡皮半径是屏幕尺度的，换算到 drawing 坐标要除以当时的缩放。
 2. 原生的 mask 只是个裁剪区域，它在墨迹之外长什么样对 PencilKit 没有影响，
@@ -15,6 +15,11 @@
    实测能占到四成。两边都要先和真实墨迹求交。
 3. 墨迹区域只能从 interpolatedPoints 加逐点宽度重建，不能用 mask 的外轮廓
    代替。重建出来比导出的透明底图瘦约 13%，这个偏差两边同样承受。
+4. 那 13% 不是均匀铺开的，是堆在笔画调头的地方。marker 的落笔是个 50×100 的
+   扁头，这里按半径 50 的圆去铺，笔画原地掉头时就会在外侧多出一块半圆，而真实
+   的扁头没有。这块多出来的区域落在「重建有、导出底图里看不见」里，被算成
+   「原生擦掉了」。会话 a 里这一项占到原生总量的 47%。所以比对要限制在橡皮走廊
+   里：走廊外面两边都不可能擦到，那里的差异只能是重建误差。
 
 原生的洞 = PencilKit 像素橡皮实际擦掉的形状。
 我们的印记 = 按 input.json 的原始触摸重放一遍，用 input.js 的 ERASER_CURVE 算半径、
@@ -124,6 +129,36 @@ def render_our_marks(sequences, rect, scale):
     return img
 
 
+CORRIDOR = 3.0  # 走廊半径是橡皮半径的几倍：够宽，宽到不会把真实的擦除边缘切掉
+
+
+def render_corridor(sequences, rect, scale, k=CORRIDOR):
+    """橡皮走廊：沿橡皮路径、半径取当时橡皮半径 k 倍的胶囊并集。
+
+    走廊外面两边都不可能擦到，那里出现的「原生擦掉了」只能是墨迹区域重建的误差。
+    实测里走廊对干净的会话没有影响（挡掉 0.0%），只在笔画原地掉头的会话上起作用。
+    """
+    x0, y0, w, h = rect
+    img = Image.new("1", (int(w * scale), int(h * scale)), 0)
+    d = ImageDraw.Draw(img)
+    for seq in sequences:
+        if seq["tool"]["category"] != "eraser":
+            continue
+        pts = [s for s in seq["samples"] if s["kind"] == "coalesced"]
+        if not pts:
+            continue
+        zoom = seq["viewportAtBegin"]["zoom"] or 1.0
+        prev = None
+        for s in pts:
+            r = our_diameter(math.degrees(s["altitude"])) / 2 / zoom * k * scale
+            px, py = (s["x"] - x0) * scale, (s["y"] - y0) * scale
+            d.ellipse([px - r, py - r, px + r, py + r], fill=1)
+            if prev:
+                d.line([prev, (px, py)], fill=1, width=int(round(2 * r)))
+            prev = (px, py)
+    return img
+
+
 def render_ink_region(strokes, rect, scale):
     """原生墨迹本身占的区域，从 interpolatedPoints 加逐点宽度画出来。
 
@@ -166,9 +201,14 @@ def compare(name):
     native = render_native_erased(inner, region, scale)
     ours = render_our_marks(inp["sequences"], rect, scale)
     ours = Image.composite(ours, Image.new("1", ours.size, 0), region)
+    # 再限制在橡皮走廊里，把墨迹区域重建在笔画调头处多出来的那块挡掉
+    corr = render_corridor(inp["sequences"], rect, scale)
 
     # mode "1" 的 getdata 返回 0/255，两边统一成 0/1 再数
-    n = [1 if v else 0 for v in native.getdata()]
+    raw = [1 if v else 0 for v in native.getdata()]
+    c = [1 if v else 0 for v in corr.getdata()]
+    n = [a & b for a, b in zip(raw, c)]
+    outside = sum(raw) - sum(n)
     o = [1 if v else 0 for v in ours.getdata()]
     inter = sum(1 for a, b in zip(n, o) if a and b)
     na = sum(n)
@@ -176,6 +216,8 @@ def compare(name):
     union = na + oa - inter
     print(f"\n=== {name} ===")
     print(f"  原生擦掉 {na:8d} px   我们擦掉 {oa:8d} px   面积比 {oa/na:.3f}" if na else "  原生没擦")
+    if outside:
+        print(f"  走廊外另有 {outside} px 判成「原生擦掉」，是墨迹重建的误差，不计入")
     if union:
         print(f"  交集 {inter:8d}   并集 {union:8d}   IoU {inter/union:.3f}")
         print(f"  我们多擦 {oa-inter:7d} px ({100*(oa-inter)/union:.1f}%)   "

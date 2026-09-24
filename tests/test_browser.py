@@ -1356,10 +1356,14 @@ NATIVE_ERASER = [
     (35.0, 35.2), (34.4, 40.7), (33.7, 45.0), (32.5, 50.5), (31.8, 54.1),
     (28.5, 72.2), (27.3, 78.7),
     (20.3, 80.7), (14.8, 82.1), (12.6, 81.2), (12.1, 80.3),
-    # 孤立点没覆盖到 68°～44° 这一段，下面四个是从拖动那一批量出来的：
+    # 孤立点没覆盖到 68°～37° 这一段，下面这些是从拖动那一批量出来的：
     # 沿橡皮路径逐点量原生洞的垂直宽度取中位数（tools/compare_native_eraser.py）。
     # 原来这一段是线性插值填的，68° 处窄了 45%、44° 处宽了 30%。
     (67.8, 16.5), (64.8, 16.5), (44.0, 16.5), (44.9, 18.0),
+    # 会话 a 的五条拖动，把平台段的下端从 42° 推到了 37°：曲线原来在这里给 20～28。
+    (43.0, 15.5), (40.9, 15.5), (39.6, 15.5), (38.9, 16.0), (38.4, 16.0),
+    # 会话 c，zoom 0.25：原生垂直宽度 322 个 drawing 单位，乘回缩放是 80.5 屏幕单位
+    (10.4, 80.5),
 ]
 
 
@@ -2436,13 +2440,15 @@ def test_erased_trace_is_continuous(browser, server):
     ipad.close()
 
 
-def test_eraser_does_not_grow_when_zoomed_out(browser, server):
-    """放大时橡皮按缩放等比变细，缩小时不跟着变粗。
+def test_eraser_keeps_its_screen_size_at_every_zoom(browser, server):
+    """橡皮在屏幕上恒定大小，放大缩小都按缩放等比换算到世界坐标。
 
-    放大那一半有实测依据：同一个倾角在 zoom 1 和 zoom 2.02 下，原生印记在 drawing
-    坐标里差一倍。缩小那一半是下界：一份 zoom 0.25 的录制里，原生橡皮有 200 个
-    采样点直接压在可见墨迹上，最终二十条笔画一个遮罩都没有，原生在那个缩放下
-    几乎不擦。所以这里只保证「不放大」。
+    放大方向：同一个倾角在 zoom 1 和 zoom 2.02 下，原生印记在 drawing 坐标里差一倍。
+    缩小方向：会话 c 里 zoom 0.25、倾角 10.4°，原生擦出来的垂直宽度是 322 个 drawing
+    单位，乘回缩放是 80.5 个屏幕单位，倾角曲线在那里给的是 81。
+
+    这里曾经有过一个「缩小不变粗」的下限，依据是 bench2 那次 zoom 0.25 下一个遮罩
+    都没留下。会话 c 在同样的缩放下擦得很彻底，那次是整条橡皮没被记录下来。
     """
     mac, ipad = open_pages(browser, server.port)
     world = """([scale]) => {
@@ -2452,8 +2458,8 @@ def test_eraser_does_not_grow_when_zoomed_out(browser, server):
     at1 = ipad.evaluate(world, [1])
     assert ipad.evaluate(world, [2]) == pytest.approx(at1 / 2)
     assert ipad.evaluate(world, [4]) == pytest.approx(at1 / 4)
-    assert ipad.evaluate(world, [0.5]) == at1  # 缩小不变粗
-    assert ipad.evaluate(world, [0.25]) == at1
+    assert ipad.evaluate(world, [0.5]) == pytest.approx(at1 * 2)
+    assert ipad.evaluate(world, [0.25]) == pytest.approx(at1 * 4)
     ipad.evaluate("() => { whiteboard.viewport.scale = 1; }")
     mac.close()
     ipad.close()
