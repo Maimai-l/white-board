@@ -181,9 +181,14 @@ def compare(name):
     out.save(os.path.join(ROOT, name + "-diff.png"))
 
 
-for name in sorted(os.listdir(ROOT)):
-    base = os.path.join(ROOT, name)
-    if os.path.isfile(os.path.join(base, "meta.json")) or os.path.isfile(
-        os.path.join(base, name, "meta.json")
-    ):
-        compare(name)
+def main():
+    for name in sorted(os.listdir(ROOT)):
+        base = os.path.join(ROOT, name)
+        if os.path.isfile(os.path.join(base, "meta.json")) or os.path.isfile(
+            os.path.join(base, name, "meta.json")
+        ):
+            compare(name)
+
+
+if __name__ == "__main__":
+    main()
