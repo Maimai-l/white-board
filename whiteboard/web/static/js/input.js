@@ -404,7 +404,8 @@ export class InputController {
 
     if (!entry) return;
     if (entry.role === "draw") {
-      if (this.erase) this.endErase();
+      // 取消不补最后一段：那一下不是用户抬的笔，位置不代表他想擦到哪
+      if (this.erase) this.endErase(canceled ? null : event);
       else if (this.draw) this.endDraw(event, canceled);
       return;
     }
@@ -600,6 +601,13 @@ export class InputController {
     return eraserDiameter((penAltitude(event) * 180) / Math.PI) / 2;
   }
 
+  /** 抬笔的位置和最后一个采样点是不是同一处，是的话就不用再扫一段。 */
+  sameSpot(last, event) {
+    if (!last) return false;
+    const [wx, wy] = this.toWorld(event);
+    return Math.abs(last[0] - wx) < 1e-6 && Math.abs(last[1] - wy) < 1e-6;
+  }
+
   startErase(event) {
     this.erase = {
       pointerId: event.pointerId,
@@ -627,23 +635,51 @@ export class InputController {
     return screenRadius / this.viewport.scale;
   }
 
-  moveErase(event) {
-    const erase = this.erase;
-    if (!erase || erase.pointerId !== event.pointerId) return;
+  /**
+   * 橡皮走到一个采样点：更新粗细、扫过上一点到这一点之间那一段。
+   *
+   * 擦得快的时候两次采样之间能隔开一大段，判定要按扫过的这条线段来，
+   * 只看当前这个点会留下一串没擦到的缝。
+   */
+  eraseAt(erase, event) {
     // 平滑在屏幕尺度上做：倾斜读数给的本来就是屏幕上该有多粗
     erase.radius += (this.eraserRadius(event) - erase.radius) * ERASER_SMOOTH;
     const [wx, wy] = this.toWorld(event);
     const radius = this.worldRadius(erase.radius);
     this.renderer.cursor = { x: wx, y: wy, r: radius };
-    // 擦得快的时候两次事件之间能隔开一大段，判定要按扫过的这条线段来，
-    // 只看当前这个点会留下一串没擦到的缝
     const hit = this.hooks.onErase(wx, wy, radius, erase.last);
     erase.last = [wx, wy];
     if (hit && hit.length) erase.ids.push(...hit);
   }
 
-  endErase() {
+  /**
+   * 橡皮和画线一样要吃掉一帧里的全部合并采样点。
+   *
+   * iPad 上笔是 120Hz 而 pointermove 一帧才来一次，中间那些点都塞在
+   * getCoalescedEvents 里。只取最后一个，等于把一帧里的一段曲线压成一条直线，
+   * 擦得越快压得越狠，擦痕边上就出现一节一节的直棱。画线那边一直是取全部的，
+   * 橡皮这边漏了。
+   */
+  moveErase(event) {
     const erase = this.erase;
+    if (!erase || erase.pointerId !== event.pointerId) return;
+    const events = event.getCoalescedEvents ? event.getCoalescedEvents() : null;
+    if (events && events.length > 1) {
+      for (const sample of events) this.eraseAt(erase, sample);
+    } else {
+      this.eraseAt(erase, event);
+    }
+  }
+
+  endErase(event) {
+    const erase = this.erase;
+    // 抬笔那一下的位置也要擦掉。最后一个 pointermove 停在上一帧，笔离开屏幕
+    // 之前还走了一段，这一段只有 pointerup 里有。不补的话擦痕停在上一帧的
+    // 位置，末端留下一道正好是橡皮直径宽的硬边——手感上就是「一松手就多出个
+    // 断面」，而且笔在那一段上真正压过的地方还留着墨。
+    if (erase && event && !this.sameSpot(erase.last, event)) {
+      this.eraseAt(erase, event);
+    }
     this.erase = null;
     this.renderer.cursor = null;
     // 一律通知抬笔：啃边不删任何笔画，ids 是空的，但撤销记录要在这里收口

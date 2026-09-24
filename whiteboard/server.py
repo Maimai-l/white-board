@@ -8,6 +8,7 @@ import logging
 import re
 import shutil
 import tempfile
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, Optional
@@ -24,6 +25,8 @@ log = logging.getLogger(__name__)
 WEB_DIR = resources.web_dir()
 MAX_WS_MESSAGE = 8 * 1024 * 1024
 MAX_THUMB_BYTES = 512 * 1024
+# 一次录制几千条事件，一条一百来字节；给到 32 MB 足够长时间连续录
+MAX_RECORDING_BYTES = 32 * 1024 * 1024
 MAX_DOC_BYTES = 256 * 1024 * 1024
 # 同时最多渲染两页：渲染走线程池，再多也只是互相抢 CPU。
 RENDER_LIMIT = 2
@@ -154,6 +157,31 @@ async def handle_debug(request: web.Request) -> web.Response:
     fields = {k: payload[k] for k in list(payload)[:20] if isinstance(k, str)}
     log.warning("[诊断] %s", json.dumps(fields, ensure_ascii=False)[:1000])
     return web.json_response({"ok": True})
+
+
+async def handle_recording(request: web.Request) -> web.Response:
+    """iPad 上录下来的原始输入，存到 Mac 的数据目录里。
+
+    和 /api/debug 一个道理：iPad 上够不着控制台也够不着文件系统，录像得有地方落。
+    存成文件而不是打日志，是因为一次录制有几千条事件，日志装不下也没法回放。
+    """
+    body = await _read_body(request, MAX_RECORDING_BYTES)
+    try:
+        payload = json.loads(body)
+    except (ValueError, TypeError):
+        raise web.HTTPBadRequest()
+    if not isinstance(payload, dict) or not isinstance(payload.get("events"), list):
+        raise web.HTTPBadRequest()
+    hub: Hub = request.app[HUB_KEY]
+    folder = hub.store.data_dir / "recordings"
+    folder.mkdir(parents=True, exist_ok=True)
+    name = str(payload.get("name") or "")
+    safe = "".join(ch for ch in name if ch.isalnum() or ch in "-_")[:40]
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    path = folder / f"{stamp}{'-' + safe if safe else ''}.json"
+    path.write_bytes(body)
+    log.warning("[录制] %s，%d 条事件", path, len(payload["events"]))
+    return web.json_response({"ok": True, "path": str(path), "events": len(payload["events"])})
 
 
 async def handle_boards(request: web.Request) -> web.Response:
@@ -560,6 +588,7 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app.router.add_get("/api/info", handle_info)
     app.router.add_get("/api/boards", handle_boards)
     app.router.add_post("/api/debug", handle_debug)
+    app.router.add_post("/api/recording", handle_recording)
     app.router.add_get("/api/thumb/{board_id}", handle_thumb_get)
     app.router.add_post("/api/thumb/{board_id}", handle_thumb_post)
     app.router.add_post("/api/doc", handle_doc_upload)

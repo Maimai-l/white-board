@@ -98,6 +98,26 @@ def draw(page, points, pointer_type="pen", pointer_id=1, pressure=0.6):
     page.evaluate(FIRE, ["pointerup", *points[-1], pointer_type, pointer_id, 0])
 
 
+RECORD_ERASE = """
+([x0, y0, x1, y1, steps, alt]) => {
+  const stage = document.getElementById('stage');
+  const fire = (type, x, y, pressure) => stage.dispatchEvent(new PointerEvent(type, {
+    clientX: x, clientY: y, pointerType: 'pen', pointerId: 7, pressure,
+    altitudeAngle: alt, azimuthAngle: 0.8,
+    buttons: type === 'pointerup' ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true,
+  }));
+  whiteboard.tool = { ...whiteboard.tool, tool: 'eraser', eraserMode: 'pixel' };
+  whiteboard.recorder.start('用例');
+  fire('pointerdown', x0, y0, 0.5);
+  for (let i = 1; i <= steps; i++) {
+    fire('pointermove', x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps, 0.5);
+  }
+  fire('pointerup', x1, y1, 0);
+  return whiteboard.recorder.stop();
+}
+"""
+
+
 def stroke_count(page):
     return page.evaluate("() => whiteboard.state.strokes.length")
 
@@ -2468,5 +2488,151 @@ def test_eraser_keeps_its_screen_size_at_every_zoom(browser, server):
     assert ipad.evaluate(world, [0.5]) == pytest.approx(at1 * 2)
     assert ipad.evaluate(world, [0.25]) == pytest.approx(at1 * 4)
     ipad.evaluate("() => { whiteboard.viewport.scale = 1; }")
+    mac.close()
+    ipad.close()
+
+
+def test_recorder_replays_an_erase_exactly(browser, server):
+    """录制回放要逐字复现：同一份输入喂回去，板上剩下的笔画必须一模一样。
+
+    真笔才触发得了的问题（压感沿笔画变化、倾角一直在动、一帧二十几个合并采样点）
+    在开发机上敲不出来。录一次带回来回放，才谈得上在这里复现和验证。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    draw(ipad, [(300, 300 + i * 4) for i in range(40)])
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 1")
+
+    data = ipad.evaluate(RECORD_ERASE, [200, 380, 420, 380, 24, 0.9])
+    assert data["events"], data
+    assert data["before"] and len(data["before"]) == 1
+    # 录的是原始指针事件本身，不是擦出来的结果
+    assert {e["type"] for e in data["events"]} == {
+        "pointerdown", "pointermove", "pointerup"
+    }
+    assert data["events"][0]["tool"]["eraserMode"] == "pixel"
+    assert data["events"][0]["alt"] == pytest.approx(0.9, abs=1e-4)
+
+    after = data["after"]
+    assert any(s.get("m") for s in after), "这一下应该留下遮罩"
+
+    # 回放：先把板恢复成录制开始时的样子，再把事件按时序喂回去
+    replayed = ipad.evaluate(
+        "async ([data]) => whiteboard.recorder.replay(data, { wait: false })", [data]
+    )
+    assert replayed == after
+    mac.close()
+    ipad.close()
+
+
+def test_recorder_panel_only_shows_when_asked(browser, server):
+    """录制面板只有带上 ?record=1 才画出来，正式界面上不该多一个按钮。"""
+    mac, ipad = open_pages(browser, server.port)
+    assert ipad.locator(".rec-panel").count() == 0
+    ipad.goto(ipad.url + "&record=1")
+    ipad.wait_for_selector(".rec-panel button")
+    assert ipad.locator(".rec-panel button").inner_text() == "开始录制"
+    ipad.click(".rec-panel button")
+    assert ipad.evaluate("() => whiteboard.recorder.recording") is True
+    assert ipad.locator(".rec-panel button").inner_text() == "停止录制"
+    mac.close()
+    ipad.close()
+
+
+def test_eraser_reaches_where_the_pen_left_the_screen(browser, server):
+    """抬笔那一下的位置也要擦掉。
+
+    最后一个 pointermove 停在上一帧，笔离开屏幕之前还走了一段，这一段只有
+    pointerup 里有。不补的话擦痕停在上一帧的位置，末端留下一道正好是橡皮直径宽
+    的硬边，而笔真正压过的地方还留着墨。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    ipad.evaluate("() => { whiteboard.tool = { ...whiteboard.tool, tool: 'pen', w: 8 }; }")
+    draw(ipad, [(300, 200 + i * 6) for i in range(90)], pressure=0.9)
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 1")
+    out = ipad.evaluate("""() => {
+      const stage = document.getElementById('stage');
+      const fire = (type, x, y) => stage.dispatchEvent(new PointerEvent(type, {
+        clientX: x, clientY: y, pointerType: 'pen', pointerId: 9, pressure: 0.5,
+        altitudeAngle: 0.9, azimuthAngle: 0.8,
+        buttons: type === 'pointerup' ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true,
+      }));
+      whiteboard.tool = { ...whiteboard.tool, tool: 'eraser', eraserMode: 'pixel' };
+      // 橡皮停在笔画左边，抬笔那一下才压到笔画上
+      fire('pointerdown', 180, 500);
+      fire('pointermove', 240, 500);
+      fire('pointermove', 280, 500);
+      const mid = whiteboard.state.strokes.map((s) => whiteboard.maskSize(s));
+      fire('pointerup', 300, 500);
+      return { mid, end: whiteboard.state.strokes.map((s) => whiteboard.maskSize(s)) };
+    }""")
+    assert out["mid"] == [0], "抬笔之前还没碰到笔画"
+    assert out["end"][0] > 0, "抬笔那一下压在笔画上，应该擦掉"
+
+    # 取消不算抬笔：那一下不是用户抬的笔，位置不代表他想擦到哪
+    cancelled = ipad.evaluate("""() => {
+      const stage = document.getElementById('stage');
+      const fire = (type, x, y) => stage.dispatchEvent(new PointerEvent(type, {
+        clientX: x, clientY: y, pointerType: 'pen', pointerId: 11, pressure: 0.5,
+        altitudeAngle: 0.9, azimuthAngle: 0.8,
+        buttons: type === 'pointercancel' ? 0 : 1,
+        bubbles: true, cancelable: true, isPrimary: true,
+      }));
+      const before = whiteboard.state.strokes.map((s) => whiteboard.maskSize(s));
+      fire('pointerdown', 180, 260);
+      fire('pointermove', 240, 260);
+      fire('pointercancel', 300, 260);
+      return { before, after: whiteboard.state.strokes.map((s) => whiteboard.maskSize(s)) };
+    }""")
+    assert cancelled["after"] == cancelled["before"]
+    mac.close()
+    ipad.close()
+
+
+def test_eraser_uses_every_coalesced_sample(browser, server):
+    """一帧里的合并采样点橡皮要全吃掉，不能只取最后一个。
+
+    iPad 上笔是 120Hz 而 pointermove 一帧才来一次，中间那些点都在
+    getCoalescedEvents 里。只取最后一个等于把一帧里的一段曲线压成一条直线，
+    擦得越快压得越狠，擦痕边上就出现一节一节的直棱。画线那边一直取全部的。
+
+    判据是「一帧里六个点」和「六帧各一个点」擦出来的遮罩完全一样。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    # getCoalescedEvents 造不出来，只能直接喂给 moveErase——回放走的也是这条路
+    probe = """([coalesce]) => {
+      const input = whiteboard.input;
+      const rect = document.getElementById('stage').getBoundingClientRect();
+      const pt = (x, y) => ({
+        clientX: rect.left + x, clientY: rect.top + y, pointerType: 'pen',
+        pointerId: 3, pressure: 0.5, altitudeAngle: 0.9, azimuthAngle: 0.8,
+        preventDefault() {},
+      });
+      whiteboard.state.remove(whiteboard.state.strokes.map((s) => s.id));
+      whiteboard.tool = { ...whiteboard.tool, tool: 'pen', w: 96 };
+      const p = [];
+      for (let i = 0; i < 80; i++) p.push(-260 + i * 6, -10, 1);
+      whiteboard.state.add([{ id: 'band', tool: 'pen', color: '#000', w: 96, p, n: 1 }]);
+      whiteboard.tool = { ...whiteboard.tool, tool: 'eraser', eraserMode: 'pixel' };
+      input._rect = null;
+      input.erase = { pointerId: 3, ids: [], radius: 8, last: null };
+      // 一帧里笔走了一段圆弧，六个采样点
+      const arc = [];
+      for (let i = 0; i < 6; i++) {
+        arc.push(pt(300 + i * 9, 400 - Math.sin((i / 5) * Math.PI) * 8));
+      }
+      if (coalesce) {
+        input.moveErase({ ...arc[arc.length - 1], getCoalescedEvents: () => arc });
+      } else {
+        for (const sample of arc) input.moveErase({ ...sample, getCoalescedEvents: () => [sample] });
+      }
+      input.endErase(null);
+      return (whiteboard.state.byId.get('band') || {}).m || null;
+    }"""
+    one_frame = ipad.evaluate(probe, [True])
+    per_frame = ipad.evaluate(probe, [False])
+    assert one_frame, "应该留下遮罩"
+    # 六个采样点都要落进遮罩里，不能只剩首尾
+    assert sum((len(c) - 1) // 2 for c in one_frame) >= 6, one_frame
+    assert one_frame == per_frame
     mac.close()
     ipad.close()
