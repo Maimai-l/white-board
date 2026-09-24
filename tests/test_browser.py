@@ -1276,8 +1276,15 @@ def drag(page, x0, y0, x1, y1, steps=12):
     page.mouse.up()
 
 
-def fling(page, x0, y0, x1, y1, steps=12):
-    """甩：一路不停直接松手，工具盘按惯性推算停点。"""
+def fling(page, x0, y0, x1, y1, steps=5):
+    """甩：一路不停直接松手，工具盘按惯性推算停点。
+
+    步数要少。每一次 mouse.move 都是一趟 CDP 往返、大约 17 ms，12 步就铺开到
+    200 ms，而速度只取最后 VELOCITY_WINDOW_MS（100 ms）里的采样，算出来是
+    「半程距离 ÷ 100 ms」，正好压在 FLING_SPEED 上：实测六次里两次落到 924 和
+    1183，被当成慢放，这一条就成了三成概率失败的用例。步数减到 5，每一步跨的
+    距离变成三倍，速度离阈值就有足够余量了。
+    """
     page.mouse.move(x0, y0)
     page.mouse.down()
     for i in range(1, steps + 1):
