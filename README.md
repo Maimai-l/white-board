@@ -334,7 +334,7 @@ whiteboard/
 
 协议细节见 [docs/protocol.md](docs/protocol.md)，存档格式见 [docs/format.md](docs/format.md)，像素橡皮的参数怎么从原生量出来的见 [docs/eraser.md](docs/eraser.md)。
 
-只有真笔能触发的问题（压感、倾角、一帧里的合并采样点、抬笔那一刻的时序）可以在 iPad 上录下来带回开发机回放，见 [docs/recording.md](docs/recording.md)。
+只有真笔能触发的问题（压感、倾角、一帧里的合并采样点、抬笔那一刻的时序）可以在 iPad 上录下来带回开发机回放：连点左上角状态圆点三下，左下角那一格「录制输入」，见 [docs/recording.md](docs/recording.md)。
 
 ```bash
 python -m pytest tests -q                          # 全部测试

@@ -2524,16 +2524,29 @@ def test_recorder_replays_an_erase_exactly(browser, server):
     ipad.close()
 
 
-def test_recorder_panel_only_shows_when_asked(browser, server):
-    """录制面板只有带上 ?record=1 才画出来，正式界面上不该多一个按钮。"""
+def test_recorder_panel_rides_the_diagnostics_toggle(browser, server):
+    """录制跟着诊断面板一起开关：连点左上角状态圆点三下。
+
+    iPad 是靠配置描述文件装的 Web Clip 打开的，没有地址栏，改不了查询参数，
+    所以入口只能是屏幕上点得到的东西；而这个开关用户本来就知道。
+    """
     mac, ipad = open_pages(browser, server.port)
-    assert ipad.locator(".rec-panel").count() == 0
-    ipad.goto(ipad.url + "&record=1")
-    ipad.wait_for_selector(".rec-panel button")
-    assert ipad.locator(".rec-panel button").inner_text() == "开始录制"
-    ipad.click(".rec-panel button")
+    assert ipad.locator("#rec").is_hidden()
+    for _ in range(3):
+        ipad.click("#status")
+    ipad.wait_for_selector("#rec button")
+    assert ipad.evaluate("() => whiteboard.perf.enabled") is True
+    assert ipad.locator("#rec button").inner_text() == "录制输入"
+
+    ipad.click("#rec button")
     assert ipad.evaluate("() => whiteboard.recorder.recording") is True
-    assert ipad.locator(".rec-panel button").inner_text() == "停止录制"
+    assert ipad.locator("#rec button").inner_text() == "停止录制"
+
+    # 录着的时候把诊断关掉：先把录像停下来存好，不然那一段就白录了
+    for _ in range(3):
+        ipad.click("#status")
+    ipad.wait_for_function("() => whiteboard.recorder.recording === false")
+    assert ipad.locator("#rec").is_hidden()
     mac.close()
     ipad.close()
 

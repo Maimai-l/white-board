@@ -218,41 +218,52 @@ export class Recorder {
 }
 
 /**
- * ``?record=1`` 时挂出来的一个小面板：开始 / 停止，停止就把录像送到 Mac 上。
+ * 诊断面板上的录制那一格：开始 / 停止，停止就把录像送到 Mac 上。
  *
- * iPad 上没有开发者工具，控制台和文件系统都够不着，所以入口得画在页面上；
- * 又不该进正式工具栏，所以只在带上这个参数时才出现。
+ * 和卡顿诊断同一个开关（连点左上角状态圆点三下，或 ``?debug=1``）。iPad 是靠
+ * 配置描述文件装的 Web Clip 打开的，没有地址栏，改不了查询参数，所以入口只能
+ * 是屏幕上点得到的东西；而这个开关用户本来就知道。
+ *
+ * 返回一个 ``toggle(on)``，跟着诊断面板一起显示和隐藏。录着的时候把面板关掉，
+ * 先把录像停下来存好，不然那一段就白录了。
  */
 export function mountRecorderPanel(recorder) {
   const box = document.createElement("div");
-  box.className = "rec-panel";
+  box.id = "rec";
+  box.hidden = true;
   const button = document.createElement("button");
   const note = document.createElement("span");
   note.className = "rec-note";
   box.append(button, note);
-  document.body.appendChild(box);
+  (document.getElementById("ui") || document.body).appendChild(box);
 
   const paint = () => {
     const on = recorder.recording;
-    button.textContent = on ? "停止录制" : "开始录制";
+    button.textContent = on ? "停止录制" : "录制输入";
     box.dataset.on = on ? "1" : "";
     if (on) note.textContent = `${recorder.data.events.length} 条`;
   };
+  const finish = async () => {
+    note.textContent = "正在保存…";
+    const data = recorder.stop();
+    const res = await recorder.save(data);
+    note.textContent = res && res.path ? `已存到 ${res.path}` : "已下载";
+  };
   recorder.onChange = paint;
-  button.addEventListener("click", async () => {
-    if (recorder.recording) {
-      note.textContent = "正在保存…";
-      const data = recorder.stop();
-      const res = await recorder.save(data);
-      note.textContent = res && res.path ? `已存到 ${res.path}` : "已下载";
-    } else {
-      recorder.start();
-      note.textContent = "0 条";
-    }
+  button.addEventListener("click", () => {
+    if (recorder.recording) return finish();
+    recorder.start();
+    note.textContent = "0 条";
   });
   setInterval(() => {
     if (recorder.recording) note.textContent = `${recorder.data.events.length} 条`;
   }, 500);
   paint();
-  return box;
+  return {
+    node: box,
+    toggle(on) {
+      box.hidden = !on;
+      if (!on && recorder.recording) finish();
+    },
+  };
 }

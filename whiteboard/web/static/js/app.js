@@ -1121,7 +1121,11 @@ class App {
   actions() {
     return {
       isNative: () => !!nativeApi(),
-      onToggleDebug: () => this.perf.toggle(),
+      onToggleDebug: () => {
+        this.perf.toggle();
+        // 录制和卡顿诊断同一个开关：iPad 是 Web Clip 打开的，没有地址栏
+        this.recorderPanel?.toggle(this.perf.enabled);
+      },
       onCheckUpdate: async () => {
         const api = nativeApi();
         if (!api || !api.check_update_now) return "这个窗口没有本地接口";
@@ -1235,9 +1239,8 @@ window.whiteboard = new App();
 // 真笔才触发得了的问题（压感、倾角、一帧二十几个合并采样点）靠它带回开发机。
 window.whiteboard.recorder = new Recorder(window.whiteboard);
 window.whiteboard.recorder.attach(window.whiteboard.input.stage);
-if (new URLSearchParams(location.search).has("record")) {
-  mountRecorderPanel(window.whiteboard.recorder);
-}
+window.whiteboard.recorderPanel = mountRecorderPanel(window.whiteboard.recorder);
+window.whiteboard.recorderPanel.toggle(window.whiteboard.perf.enabled);
 // 切笔画的几何是纯函数，挂出来给端到端测试直接调
 window.whiteboard.splitStroke = splitStroke;
 window.whiteboard.buildPath = buildPath;
