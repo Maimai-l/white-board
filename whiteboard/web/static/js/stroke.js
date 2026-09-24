@@ -514,6 +514,69 @@ export function addMask(stroke, x0, y0, x1, y1, radius) {
   return true;
 }
 
+/**
+ * 一串点按 Ramer-Douglas-Peucker 抽稀，容差是 tol。
+ *
+ * 用循环而不是递归：一次长擦除的链能有上千个点，递归深度不可控。
+ */
+function thinPoints(pts, tol) {
+  const n = pts.length / 2;
+  if (n < 3) return pts.slice();
+  const keep = new Uint8Array(n);
+  keep[0] = 1;
+  keep[n - 1] = 1;
+  const stack = [0, n - 1];
+  while (stack.length) {
+    const b = stack.pop();
+    const a = stack.pop();
+    let far = -1;
+    let best = tol;
+    for (let i = a + 1; i < b; i++) {
+      const d = pointSegmentDistance(
+        pts[i * 2], pts[i * 2 + 1],
+        pts[a * 2], pts[a * 2 + 1], pts[b * 2], pts[b * 2 + 1]
+      );
+      if (d > best) {
+        best = d;
+        far = i;
+      }
+    }
+    if (far < 0) continue;
+    keep[far] = 1;
+    stack.push(a, far, far, b);
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    if (keep[i]) out.push(pts[i * 2], pts[i * 2 + 1]);
+  }
+  return out;
+}
+
+/**
+ * 把遮罩抽稀。改了返回 ``true``。
+ *
+ * 一次擦除每来一个采样点就多一段胶囊，而相邻几段在近乎笔直的一段上几乎完全
+ * 重合。裁剪的开销随段数是平方涨的——实测一条笔画挂 400 段整屏重画 2.9 ms、
+ * 1000 段 15 ms、2000 段 57 ms，所以段数不能靠放宽上限来解决，只能真的变少。
+ *
+ * 容差取 ``r / 6``，和导出 PDF 时 ``inkpdf.py`` 的 ``_capsules`` 是同一个尺度：
+ * 那边一直是这么抽的，形状看不出变化，两边用同一个容差屏幕和导出才对得上。
+ */
+export function simplifyMask(stroke) {
+  const chains = stroke.m;
+  if (!chains || !chains.length) return false;
+  let changed = false;
+  const out = [];
+  for (const chain of chains) {
+    const radius = chain[0];
+    const thin = thinPoints(chain.slice(1), radius / 6);
+    if (thin.length + 1 < chain.length) changed = true;
+    out.push([radius, ...thin]);
+  }
+  if (changed) stroke.m = out;
+  return changed;
+}
+
 /** 遮罩里总共有多少段胶囊。 */
 export function maskSize(stroke) {
   let total = 0;

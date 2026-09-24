@@ -2636,3 +2636,61 @@ def test_eraser_uses_every_coalesced_sample(browser, server):
     assert one_frame == per_frame
     mac.close()
     ipad.close()
+
+
+def test_mask_is_thinned_before_it_is_baked_into_cuts(browser, server):
+    """遮罩攒到上限先抽稀，抽不动了才落实成切分。
+
+    落实成切分是看得见的变化：啃出来的形状换成平口断面，贴边的细条还会被一起
+    清掉。以前一条笔画上擦够 400 个采样点就触发，iPad 上 120Hz 只要三秒多，
+    在一大块墨上来回擦几下就撞上了，手感上就是「擦着擦着忽然多出一道平口」。
+
+    裁剪的开销随段数是平方涨的（400 段整屏重画 2.9 ms、1000 段 15 ms、
+    2000 段 57 ms），所以不能靠放宽上限解决，只能让段数真的变少。容差取 r/6，
+    和 inkpdf.py 导出时用的是同一个，屏幕和导出才对得上。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    scrub = """([count]) => {
+      const input = whiteboard.input;
+      const rect = document.getElementById('stage').getBoundingClientRect();
+      const pt = (x, y, alt) => ({
+        clientX: rect.left + x, clientY: rect.top + y, pointerType: 'pen',
+        pointerId: 3, pressure: 0.5, altitudeAngle: alt, azimuthAngle: 0.8,
+        preventDefault() {},
+      });
+      whiteboard.state.remove(whiteboard.state.strokes.map((s) => s.id));
+      const p = [];
+      for (let i = 0; i < 200; i++) p.push(-400 + i * 4, -10, 1);
+      whiteboard.state.add([{ id: 'band', tool: 'pen', color: '#000', w: 96, p, n: 1 }]);
+      whiteboard.tool = { ...whiteboard.tool, tool: 'eraser', eraserMode: 'pixel' };
+      input._rect = null;
+      input.erase = { pointerId: 3, ids: [], radius: 8, last: null };
+      for (let k = 0; k < count; k++) {
+        const s = pt(300 + 140 * Math.sin(k / 18), 400 + 10 * Math.sin(k / 5),
+                     0.9 + 0.02 * Math.sin(k / 7));
+        input.moveErase({ ...s, getCoalescedEvents: () => [s] });
+      }
+      input.endErase(null);
+      return {
+        strokes: whiteboard.state.strokes.length,
+        segs: whiteboard.state.strokes.map((s) => whiteboard.maskSize(s)),
+        cut: whiteboard.state.strokes.reduce((a, s) => a + (s.cut ? 1 : 0), 0),
+      };
+    }"""
+    # 一千下——iPad 上 120Hz 差不多八秒连续擦一条笔画，还得是遮罩不是切分
+    long_scrub = ipad.evaluate(scrub, [1000])
+    assert long_scrub["cut"] == 0, long_scrub
+    assert long_scrub["strokes"] == 1, long_scrub
+    assert max(long_scrub["segs"]) <= 400, long_scrub
+
+    # 抽稀本身不改形状：没到上限的时候遮罩一个点都不能少
+    untouched = ipad.evaluate("""() => {
+      const s = { m: [[8, 0, 0, 10, 0, 20, 3, 30, 0]] };
+      const before = JSON.stringify(s.m);
+      whiteboard.simplifyMask(s);
+      return [before, JSON.stringify(s.m)];
+    }""")
+    # 30,0 和 0,0 之间那个 20,3 离直线 3 个单位，容差是 8/6，留着
+    assert untouched[0] == untouched[1], untouched
+    mac.close()
+    ipad.close()

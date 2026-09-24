@@ -332,7 +332,9 @@ whiteboard/
     static/js/  stroke 几何、渲染、输入、网络、缓存、界面
 ```
 
-协议细节见 [docs/protocol.md](docs/protocol.md)，存档格式见 [docs/format.md](docs/format.md)。
+协议细节见 [docs/protocol.md](docs/protocol.md)，存档格式见 [docs/format.md](docs/format.md)，像素橡皮的参数怎么从原生量出来的见 [docs/eraser.md](docs/eraser.md)。
+
+只有真笔能触发的问题（压感、倾角、一帧里的合并采样点、抬笔那一刻的时序）可以在 iPad 上录下来带回开发机回放，见 [docs/recording.md](docs/recording.md)。
 
 ```bash
 python -m pytest tests -q                          # 全部测试

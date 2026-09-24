@@ -17,6 +17,7 @@ import {
   maskFor,
   maskSize,
   MASK_LIMIT,
+  simplifyMask,
   splitStroke,
   strokeBBox,
   strokeHit,
@@ -534,11 +535,18 @@ class App {
         const before = stroke.m ? stroke.m.map((c) => c.slice()) : null;
         addMask(stroke, fromX, fromY, x, y, radius);
         if (maskSize(stroke) > MASK_LIMIT) {
-          const baked = this.bakeMask(stroke);
-          if (baked) {
-            removed.push(baked.removed);
-            added.push(...baked.added);
-            continue;
+          // 先抽稀。擦一大块时相邻几段胶囊几乎完全重合，抽掉之后形状看不出变化，
+          // 段数能少一个量级。落实成切分是看得见的变化——啃出来的形状换成平口
+          // 断面，还会把贴边的细条一起清掉——能不走就不走。
+          simplifyMask(stroke);
+          // 抽完还超，说明橡皮真的覆盖了这么多互不重合的地方，再抽也抽不动
+          if (maskSize(stroke) > MASK_LIMIT) {
+            const baked = this.bakeMask(stroke);
+            if (baked) {
+              removed.push(baked.removed);
+              added.push(...baked.added);
+              continue;
+            }
           }
         }
         bitten.push({ stroke, before });
@@ -1237,6 +1245,7 @@ window.whiteboard.eraseKind = eraseKind;
 window.whiteboard.strokeBBox = strokeBBox;
 window.whiteboard.plainStroke = plainStroke;
 window.whiteboard.maskSize = maskSize;
+window.whiteboard.simplifyMask = simplifyMask;
 window.whiteboard.Renderer = Renderer;
 window.whiteboard.strokeHit = strokeHit;
 window.whiteboard.penAltitude = penAltitude;
