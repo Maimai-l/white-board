@@ -36,9 +36,20 @@ FIRE = """
 
 
 def chromium_path():
-    for candidate in sorted(Path("/opt/pw-browsers").glob("chromium-*/chrome-linux/chrome")):
-        return str(candidate)
-    return None
+    """挑本机装着的最新那一版 Chromium。
+
+    挑最新的是为了和 CI 对齐：CI 上没有 /opt/pw-browsers，走 Playwright 自带的
+    那一版，而这里如果挑了台机器上碰巧留着的旧版本，本地全绿、CI 却红，
+    而且看不出为什么。新版目录叫 chrome-linux64，旧版叫 chrome-linux，两种都认。
+    """
+    builds = []
+    for pattern in ("chromium-*/chrome-linux/chrome", "chromium-*/chrome-linux64/chrome"):
+        for candidate in Path("/opt/pw-browsers").glob(pattern):
+            match = re.search(r"chromium-(\d+)", str(candidate))
+            builds.append((int(match.group(1)) if match else 0, str(candidate)))
+    if not builds:
+        return None
+    return max(builds)[1]
 
 
 @pytest.fixture(scope="module")
@@ -653,30 +664,41 @@ NATIVE_STUB = """
 
 
 ALL_PERMS = 'data-perms="clear export manage settings"'
-INDEX_URL = re.compile(r"^http://127\.0\.0\.1:\d+/(\?.*)?$")
 
 
 def serve_with_perms(page, perms):
-    """让这一页重新加载时拿到一份改过权限清单的首页。
+    """让这一页重新加载时，按一份改过的权限清单启动。
 
-    服务端是按对端地址发权限的，测试里连不上非本机地址，只能在中间把首页改掉。
+    服务端是按对端地址发权限的，测试里连不上非本机地址，只能在客户端这边改。
 
-    不要用 ``route.fulfill(response=response, ...)``：那会把原始响应头原样透传，
-    其中的 ``Content-Length`` 还是改之前的长度，浏览器会一直等那几个永远不来的
-    字节，导航就挂住了（Playwright 1.63 不重算这个头）。自己给 content_type，
-    长度交给 Playwright 算。
+    别用 ``page.route`` 拦下首页再 ``fulfill`` 一份改过的 HTML：那样文档是
+    Playwright 伪造的，不是从真实网络端点来的，新版 Chromium 因此不把它归到
+    「本地地址空间」，页面再连 ``ws://127.0.0.1`` 就成了跨地址空间请求，被
+    Local Network Access 检查拦掉（``ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS``），
+    net.status 永远到不了 online。Chromium 1194 还放行，1243 开始拦。
+
+    客户端只在启动时读一次 ``documentElement.dataset.perms``（见 app.js 的
+    resolvePerms），而 type=module 的脚本在解析完才执行，所以在 document_start
+    把这个属性改掉就够了，首页仍然是服务端原样发的。
     """
-
-    def handler(route):
-        response = route.fetch()
-        body = response.text().replace(ALL_PERMS, 'data-perms="%s"' % perms)
-        assert 'data-perms="%s"' % perms in body, "首页里的权限清单没对上 ALL_PERMS"
-        route.fulfill(status=200, content_type="text/html; charset=utf-8", body=body)
-
-    page.unroute(INDEX_URL)
-    page.route(INDEX_URL, handler)
+    page.add_init_script(
+        """(() => {
+          const perms = %r;
+          const apply = () => {
+            if (!document.documentElement) return false;
+            document.documentElement.dataset.perms = perms;
+            return true;
+          };
+          if (!apply()) {
+            new MutationObserver((_, observer) => {
+              if (apply()) observer.disconnect();
+            }).observe(document, { childList: true });
+          }
+        })();""" % perms
+    )
     page.reload()
     page.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    assert page.evaluate("() => document.documentElement.dataset.perms") == perms
 
 
 def as_native(page):
