@@ -1377,20 +1377,25 @@ def test_pen_altitude_reads_both_tilt_apis(browser, server):
 #
 # 采集方式见 docs/eraser.md：在一大片实心墨迹上点一排孤立的橡皮点，每个点固定
 # 一个角度，再把 PKStroke.mask 里对应那个洞的面积换算成等效直径。
-NATIVE_ERASER = [
+# 沿拖动路径量的**垂直宽度**：擦痕在屏幕上有多宽，就是这个数。曲线按它来。
+NATIVE_DRAG_WIDTH = [
+    (67.8, 16.5), (64.8, 16.5),
+    (58.8, 15.5), (57.7, 15.5), (54.4, 16.0), (53.4, 14.5), (52.6, 16.0),
+    (50.7, 15.5), (45.3, 16.5), (44.9, 18.0), (44.0, 16.5),
+    # 会话 a 的五条，把平台段的下端定在 37°
+    (43.0, 15.5), (40.9, 15.5), (39.6, 15.5), (38.9, 16.0), (38.4, 16.0),
+    # 会话 c，zoom 0.25：322 个 drawing 单位乘回缩放是 80.5 个屏幕单位
+    (10.4, 80.5),
+]
+
+# 孤立点的**洞面积换算的等效直径**。和垂直宽度只有在落笔是圆的时候才是同一个数，
+# 所以不能直接拿来定曲线——原来就是把两者接在一起，才在 37° 处接出一道悬崖。
+NATIVE_DAB_AREA = [
     (83.3, 6.9), (82.0, 6.3), (81.1, 7.2), (80.0, 9.0), (79.1, 8.1),
     (50.3, 16.5), (50.1, 17.7), (49.8, 17.6), (49.7, 18.2), (49.7, 15.9),
     (35.0, 35.2), (34.4, 40.7), (33.7, 45.0), (32.5, 50.5), (31.8, 54.1),
     (28.5, 72.2), (27.3, 78.7),
     (20.3, 80.7), (14.8, 82.1), (12.6, 81.2), (12.1, 80.3),
-    # 孤立点没覆盖到 68°～37° 这一段，下面这些是从拖动那一批量出来的：
-    # 沿橡皮路径逐点量原生洞的垂直宽度取中位数（tools/compare_native_eraser.py）。
-    # 原来这一段是线性插值填的，68° 处窄了 45%、44° 处宽了 30%。
-    (67.8, 16.5), (64.8, 16.5), (44.0, 16.5), (44.9, 18.0),
-    # 会话 a 的五条拖动，把平台段的下端从 42° 推到了 37°：曲线原来在这里给 20～28。
-    (43.0, 15.5), (40.9, 15.5), (39.6, 15.5), (38.9, 16.0), (38.4, 16.0),
-    # 会话 c，zoom 0.25：原生垂直宽度 322 个 drawing 单位，乘回缩放是 80.5 屏幕单位
-    (10.4, 80.5),
 ]
 
 
@@ -1400,6 +1405,10 @@ def test_eraser_width_follows_the_native_curve(browser, server):
     原来是「20° 以上一律笔尖 6、15° 以下一律 45」，全是拍脑袋定的。实测下来
     原生从 80° 就开始变粗、25° 左右饱和在 81；常握笔大约 50°，那里原生已经是 17，
     而原来的实现还停在 6——细得没法用橡皮写字，这就是那个「擦痕像针」的直接原因。
+
+    两种量法分开判。曲线按**垂直宽度**定，因为擦痕在屏幕上有多宽就是这个数；
+    孤立点的**等效直径**只在落笔接近圆形的两端（≥44° 和 ≤25°）和它一致，
+    中间那一段等效直径系统性地偏大，把两者接在一起就是 37° 处那道悬崖的由来。
     """
     mac, ipad = open_pages(browser, server.port)
     ipad.click('button[title="橡皮擦"]')
@@ -1419,8 +1428,9 @@ def test_eraser_width_follows_the_native_curve(browser, server):
     # 对象橡皮擦：立着、压着、贴着都是笔尖，它是整笔删除，作用点本来就只是一个点
     assert [ipad.evaluate(radius, [deg, "object"]) for deg in (88, 60, 45, 35, 15)] == [3] * 5
 
+    # 垂直宽度：曲线就是按它定的，要贴得紧
     worst = 0.0
-    for deg, native in NATIVE_ERASER:
+    for deg, native in NATIVE_DRAG_WIDTH:
         ours = ipad.evaluate(radius, [deg, "pixel"]) * 2
         # 同一角度原生自己就有散布（50° 那五个点是 15.9～18.2），所以按相对误差比
         error = abs(ours - native) / native
@@ -1428,10 +1438,27 @@ def test_eraser_width_follows_the_native_curve(browser, server):
         assert error < 0.18, (deg, native, ours)
     assert worst < 0.18
 
+    # 等效直径：两端要对上（那里落笔接近圆形，两种量法是同一个数）
+    for deg, native in NATIVE_DAB_AREA:
+        if not (deg >= 44 or deg <= 25):
+            continue
+        ours = ipad.evaluate(radius, [deg, "pixel"]) * 2
+        assert abs(ours - native) / native < 0.18, (deg, native, ours)
+
+    # 中间那一段等效直径一律比曲线大：这正是「落笔是拉长的椭圆」的样子，
+    # 反过来说，曲线在这里绝不能去追等效直径，否则就把悬崖接回来了
+    for deg, native in NATIVE_DAB_AREA:
+        if 25 < deg < 44:
+            ours = ipad.evaluate(radius, [deg, "pixel"]) * 2
+            assert ours < native, (deg, native, ours)
+
     # 单调：笔越平擦得越宽，中间不许有回头
     widths = [ipad.evaluate(radius, [deg, "pixel"]) for deg in range(85, 5, -5)]
     assert widths == sorted(widths), widths
     assert widths[0] * 2 < 8 and widths[-1] * 2 > 78  # 两端分别贴着笔尖和饱和值
+
+    # 37° 以下这一段没有拖动样本，只在两个信得过的锚点之间连直线，所以这里不拿
+    # 具体数值当判据；真正保证手感的是「整笔粗细不变」，见下一条用例。
 
     # 报不出倾斜的笔和鼠标按常握笔那一档给，不然一直是笔尖等于没法用
     middle = ipad.evaluate(
@@ -2843,5 +2870,56 @@ def test_a_very_long_stroke_still_reaches_the_other_device(browser, server):
     ipad.evaluate("() => whiteboard.undo()")
     ipad.wait_for_function("() => whiteboard.state.strokes.length === 0")
     mac.wait_for_function("() => whiteboard.state.strokes.length === 0")
+    mac.close()
+    ipad.close()
+
+
+def test_eraser_width_is_decided_when_the_pen_lands(browser, server):
+    """橡皮的粗细在落笔那一刻定下来，整笔不再跟着倾斜走。
+
+    原生就是这样：92 条原生橡皮笔画里，65% 整笔只报一个倾角读数，九成笔内极差在
+    2.36° 以内，中位数是 0。
+
+    我们原来每个采样点都重新平滑一次。iPad 报的 tiltX / tiltY 是整度的，写字时
+    笔身本来就在晃，而曲线在 37° 以下很陡——一份真机录像里，写字的笔身角度在
+    33°～47° 之间来回晃，同一笔里直径差到 2.7 倍，擦痕一节粗一节细，像一串香肠。
+
+    悬停时的光标圈照旧跟着倾斜走，那是预览，本来就该跟手。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    out = ipad.evaluate("""() => {
+      const input = whiteboard.input;
+      const rect = document.getElementById('stage').getBoundingClientRect();
+      whiteboard.state.remove(whiteboard.state.strokes.map((s) => s.id));
+      const p = [];
+      for (let i = 0; i < 200; i++) p.push(-400 + i * 4, -10, 1);
+      whiteboard.state.add([{ id: 'band', tool: 'pen', color: '#000', w: 96, p, n: 1 }]);
+      whiteboard.tool = { ...whiteboard.tool, tool: 'eraser', eraserMode: 'pixel' };
+      input._rect = null;
+      const at = (k) => ({
+        clientX: rect.left + 260 + k * 3, clientY: rect.top + 400,
+        pointerType: 'pen', pointerId: 4, pressure: 0.5,
+        // 笔身在 33°～47° 之间晃，正是真机录像里写字的样子
+        altitudeAngle: ((40 + 7 * Math.sin(k / 3)) * Math.PI) / 180,
+        azimuthAngle: 0.8, preventDefault() {}, getCoalescedEvents() { return [this]; },
+      });
+      input.onDown({ ...at(0), buttons: 1, isPrimary: true, button: 0 });
+      for (let k = 1; k < 60; k++) input.onMove(at(k));
+      input.onUp({ ...at(60), buttons: 0, isPrimary: true, button: 0 });
+      const m = (whiteboard.state.byId.get('band') || {}).m || [];
+      const radii = [...new Set(m.map((c) => c[0]))];
+      // 悬停光标不受影响：它该跟着倾斜走。取曲线上确实有坡度的两个角度
+      const hover = (deg) => ({ ...at(0), altitudeAngle: (deg * Math.PI) / 180 });
+      whiteboard.input.updateCursor(hover(80));
+      const a = whiteboard.renderer.cursor.r;
+      whiteboard.input.updateCursor(hover(30));
+      const b = whiteboard.renderer.cursor.r;
+      return { chains: m.length, radii, cursorMoves: a !== b };
+    }""")
+    assert out["chains"] >= 1
+    # 整笔一个粗细，所以整笔也就一条链
+    assert len(out["radii"]) == 1, out["radii"]
+    assert out["chains"] == 1, out["chains"]
+    assert out["cursorMoves"], "悬停光标还是要跟着倾斜走"
     mac.close()
     ipad.close()

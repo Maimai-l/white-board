@@ -42,7 +42,6 @@ def our_curve():
 
 
 CURVE = our_curve()
-SMOOTH = float(re.search(r"const ERASER_SMOOTH = ([\d.]+)", open(JS).read()).group(1))
 
 
 def our_diameter(deg):
@@ -113,13 +112,12 @@ def render_our_marks(sequences, rect, scale):
         pts = [s for s in seq["samples"] if s["kind"] == "coalesced"]
         if not pts:
             continue
-        # 橡皮半径是屏幕尺度的，换算到 drawing 坐标要除以当时的缩放
+        # 橡皮半径是屏幕尺度的，换算到 drawing 坐标要除以当时的缩放；
+        # 粗细在落笔时定下、整笔不变，和 input.js 的 startErase 一致
         zoom = seq["viewportAtBegin"]["zoom"] or 1.0
         radius = our_diameter(math.degrees(pts[0]["altitude"])) / 2 / zoom
         prev = None
         for s in pts:
-            target = our_diameter(math.degrees(s["altitude"])) / 2 / zoom
-            radius += (target - radius) * SMOOTH
             px, py = (s["x"] - x0) * scale, (s["y"] - y0) * scale
             r = radius * scale
             d.ellipse([px - r, py - r, px + r, py + r], fill=1)
