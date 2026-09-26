@@ -890,12 +890,22 @@ class App {
         break;
       }
       case "mask": {
+        // 自己发出去的遮罩不要再盖回来。发的是全量，而回执回到手里时本地往往
+        // 已经又擦了几下——照盖就是拿旧快照覆盖新状态，擦掉的点白丢，而且
+        // 下一段胶囊接不回去，链断开、断口处细成一道脖子。实测一次连续拖动、
+        // 120 个采样，本该是一条链，盖回来之后变成 60 条、回执再慢一点变成
+        // 24 条且只剩 52 个点。看上去就是擦痕一节一节，像一串香肠。
+        //
+        // 本地是自己这些改动的权威：发之前就已经原样应用过了。服务端只会在
+        // 超出上限时改写遮罩，而上限已经放在前端上限之上（models.py 的
+        // MAX_MASK_SEGMENTS，tests/test_models.py 里钉着），正常擦不到。
+        if (context.mine) break;
         for (const entry of op.masks || []) {
           const stroke = this.state.byId.get(entry.id);
           if (!stroke) continue;
           if (entry.m && entry.m.length) stroke.m = entry.m.map((c) => c.slice());
           else delete stroke.m;
-          }
+        }
         this.renderer.requestFull();
         break;
       }

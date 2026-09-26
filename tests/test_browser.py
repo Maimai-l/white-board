@@ -2992,3 +2992,59 @@ def test_the_stylus_erases_as_evenly_as_the_mouse(browser, server):
     assert with_pen["radii"][0] > 0 and with_mouse["radii"][0] > 0
     mac.close()
     ipad.close()
+
+
+def test_our_own_mask_echo_does_not_rewind_the_erase(browser, server):
+    """自己发出去的遮罩从服务器回来时，不能盖掉本地已经擦到的新位置。
+
+    遮罩发的是全量。回执回到手里时本地往往已经又擦了几下，照盖就是拿旧快照
+    覆盖新状态：擦掉的点白丢，下一段胶囊也接不回去，链断开、断口处细成一道
+    脖子——擦痕于是一节一节，像一串香肠。
+
+    这一条只有走完整条网络路径才看得见：`recorder.replay` 是直接改本地状态的，
+    服务器根本不认识那些笔画，mask 操作被丢弃、回执从不返回，所以回放永远是
+    干净的。真机上回执是回来的。
+
+    判据：一次连续拖动只攒一条链、一个点都不少，而且对端拿到的是同一份。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    ipad.evaluate("() => { whiteboard.tool = { ...whiteboard.tool, tool: 'pen', w: 13 }; }")
+    draw(ipad, [(150 + i * 6, 400) for i in range(120)], pressure=0.9)
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 1")
+    mac.wait_for_function("() => whiteboard.state.strokes.length === 1")
+    ipad.wait_for_function("() => whiteboard.net.outbox.length === 0")
+
+    steps = 120
+    # 回执慢一点回来，把真机上的局域网往返放大出来
+    got = ipad.evaluate("""async ([steps]) => {
+      const net = whiteboard.net;
+      const real = net._ack.bind(net);
+      net._ack = (msg) => setTimeout(() => real(msg), 60);
+      const stage = document.getElementById('stage');
+      const fire = (type, x, y) => stage.dispatchEvent(new PointerEvent(type, {
+        clientX: x, clientY: y, pointerType: 'pen', pointerId: 9, pressure: 0.5,
+        tiltX: 47, tiltY: 20, buttons: type === 'pointerup' ? 0 : 1,
+        bubbles: true, cancelable: true, isPrimary: true }));
+      whiteboard.tool = { ...whiteboard.tool, tool: 'eraser', eraserMode: 'pixel' };
+      fire('pointerdown', 160, 400);
+      for (let k = 1; k <= steps; k++) {
+        fire('pointermove', 160 + k * 5, 400);
+        // 让出一帧：擦一下、发一次、回执插进来，正是真机的节奏
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+      fire('pointerup', 160 + steps * 5, 400);
+      await new Promise((r) => setTimeout(r, 600));
+      net._ack = real;
+      const m = whiteboard.state.strokes[0].m || [];
+      return { chains: m.length, pts: m.reduce((a, c) => a + (c.length - 1) / 2, 0) };
+    }""", [steps])
+    assert got["chains"] == 1, got
+    assert got["pts"] == steps + 1, got
+
+    # 对端还是要收得到：不回放自己的回执，不等于不发给别人
+    mac.wait_for_function("() => (whiteboard.state.strokes[0] || {}).m")
+    same = mac.evaluate("""([m]) => JSON.stringify(whiteboard.state.strokes[0].m) === m""",
+                        [ipad.evaluate("() => JSON.stringify(whiteboard.state.strokes[0].m)")])
+    assert same, "对端的遮罩要和本机一致"
+    mac.close()
+    ipad.close()

@@ -104,6 +104,7 @@ export class Recorder {
       after: null,
     };
     this.t0 = performance.now();
+    this._vp = this.data.viewport;
     this.changed();
     return this.data;
   }
@@ -128,9 +129,16 @@ export class Recorder {
     if (event.isPrimary === false) entry.primary = false;
     if (type === "pointerdown") {
       // 工具是随时能换的，每一次落笔都要记当时是什么工具
-      const tool = this.app.input.getTool();
-      entry.tool = { ...tool };
-      entry.viewport = this.viewport();
+      entry.tool = { ...this.app.input.getTool() };
+    }
+    // 视口一变就记下来。只在落笔时记是不够的：中途用手指平移缩放，后面那些笔
+    // 回放时就会落在错的世界坐标上，而且错得很隐蔽——擦的还是那几条笔画，
+    // 只是位置偏了，结果对不上却看不出为什么。
+    const vp = this.viewport();
+    const last = this._vp;
+    if (!last || last.scale !== vp.scale || last.x !== vp.x || last.y !== vp.y) {
+      entry.viewport = vp;
+      this._vp = vp;
     }
     if (type === "pointermove" && event.getCoalescedEvents) {
       const list = event.getCoalescedEvents();
@@ -184,6 +192,11 @@ export class Recorder {
       }
       last = entry.t;
       if (entry.tool) app.tool = { ...entry.tool };
+      if (entry.viewport) {
+        app.viewport.scale = entry.viewport.scale;
+        app.viewport.x = entry.viewport.x;
+        app.viewport.y = entry.viewport.y;
+      }
       // 每条事件都重新量一次画布位置：回放时窗口尺寸不一定和录制时一样
       input._rect = null;
       const event = reviveEvent(entry);
