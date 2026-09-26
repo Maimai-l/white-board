@@ -113,11 +113,11 @@ async def handle_icon(request: web.Request) -> web.Response:
 
 
 def running_build() -> str:
-    """当前跑的是哪一份代码：分支名 + 短 commit。
+    """当前跑的是哪一份代码。
 
-    源码运行时从 git 读；打包之后不是 git 仓库，就退回版本号。诊断面板上显示
-    这一行，是因为截图里看不出跑的是哪个版本——对着一张图讨论问题，先得确定
-    两边说的是同一份代码。
+    打包之后的 app 不是 git 仓库，显示版本号——平时就是这一种；源码运行时从
+    git 读分支名和短 commit。诊断面板上显示这一行，是因为截图里看不出跑的是
+    哪个版本，对着一张图讨论问题，先得确定两边说的是同一份代码。
     """
     try:
         root = Path(__file__).resolve().parent.parent
