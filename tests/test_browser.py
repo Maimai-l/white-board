@@ -2531,6 +2531,9 @@ def test_recorder_replays_an_erase_exactly(browser, server):
 
     data = ipad.evaluate(RECORD_ERASE, [200, 380, 420, 380, 24, 0.9])
     assert data["events"], data
+    # 录像要自报跑的是哪一份代码，不然回放对不上时分不清是版本问题还是回放问题
+    assert data["build"] == ipad.evaluate("() => document.documentElement.dataset.build")
+    assert data["build"]
     assert data["before"] and len(data["before"]) == 1
     # 录的是原始指针事件本身，不是擦出来的结果
     assert {e["type"] for e in data["events"]} == {
@@ -3046,5 +3049,110 @@ def test_our_own_mask_echo_does_not_rewind_the_erase(browser, server):
     same = mac.evaluate("""([m]) => JSON.stringify(whiteboard.state.strokes[0].m) === m""",
                         [ipad.evaluate("() => JSON.stringify(whiteboard.state.strokes[0].m)")])
     assert same, "对端的遮罩要和本机一致"
+    mac.close()
+    ipad.close()
+
+
+def test_zz_outline(browser, server):
+    mac, ipad = open_pages(browser, server.port)
+    ipad.set_viewport_size({"width": 1200, "height": 820})
+    ipad.wait_for_timeout(200)
+    ipad.evaluate("""() => {
+      const cases = {};
+      // 一、紧螺旋：曲率半径小于笔半径，轮廓法在这里会自交
+      const spiral = [];
+      for (let i = 0; i < 160; i++) {
+        const t = i / 160 * Math.PI * 5;
+        const r = 8 + t * 5;
+        spiral.push(-300 + Math.cos(t) * r, -120 + Math.sin(t) * r, 0.8);
+      }
+      cases.spiral = spiral;
+      // 二、急折返：连续小角度之字，考折角处理
+      const zig = [];
+      for (let i = 0; i < 40; i++) zig.push(-40 + i * 7, -150 + (i % 2 ? 26 : -26), 0.8);
+      cases.zig = zig;
+      // 三、慢速小圈：手写里的 e、o、a 就是这种
+      const loop = [];
+      for (let i = 0; i < 90; i++) {
+        const t = i / 90 * Math.PI * 2;
+        loop.push(250 + Math.cos(t) * 14, -120 + Math.sin(t) * 18, 0.5 + 0.35 * Math.sin(t * 2));
+      }
+      cases.loop = loop;
+      window.__cases = cases;
+      whiteboard.state.remove(whiteboard.state.strokes.map((s) => s.id));
+      let n = 1;
+      for (const k of Object.keys(cases)) {
+        whiteboard.state.add([{ id: 'c-' + k, tool: 'pen', color: '#1b1b1f', w: 22,
+                                p: cases[k], n: n++ }]);
+      }
+      whiteboard.viewport.scale = 2.1;
+      whiteboard.viewport.x = 900;
+      whiteboard.viewport.y = 500;
+      whiteboard.renderer.requestFull();
+    }""")
+    ipad.wait_for_timeout(500)
+    ipad.screenshot(path="/tmp/claude-0/-home-user-white-board/c086dae9-f687-555c-8ca1-e309c0e47d27/scratchpad/outline-mine.png")
+    # 同一串点，改用 lineWidth 描边（atrament 的画法）
+    ipad.evaluate("""() => {
+      const c = whiteboard.renderer.base;
+      const ctx = c.getContext('2d');
+      const v = whiteboard.viewport, dpr = whiteboard.renderer.dpr;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.setTransform(v.scale * dpr, 0, 0, v.scale * dpr, v.x * dpr, v.y * dpr);
+      ctx.strokeStyle = '#1b1b1f';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const p of Object.values(window.__cases)) {
+        for (let i = 3; i < p.length; i += 3) {
+          ctx.lineWidth = 22 * (0.42 + 0.58 * Math.pow(p[i + 2], 0.8));
+          ctx.beginPath();
+          ctx.moveTo(p[i - 3], p[i - 2]);
+          ctx.lineTo(p[i], p[i + 1]);
+          ctx.stroke();
+        }
+      }
+    }""")
+    ipad.wait_for_timeout(300)
+    ipad.screenshot(path="/tmp/claude-0/-home-user-white-board/c086dae9-f687-555c-8ca1-e309c0e47d27/scratchpad/outline-linewidth.png")
+    mac.close()
+    ipad.close()
+
+
+def test_the_tail_of_a_stroke_thins_out_instead_of_swelling(browser, server):
+    """笔快离开屏幕时压感掉到 0，那是真读数，末尾该收细而不是鼓一个包。
+
+    `pressure === 0` 有两种含义：设备根本报不了压感，和笔快抬起来了。原来一律
+    当成前者顶成 0.5。真机录像里抬笔前那两下压感是 0.005、0.005、0，顶成 0.5
+    之后末端反而粗了两成半——每一笔的收尾都带个包。
+
+    只要这一笔里报过一次正压感，后面的 0 就沿用上一次的值；一次都没报过才算
+    这支笔没有压感（鼠标和不带压感的笔照旧走默认值）。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    out = ipad.evaluate("""() => {
+      const stage = document.getElementById('stage');
+      whiteboard.state.remove(whiteboard.state.strokes.map((s) => s.id));
+      whiteboard.tool = { ...whiteboard.tool, tool: 'pen', w: 13 };
+      const fire = (type, x, y, pressure) => stage.dispatchEvent(new PointerEvent(type, {
+        clientX: x, clientY: y, pointerType: 'pen', pointerId: 2, pressure,
+        tiltX: 40, tiltY: 0, buttons: type === 'pointerup' ? 0 : 1,
+        bubbles: true, cancelable: true, isPrimary: true }));
+      // 真机录到的收尾就是这样：一路降到 0.005，最后一下报 0
+      const tail = [0.08, 0.06, 0.05, 0.04, 0.03, 0.02, 0.012, 0.005, 0.005, 0];
+      fire('pointerdown', 200, 300, tail[0]);
+      for (let i = 1; i < tail.length; i++) fire('pointermove', 200 + i * 9, 300, tail[i]);
+      fire('pointerup', 200 + tail.length * 9, 300, 0);
+      const s = whiteboard.state.strokes[0];
+      const p = s.p.filter((_, i) => i % 3 === 2);
+      return { p, radii: p.map((v) => whiteboard.strokeRadius('pen', s.w, v)) };
+    }""")
+    r = out["radii"]
+    assert len(r) >= 6, out
+    # 末尾不许比中段粗
+    assert r[-1] <= r[len(r) // 2] + 1e-9, r
+    # 而且要确实在收细
+    assert r[-1] < r[0], r
     mac.close()
     ipad.close()

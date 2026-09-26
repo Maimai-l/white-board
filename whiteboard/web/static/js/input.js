@@ -442,13 +442,33 @@ export class InputController {
     this.stats.tiltDeg = Math.round((penAltitude(event) * 180) / Math.PI);
   }
 
+  /**
+   * 这一个采样点该用多大的压感。
+   *
+   * ``pressure === 0`` 有两种含义，必须分开：设备根本报不了压感（那就得给个
+   * 默认值），和笔快离开屏幕时压感掉到 0（那是真读数，末尾该收细）。原来一律
+   * 当成前者顶成 0.5，于是每一笔的收尾都不是收细而是鼓一个包——真机录像里
+   * 抬笔前那两下压感就是 0.005、0.005、0，顶成 0.5 之后末端反而粗了两成半。
+   *
+   * 所以只要这一笔里报过一次正压感，后面的 0 就按「掉读数」处理，沿用上一次的
+   * 值；一次都没报过才算这支笔没有压感。
+   */
   pressureFor(event, sample) {
     if (event.pointerType === "pen") {
-      let pressure = event.pressure > 0 ? event.pressure : 0.5;
+      const draw = this.draw;
+      const raw = event.pressure;
+      let pressure;
+      if (raw > 0) {
+        pressure = raw;
+        if (draw) draw.lastPressure = raw;
+      } else if (draw && draw.lastPressure > 0) {
+        pressure = draw.lastPressure;
+      } else {
+        pressure = 0.5;
+      }
       // 笔身放平时笔迹变宽，模拟侧锋
       const tilt = 1 - penAltitude(event) / (Math.PI / 2);
-      pressure = clamp(pressure * (1 + tilt * 0.45), 0, 1);
-      return pressure;
+      return clamp(pressure * (1 + tilt * 0.45), 0, 1);
     }
     // 鼠标 / 手指没有压感，用速度反推：走得快笔迹细。
     return clamp(1 - sample.speed / 3.2, 0.38, 1);
@@ -473,6 +493,8 @@ export class InputController {
       sx: wx,
       sy: wy,
       sp: event.pointerType === "pen" && event.pressure > 0 ? event.pressure : 0.5,
+      // 这一笔里报过正压感没有：报过的话，后面的 0 就是掉读数而不是「没有压感」
+      lastPressure: event.pointerType === "pen" && event.pressure > 0 ? event.pressure : 0,
       lastTime: event.timeStamp,
       lastScreen: this.toScreen(event),
     };

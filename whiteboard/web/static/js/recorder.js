@@ -91,6 +91,9 @@ export class Recorder {
       name: name || "",
       at: new Date().toISOString(),
       agent: navigator.userAgent,
+      // 跑的是哪一份代码。没有它的话，一份录像回放出来和真机对不上，就分不清是
+      // 「版本不一样」还是「回放模型不到」——这两件事的下一步完全不同。
+      build: document.documentElement.dataset.build || "",
       role: app.role,
       dpr: window.devicePixelRatio || 1,
       stage: [+rect.left.toFixed(2), +rect.top.toFixed(2),

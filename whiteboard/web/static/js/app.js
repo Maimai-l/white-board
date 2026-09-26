@@ -22,6 +22,7 @@ import {
   splitStroke,
   strokeBBox,
   strokeHit,
+  strokeRadius,
 } from "./stroke.js";
 import { debounce, plainStroke, uid } from "./util.js";
 import { contentBounds, downloadDataURL, exportDataURL, uploadThumb } from "./exporter.js";
@@ -1268,4 +1269,5 @@ window.whiteboard.maskSize = maskSize;
 window.whiteboard.simplifyMask = simplifyMask;
 window.whiteboard.Renderer = Renderer;
 window.whiteboard.strokeHit = strokeHit;
+window.whiteboard.strokeRadius = strokeRadius;
 window.whiteboard.penAltitude = penAltitude;
