@@ -2707,3 +2707,95 @@ def test_mask_is_thinned_before_it_is_baked_into_cuts(browser, server):
     assert untouched[0] == untouched[1], untouched
     mac.close()
     ipad.close()
+
+
+def test_a_long_erase_survives_the_round_trip(browser, server):
+    """擦掉的东西不能在同步这一圈里丢掉。
+
+    像素橡皮每擦一下就往遮罩里加一段胶囊，一次长擦除能攒出上百条链。服务端按
+    MAX_MASK_CHAINS 截断，截完的结果既广播给对端，也顺着回执盖回发送端自己——
+    于是这边刚擦掉的墨，过一会儿自己又回来了一部分，对端和存档里也少擦。真机
+    录像里一次擦除攒到 113 条链，截到 64，丢掉 43%。
+
+    判据是擦过的地方在两端都真的擦掉了，而不是链数对得上：链怎么攒是实现细节，
+    擦过的地方该没墨才是用户看到的东西。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    ipad.evaluate("() => { whiteboard.tool = { ...whiteboard.tool, tool: 'pen', w: 8 }; }")
+    draw(ipad, [(200 + i * 8, 400) for i in range(100)], pressure=0.9)
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 1")
+    mac.wait_for_function("() => whiteboard.state.strokes.length === 1")
+
+    # 沿着这条笔画一下一下地点着擦：每一下都是独立的一笔，各自成一条链
+    spots = ipad.evaluate("""() => {
+      const stage = document.getElementById('stage');
+      const fire = (type, x, y) => stage.dispatchEvent(new PointerEvent(type, {
+        clientX: x, clientY: y, pointerType: 'pen', pointerId: 5, pressure: 0.5,
+        altitudeAngle: 1.1, azimuthAngle: 0.8,
+        buttons: type === 'pointerup' ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true,
+      }));
+      whiteboard.tool = { ...whiteboard.tool, tool: 'eraser', eraserMode: 'pixel' };
+      const out = [];
+      for (let i = 0; i < 80; i++) {
+        const x = 220 + i * 9;
+        fire('pointerdown', x, 400);
+        fire('pointermove', x + 3, 400);
+        fire('pointerup', x + 3, 400);
+        out.push(whiteboard.input.toWorld({ clientX: x + 1, clientY: 400 }));
+      }
+      return out;
+    }""")
+    ipad.wait_for_function("() => whiteboard.net.outbox.length === 0")
+    mac.wait_for_function("() => (whiteboard.state.strokes[0] || {}).m")
+    ipad.wait_for_timeout(400)
+
+    left = """([spots]) => {
+      const s = whiteboard.state.strokes[0];
+      return spots.filter(([x, y]) => whiteboard.strokeHit(s, x, y, 0)).length;
+    }"""
+    here = ipad.evaluate(left, [spots])
+    there = mac.evaluate(left, [spots])
+    assert here == 0, f"本机上还有 {here} 处擦过的地方留着墨"
+    assert there == 0, f"对端上还有 {there} 处擦过的地方留着墨"
+    mac.close()
+    ipad.close()
+
+
+def test_one_drag_stays_one_mask_chain(browser, server):
+    """一次连续拖动只攒一条胶囊链，不是一个采样点一条。
+
+    橡皮的粗细每个采样点都重新平滑一次，收敛是指数的，永远差那么一点点。
+    判「还是同一次扫掠」原来用的是半径严格相等，于是几乎判不出来：一份真机
+    录像里一次擦除攒出 113 条链、82 个互不相同的半径，而它们在两位小数上全是
+    同一个值。链一多，裁剪开销（随段数平方涨）和同步的体量都跟着涨。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    chains = ipad.evaluate("""() => {
+      const input = whiteboard.input;
+      const rect = document.getElementById('stage').getBoundingClientRect();
+      whiteboard.state.remove(whiteboard.state.strokes.map((s) => s.id));
+      const p = [];
+      for (let i = 0; i < 200; i++) p.push(-400 + i * 4, -10, 1);
+      whiteboard.state.add([{ id: 'band', tool: 'pen', color: '#000', w: 96, p, n: 1 }]);
+      whiteboard.tool = { ...whiteboard.tool, tool: 'eraser', eraserMode: 'pixel' };
+      input._rect = null;
+      // 倾角一路缓慢变化：平滑出来的半径每一下都不一样，正是真机的样子
+      input.erase = { pointerId: 3, ids: [], radius: 8, last: null };
+      for (let k = 0; k < 120; k++) {
+        const s = {
+          clientX: rect.left + 260 + k * 2, clientY: rect.top + 400,
+          pointerType: 'pen', pointerId: 3, pressure: 0.5,
+          altitudeAngle: 0.9 + k * 0.0008, azimuthAngle: 0.8, preventDefault() {},
+        };
+        input.moveErase({ ...s, getCoalescedEvents: () => [s] });
+      }
+      input.endErase(null);
+      const m = (whiteboard.state.byId.get('band') || {}).m || [];
+      return { chains: m.length, segs: whiteboard.maskSize({ m }),
+               radii: new Set(m.map((c) => c[0])).size };
+    }""")
+    assert chains["segs"] >= 100, chains
+    # 一次拖动、一条链。允许因为半径真的走远了而断开几次，但不能一下一条
+    assert chains["chains"] <= 3, chains
+    mac.close()
+    ipad.close()

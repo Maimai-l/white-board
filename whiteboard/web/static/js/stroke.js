@@ -495,6 +495,16 @@ function chainInside(chain, x0, y0, x1, y1, radius) {
 }
 
 /**
+ * 判「同一次扫掠」时半径允许差多少（相对值）。
+ *
+ * 橡皮的粗细每个采样点都重新平滑一次，收敛是指数的，永远差那么一点点，所以
+ * 拿严格相等去判等于判不出来：一份真机录像里一次擦除攒出 113 条链、82 个互不
+ * 相同的半径，而它们在两位小数上全是同一个值。链上记的半径不跟着动，所以链里
+ * 每一段和它本来的半径最多差这么多，也不会随着链变长一路漂上去。
+ */
+const SWEEP_RADIUS_TOLERANCE = 0.01;
+
+/**
  * 往笔画的遮罩里加一段橡皮扫掠。改了返回 ``true``。
  *
  * 同一次拖动里的连续几段会接成一条链（上一段的终点就是这一段的起点），
@@ -505,7 +515,7 @@ export function addMask(stroke, x0, y0, x1, y1, radius) {
   const last = chains[chains.length - 1];
   const sameSweep =
     last &&
-    Math.abs(last[0] - radius) < 1e-6 &&
+    Math.abs(last[0] - radius) <= last[0] * SWEEP_RADIUS_TOLERANCE &&
     Math.abs(last[last.length - 2] - x0) < 1e-6 &&
     Math.abs(last[last.length - 1] - y0) < 1e-6;
   if (sameSweep) last.push(x1, y1);

@@ -31,10 +31,17 @@ MAX_DOC_PAGES = 400
 TOOLS = ("pen", "marker", "highlighter")
 
 MAX_POINTS_PER_STROKE = 20000
-# 遮罩的上限。一条笔画攒到 stroke.js 的 MASK_LIMIT 就会回收，这里只是防止
-# 伪造的消息把内存撑爆，留了很宽的余量。
-MAX_MASK_CHAINS = 64
-MAX_MASK_POINTS = 256
+# 遮罩的上限，按**总胶囊段数**算，和前端一个口径。
+#
+# 以前这里是「最多 64 条链、每条链最多 256 个点」，而前端管的是总段数
+# （stroke.js 的 MASK_LIMIT，400 段，超了就抽稀或落实成切分）。两个口径对不上，
+# 前端合法的遮罩到这里会被悄悄截断：真机录像里一次擦除攒出 113 条链，截到 64，
+# 43% 的擦除就这么没了。截断的结果既广播给对端，也顺着回执盖回发送端自己，
+# 所以那边刚擦掉的墨过一会儿自己又回来一部分——看上去像随机，其实是这一刀。
+#
+# 现在按总段数算，数值放在前端上限之上留出版本差的余量；
+# tests/test_models.py 里有用例把两边钉在一起，防止再次跑偏。
+MAX_MASK_SEGMENTS = 1024
 MIN_WIDTH = 0.5
 MAX_WIDTH = 96.0
 
@@ -212,11 +219,15 @@ def sanitize_mask(raw: Any) -> List[List[float]]:
     if not isinstance(raw, list):
         return []
     out: List[List[float]] = []
-    for chain in raw[:MAX_MASK_CHAINS]:
+    budget = MAX_MASK_SEGMENTS
+    for chain in raw:
+        if budget <= 0:
+            break
         if not isinstance(chain, list) or len(chain) < 5 or len(chain) % 2 == 0:
             continue
+        # 一条链 [r, x0, y0, x1, y1, ...]：点数是 (len-1)/2，段数比点数少一个
         values: List[float] = []
-        for value in chain[: MAX_MASK_POINTS * 2 + 1]:
+        for value in chain[: budget * 2 + 3]:
             if not isinstance(value, (int, float)) or isinstance(value, bool):
                 break
             if value != value or value in (float("inf"), float("-inf")):
@@ -225,6 +236,7 @@ def sanitize_mask(raw: Any) -> List[List[float]]:
         else:
             if values[0] > 0:
                 out.append(values)
+                budget -= max(1, (len(values) - 3) // 2)
     return out
 
 
