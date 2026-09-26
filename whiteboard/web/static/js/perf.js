@@ -132,7 +132,9 @@ export class PerfMonitor {
       `倾斜 tiltX ${input.tiltX || 0} tiltY ${input.tiltY || 0}` +
       `  altitude ${input.altRaw === null || input.altRaw === undefined ? "无" : input.altRaw + "°"}` +
       `  实际取 ${input.tiltDeg === undefined ? 90 : input.tiltDeg}°`;
+    const build = document.documentElement.dataset.build || "";
     this.node.textContent = [
+      build ? `版本 ${build}  ${this.role || ""}` : "",
       `帧 ${avg ? (1000 / avg).toFixed(0) : 0}fps  最长 ${max.toFixed(0)}ms`,
       `渲染 ${this.renderMs.toFixed(1)}ms  采样 ${rate}/s`,
       `笔 ${input.down}下 ${input.cancel}断  事件间隔 ${input.maxGap.toFixed(0)}ms  合并 ${input.coalesced}`,

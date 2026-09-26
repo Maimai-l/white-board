@@ -58,6 +58,10 @@ cd white-board
 Mac 上双击 **start-whiteboard.command**：第一次会自动建好运行环境并装依赖，
 之后每次双击直接开窗口。更新双击 **update.command**（就是 `git pull`）。
 
+想试还没合进主线的改动，双击 **beta.command**：它会列出远端的开发分支让你挑，
+切过去、拉最新、直接启动。回主线就再跑一次选 `0`，或者 `./beta.command main`。
+前端没有构建步骤，改的是 js / css 的话，iPad 上刷新一下就是新的，不用重启。
+
 macOS 可能提示「无法打开，因为来自身份不明的开发者」，右键点脚本 →「打开」→「打开」
 即可；或者执行一次 `xattr -dr com.apple.quarantine <这个文件夹>`。
 

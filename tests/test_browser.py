@@ -2923,3 +2923,21 @@ def test_eraser_width_is_decided_when_the_pen_lands(browser, server):
     assert out["cursorMoves"], "悬停光标还是要跟着倾斜走"
     mac.close()
     ipad.close()
+
+
+def test_the_diagnostics_panel_says_which_build_it_is(browser, server):
+    """诊断面板上要写清楚跑的是哪一份代码。
+
+    对着一张截图讨论问题，先得确定两边说的是同一份代码。源码运行时显示
+    「分支@短commit」，打包之后不是 git 仓库，退回版本号。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    build = ipad.evaluate("() => document.documentElement.dataset.build")
+    assert build, "页面上要带着版本"
+    for _ in range(3):
+        ipad.click("#status")
+    ipad.wait_for_selector("#perf")
+    text = ipad.inner_text("#perf")
+    assert build in text, (build, text)
+    mac.close()
+    ipad.close()

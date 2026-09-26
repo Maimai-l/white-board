@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 import urllib.parse
@@ -15,7 +16,7 @@ from typing import Any, Dict, FrozenSet, Optional
 
 from aiohttp import WSMsgType, web
 
-from . import models, netinfo, profile, resources
+from . import __version__, models, netinfo, profile, resources
 from .config import REMOTE_PERMISSIONS, Config
 from .hub import Hub
 from .store import BoardStore
@@ -83,6 +84,9 @@ async def handle_index(request: web.Request) -> web.Response:
     html = (WEB_DIR / "index.html").read_text("utf-8")
     html = html.replace("{{ROLE}}", role)
     html = html.replace("{{PERMS}}", " ".join(sorted(permissions(request))))
+    # 每个客户端都要拿得到，所以写在页面上而不是放进 /api/info——那个要 manage 权限，
+    # iPad 通常没有
+    html = html.replace("{{BUILD}}", running_build())
     return web.Response(
         text=html,
         content_type="text/html",
@@ -108,12 +112,34 @@ async def handle_icon(request: web.Request) -> web.Response:
     return web.Response(body=profile.icon_png(180), content_type="image/png")
 
 
+def running_build() -> str:
+    """当前跑的是哪一份代码：分支名 + 短 commit。
+
+    源码运行时从 git 读；打包之后不是 git 仓库，就退回版本号。诊断面板上显示
+    这一行，是因为截图里看不出跑的是哪个版本——对着一张图讨论问题，先得确定
+    两边说的是同一份代码。
+    """
+    try:
+        root = Path(__file__).resolve().parent.parent
+        run = lambda *a: subprocess.run(
+            a, cwd=root, capture_output=True, text=True, timeout=2
+        ).stdout.strip()
+        branch = run("git", "rev-parse", "--abbrev-ref", "HEAD")
+        commit = run("git", "rev-parse", "--short", "HEAD")
+        if branch and commit:
+            return f"{branch}@{commit}"
+    except Exception:
+        pass
+    return __version__
+
+
 async def handle_info(request: web.Request) -> web.Response:
     require(request, "manage")
     config: Config = request.app[CONFIG_KEY]
     hub: Hub = request.app[HUB_KEY]
     return web.json_response(
         {
+            "build": running_build(),
             "hostname": netinfo.local_hostname(),
             "port": config.port,
             "urls": netinfo.candidate_urls(config.port),
