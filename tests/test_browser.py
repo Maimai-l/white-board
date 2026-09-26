@@ -2942,3 +2942,53 @@ def test_the_diagnostics_panel_says_which_build_it_is(browser, server):
     assert build in text, (build, text)
     mac.close()
     ipad.close()
+
+
+def test_the_stylus_erases_as_evenly_as_the_mouse(browser, server):
+    """同一条路径，笔擦出来的痕迹要和鼠标一样匀，不能一节粗一节细。
+
+    鼠标那条路橡皮半径是写死的常数（没有倾斜可依据），所以从来不会香肠；
+    只有笔会跟着倾角走。iPad 的 Safari 报的又是整度的 tiltX / tiltY，写字时笔身
+    本来就在晃，曲线在 37° 以下还很陡——三样凑在一起，一笔之内直径能差 2.7 倍。
+
+    粗细该由落笔时的倾角决定（笔压得平就该擦得宽，这是对的），但决定之后整笔
+    就不该再变。判据就是：两种输入都只攒出一条链、一个半径。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    run = """([pen]) => {
+      const input = whiteboard.input;
+      const rect = document.getElementById('stage').getBoundingClientRect();
+      whiteboard.state.remove(whiteboard.state.strokes.map((s) => s.id));
+      const p = [];
+      for (let i = 0; i < 200; i++) p.push(-400 + i * 4, -10, 1);
+      whiteboard.state.add([{ id: 'band', tool: 'pen', color: '#000', w: 96, p, n: 1 }]);
+      whiteboard.tool = { ...whiteboard.tool, tool: 'eraser', eraserMode: 'pixel' };
+      input._rect = null;
+      const at = (k) => {
+        const ev = { clientX: rect.left + 260 + k * 3, clientY: rect.top + 400,
+          pointerId: 6, pointerType: pen ? 'pen' : 'mouse', pressure: 0.5,
+          buttons: 1, button: 0, isPrimary: true,
+          preventDefault() {}, getCoalescedEvents() { return [this]; } };
+        if (pen) {
+          // 笔身在 40° 上下晃 ±6°，换算成整度的 tiltX / tiltY——真机就是这样报的
+          const alt = 40 + 6 * Math.sin(k / 5);
+          ev.tiltX = Math.round(Math.atan(1 / Math.tan((alt * Math.PI) / 180)) * 180 / Math.PI);
+          ev.tiltY = 0;
+        }
+        return ev;
+      };
+      input.onDown(at(0));
+      for (let k = 1; k < 60; k++) input.onMove(at(k));
+      input.onUp(at(60));
+      const m = (whiteboard.state.byId.get('band') || {}).m || [];
+      return { chains: m.length, radii: [...new Set(m.map((c) => c[0]))] };
+    }"""
+    with_pen = ipad.evaluate(run, [True])
+    with_mouse = ipad.evaluate(run, [False])
+    for label, got in (("笔", with_pen), ("鼠标", with_mouse)):
+        assert got["chains"] == 1, (label, got)
+        assert len(got["radii"]) == 1, (label, got)
+    # 粗细本来就该由倾角决定，所以两者的半径不必相等，只要各自匀
+    assert with_pen["radii"][0] > 0 and with_mouse["radii"][0] > 0
+    mac.close()
+    ipad.close()
