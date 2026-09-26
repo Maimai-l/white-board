@@ -495,6 +495,40 @@ function chainInside(chain, x0, y0, x1, y1, radius) {
 }
 
 /**
+ * 一条笔画最多多少个采样点。超了就在提交时切成几段。
+ *
+ * 服务端对超长点列是**整条丢掉**而不是截断（`models.sanitize_stroke`）。不切的话
+ * 一笔画得够久就会本机看得见、对端和存档里没有——和遮罩被截断是同一类问题：
+ * 本机显示和存下来的东西不一致，而且只有重新载入才看得出来。
+ *
+ * 这个值必须不大于服务端的 `MAX_POINTS_PER_STROKE`，`tests/test_models.py` 里有
+ * 用例把两边钉在一起。
+ */
+export const MAX_STROKE_POINTS = 20000;
+
+/**
+ * 太长的一笔切成几段，返回一个数组；没超长就原样返回 ``[stroke]``。
+ *
+ * 接缝处两段共用同一个采样点，两端都是默认的圆头，叠在一起看不出接缝。
+ * 切出来的段不打 ``cut`` 标记——那是橡皮切出来的平口，这里不是。
+ */
+export function splitLongStroke(stroke, makeId) {
+  const flat = stroke.p;
+  const count = flat.length / 3;
+  if (count <= MAX_STROKE_POINTS) return [stroke];
+  const out = [];
+  // 每段末尾那个点也是下一段的开头，所以每段实际前进 MAX-1 个点
+  const step = MAX_STROKE_POINTS - 1;
+  for (let start = 0; start < count - 1; start += step) {
+    const end = Math.min(start + MAX_STROKE_POINTS, count);
+    const piece = { ...stroke, p: flat.slice(start * 3, end * 3) };
+    if (out.length) piece.id = makeId();
+    out.push(piece);
+  }
+  return out;
+}
+
+/**
  * 判「同一次扫掠」时半径允许差多少（相对值）。
  *
  * 橡皮的粗细每个采样点都重新平滑一次，收敛是指数的，永远差那么一点点，所以

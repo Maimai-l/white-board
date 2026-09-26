@@ -18,6 +18,7 @@ import {
   maskSize,
   MASK_LIMIT,
   simplifyMask,
+  splitLongStroke,
   splitStroke,
   strokeBBox,
   strokeHit,
@@ -474,16 +475,21 @@ class App {
     for (let guard = 0; this.state.byId.has(stroke.id) && guard < 50; guard += 1) {
       stroke.id = this.input.newStrokeId();
     }
-    const { added } = this.state.add([stroke]);
-    if (added.length) {
-      this.renderer.drawCommitted(stroke);
+    // 画得特别久的一笔在这里切成几段：服务端对超长点列是整条丢掉，不切的话
+    // 这一笔本机看得见，对端和存档里没有。接缝共用一个点，看不出来。
+    const pieces = splitLongStroke(stroke, () => this.input.newStrokeId());
+    const { added } = this.state.add(pieces);
+    if (added.length === pieces.length) {
+      for (const piece of pieces) this.renderer.drawCommitted(piece);
     } else {
       reportError("笔画提交失败", { id: stroke.id, points: stroke.p.length / 3 });
       this.renderer.requestFull();
     }
-    // 重做要把这一笔原样放回去，所以连内容一起记下来
-    this.pushUndo({ type: "added", ids: [stroke.id], strokes: [plainStroke(stroke)] });
-    this.net.sendOp({ op: "add", strokes: [plainStroke(stroke)] });
+    const plain = pieces.map(plainStroke);
+    // 重做要把这一笔原样放回去，所以连内容一起记下来。切开的几段算一步撤销：
+    // 用户画的是一笔，撤销就该一次全没。
+    this.pushUndo({ type: "added", ids: plain.map((s) => s.id), strokes: plain });
+    this.net.sendOp({ op: "add", strokes: plain });
     this.saveCache();
     this.pushThumb();
   }
@@ -1243,6 +1249,7 @@ window.whiteboard.recorderPanel = mountRecorderPanel(window.whiteboard.recorder)
 window.whiteboard.recorderPanel.toggle(window.whiteboard.perf.enabled);
 // 切笔画的几何是纯函数，挂出来给端到端测试直接调
 window.whiteboard.splitStroke = splitStroke;
+window.whiteboard.splitLongStroke = splitLongStroke;
 window.whiteboard.buildPath = buildPath;
 window.whiteboard.eraseKind = eraseKind;
 window.whiteboard.strokeBBox = strokeBBox;

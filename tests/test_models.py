@@ -76,3 +76,19 @@ def test_mask_budget_is_counted_in_segments():
     assert models.sanitize_mask([[3.0, 0.0, 0.0, float("nan"), 0.0]]) == []
     assert models.sanitize_mask([[-1.0, 0.0, 0.0, 1.0, 0.0]]) == []
     assert models.sanitize_mask("nope") == []
+
+
+def test_stroke_point_limit_matches_what_the_client_will_send():
+    """前端切分超长笔画的阈值不能超过服务端肯收的上限。
+
+    服务端对超长点列是**整条丢掉**，不是截断。两边对不上的话，画得够久的一笔
+    本机看得见、对端和存档里没有，而且只有重新载入才看得出来——和遮罩被截断
+    是同一类问题。
+    """
+    src = (Path(__file__).resolve().parent.parent
+           / "whiteboard/web/static/js/stroke.js").read_text("utf-8")
+    client = int(re.search(r"export const MAX_STROKE_POINTS = (\d+)", src).group(1))
+    assert client <= models.MAX_POINTS_PER_STROKE
+    # 正好卡在上限的一笔要收下
+    at_limit = {"id": "a", "p": [0.0, 0.0, 0.5] * client}
+    assert models.sanitize_stroke(at_limit) is not None

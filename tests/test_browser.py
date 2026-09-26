@@ -2799,3 +2799,49 @@ def test_one_drag_stays_one_mask_chain(browser, server):
     assert chains["chains"] <= 3, chains
     mac.close()
     ipad.close()
+
+
+def test_a_very_long_stroke_still_reaches_the_other_device(browser, server):
+    """画得特别久的一笔不能只留在本机。
+
+    服务端对超长点列是整条丢掉（sanitize_stroke），不是截断。不切分的话这一笔
+    本机看得见、对端和存档里没有，而且只有重新载入才看得出来——和遮罩被截断
+    是同一类问题：显示和存下来的东西不一致。
+
+    切开的几段接缝共用同一个采样点，两端都是默认圆头，叠在一起看不出接缝；
+    撤销仍然是一步，因为用户画的就是一笔。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    # 直接提交一笔超长的：靠真的发两万多个指针事件太慢，切分这一段和事件无关
+    n = ipad.evaluate("""() => {
+      const n = 25000;
+      const p = [];
+      for (let i = 0; i < n; i++) p.push(-500 + i * 0.05, -10 + Math.sin(i / 60) * 30, 0.6);
+      whiteboard.commitStroke({ id: whiteboard.input.newStrokeId(), tool: 'pen',
+                                color: '#1b1b1f', w: 3, p });
+      return n;
+    }""")
+    ipad.wait_for_function("() => whiteboard.net.outbox.length === 0")
+    mac.wait_for_timeout(300)
+
+    read = """() => {
+      const all = whiteboard.state.strokes;
+      return { pieces: all.length, points: all.reduce((a, s) => a + s.p.length / 3, 0),
+               p: all.map((s) => s.p) };
+    }"""
+    here = ipad.evaluate(read)
+    there = mac.evaluate(read)
+    assert there["points"] == here["points"], (
+        f"对端只收到 {there['points']} 个点，本机有 {here['points']} 个")
+    assert there["p"] == here["p"], "对端和本机的点列必须一样"
+    # 接缝共用一个点，所以总点数比原来多「段数 - 1」个
+    assert here["points"] == n + here["pieces"] - 1
+    joins = [here["p"][i][-3:] == here["p"][i + 1][:3] for i in range(here["pieces"] - 1)]
+    assert all(joins), "每个接缝都要共用同一个采样点"
+
+    # 用户画的是一笔，撤销就该一次全没
+    ipad.evaluate("() => whiteboard.undo()")
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 0")
+    mac.wait_for_function("() => whiteboard.state.strokes.length === 0")
+    mac.close()
+    ipad.close()
