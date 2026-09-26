@@ -2937,6 +2937,7 @@ def test_the_diagnostics_panel_says_which_build_it_is(browser, server):
     for _ in range(3):
         ipad.click("#status")
     ipad.wait_for_selector("#perf")
+    # 打开面板就该立刻有内容，不用等下一帧
     text = ipad.inner_text("#perf")
     assert build in text, (build, text)
     mac.close()

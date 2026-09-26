@@ -32,6 +32,9 @@ export class PerfMonitor {
       document.getElementById("ui").append(this.node);
     }
     if (this.node) this.node.style.display = this.enabled ? "block" : "none";
+    // 立刻填一次内容。paint 平时是每帧循环里每 250ms 才跑一次，打开面板到第一次
+    // paint 之间它是空的；而版本号这一行是拿来对截图的，不能等。
+    if (this.enabled) this.paint();
   }
 
   /** 每帧调用：dt 是距离上一帧的间隔，renderMs 是这一帧渲染花的时间。 */
