@@ -20,12 +20,52 @@ function turnOf(from, to) {
   return delta;
 }
 
+// 压感通道的膝点。iPad Safari 报的 `event.pressure` 不是铺满 0～1 的：真机录像里
+// 一整段手写都挤在 0.007～0.125（中位数 0.028），也就是说有用的量程只有八分之一。
+// 所以先把读数按膝点展开再算粗细，`KNEE` 取 0.05——正好让「放松写字」的 0.028 落在
+// 0.38 左右，往上还留着加力的余量。
+const PEN_KNEE = 0.05;
+
+// 展开之后的曲线。`FLOOR` 是压感趋零时还剩多少（不能真收到 0，中途一次低读数会
+// 把线掐断），`FLOOR + (1 - FLOOR) = 1` 保证「用满力就是设定的线宽」——这一条和
+// 以前一样，线宽滑块的含义没变。指数 1.2 是按「0.028 仍然画出设定线宽的 0.45 倍」
+// 定的，所以这次改动不会让已经写好的字整体变粗或变细，只是把粗细的动态范围拉开：
+// 真机常用的 0.023～0.080 一段，以前是 0.448～0.497（差 11%），现在是 0.41～0.67
+// （差 63%）。
+const PEN_FLOOR = 0.2;
+const PEN_GAMMA = 1.2;
+
+/**
+ * 压感读数展开成 0～1 的「力度」。
+ *
+ * 顺带说明为什么没有直接照搬 atrament：它的 `#getWeightWithPressure` 以 0.5 为轴，
+ * 0.5 以下是 `weight * 2p`。这支笔报的是 0.028，照它算出来是设定线宽的 5.6%，
+ * 一条头发丝。那条曲线假设设备把 0～1 用满，而 iPad Safari 并没有。
+ */
+export function penForce(pressure) {
+  const p = clamp(pressure, 0, 1);
+  return (p * (1 + PEN_KNEE)) / (p + PEN_KNEE);
+}
+
 /** 单点半径：钢笔跟随压感，马克笔和荧光笔等宽（和 iPad 上的手感一致）。 */
 export function strokeRadius(tool, width, pressure) {
   const half = Math.max(0.3, width / 2);
   if (tool !== "pen") return half;
-  const p = clamp(pressure, 0, 1);
-  return half * (0.42 + 0.58 * Math.pow(p, 0.8));
+  const force = penForce(pressure);
+  return half * (PEN_FLOOR + (1 - PEN_FLOOR) * Math.pow(force, PEN_GAMMA));
+}
+
+/**
+ * 反解：想让笔迹粗到设定线宽的 `factor` 倍，压感通道该存什么值。
+ *
+ * 鼠标、手指和不带压感的笔都没有压感读数，它们的粗细是另外算出来的（走得快就细），
+ * 但文件里每个点只有一个压感字段，所以得把想要的粗细折回压感值再存。这样
+ * `strokeRadius` 始终只是「压感 → 粗细」一个函数，导出 PDF 和重新打开文件都对得上。
+ */
+export function pressureForFactor(factor) {
+  const f = clamp(factor, PEN_FLOOR, 1);
+  const force = Math.pow((f - PEN_FLOOR) / (1 - PEN_FLOOR), 1 / PEN_GAMMA);
+  return clamp((force * PEN_KNEE) / (1 + PEN_KNEE - force), 0, 1);
 }
 
 /** 去掉重合点：方向角要靠相邻点算，两点重合会得到无意义的角度。 */

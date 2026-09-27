@@ -42,13 +42,25 @@ def epsilon(width: float) -> float:
     return min(SIMPLIFY_MAX, max(SIMPLIFY, width * SIMPLIFY_RATIO))
 
 
+# 压感曲线的三个常数，必须和 stroke.js 里的 PEN_KNEE / PEN_FLOOR / PEN_GAMMA 一致，
+# 那边有为什么这么取的说明；tests/test_docs.py 会把两边对起来。
+PEN_KNEE = 0.05
+PEN_FLOOR = 0.2
+PEN_GAMMA = 1.2
+
+
+def pen_force(pressure: float) -> float:
+    """压感读数展开成 0～1 的力度，公式与 stroke.js 的 penForce 相同。"""
+    p = 0.0 if pressure < 0 else (1.0 if pressure > 1 else pressure)
+    return p * (1 + PEN_KNEE) / (p + PEN_KNEE)
+
+
 def radius(tool: str, width: float, pressure: float) -> float:
     """单点半径，公式与 stroke.js 的 strokeRadius 相同。"""
     half = max(0.3, width / 2)
     if tool != "pen":
         return half
-    p = 0.0 if pressure < 0 else (1.0 if pressure > 1 else pressure)
-    return half * (0.42 + 0.58 * p**0.8)
+    return half * (PEN_FLOOR + (1 - PEN_FLOOR) * pen_force(pressure) ** PEN_GAMMA)
 
 
 def points_of(stroke: Dict) -> List[Tuple[float, float, float]]:

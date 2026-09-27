@@ -2,6 +2,8 @@
 
 import io
 import math
+import pathlib
+import re
 
 import pytest
 
@@ -455,6 +457,29 @@ def test_repeated_exports_do_not_grow(tmp_path):
         docs.export_pdf(src, strokes, out)
         sizes.append(out.stat().st_size)
     assert len(set(sizes)) == 1, sizes
+
+
+def test_the_pressure_curve_is_the_same_on_both_sides():
+    """屏幕和导出必须用同一条压感曲线，常数抄错一个导出就和屏幕不一样粗。
+
+    直接从 stroke.js 里读常数比对，别靠人去记两边改没改。
+    """
+    src = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "whiteboard/web/static/js/stroke.js"
+    ).read_text(encoding="utf-8")
+
+    def constant(name):
+        m = re.search(rf"^const {name} = ([\d.]+);", src, re.M)
+        assert m, name
+        return float(m.group(1))
+
+    assert constant("PEN_KNEE") == inkpdf.PEN_KNEE
+    assert constant("PEN_FLOOR") == inkpdf.PEN_FLOOR
+    assert constant("PEN_GAMMA") == inkpdf.PEN_GAMMA
+    # 曲线的两个端点：压感为 0 剩 PEN_FLOOR，用满力正好是设定的线宽
+    assert inkpdf.radius("pen", 2.0, 0.0) == pytest.approx(inkpdf.PEN_FLOOR)
+    assert inkpdf.radius("pen", 2.0, 1.0) == pytest.approx(1.0)
 
 
 def test_cut_ends_are_flat_in_the_pdf_too(tmp_path):

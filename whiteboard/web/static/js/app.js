@@ -17,6 +17,8 @@ import {
   maskFor,
   maskSize,
   MASK_LIMIT,
+  penForce,
+  pressureForFactor,
   simplifyMask,
   splitLongStroke,
   splitStroke,
@@ -1270,4 +1272,6 @@ window.whiteboard.simplifyMask = simplifyMask;
 window.whiteboard.Renderer = Renderer;
 window.whiteboard.strokeHit = strokeHit;
 window.whiteboard.strokeRadius = strokeRadius;
+window.whiteboard.penForce = penForce;
+window.whiteboard.pressureForFactor = pressureForFactor;
 window.whiteboard.penAltitude = penAltitude;

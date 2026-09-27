@@ -3120,6 +3120,80 @@ def test_zz_outline(browser, server):
     ipad.close()
 
 
+# 真机录像里一整段手写的压感读数（20260926-204816 / 231400 / 20260927-105648 三份
+# 录像，2124 个非零采样）分位数。iPad Safari 根本不把 0～1 用满：
+#   p1 0.0092  p25 0.0229  p50 0.0282  p75 0.0365  p95 0.0800  p99 0.1072  max 0.1253
+RECORDED_PRESSURE = {
+    "p1": 0.0092,
+    "p25": 0.0229,
+    "p50": 0.0282,
+    "p75": 0.0365,
+    "p95": 0.0800,
+    "max": 0.1253,
+}
+
+
+def test_pressure_actually_changes_how_thick_the_pen_is(browser, server):
+    """Apple Pencil 的压感读数挤在 0～0.13，粗细曲线得照这个量程来。
+
+    这条曲线以前是 `0.42 + 0.58 * p^0.8`，假设设备把 0～1 用满。真机上常用的
+    0.023～0.080 一段算出来是 0.448～0.497——差 11%，看不出来有压感。
+    直接照搬 atrament 的 `#getWeightWithPressure` 更糟：它以 0.5 为轴，0.5 以下
+    是 `weight * 2p`，0.028 算出来是设定线宽的 5.6%，一条头发丝。
+
+    现在先按膝点把读数展开再算粗细。用例钉三件事：常用一段的粗细要拉得开、
+    「放松写字」那一档的绝对粗细不许变（不然已经写好的字整体变粗变细），
+    用满力还是正好设定的线宽。
+    """
+    mac, _ = open_pages(browser, server.port)
+    out = mac.evaluate(
+        """(q) => {
+      const f = (p) => whiteboard.strokeRadius('pen', 2, p);   // 设定线宽 2，半径即倍数
+      return {
+        p1: f(q.p1), p25: f(q.p25), p50: f(q.p50), p75: f(q.p75),
+        p95: f(q.p95), max: f(q.max), full: f(1),
+      };
+    }""",
+        RECORDED_PRESSURE,
+    )
+    # 常用的 p25～p95 一段至少要差一半以上，才叫看得出压感
+    assert out["p95"] / out["p25"] > 1.5, out
+    # 整个量程（p1～max）要差两倍以上
+    assert out["max"] / out["p1"] > 2.0, out
+    # 单调
+    keys = ["p1", "p25", "p50", "p75", "p95", "max"]
+    assert all(out[a] < out[b] for a, b in zip(keys, keys[1:])), out
+    # 「放松写字」的 p50 还是设定线宽的 0.45 倍上下：改的是动态范围，不是整体粗细
+    assert 0.42 < out["p50"] < 0.48, out
+    # 用满力正好是设定的线宽——线宽滑块的含义没变
+    assert out["full"] == pytest.approx(1.0), out
+    mac.close()
+
+
+def test_a_pointer_without_pressure_keeps_the_width_it_had(browser, server):
+    """鼠标、手指和不带压感的笔画多粗，这次不许跟着压感曲线一起变。
+
+    它们的粗细是按速度算的（走得快就细），可是文件里每个点只有一个压感字段，
+    所以粗细得折回压感值再存。曲线一换，折算也得跟着换，不然 Mac 上用鼠标
+    画出来的线会莫名变粗变细。判据是和旧管线（`clamp(1 - speed / 3.2, 0.38, 1)`
+    配旧曲线 `0.42 + 0.58 * p^0.8`）算出来的粗细逐点比对，全程差不到 2%。
+    """
+    mac, _ = open_pages(browser, server.port)
+    out = mac.evaluate("""() => {
+      const speeds = [0, 0.25, 0.5, 0.75, 1, 1.5, 1.984, 3, 6];
+      const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+      return speeds.map((speed) => {
+        const oldP = clamp(1 - speed / 3.2, 0.38, 1);
+        const before = 0.42 + 0.58 * Math.pow(oldP, 0.8);
+        const stored = whiteboard.pressureForFactor(clamp(1 - speed * 0.157, 0.69, 1));
+        return { speed, before, after: whiteboard.strokeRadius('pen', 2, stored) };
+      });
+    }""")
+    for row in out:
+        assert abs(row["after"] / row["before"] - 1) < 0.02, row
+    mac.close()
+
+
 def test_the_tail_of_a_stroke_thins_out_instead_of_swelling(browser, server):
     """笔快离开屏幕时压感掉到 0，那是真读数，末尾该收细而不是鼓一个包。
 

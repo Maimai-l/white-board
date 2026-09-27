@@ -8,7 +8,7 @@
 //
 // 所有笔迹先落在本地画布上，再通过网络发出去，本地书写不等待任何回包。
 
-import { TOOLS } from "./stroke.js";
+import { TOOLS, pressureForFactor } from "./stroke.js";
 import { clamp } from "./util.js";
 
 const FINGER_FLAG = "whiteboard.fingerDraw";
@@ -93,6 +93,15 @@ function eraserDiameter(deg) {
 const SMOOTH_PEN = 0.45;
 const SMOOTH_MOUSE = 0.6;
 const PRESSURE_SMOOTH = 0.25;
+
+// 没有压感读数的指针（鼠标、手指、不带压感的笔）该画多粗。粗细本身是按速度算的，
+// 存进文件之前折回压感值，见 stroke.js 的 pressureForFactor。
+// 慢下来就是设定的线宽，快到 1.98 px/ms 收到七成——和以前那条
+// `clamp(1 - speed / 3.2, 0.38, 1)` 配旧曲线画出来的粗细全程差不到 1%。
+const SPEED_THIN = 0.157;
+const SPEED_FLOOR = 0.69;
+// 这支笔一次都没报过压感：按设定线宽的七成半画，也是以前的粗细。
+const NO_PRESSURE_FACTOR = 0.75;
 
 export function loadFingerDraw() {
   try {
@@ -452,6 +461,9 @@ export class InputController {
    *
    * 所以只要这一笔里报过一次正压感，后面的 0 就按「掉读数」处理，沿用上一次的
    * 值；一次都没报过才算这支笔没有压感。
+   *
+   * 返回的是压感通道的值，不是粗细。压感读数原样返回（粗细曲线在 stroke.js 里
+   * 按 iPad 实际的量程展开），没有读数的时候返回「想要的粗细」折回来的那个值。
    */
   pressureFor(event, sample) {
     if (event.pointerType === "pen") {
@@ -464,14 +476,15 @@ export class InputController {
       } else if (draw && draw.lastPressure > 0) {
         pressure = draw.lastPressure;
       } else {
-        pressure = 0.5;
+        pressure = pressureForFactor(NO_PRESSURE_FACTOR);
       }
       // 笔身放平时笔迹变宽，模拟侧锋
       const tilt = 1 - penAltitude(event) / (Math.PI / 2);
       return clamp(pressure * (1 + tilt * 0.45), 0, 1);
     }
     // 鼠标 / 手指没有压感，用速度反推：走得快笔迹细。
-    return clamp(1 - sample.speed / 3.2, 0.38, 1);
+    const factor = clamp(1 - sample.speed * SPEED_THIN, SPEED_FLOOR, 1);
+    return pressureForFactor(factor);
   }
 
   startDraw(event, tool) {
@@ -492,7 +505,10 @@ export class InputController {
       stroke,
       sx: wx,
       sy: wy,
-      sp: event.pointerType === "pen" && event.pressure > 0 ? event.pressure : 0.5,
+      sp:
+        event.pointerType === "pen" && event.pressure > 0
+          ? event.pressure
+          : pressureForFactor(NO_PRESSURE_FACTOR),
       // 这一笔里报过正压感没有：报过的话，后面的 0 就是掉读数而不是「没有压感」
       lastPressure: event.pointerType === "pen" && event.pressure > 0 ? event.pressure : 0,
       lastTime: event.timeStamp,
