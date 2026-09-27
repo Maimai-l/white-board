@@ -2527,7 +2527,7 @@ def test_eraser_keeps_its_screen_size_at_every_zoom(browser, server):
 def test_recorder_replays_an_erase_exactly(browser, server):
     """录制回放要逐字复现：同一份输入喂回去，板上剩下的笔画必须一模一样。
 
-    真笔才触发得了的问题（压感沿笔画变化、倾角一直在动、一帧二十几个合并采样点）
+    真笔才触发得了的问题（压感沿笔画变化、倾角一直在动、同一个位置投两遍）
     在开发机上敲不出来。录一次带回来回放，才谈得上在这里复现和验证。
     """
     mac, ipad = open_pages(browser, server.port)
@@ -2931,6 +2931,37 @@ def test_eraser_width_is_decided_when_the_pen_lands(browser, server):
     assert out["cursorMoves"], "悬停光标还是要跟着倾斜走"
     mac.close()
     ipad.close()
+
+
+def test_the_panel_separates_pen_events_from_new_positions(browser, server):
+    """诊断面板要分开显示「笔每秒来多少个事件」和「其中多少个是新位置」。
+
+    iPad 上同一个位置会被投递两遍：录像里每一笔的事件速率约 120/s，其中一半
+    和前一条坐标完全相同，真正能用的位置只有约 60/s。笔迹的上限由后一个数决定
+    ——采不到的那一段，再好的平滑也补不回来。真机上接不了开发者工具，这个数只能
+    显示在屏幕上，改完系统设置当场就能看出有没有用。
+    """
+    mac, _ = open_pages(browser, server.port)
+    out = mac.evaluate("""() => {
+      const stage = document.getElementById('stage');
+      whiteboard.perf.toggle(true);
+      const fire = (x, y) => stage.dispatchEvent(new PointerEvent('pointermove', {
+        clientX: x, clientY: y, pointerType: 'pen', pointerId: 9, pressure: 0.03,
+        buttons: 0, bubbles: true, cancelable: true, isPrimary: true }));
+      // 六个事件，坐标只有三个是新的——和真机上「一个位置投两遍」一样
+      for (const [x, y] of [[10,10],[10,10],[20,10],[20,10],[30,10],[30,10]]) fire(x, y);
+      whiteboard.perf.paint();
+      return {
+        text: document.getElementById('perf').textContent,
+        hz: whiteboard.input.stats.penHz,
+        moved: whiteboard.input.stats.penMoveHz,
+      };
+    }""")
+    assert out["hz"] == 6, out
+    assert out["moved"] == 3, out
+    assert "笔事件 6/s" in out["text"], out["text"]
+    assert "新位置 3/s" in out["text"], out["text"]
+    mac.close()
 
 
 def test_the_diagnostics_panel_says_which_build_it_is(browser, server):

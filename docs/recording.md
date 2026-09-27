@@ -1,8 +1,8 @@
 # 输入录制
 
-有些问题只有真笔能触发：压感沿笔画变化、倾角一直在动、iPad 上一帧能来二十几个
-合并采样点、抬笔那一刻的时序。这些在开发机上拿鼠标敲不出来，靠人反复手动复现
-又太慢。录一次带回来，剩下的都在开发机上跑。
+有些问题只有真笔能触发：压感沿笔画变化、倾角一直在动、系统把同一个位置投递两遍、
+抬笔那一刻的时序。这些在开发机上拿鼠标敲不出来，靠人反复手动复现又太慢。录一次
+带回来，剩下的都在开发机上跑。
 
 ## 怎么录
 
@@ -70,3 +70,31 @@ await whiteboard.recorder.replay(data, { wait: false })  // 不等时间，一�
 data = json.load(open("recordings/20260924-203011.json"))
 page.evaluate("async ([d]) => whiteboard.recorder.replay(d, { wait: false })", [data])
 ```
+
+## 笔的采样率（先看这个）
+
+诊断面板上有一行 `笔事件 N/s  其中新位置 M/s`。改渲染之前先看这两个数。
+
+八份真机录像量下来的结果：一笔之内笔事件约 120/s，其中**恰好一半**和前一条坐标
+完全相同，真正的新位置只有约 60/s。板上 1 条笔画和 692 条笔画量出来一样，所以
+不是主线程忙不过来，是投递本身就是 60 Hz。
+
+后果：写字速度 1.6 px/ms 时，相邻两个新位置隔开 26 个屏幕像素，而笔本身只有
+13 像素宽。中间那一段没有任何数据，任何平滑算法都只能猜——这时候换渲染库改善
+不了什么，`perfect-freehand`、`atrament` 和我们自己的实现画出来差别很小。
+
+`getCoalescedEvents()` 在这八份录像里**一次都没有**返回过多于一个采样点
+（录像里没有一条事件带 `c` 字段）。MDN 把这个 API 标为 limited availability，
+Apple 开发者论坛上的讨论（最后一帖 2023 年 11 月）说 Mobile Safari 没有实现它。
+`pointerrawupdate` 按 caniuse 的表在任何版本的 Safari 上都不支持。
+
+能试的几项（前两项已经在代码里，后几项是设备设置，改完看面板上的数变不变）：
+
+1. 实时层的 canvas 用 `{ desynchronized: true }`（`renderer.js`）。
+2. 每帧的活要控制在一帧之内——动画帧超时的时候 Safari 会丢指针事件。
+3. 设置 → Apple Pencil → 关掉「随手写」（Scribble）。
+4. 设置 → 应用 → Safari → 高级 → 功能开关 → 关掉「Prefer Page Rendering
+   Updates near 60fps」，然后强制退出 Safari 重开。这一项在 ProMotion 的 iPad 上
+   把渲染从 60 Hz 放到 120 Hz。**我们的白板是配置文件装的 Web Clip，不是 Safari，
+   这个开关对 Web Clip 生效不生效没有查到依据，只能改完看面板上的数。**
+5. 关掉低电量模式。

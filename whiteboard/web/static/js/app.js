@@ -1256,7 +1256,7 @@ class App {
 
 window.whiteboard = new App();
 // 输入录制：平时只是挂着不花钱，?record=1 才画出那个开始 / 停止的小面板。
-// 真笔才触发得了的问题（压感、倾角、一帧二十几个合并采样点）靠它带回开发机。
+// 真笔才触发得了的问题（压感、倾角、同一个位置投两遍）靠它带回开发机。
 window.whiteboard.recorder = new Recorder(window.whiteboard);
 window.whiteboard.recorder.attach(window.whiteboard.input.stage);
 window.whiteboard.recorderPanel = mountRecorderPanel(window.whiteboard.recorder);

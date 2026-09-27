@@ -171,7 +171,13 @@ export class InputController {
       // 诊断面板用：真机上没法接开发者工具，笔的倾斜到底报不报、报的是哪一套，
       // 只能在屏幕上看
       tiltX: 0, tiltY: 0, altRaw: null, tiltDeg: 90,
+      // 笔每秒送来多少个事件、其中多少个是新位置。这两个数差一倍以上就说明
+      // 系统在重复投递同一个位置，笔迹的上限就卡在「新位置」那一个数上。
+      penHz: 0, penMoveHz: 0,
     };
+    // [时间, 是不是新位置]，只留最近一秒
+    this.penTicks = [];
+    this.lastPenPos = null;
     this.canceled = null;
     this.momentum = 0;
     this._wheelTimer = 0;
@@ -257,7 +263,7 @@ export class InputController {
 
   // ----------------------------------------------------------------- 坐标
 
-  /** 缓存画布位置：Pencil 一帧能给出二十几个合并采样点，每个都量一次会强制重排。 */
+  /** 缓存画布位置：每个采样点都量一次会强制重排，而一帧里可能有好几个。 */
   rect() {
     if (this._rect === null) this._rect = this.stage.getBoundingClientRect();
     return this._rect;
@@ -362,6 +368,7 @@ export class InputController {
     if (event.pointerType === "pen") {
       this.lastPenAt = performance.now();
       this.noteTilt(event);
+      this.notePenRate(now, event);
     }
     const entry = this.pointers.get(event.pointerId);
     if (!entry) {
@@ -449,6 +456,24 @@ export class InputController {
         ? Math.round((event.altitudeAngle * 180) / Math.PI)
         : null;
     this.stats.tiltDeg = Math.round((penAltitude(event) * 180) / Math.PI);
+  }
+
+  /**
+   * 笔的采样率：每秒来多少个事件，其中多少个带来了新位置。
+   *
+   * 这两个数要分开看。iPad 上同一个位置会被投递两遍，事件数看着有 120/s，真正
+   * 能用的位置只有 60/s——笔迹的上限由后一个数决定，再好的平滑也补不回没采到的
+   * 那一段。诊断面板上直接显示，改了系统设置之后当场能看出有没有用。
+   */
+  notePenRate(now, event) {
+    const pos = `${event.clientX},${event.clientY}`;
+    this.penTicks.push([now, pos !== this.lastPenPos ? 1 : 0]);
+    this.lastPenPos = pos;
+    while (this.penTicks.length && now - this.penTicks[0][0] > 1000) this.penTicks.shift();
+    this.stats.penHz = this.penTicks.length;
+    let moved = 0;
+    for (const [, isNew] of this.penTicks) moved += isNew;
+    this.stats.penMoveHz = moved;
   }
 
   /**

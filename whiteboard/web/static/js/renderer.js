@@ -122,7 +122,10 @@ export class Renderer {
     this.base = baseCanvas;
     this.live = liveCanvas;
     this.baseCtx = baseCanvas.getContext("2d", { alpha: false });
-    this.liveCtx = liveCanvas.getContext("2d");
+    // desynchronized 让实时层绕开合成器同步：延迟低一点，而且事件在慢帧上
+    // 被丢掉的机会少一点（Safari 在动画帧超时的时候会丢指针事件）。底图不这么
+    // 开——底图会整片平移，绕开同步容易看到撕裂。
+    this.liveCtx = liveCanvas.getContext("2d", { desynchronized: true });
     this.state = state;
     this.viewport = viewport;
     this.dpr = 1;
