@@ -40,7 +40,7 @@
 |---|---|
 | 外壳（Swift，新增） | 用 WKWebView 加载 Mac 上的白板页面；采集 Pencil 触摸并转发给网页；关闭系统手势对书写的干扰；检查并安装外壳自身的更新 |
 | 网页（现有，需改动） | 把外壳转来的采样作为 Pencil 输入来源；其余行为不变 |
-| Mac 端服务（现有，需改动） | 提供外壳的版本信息和 IPA 下载 |
+| Mac 端服务（现有，需改动） | 注册 Bonjour 服务；提供安装页、外壳的版本信息和 IPA 下载 |
 | GitHub Actions（现有，需改动） | 构建 IPA，并把它打包进 Mac 应用 |
 
 手指输入不经过外壳，仍由网页的 pointer 事件处理。平移、缩放、手掌屏蔽、手指书写开关的现有逻辑都不变。
@@ -49,17 +49,29 @@
 
 ## 4. 外壳的功能
 
-### 4.1 加载页面
+### 4.1 连接 Mac 与加载页面
 
-- 页面地址为 `http://<Mac 的主机名>.local:<端口>/?role=ipad`。`role=ipad` 让服务端返回 iPad 界面，服务端的 `detect_role` 已经支持这个参数。
-- 首次启动时，外壳要求用户输入 Mac 的主机名和端口，默认端口为 8848。地址保存在本机，之后直接使用。
+用户在任何情况下都不需要手动输入主机名和端口。外壳按以下顺序取得 Mac 的地址：
+
+1. **已保存的地址。** 外壳启动时，如果本机保存过地址，直接加载。加载失败时（例如 Mac 的端口因为被占用而顺延），转到第 2 步。
+2. **Bonjour 自动发现。** 外壳用 `NWBrowser` 查找 `_whiteboard._tcp` 服务（Mac 端的注册方式见 8.4 节）：
+   - 找到一台 Mac 时，直接连接；
+   - 找到多台时，列出各台 Mac 的名称，由用户点选；
+   - 5 秒内一台都没有找到时，显示第 3 步的操作说明。
+3. **一键链接。** 外壳注册 URL scheme `whiteboard-shell`。在 iPad 的 Safari 中打开 Mac 提供的安装页（8.2 节），点"打开外壳"，即打开 `whiteboard-shell://connect?host=<主机名>.local&port=<端口>`，外壳收到后保存地址并连接。这一步用于路由器屏蔽 Bonjour 的网络。
+
+连接成功的地址保存在本机，下次启动直接使用。外壳的设置页提供"重新查找 Mac"，用于换到另一台 Mac。
+
+页面的加载方式：
+
+- 页面地址为 `http://<主机名>.local:<端口>/?role=ipad`。`role=ipad` 让服务端返回 iPad 界面，服务端的 `detect_role` 已经支持这个参数。Bonjour 解析得到的主机名和端口来自服务的 TXT 记录（8.4 节）。
 - `Info.plist` 需要包含：
   - `NSAppTransportSecurity` → `NSAllowsLocalNetworking = true`，允许加载局域网内的 http 地址；
-  - `NSLocalNetworkUsageDescription`，iPadOS 14 起访问局域网必须提供。
-- 页面加载失败时，外壳显示错误原因和"重试""修改地址"两个按钮。
+  - `NSLocalNetworkUsageDescription`，iPadOS 14 起访问局域网必须提供；
+  - `NSBonjourServices = ["_whiteboard._tcp"]`，iPadOS 14 起查找 Bonjour 服务必须声明服务类型；
+  - `CFBundleURLTypes` 中注册 `whiteboard-shell`。
+- 页面加载失败时，外壳显示错误原因，以及"重试""重新查找 Mac"两个按钮。
 - WKWebView 铺满屏幕，禁止页面滚动和缩放（`scrollView.isScrollEnabled = false`，`bounces = false`，最小和最大缩放都为 1）。
-
-通过 Bonjour 自动发现 Mac 不在第一阶段内，原因见第 11 节。
 
 ### 4.2 采集 Pencil 输入
 
@@ -188,7 +200,12 @@
 
 ### 8.2 首次安装
 
-从 Release 下载 IPA，在 iPad 上用 TrollStore 打开并安装。
+- Mac 端服务新增安装页 `GET /ipad`，不需要任何权限。页面上有两个按钮：
+  - "安装白板外壳"：链接到 `apple-magnifier://install?url=http://<主机名>.local:<端口>/ipad/Whiteboard.ipa`，由 TrollStore 安装；
+  - "打开外壳"：链接到 `whiteboard-shell://connect?host=<主机名>.local&port=<端口>`，把这台 Mac 的地址交给外壳（4.1 节第 3 步）。
+- 页面中的主机名和端口由服务端填入，取值与 `/profile.mobileconfig` 使用的相同。
+- 从源码运行、Mac 应用中没有 IPA 时，安装页说明"这个版本没有附带外壳，请从 Release 下载"，并给出 Release 页面的链接。
+- iPad 到达安装页的方式与现在到达描述文件的方式相同：在 Mac 窗口的"连接 iPad"卡片中，现有的描述文件下载按钮旁边增加安装页的地址。描述文件保留，供没有 TrollStore 的 iPad 使用。
 
 ### 8.3 更新
 
@@ -200,6 +217,20 @@
   - 用户确认后，外壳打开 `apple-magnifier://install?url=http://<主机名>.local:<端口>/ipad/Whiteboard.ipa`，由 TrollStore 下载并安装。这是 TrollStore 1.3 起提供的 URL 安装接口，需要在 TrollStore 的设置中开启 URL Scheme。
   - 用户选择"以后再说"时，本次运行期间不再提示。
 - 大多数改动不需要这个流程：外壳加载的是 Mac 上的页面，Mac 端更新后，iPad 下次打开外壳时自动使用新的网页代码。只有外壳的原生代码或 `bridge` 版本改变时，外壳才需要更新。
+
+### 8.4 Mac 端注册 Bonjour 服务
+
+- Mac 端服务启动后，注册 `_whiteboard._tcp` 服务，服务端停止时注销。TXT 记录包含：
+  - `host`：本机的 `.local` 主机名，与 `netinfo.local_hostname()` 相同；
+  - `port`：服务实际监听的端口（端口被占用而顺延时，写顺延后的值）；
+  - `version`：Mac 端版本号；
+  - `name`：显示给用户的 Mac 名称，取系统的电脑名称。
+- 在 macOS 上必须通过系统的 mDNSResponder 注册，不能再启动第二个 mDNS 响应程序。现有的 `MDNSAdvertiser` 使用 zeroconf 库，它会自己监听 mDNS 端口，因此在 macOS 上默认关闭（`netinfo.mdns_default()`）。新的注册改用系统接口，两种做法可选：
+  - pyobjc 提供的 `NSNetService`（`pyobjc-framework-Cocoa` 已经是依赖）；
+  - 通过 `ctypes` 调用 libSystem 中的 `DNSServiceRegister`。
+- 与现有的 `MDNSAdvertiser` 一样，注册失败只写日志，不影响服务启动。
+- 验证方法：在 Mac 的终端运行 `dns-sd -B _whiteboard._tcp`，能看到这台 Mac；再运行 `dns-sd -L <服务名> _whiteboard._tcp`，TXT 记录中的四个字段与实际一致。无窗口模式（`--headless`）下也要满足。
+- 现有的 `_http._tcp` 注册（`--mdns` 参数）保持不变。
 
 ## 9. 第一阶段的验收标准
 
@@ -228,9 +259,17 @@
 - 不经过外壳、直接用 Safari 访问时，行为与改动前相同。
 - `tests/` 中现有的全部测试通过。
 
-### 9.4 构建与更新
+### 9.4 连接
+
+- 同一局域网内只有一台 Mac 运行白板时，首次打开外壳后不做任何操作即可进入白板。
+- 有两台 Mac 时，外壳列出两台，点选后进入对应的白板。
+- Mac 的端口改变后（例如 8848 被占用，顺延到 8849），外壳下次启动时自动连接到新端口。
+- 在屏蔽 Bonjour 的网络中（可以用关闭 Mac 端注册的方式模拟），通过安装页的"打开外壳"按钮进入白板，全程不需要输入文字。
+
+### 9.5 构建、安装与更新
 
 - 打 tag 后，Release 中同时出现 Mac 的 zip 和 iPad 的 IPA，Mac 应用中包含同版本的 IPA。
+- 在 iPad 的 Safari 中打开安装页，点"安装白板外壳"，能通过 TrollStore 完成安装。
 - Mac 端版本比外壳新时，外壳在启动时提示更新；确认后通过 TrollStore 完成安装，重新打开后外壳显示新版本号。
 
 ## 10. 第二阶段：原生绘制正在书写的笔画
@@ -247,7 +286,6 @@
 
 ## 11. 不在本次范围内
 
-- 通过 Bonjour 自动发现 Mac。Mac 端默认不注册 Bonjour 服务（`netinfo.mdns_default()` 在 macOS 上返回 `False`），要实现自动发现，需要同时修改 Mac 端的注册逻辑，放到第一阶段之后。
 - Pencil 双击和捏压切换工具（`UIPencilInteraction`）。
 - Pencil 悬停。它需要 iPadOS 16.1 以上和支持悬停的 iPad 与 Pencil。
 - App Store 或 TestFlight 分发。
@@ -260,6 +298,7 @@
 | Q1 | Safari 报的压力是否等于 `force / maximumPossibleForce` | 见 7.2 节 | 决定外壳来源的压力是否需要换算 |
 | Q2 | WKWebView 上的手势识别器能否收到全部 Pencil 触摸，且不影响网页收到的 pointer 事件 | 外壳原型中打印两边的采样数 | 决定 4.2 节的做法是否可行 |
 | Q3 | `evaluateJavaScript` 每次调用的耗时，以及每帧调用一次是否会造成掉帧 | 诊断面板的帧间隔；外壳中记录调用前后的时间 | 如果耗时过长，改为减少发送次数或改用其他传递方式 |
-| Q4 | TrollStore 能否从局域网的 http 地址下载 IPA | 用 8.3 节的流程实际安装一次 | 如果不能，改为外壳自己下载 IPA，再通过系统分享菜单交给 TrollStore 打开 |
+| Q4 | TrollStore 能否从局域网的 http 地址下载 IPA | 用 8.2 节的安装页实际安装一次 | 如果不能：首次安装改为在 Safari 中下载 IPA 后用 TrollStore 打开；更新改为外壳自己下载 IPA，再通过系统分享菜单交给 TrollStore 打开 |
 | Q5 | 4.3 节的措施能否完全阻止 Scribble 和长按菜单 | 按 9.2 节的检查项快速书写 | 如果不能，需要找其他关闭方法 |
 | Q6 | 升级系统后，已安装的外壳是否还能继续运行 | 本文档不要求验证；在决定是否升级 iPad 系统之前查阅 TrollStore 的说明 | 决定这台 iPad 能否升级系统 |
+| Q7 | 在无窗口模式下，`NSNetService` 注册是否需要额外运行 run loop 才能生效 | 按 8.4 节的验证方法，在 `--headless` 下检查 | 如果需要且不便处理，改用 `DNSServiceRegister` |
