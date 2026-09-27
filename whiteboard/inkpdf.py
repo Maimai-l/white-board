@@ -43,6 +43,8 @@ CORNER = math.radians(45)
 # OUTLINE_STREAMLINE 一致。
 OUTLINE_SMOOTHING = 0.5
 OUTLINE_STREAMLINE = 0.5
+# 起笔处先丢掉多长一段（世界单位）。必须和 stroke.js 的 START_NOISE 一致。
+START_NOISE = 1.0
 
 
 def epsilon(width: float) -> float:
@@ -137,6 +139,7 @@ def outline_path(
         cap_start=not cut & 1,
         cap_end=not cut & 2,
         last=True,
+        start_noise=START_NOISE,
     )
     return quad_commands(outline)
 

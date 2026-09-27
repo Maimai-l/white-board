@@ -336,9 +336,16 @@ def get_stroke_outline_points(
 def get_stroke(points: Sequence[Sequence[float]], size: float = 16.0,
                thinning: float = 0.5, smoothing: float = 0.5,
                streamline: float = 0.5, cap_start: bool = True,
-               cap_end: bool = True, last: bool = False) -> List[Vec2]:
-    """和 JS 的 getStroke 一样：先 getStrokePoints 再 getStrokeOutlinePoints。"""
-    sp = get_stroke_points(points, size=size, streamline=streamline, last=last)
+               cap_end: bool = True, last: bool = False,
+               start_noise: Optional[float] = None) -> List[Vec2]:
+    """先 get_stroke_points 再 get_stroke_outline_points，和 stroke.js 一样。
+
+    ``start_noise`` 是起笔处先丢掉多长一段。原版 ``getStroke`` 拿 ``size`` 兼任这个
+    值，但「挡落笔抖动」和「笔有多粗」是两件事——按笔宽算的话，13 宽的笔要走满
+    13 个单位才开始出墨，写小字时每个笔画的头都被吞掉一截。默认沿用原版的行为。
+    """
+    sp = get_stroke_points(points, size=size if start_noise is None else start_noise,
+                           streamline=streamline, last=last)
     return get_stroke_outline_points(sp, size=size, thinning=thinning,
                                      smoothing=smoothing, cap_start=cap_start,
                                      cap_end=cap_end, last=last)

@@ -4,7 +4,7 @@
 // 一次 fill 才不会在重叠处出现更深的色块。轮廓在世界坐标里生成并缓存成 Path2D，
 // 缩放和平移时直接复用。
 
-import { getStroke } from "./vendor/perfect-freehand.js";
+import { getStrokeOutlinePoints, getStrokePoints } from "./vendor/perfect-freehand.js";
 import { TAU, clamp } from "./util.js";
 
 export const TOOLS = {
@@ -95,11 +95,20 @@ export function strokeOutline(stroke) {
     input.push([flat[i], flat[i + 1], outlinePressure(stroke, flat[i + 2])]);
   }
   const cut = stroke.cut | 0;
-  const out = getStroke(input, {
-    size: Math.max(stroke.w, 0.6),
+  const size = Math.max(stroke.w, 0.6);
+  // 分两步调，不用 getStroke 那个一把梭的入口：它把同一个 size 同时当成「起笔处
+  // 先丢掉多长一段」和「笔有多粗」，而这两件事没关系。起笔那一段是用来挡落笔
+  // 抖动的，按笔宽算的话，13 宽的笔要走满 13 个单位才开始出墨——写小字时每个
+  // 笔画的头都被吞掉一截，手感上就是「笔动了墨没跟上」。
+  const points = getStrokePoints(input, {
+    size: START_NOISE,
+    streamline: OUTLINE_STREAMLINE,
+    last: true,
+  });
+  const out = getStrokeOutlinePoints(points, {
+    size,
     thinning: 1,
     smoothing: OUTLINE_SMOOTHING,
-    streamline: OUTLINE_STREAMLINE,
     simulatePressure: false,
     last: true,
     start: { cap: !(cut & 1) },
@@ -114,6 +123,9 @@ export function strokeOutline(stroke) {
 // 往内侧拉一点。
 const OUTLINE_SMOOTHING = 0.5;
 const OUTLINE_STREAMLINE = 0.5;
+// 起笔处先丢掉多长一段（世界单位）。原版拿笔宽当这个值，对笔来说太大了——
+// 落笔抖动的幅度是一两个像素，不是一个笔宽。
+const START_NOISE = 1;
 
 /**
  * 把轮廓点列画成闭合路径：二次贝塞尔穿过相邻两点的中点，顶点当控制点。

@@ -2219,6 +2219,34 @@ def test_status_dot_uses_traffic_light_colours(browser, server):
     _ipad.close()
 
 
+def test_the_start_of_a_stroke_is_not_swallowed(browser, server):
+    """起笔那一小截必须立刻出墨，不能等笔走够一个笔宽。
+
+    perfect-freehand 的 getStroke 把同一个 size 同时当成「起笔处先丢掉多长一段」
+    和「笔有多粗」。那一段是用来挡落笔抖动的，按笔宽算就太大了：13 宽的笔要走满
+    13 个单位才开始留下点，写小字时每个笔画的头都被吞掉一截，手上的感觉是笔动了
+    墨没跟上。所以 getStrokePoints 和 getStrokeOutlinePoints 分开调，前者传一个
+    小得多的阈值。
+
+    判据：一条总长 24 个单位的小笔画（写小字时一笔就这么长），墨迹必须从起点附近
+    就开始，不能从六个单位之后才开始。
+    """
+    mac, _ = open_pages(browser, server.port)
+    out = mac.evaluate("""() => {
+      const p = [];
+      for (let i = 0; i < 13; i++) p.push(i * 2, 0, 0.25);   // 总长 24
+      const pts = whiteboard.strokeOutline(
+        { id: 'x', tool: 'pen', color: '#000', w: 13, p });
+      let x0 = Infinity;
+      for (const q of pts) x0 = Math.min(x0, q[0]);
+      return { 最左: x0, 轮廓点: pts.length };
+    }""")
+    # 起点在 x=0，笔半径约 3，圆头会往左伸出一点，所以最左应当是负的
+    assert out["最左"] < 0.5, out
+    assert out["轮廓点"] > 20, out
+    mac.close()
+
+
 def test_python_outline_matches_perfect_freehand(browser, server):
     """Python 那份 perfect-freehand 移植必须和原版给出一模一样的点。
 
@@ -2255,6 +2283,7 @@ def test_python_outline_matches_perfect_freehand(browser, server):
             cap_start=not cut & 1,
             cap_end=not cut & 2,
             last=True,
+            start_noise=inkpdf.START_NOISE,
         )
         assert len(js) == len(py), (name, len(js), len(py))
         for i, (a, b) in enumerate(zip(js, py)):
