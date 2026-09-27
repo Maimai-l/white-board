@@ -85,23 +85,149 @@ function samplesOf(stroke) {
   return out;
 }
 
+// 补曲线用的两个常数。`CURVE_TOLERANCE` 是世界坐标里「直线代替曲线」最多能差
+// 多少，超过就再细分一次；`MAX_SUBDIVISION` 是一段最多切几刀，防止一次大跳跃
+// 生出成千上万个点。
+const CURVE_TOLERANCE = 0.25;
+const MAX_SUBDIVISION = 32;
+
 /**
- * 一侧的轮廓：连续的偏移点画成穿过每一个点的三次贝塞尔（Catmull-Rom），
- * 遇到折角就收尾、沿笔尖圆转过去、再重新起头。
+ * 把采样点之间补成曲线。
  *
- * 以前这里用的是「穿过相邻两点中点」的二次曲线，控制点是偏移点本身——二次贝塞尔
- * 永远不经过自己的控制点，所以每个采样点处的轮廓都被往内侧拽，转角越急、采样越疏
- * 削得越平。换成插值曲线之后轮廓真的经过每一个偏移点。
+ * 采样点本身是一条折线。笔走得慢的时候相邻两点只差半个单位，折线和曲线看不出
+ * 区别；可是笔一快，两点能隔开几十个世界单位——真机录像里最远的一段，折线和
+ * 该走的曲线差了 7.3 个单位。于是转角大的地方就是肉眼可见的直线拼接，一段一段
+ * 接出来的「曲线」。逐段求并只保证轮廓是那条中心线的准确扫掠形状，中心线本身
+ * 是折线，扫出来当然也是折的。
+ *
+ * 这里穿过每一个采样点拟一条向心 Catmull-Rom 曲线（alpha = 0.5），再按弦离曲线
+ * 的距离自适应细分。选向心参数化是因为它不会在急转弯处打圈或者冲出去，而且一串
+ * 共线的点拟出来仍然是直线，所以本来就直的笔画不会被拱弯。
+ *
+ * 曲线穿过每一个采样点，不是「靠近」——所以这一步不改变笔迹的走向，只是把点与
+ * 点之间本来就该有的那段弧补出来。半径沿弦线性插值。（后面丢多余点那一步可能
+ * 丢掉个别采样点，但丢的前提是它离弦不超过同一个容差。）
  */
+function curveSamples(pts, tolerance = CURVE_TOLERANCE) {
+  const n = pts.length;
+  if (n < 3) return pts;
+  const out = [pts[0]];
+  for (let i = 0; i + 1 < n; i++) {
+    const p0 = i > 0 ? pts[i - 1] : pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = i + 2 < n ? pts[i + 2] : pts[i + 1];
+    // 先便宜地看一眼这一段直不直：两个端点各自离「前后邻居连成的线」多远，就是
+    // 曲线在这一段能鼓出去多少。够直就直接用原来的点，省掉下面整套控制点计算。
+    // 真机录像里六万四千段，76% 走这条路，另有 19% 算完发现不用细分，真正细分的
+    // 只有 5%。
+    if (
+      offsetFromLine(p1, p0, p2) <= tolerance &&
+      offsetFromLine(p2, p1, p3) <= tolerance
+    ) {
+      out.push(p2);
+      continue;
+    }
+    const [c1x, c1y, c2x, c2y] = bezierControls(p0, p1, p2, p3);
+    // 控制点离弦多远，决定这一段要切几刀：三次贝塞尔的弦误差大致按刀数平方降
+    const away = Math.max(
+      pointSegmentDistance(c1x, c1y, p1.x, p1.y, p2.x, p2.y),
+      pointSegmentDistance(c2x, c2y, p1.x, p1.y, p2.x, p2.y),
+    );
+    const steps = clamp(Math.ceil(Math.sqrt(away / tolerance)), 1, MAX_SUBDIVISION);
+    if (steps === 1) {
+      out.push(p2);
+      continue;
+    }
+    for (let k = 1; k <= steps; k++) {
+      const t = k / steps;
+      const u = 1 - t;
+      const w0 = u * u * u;
+      const w1 = 3 * u * u * t;
+      const w2 = 3 * u * t * t;
+      const w3 = t * t * t;
+      out.push({
+        x: w0 * p1.x + w1 * c1x + w2 * c2x + w3 * p2.x,
+        y: w0 * p1.y + w1 * c1y + w2 * c2y + w3 * p2.y,
+        r: p1.r + (p2.r - p1.r) * t,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * 向心 Catmull-Rom 的一段换算成三次贝塞尔的两个控制点。
+ *
+ * 结点按相邻两点距离的平方根取（alpha = 0.5 就是向心参数化）。端点处 p0 和 p1
+ * 重合、或者采样点重复时结点间距会是 0，那就退回「控制点放在弦的三分点上」，
+ * 也就是这一段按直线处理。
+ */
+function bezierControls(p0, p1, p2, p3) {
+  const d1 = Math.sqrt(Math.hypot(p1.x - p0.x, p1.y - p0.y));
+  const d2 = Math.sqrt(Math.hypot(p2.x - p1.x, p2.y - p1.y));
+  const d3 = Math.sqrt(Math.hypot(p3.x - p2.x, p3.y - p2.y));
+  let c1x = p1.x + (p2.x - p1.x) / 3;
+  let c1y = p1.y + (p2.y - p1.y) / 3;
+  let c2x = p2.x - (p2.x - p1.x) / 3;
+  let c2y = p2.y - (p2.y - p1.y) / 3;
+  if (d1 > 1e-6 && d2 > 1e-6) {
+    const k = 3 * d1 * (d1 + d2);
+    const w = 2 * d1 * d1 + 3 * d1 * d2 + d2 * d2;
+    c1x = (d1 * d1 * p2.x - d2 * d2 * p0.x + w * p1.x) / k;
+    c1y = (d1 * d1 * p2.y - d2 * d2 * p0.y + w * p1.y) / k;
+  }
+  if (d3 > 1e-6 && d2 > 1e-6) {
+    const k = 3 * d3 * (d3 + d2);
+    const w = 2 * d3 * d3 + 3 * d3 * d2 + d2 * d2;
+    c2x = (d3 * d3 * p1.x - d2 * d2 * p3.x + w * p2.x) / k;
+    c2y = (d3 * d3 * p1.y - d2 * d2 * p3.y + w * p2.y) / k;
+  }
+  return [c1x, c1y, c2x, c2y];
+}
+
+/** 点 p 离 a、b 两点连线有多远。a、b 重合时算 0——那条线不存在，谈不上鼓出去。 */
+function offsetFromLine(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const base = Math.hypot(dx, dy);
+  if (base < 1e-9) return 0;
+  return Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / base;
+}
+
+/**
+ * 笔画的中心线：去掉重合点、补出曲线、再丢掉多余的点。
+ *
+ * 三步都只和笔画自己有关，结果缓存在 ``stroke._pts`` 上。轮廓和包围盒都走这里，
+ * 两边看到的必须是同一条线，否则包围盒框不住墨迹，擦除重画会留下残痕。
+ */
+export function curvePoints(stroke) {
+  if (stroke._pts) return stroke._pts;
+  const pts = dropCoveredPoints(curveSamples(samplesOf(stroke)));
+  stroke._pts = pts;
+  return pts;
+}
+
+/** 清掉一条笔画的几何缓存。点列一变就得整条清掉，三个缓存是一套。 */
+export function clearStrokeCache(stroke) {
+  stroke._pts = null;
+  stroke._path = null;
+  stroke._bbox = null;
+}
 
 /**
  * 丢掉那些「自己的圆已经被前后两点的凸包整个包住」的采样点。
  *
- * 形状一点不变——被包住就是被包住——但路径能小一半还多。真机上一笔的采样密度
- * 常常是笔半径的六倍，直路段上一串点画出来的凸包几乎完全重合，全是白给的指令。
- * 屏幕上少花建路径的时间，导出的 PDF 直接少一半体积。
+ * 补完曲线之后直路段上会有一串几乎重合的凸包，全是白给的指令。丢掉它们能让路径
+ * 小一半还多：屏幕上少花建路径的时间，导出的 PDF 直接少一半体积。
+ *
+ * 严格说「被包住」不等于「丢掉没影响」：丢掉 c 之后这一段变成 a、b 的凸包，是一条
+ * 直的走廊，而 c 的圆比插值出来的细多少，丢掉就把笔迹撑宽多少。理论上没有上界——
+ * 压感在某一点陡降一下，那个细腰会被整个填平。实际上量过：真机录像里六万多个点，
+ * 最多撑宽 0.128 个世界单位，w=13 的笔约 2%，看不出来。原因是压感在输入时低通过，
+ * 一个采样点陡降不会发生。所以这里不加额外的判据，只按「被包住」丢。
  */
-function dropCoveredPoints(pts) {
+function dropCoveredPoints(pts, tolerance = CURVE_TOLERANCE) {
   if (pts.length < 3) return pts;
   const out = [pts[0]];
   let anchor = pts[0];
@@ -112,7 +238,7 @@ function dropCoveredPoints(pts) {
     for (let end = i + 1; end < pts.length && end - i <= LOOK_AHEAD; end++) {
       let covered = true;
       for (let k = i; k < end; k++) {
-        if (!discInsideHull(pts[k], anchor, pts[end])) {
+        if (!discInsideHull(pts[k], anchor, pts[end], tolerance)) {
           covered = false;
           break;
         }
@@ -137,42 +263,26 @@ function dropCoveredPoints(pts) {
 const LOOK_AHEAD = 24;
 
 /**
- * 点 c 的圆是不是整个落在 a、b 两个圆的凸包里。
+ * 点 c 能不能丢：圆要整个落在 a、b 两个圆的凸包里，圆心还不能离 ab 太远。
  *
  * 凸包就是「圆心沿 ab 线性插值、半径也线性插值」扫出来的那一片，所以把 c 投影到
  * ab 上取出那一处的半径，比一下就够了。投影落在两端之外就不算包住。
  */
-function discInsideHull(c, a, b) {
+function discInsideHull(c, a, b, tolerance) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const lengthSq = dx * dx + dy * dy;
   if (lengthSq < 1e-12) return c.r <= Math.max(a.r, b.r);
-  let t = ((c.x - a.x) * dx + (c.y - a.y) * dy) / lengthSq;
+  const t = ((c.x - a.x) * dx + (c.y - a.y) * dy) / lengthSq;
   if (t < 0 || t > 1) return false;
+  const off = Math.hypot(c.x - (a.x + dx * t), c.y - (a.y + dy * t));
+  // 中心线也不许被拉直超过 tolerance：光看「圆被盖住」的话，笔越粗越能抄近路，
+  // 刚补出来的那条曲线会被这一步又抹回折线
+  if (off > tolerance) return false;
   const rt = a.r + (b.r - a.r) * t;
-  return Math.hypot(c.x - (a.x + dx * t), c.y - (a.y + dy * t)) + c.r <= rt;
+  return off + c.r <= rt;
 }
 
-/**
- * 一段笔画的形状：圆沿着路径扫过去扫出来的那一片。
- *
- * 画法是「逐段求并」——每个采样点一个圆，每两点之间一个梯形（两个圆的外公切线
- * 围出来的），全部同一个绕向，用 nonzero 填充。同向的子路径在 nonzero 下正好是
- * 并集，所以这就是扫掠区域的准确形状。
- *
- * 之前是另一种画法：两侧各算一条斜接偏移线，接成**一条**闭合回路。那条路在采样
- * 比笔粗密的时候必然出问题——斜接偏移量是 ``r / cos(转角/2)``，真机上笔半径约
- * 2.9 而采样间距只有 0.47，内侧偏移点被推出去的距离是相邻点间距的六倍，一转弯
- * 就折回去自交；自交出来的小环绕向和主体相反，nonzero 下算 0，于是笔画里出现
- * 白色缺口。同一批采样点还会让方向估计很抖（iPad 报的坐标是整像素的），4%～11%
- * 的转角被判成大于 45° 的硬角，轮廓在那里断开接直线，边上就出现大棱。
- *
- * 逐段求并没有这两个问题：并集是逐段算的，不存在「一条回路」，自交无从谈起；
- * 外边界就是两圆的公切线，也不需要任何斜接或折角处理。
- *
- * 绕向必须全部一致。圆用 ``anticlockwise = true`` 是为了和梯形的点序对上——
- * 反了的话 nonzero 会把它们互相抵消，画出来是一堆黑白相间的碎块。
- */
 /**
  * 一段笔画的形状：圆沿着路径扫过去扫出来的那一片。
  *
@@ -192,7 +302,7 @@ function discInsideHull(c, a, b) {
  */
 export function buildPath(stroke) {
   if (stroke._path) return stroke._path;
-  const pts = dropCoveredPoints(samplesOf(stroke));
+  const pts = curvePoints(stroke);
   const count = pts.length;
   const path = new Path2D();
   stroke._path = path;
@@ -257,19 +367,26 @@ function hullPath(path, a, b, roundEnd) {
 
 export function strokeBBox(stroke) {
   if (stroke._bbox) return stroke._bbox;
-  const flat = stroke.p;
+  // 用补过曲线的中心线，不是原始采样点：曲线会鼓出折线之外，按原始点算的
+  // 包围盒框不住墨迹，擦除重画时那一条边上会留残痕
+  const pts = curvePoints(stroke);
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
   let y1 = -Infinity;
   let maxR = 0;
-  for (let i = 0; i < flat.length; i += 3) {
-    if (flat[i] < x0) x0 = flat[i];
-    if (flat[i] > x1) x1 = flat[i];
-    if (flat[i + 1] < y0) y0 = flat[i + 1];
-    if (flat[i + 1] > y1) y1 = flat[i + 1];
-    const r = strokeRadius(stroke.tool, stroke.w, flat[i + 2]);
-    if (r > maxR) maxR = r;
+  for (const pt of pts) {
+    if (pt.x < x0) x0 = pt.x;
+    if (pt.x > x1) x1 = pt.x;
+    if (pt.y < y0) y0 = pt.y;
+    if (pt.y > y1) y1 = pt.y;
+    if (pt.r > maxR) maxR = pt.r;
+  }
+  if (!pts.length) {
+    x0 = 0;
+    y0 = 0;
+    x1 = 0;
+    y1 = 0;
   }
   // 逐段求并之后，墨迹最远就到采样点外 r（圆本身），不再有斜接的额外外扩
   const bbox = { x0: x0 - maxR, y0: y0 - maxR, x1: x1 + maxR, y1: y1 + maxR, r: maxR };

@@ -12,6 +12,8 @@ import { Viewport } from "./viewport.js";
 import {
   addMask,
   buildPath,
+  clearStrokeCache,
+  curvePoints,
   eraseKind,
   maskBounds,
   maskFor,
@@ -941,11 +943,10 @@ class App {
     if (!stroke) return;
     if (msg.phase === "m" && msg.p) {
       stroke.p.push(...msg.p);
-      stroke._path = null;
-      stroke._bbox = null;
+      clearStrokeCache(stroke);
     } else if (msg.phase === "e") {
       if (msg.p) stroke.p.push(...msg.p);
-      stroke._path = null;
+      clearStrokeCache(stroke);
       // 正式操作到达前先留着，避免笔迹闪一下消失。
       setTimeout(() => this.dropRemoteLive(msg.id), REMOTE_LIVE_TTL);
     } else if (msg.phase === "x") {
@@ -1272,6 +1273,8 @@ window.whiteboard.simplifyMask = simplifyMask;
 window.whiteboard.Renderer = Renderer;
 window.whiteboard.strokeHit = strokeHit;
 window.whiteboard.strokeRadius = strokeRadius;
+window.whiteboard.clearStrokeCache = clearStrokeCache;
+window.whiteboard.curvePoints = curvePoints;
 window.whiteboard.penForce = penForce;
 window.whiteboard.pressureForFactor = pressureForFactor;
 window.whiteboard.penAltitude = penAltitude;

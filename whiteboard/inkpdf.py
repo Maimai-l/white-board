@@ -37,6 +37,12 @@ ARC_K = 0.5522847498307936
 CORNER = math.radians(45)
 
 
+# 补曲线：世界坐标里弦离曲线最多能差多少，超过就再细分；一段最多切几刀。
+# 必须和 stroke.js 的 CURVE_TOLERANCE / MAX_SUBDIVISION 一致。
+CURVE_TOLERANCE = 0.25
+MAX_SUBDIVISION = 32
+
+
 def epsilon(width: float) -> float:
     """按笔宽定抽稀阈值，夹在 ``SIMPLIFY``～``SIMPLIFY_MAX`` 之间。"""
     return min(SIMPLIFY_MAX, max(SIMPLIFY, width * SIMPLIFY_RATIO))
@@ -96,7 +102,11 @@ def simplify(points: Sequence[Tuple[float, float, float]], eps: float):
 
 
 def outline_path(
-    points: Sequence[Tuple[float, float, float]], tool: str, width: float, cut: int = 0
+    points: Sequence[Tuple[float, float, float]],
+    tool: str,
+    width: float,
+    cut: int = 0,
+    curve_tolerance: float = CURVE_TOLERANCE,
 ):
     """笔画的形状，和 stroke.js 的 buildPath 逐段对应。
 
@@ -114,6 +124,11 @@ def outline_path(
 
     再往前还试过「按线宽分段的折线」，线宽一变就断一段、两头各一个圆头，笔一粗
     就是一串大小不一的圆饼。
+
+    ``curve_tolerance`` 是补曲线时「直线代替曲线」允许差多少。默认值和 stroke.js
+    一致，屏幕上什么样导出就什么样。导出时另给一个值：导出前先做过 RDP 抽稀，
+    中心线本来就已经允许差一个 ``epsilon(width)``，再按 0.12 去铺点没有意义，
+    只是把抽掉的点又补回来。
     """
     pts = []
     for x, y, pr in points:
@@ -132,7 +147,7 @@ def outline_path(
         _arc(cmds, x, y, r, 0.0, -2 * math.pi)
         return cmds
 
-    pts = _drop_covered(pts)
+    pts = _drop_covered(_curve_samples(pts, curve_tolerance), curve_tolerance=curve_tolerance)
     count = len(pts)
     # 每一段只画前端那个圆帽：后一段的起点圆已经被前一段的末端圆帽盖住了，
     # 两边都画等于每个中间的圆画两遍。开头那个圆没人盖，单独补一个。
@@ -153,7 +168,103 @@ LOOK_AHEAD = 24
 DROP_TOLERANCE = 0.1
 
 
-def _drop_covered(pts, tolerance: float = DROP_TOLERANCE):
+def _bezier_controls(p0, p1, p2, p3):
+    """向心 Catmull-Rom 的一段换算成三次贝塞尔的两个控制点。
+
+    公式与 stroke.js 的 bezierControls 相同。
+    """
+    d1 = math.sqrt(math.hypot(p1[0] - p0[0], p1[1] - p0[1]))
+    d2 = math.sqrt(math.hypot(p2[0] - p1[0], p2[1] - p1[1]))
+    d3 = math.sqrt(math.hypot(p3[0] - p2[0], p3[1] - p2[1]))
+    c1x = p1[0] + (p2[0] - p1[0]) / 3
+    c1y = p1[1] + (p2[1] - p1[1]) / 3
+    c2x = p2[0] - (p2[0] - p1[0]) / 3
+    c2y = p2[1] - (p2[1] - p1[1]) / 3
+    if d1 > 1e-6 and d2 > 1e-6:
+        k = 3 * d1 * (d1 + d2)
+        w = 2 * d1 * d1 + 3 * d1 * d2 + d2 * d2
+        c1x = (d1 * d1 * p2[0] - d2 * d2 * p0[0] + w * p1[0]) / k
+        c1y = (d1 * d1 * p2[1] - d2 * d2 * p0[1] + w * p1[1]) / k
+    if d3 > 1e-6 and d2 > 1e-6:
+        k = 3 * d3 * (d3 + d2)
+        w = 2 * d3 * d3 + 3 * d3 * d2 + d2 * d2
+        c2x = (d3 * d3 * p1[0] - d2 * d2 * p3[0] + w * p2[0]) / k
+        c2y = (d3 * d3 * p1[1] - d2 * d2 * p3[1] + w * p2[1]) / k
+    return c1x, c1y, c2x, c2y
+
+
+def _curve_samples(pts, tolerance: float = CURVE_TOLERANCE):
+    """把采样点之间补成曲线，和 stroke.js 的 curveSamples 相同。
+
+    采样点本身是折线。笔走得快时相邻两点能隔开几十个单位，折线和该走的曲线差出
+    好几个单位，转角大的地方就是肉眼可见的直线拼接。这里穿过每一个采样点拟一条
+    向心 Catmull-Rom 曲线再自适应细分；曲线穿过每一个点，走向不变。
+    """
+    n = len(pts)
+    if n < 3:
+        return pts
+    out = [pts[0]]
+    for i in range(n - 1):
+        p0 = pts[i - 1] if i > 0 else pts[i]
+        p1 = pts[i]
+        p2 = pts[i + 1]
+        p3 = pts[i + 2] if i + 2 < n else pts[i + 1]
+        # 先便宜地看一眼这一段直不直，和 stroke.js 的 curveSamples 一样：
+        # 真机录像里六万四千段，76% 在这里就跳过去了
+        if (
+            _offset_from_line(p1, p0, p2) <= tolerance
+            and _offset_from_line(p2, p1, p3) <= tolerance
+        ):
+            out.append(p2)
+            continue
+        c1x, c1y, c2x, c2y = _bezier_controls(p0, p1, p2, p3)
+        away = max(
+            _point_segment_distance(c1x, c1y, p1[0], p1[1], p2[0], p2[1]),
+            _point_segment_distance(c2x, c2y, p1[0], p1[1], p2[0], p2[1]),
+        )
+        steps = max(1, min(MAX_SUBDIVISION, math.ceil(math.sqrt(away / tolerance))))
+        if steps == 1:
+            out.append(p2)
+            continue
+        for k in range(1, steps + 1):
+            t = k / steps
+            u = 1 - t
+            w0 = u * u * u
+            w1 = 3 * u * u * t
+            w2 = 3 * u * t * t
+            w3 = t * t * t
+            out.append(
+                (
+                    w0 * p1[0] + w1 * c1x + w2 * c2x + w3 * p2[0],
+                    w0 * p1[1] + w1 * c1y + w2 * c2y + w3 * p2[1],
+                    p1[2] + (p2[2] - p1[2]) * t,
+                )
+            )
+    return out
+
+
+def _offset_from_line(p, a, b) -> float:
+    """点 p 离 a、b 两点连线有多远；a、b 重合时算 0。与 stroke.js 的 offsetFromLine 相同。"""
+    dx = b[0] - a[0]
+    dy = b[1] - a[1]
+    base = math.hypot(dx, dy)
+    if base < 1e-9:
+        return 0.0
+    return abs((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) / base
+
+
+def _point_segment_distance(px, py, ax, ay, bx, by):
+    dx = bx - ax
+    dy = by - ay
+    length_sq = dx * dx + dy * dy
+    if length_sq < 1e-12:
+        return math.hypot(px - ax, py - ay)
+    t = ((px - ax) * dx + (py - ay) * dy) / length_sq
+    t = 0.0 if t < 0 else (1.0 if t > 1 else t)
+    return math.hypot(px - (ax + dx * t), py - (ay + dy * t))
+
+
+def _drop_covered(pts, tolerance: float = DROP_TOLERANCE, curve_tolerance: float = CURVE_TOLERANCE):
     """丢掉那些「自己的圆几乎已经被前后两点的凸包包住」的采样点。
 
     真机上一笔的采样密度常常是笔半径的六倍，直路段上一串点画出来的凸包几乎完全
@@ -169,7 +280,7 @@ def _drop_covered(pts, tolerance: float = DROP_TOLERANCE):
         reach = i
         for end in range(i + 1, min(len(pts), i + LOOK_AHEAD + 1)):
             if all(
-                _disc_inside_hull(pts[k], anchor, pts[end], tolerance)
+                _disc_inside_hull(pts[k], anchor, pts[end], tolerance, curve_tolerance)
                 for k in range(i, end)
             ):
                 reach = end
@@ -188,8 +299,8 @@ def _drop_covered(pts, tolerance: float = DROP_TOLERANCE):
     return out
 
 
-def _disc_inside_hull(c, a, b, tolerance: float = 0.0) -> bool:
-    """点 c 的圆是不是整个落在 a、b 两个圆的凸包里。
+def _disc_inside_hull(c, a, b, tolerance: float = 0.0, curve_tolerance: float = CURVE_TOLERANCE) -> bool:
+    """点 c 能不能丢：圆要整个落在 a、b 两个圆的凸包里，圆心还不能离 ab 太远。
 
     凸包就是「圆心沿 ab 线性插值、半径也线性插值」扫出来的那一片，所以把 c 投影
     到 ab 上取出那一处的半径，比一下就够了。投影落在两端之外就不算包住。
@@ -204,8 +315,12 @@ def _disc_inside_hull(c, a, b, tolerance: float = 0.0) -> bool:
     t = ((cx - ax) * dx + (cy - ay) * dy) / length_sq
     if t < 0 or t > 1:
         return False
+    off = math.hypot(cx - (ax + dx * t), cy - (ay + dy * t))
+    # 中心线也不许被拉直超过 curve_tolerance，否则刚补出来的曲线又被抹回折线
+    if off > curve_tolerance:
+        return False
     rt = ar + (br - ar) * t
-    return math.hypot(cx - (ax + dx * t), cy - (ay + dy * t)) + cr <= rt + tolerance
+    return off + cr <= rt + tolerance
 
 
 def _hull(cmds: List[Tuple], a, b, round_end: bool) -> None:
@@ -514,13 +629,19 @@ def content_stream(
         tool = stroke.get("tool", "pen")
         alpha = ALPHA.get(tool, 1.0)
         width = float(stroke.get("w", 3.0))
-        points = simplify(points, epsilon(width) if eps is None else eps)
+        thin = epsilon(width) if eps is None else eps
+        points = simplify(points, thin)
         color = stroke.get("color", "#1b1b1f")
         shift = lambda path: [
             (cmd[0],) + tuple(v - (ox if i % 2 == 0 else oy) for i, v in enumerate(cmd[1:]))
             for cmd in path
         ]
-        cmds = shift(outline_path(points, tool, width, int(stroke.get("cut") or 0)))
+        # 补曲线按抽稀本来就接受的误差铺点。曲线是穿过抽稀之后那些点拟的，
+        # 弦落在曲线和直线之间——按 thin 铺点只会比「一路直线」更接近原来的
+        # 中心线，不会更远，而点数和以前一样。
+        cmds = shift(
+            outline_path(points, tool, width, int(stroke.get("cut") or 0), thin)
+        )
         chains = stroke.get("m") or []
         if chains:
             clips = [shift(clip) for clip in mask_clips(chains, _bounds(cmds))]

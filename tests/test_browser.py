@@ -2269,13 +2269,18 @@ def test_screen_and_pdf_outlines_agree(browser, server):
       return [100 * diff / Math.max(1, area), area];
     }"""
 
-    for width, cut in ((4.0, 0), (20.0, 0), (20.0, 3)):
-        cmds = [list(c) for c in inkpdf.outline_path(points, "pen", width, cut)]
-        flat = [v for point in points for v in point]
-        pct, area = ipad.evaluate(compare, [cmds, flat, width, cut])
-        assert area > 8000, (width, cut, area)  # 真的画上去了
-        # 只剩抗锯齿边缘的差别：两条轮廓之间差一个像素都会让这个数大起来
-        assert pct < 1.2, (width, cut, pct)
+    # 第二组是真机录的一笔，采样点隔得很开，补曲线那一步会真的细分——两边的
+    # 细分必须一模一样，差一刀轮廓就对不上
+    fast = [(x / 8 + 40, y / 8 + 40, pr) for x, y, pr in REAL_FAST_STROKE]
+
+    for label, pts in (("合成", points), ("真机", fast)):
+        for width, cut in ((4.0, 0), (20.0, 0), (20.0, 3)):
+            cmds = [list(c) for c in inkpdf.outline_path(pts, "pen", width, cut)]
+            flat = [v for point in pts for v in point]
+            pct, area = ipad.evaluate(compare, [cmds, flat, width, cut])
+            assert area > 5000, (label, width, cut, area)  # 真的画上去了
+            # 只剩抗锯齿边缘的差别：两条轮廓之间差一个像素都会让这个数大起来
+            assert pct < 1.2, (label, width, cut, pct)
 
     mac.close()
     ipad.close()
@@ -3230,6 +3235,92 @@ def test_the_tail_of_a_stroke_thins_out_instead_of_swelling(browser, server):
     assert r[-1] < r[0], r
     mac.close()
     ipad.close()
+
+
+# 真机录的一笔：笔走得快，采样点之间隔开几十个世界单位。折线和该走的曲线最远
+# 差 7.3 个单位，转角大的地方就是肉眼可见的直线拼接。
+REAL_FAST_STROKE = [
+    (141.875, 0, 1), (144.625, 13.75, 0.9961), (148.5, 57.75, 0.8863), (150.0, 116.625, 0.7961),
+    (150.625, 189.75, 0.7098), (139.875, 271.125, 0.6275), (119.0, 358.75, 0.5686), (91.5, 443.375, 0.5216),
+    (64.0, 521.125, 0.5098), (39.125, 588, 0.5216), (21.0, 645, 0.5451), (8.25, 684.375, 0.6078),
+    (0.375, 702.875, 0.6863), (0.0, 710.25, 0.7647), (32.875, 682.875, 0.7059), (90.0, 633.5, 0.6235),
+    (162.375, 578, 0.5647), (238.125, 522.75, 0.5176), (337.125, 459.375, 0.4824), (462.0, 392.875, 0.4588),
+    (619.25, 322.125, 0.4392), (800.375, 252.625, 0.4235), (1002.125, 186.375, 0.4118), (1198.25, 129.625, 0.4039),
+    (1384.0, 93.125, 0.4), (1551.875, 64.75, 0.3922), (1707.0, 45.125, 0.3922), (1837.875, 29.125, 0.3882),
+    (1945.125, 22.625, 0.3843), (2032.125, 20.125, 0.4157), (2097.125, 19, 0.4745), (2145.125, 21.375, 0.5451),
+    (2180.875, 25.125, 0.6118), (2211.625, 32, 0.6588), (2235.0, 37.625, 0.7098), (2255.25, 42.625, 0.749),
+    (2279.875, 52.75, 0.7647), (2303.5, 65.125, 0.7765), (2332.25, 83.875, 0.7647), (2360.25, 99.625, 0.7725),
+    (2393.375, 127.875, 0.7333), (2437.0, 169.375, 0.6902), (2484.625, 219.125, 0.6392), (2531.125, 280.125, 0.5882),
+    (2574.5, 337.625, 0.5725), (2608.375, 393.625, 0.5765), (2633.0, 438, 0.6118), (2651.0, 466.75, 0.6706),
+    (2658.25, 489.25, 0.7216), (2663.875, 506.5, 0.7647), (2666.125, 521.625, 0.8), (2667.0, 538.75, 0.8196),
+    (2664.625, 551.125, 0.8392), (2658.25, 567, 0.8549), (2644.625, 581.625, 0.851), (2617.25, 595.75, 0.8196),
+    (2587.0, 612.375, 0.7608), (2566.75, 623.5, 0.7608),
+]
+
+
+def test_a_fast_stroke_is_a_curve_not_a_chain_of_straight_lines(browser, server):
+    """笔走得快的时候采样点会隔得很开，中心线不能就是那条折线。
+
+    逐段求并只保证轮廓是中心线的准确扫掠形状；中心线本身是折线，扫出来当然也是
+    折的——转角大的地方一眼就能看出是直线拼出来的「曲线」。所以中心线要先穿过
+    每一个采样点拟一条向心 Catmull-Rom 曲线再自适应细分。
+
+    判据是弦高：每个折点两侧的平均段长乘转角再除以八，就是「直线代替曲线」在
+    那里差了多少。原始折线最远差 7.3 个世界单位，补过曲线之后必须降到细分容差
+    （0.25）的量级。
+
+    另一半判据同样重要：原始采样点都还落在画出来的中心线上（差不超过细分容差）
+    ——这一步只补点，不改笔迹的走向。拟的曲线本身穿过每一个采样点；后面丢多余点
+    那一步可能丢掉其中个别一个，但丢的前提就是它离弦不超过同一个容差。
+    """
+    mac, _ = open_pages(browser, server.port)
+    out = mac.evaluate(
+        """([raw, width]) => {
+      const flat = raw.flat();
+      const sag = (pts) => {
+        let worst = 0;
+        for (let i = 1; i + 1 < pts.length; i++) {
+          const a = pts[i - 1], b = pts[i], c = pts[i + 1];
+          const d1 = Math.hypot(b.x - a.x, b.y - a.y);
+          const d2 = Math.hypot(c.x - b.x, c.y - b.y);
+          if (d1 < 1e-9 || d2 < 1e-9) continue;
+          const a1 = Math.atan2(b.y - a.y, b.x - a.x);
+          const a2 = Math.atan2(c.y - b.y, c.x - b.x);
+          let turn = Math.abs(a2 - a1) % (2 * Math.PI);
+          if (turn > Math.PI) turn = 2 * Math.PI - turn;
+          worst = Math.max(worst, ((d1 + d2) / 2) * turn / 8);
+        }
+        return worst;
+      };
+      const raw3 = [];
+      for (let i = 0; i < flat.length; i += 3) raw3.push({ x: flat[i], y: flat[i + 1] });
+      const curve = whiteboard.curvePoints({ id: 'x', tool: 'pen', color: '#000', w: width, p: flat });
+      // 每个原始采样点都还落在画出来的中心线上吗（到折线的距离，不是到顶点）
+      const toSegment = (p, a, b) => {
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len = dx * dx + dy * dy;
+        const t = len < 1e-12 ? 0 : Math.max(0, Math.min(1,
+          ((p.x - a.x) * dx + (p.y - a.y) * dy) / len));
+        return Math.hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t));
+      };
+      let missed = 0;
+      for (const p of raw3) {
+        let best = Infinity;
+        for (let i = 0; i + 1 < curve.length; i++) {
+          best = Math.min(best, toSegment(p, curve[i], curve[i + 1]));
+        }
+        if (best > 0.25) missed += 1;
+      }
+      return { before: sag(raw3), after: sag(curve), missed, points: curve.length };
+    }""",
+        [[list(p) for p in REAL_FAST_STROKE], 3.0],
+    )
+    assert out["before"] > 5.0, out
+    # 剩下的最大值出在笔真的折返的那个尖角上（两边的段长 1.6 和 5.1，转 93°），
+    # 那是笔迹本来的形状，不是棱；判据留出十倍余量钉住「7.3 不许回来」
+    assert out["after"] < 1.0, out
+    assert out["missed"] == 0, out
+    mac.close()
 
 
 # 真机录的一笔：往右上画上去再原路收回来。白洞就出在收回来那一段。

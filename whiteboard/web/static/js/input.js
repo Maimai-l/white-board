@@ -8,7 +8,7 @@
 //
 // 所有笔迹先落在本地画布上，再通过网络发出去，本地书写不等待任何回包。
 
-import { TOOLS, pressureForFactor } from "./stroke.js";
+import { clearStrokeCache, TOOLS, pressureForFactor } from "./stroke.js";
 import { clamp } from "./util.js";
 
 const FINGER_FLAG = "whiteboard.fingerDraw";
@@ -558,8 +558,7 @@ export class InputController {
     points.push(draw.sx, draw.sy, draw.sp);
     this.sampleCount += 1;
     this.pendingLive.push(draw.sx, draw.sy, draw.sp);
-    draw.stroke._path = null;
-    draw.stroke._bbox = null;
+    clearStrokeCache(draw.stroke);
   }
 
   moveDraw(event) {
@@ -590,8 +589,7 @@ export class InputController {
       }
       draw.stroke.p.push(wx, wy, draw.sp);
       this.pendingLive.push(wx, wy, draw.sp);
-      draw.stroke._path = null;
-      draw.stroke._bbox = null;
+      clearStrokeCache(draw.stroke);
     }
     this.draw = null;
     this.renderer.setLive("local", null);
