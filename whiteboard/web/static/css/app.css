@@ -698,6 +698,10 @@ body.dropping::after {
   color: var(--on-surface); word-break: break-all;
   user-select: text; -webkit-user-select: text;
 }
+/* iPad 外壳安装页的地址单独占一行 */
+.card { flex-wrap: wrap; }
+.card .shell-addr { flex-basis: 100%; font-weight: 500; color: var(--on-surface-variant, var(--on-surface)); }
+.card .shell-addr:empty { display: none; }
 
 /* 诊断面板：?debug=1 或连点状态圆点三下 */
 #perf {

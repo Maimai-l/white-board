@@ -22,6 +22,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--headless", action="store_true", help="不开窗口，只跑服务端")
     parser.add_argument("--mdns", action="store_true", help="强制广播 mDNS 服务（macOS 默认交给系统）")
     parser.add_argument("--no-mdns", action="store_true", help="不广播 mDNS 服务")
+    parser.add_argument(
+        "--no-bonjour",
+        action="store_true",
+        help="不注册 iPad 外壳用的 _whiteboard._tcp 服务（macOS 默认注册）",
+    )
     parser.add_argument("--debug", action="store_true", help="打开调试日志与开发者工具")
     parser.add_argument("--version", action="version", version=f"白板 {__version__}")
 
@@ -51,16 +56,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.no_mdns:
         advertise = False
 
+    bonjour = False if args.no_bonjour else None
+
     if args.headless:
         from whiteboard.netinfo import candidate_urls
         from whiteboard.runner import ServerThread
 
-        server = ServerThread(config, advertise=advertise)
+        server = ServerThread(config, advertise=advertise, bonjour=bonjour)
         server.start()
         print("白板服务已启动：")
         for url in candidate_urls(server.port):
             print(f"  {url}")
-        print(f"  描述文件：http://{candidate_urls(server.port)[0].split('//')[1]}profile.mobileconfig")
+        print(f"  描述文件：{candidate_urls(server.port)[0]}profile.mobileconfig")
+        print(f"  iPad 外壳安装页：{candidate_urls(server.port)[0]}ipad")
         print("按 Ctrl+C 退出。")
         try:
             import time
@@ -79,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError as exc:
         print(f"缺少 pywebview（{exc}）。可以先用 python run.py --headless 跑服务端。", file=sys.stderr)
         return 1
-    run_app(config, debug=args.debug, advertise=advertise)
+    run_app(config, debug=args.debug, advertise=advertise, bonjour=bonjour)
     return 0
 
 

@@ -1180,6 +1180,9 @@ export class UI {
       el("div", { class: "addr", text: url }),
       iconButton("download", "下载 iPad 描述文件", () => this.actions.onProfile()),
       iconButton("link", "在浏览器打开", () => this.actions.onOpenUrl(url)),
+      // iPad 外壳的安装页：在 iPad 的 Safari 里打开它，装外壳或者把这台 Mac 交给外壳。
+      // 描述文件保留，给没有 TrollStore 的 iPad 用
+      el("div", { class: "addr shell-addr", text: url ? `外壳安装页 ${url}ipad` : "" }),
     ]);
   }
 

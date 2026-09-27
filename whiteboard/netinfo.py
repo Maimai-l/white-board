@@ -5,6 +5,9 @@ iPad 通过 Mac 的 ``<主机名>.local`` 访问，不依赖固定 IP。
 macOS 自带的 mDNSResponder 已经在发布本机的 ``.local`` 主机名，所以这里的
 ``_http._tcp`` 注册只是给别的工具做服务发现用，属于可有可无的装饰：默认在
 macOS 上关闭，其余平台打开，而且**无论如何都不能影响服务端启动**。
+
+``_whiteboard._tcp`` 是另一回事：iPad 外壳靠它自动找到 Mac（docs/ipad-shell.md
+8.4 节），在 macOS 上默认打开，走系统的 mDNSResponder，见 ``BonjourService``。
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ import logging
 import socket
 import sys
 import time
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -95,15 +98,26 @@ def mdns_default() -> bool:
 
 
 class MDNSAdvertiser:
-    """注册 ``_http._tcp`` 服务。
+    """用 zeroconf 注册一个服务，默认是 ``_http._tcp``。
 
     必须用 zeroconf 的**异步** API：同步 API 会阻塞调用方所在的事件循环，
     在 asyncio 里调用会抛 ``EventLoopBlocked``，进而把服务端启动拖超时。
+
+    zeroconf 会自己监听 mDNS 端口，在 macOS 上等于再起一个响应程序，所以 macOS
+    上不用它，见 ``mdns_default`` 和 ``BonjourService``。
     """
 
-    def __init__(self, port: int, name: str = "Whiteboard"):
+    def __init__(
+        self,
+        port: int,
+        name: str = "Whiteboard",
+        service_type: str = "_http._tcp",
+        properties: Optional[Dict[str, str]] = None,
+    ):
         self.port = port
         self.name = name
+        self.service_type = service_type
+        self.properties = properties if properties is not None else {"path": "/"}
         self._azc = None
         self._info = None
 
@@ -122,11 +136,11 @@ class MDNSAdvertiser:
         try:
             self._azc = AsyncZeroconf()
             self._info = ServiceInfo(
-                "_http._tcp.local.",
-                f"{self.name}._http._tcp.local.",
+                f"{self.service_type}.local.",
+                f"{self.name}.{self.service_type}.local.",
                 addresses=[socket.inet_aton(ip)],
                 port=self.port,
-                properties={"path": "/"},
+                properties=self.properties,
             )
             await asyncio.wait_for(
                 self._azc.async_register_service(self._info), timeout=REGISTER_TIMEOUT
@@ -135,7 +149,7 @@ class MDNSAdvertiser:
             log.warning("mDNS 广播失败（不影响使用）：%s", exc)
             await self.stop()
             return False
-        log.info("mDNS 已广播 %s:%s", local_hostname(), self.port)
+        log.info("mDNS 已广播 %s %s:%s", self.service_type, local_hostname(), self.port)
         return True
 
     async def stop(self) -> None:
@@ -150,3 +164,158 @@ class MDNSAdvertiser:
             await asyncio.wait_for(azc.async_close(), timeout=REGISTER_TIMEOUT)
         except Exception as exc:  # noqa: BLE001
             log.debug("mDNS 注销失败：%s", exc)
+
+
+# ------------------------------------------------------------ iPad 外壳的发现
+
+BONJOUR_TYPE = "_whiteboard._tcp"
+
+
+def bonjour_default() -> bool:
+    """``_whiteboard._tcp`` 默认只在 macOS 上注册：外壳要找的就是 Mac。"""
+    return sys.platform == "darwin"
+
+
+def computer_name() -> str:
+    """显示给用户的电脑名称（系统设置 → 通用 → 关于本机 → 名称）。"""
+    if sys.platform == "darwin":
+        import subprocess
+
+        try:
+            name = subprocess.run(
+                ["scutil", "--get", "ComputerName"], capture_output=True, text=True, timeout=2
+            ).stdout.strip()
+            if name:
+                return name
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return local_hostname()[: -len(".local")]
+
+
+def txt_record(fields: Dict[str, str]) -> bytes:
+    """DNS-SD 的 TXT 记录：每一项是一个字节的长度加 ``key=value``，单项最长 255 字节。"""
+    out = bytearray()
+    for key, value in fields.items():
+        item = f"{key}={value}".encode("utf-8")[:255]
+        out.append(len(item))
+        out.extend(item)
+    return bytes(out)
+
+
+def bonjour_fields(port: int, version: str) -> Dict[str, str]:
+    """TXT 记录的四个字段。外壳直接用 host 和 port 拼地址，不再另做解析。"""
+    return {
+        "host": local_hostname(),
+        "port": str(port),
+        "version": version,
+        "name": computer_name(),
+    }
+
+
+class _DNSSD:
+    """通过 ctypes 调 libSystem 里的 ``DNSServiceRegister``。
+
+    注册请求直接交给系统的 mDNSResponder，不需要当前线程跑 run loop，所以无窗口
+    模式（``--headless``，主线程只是在 sleep）下同样生效。回调传 NULL：结果不用
+    回读，注册在 ``DNSServiceRefDeallocate`` 之前一直有效。
+    """
+
+    def __init__(self):
+        import ctypes
+        import ctypes.util
+
+        path = ctypes.util.find_library("System") or "/usr/lib/libSystem.B.dylib"
+        lib = ctypes.CDLL(path)
+        self._ctypes = ctypes
+        self._register = lib.DNSServiceRegister
+        self._register.restype = ctypes.c_int32
+        self._register.argtypes = [
+            ctypes.POINTER(ctypes.c_void_p),  # DNSServiceRef *sdRef
+            ctypes.c_uint32,  # flags
+            ctypes.c_uint32,  # interfaceIndex，0 表示所有接口
+            ctypes.c_char_p,  # name
+            ctypes.c_char_p,  # regtype
+            ctypes.c_char_p,  # domain，NULL 表示默认（local.）
+            ctypes.c_char_p,  # host，NULL 表示本机
+            ctypes.c_uint16,  # port，网络字节序
+            ctypes.c_uint16,  # txtLen
+            ctypes.c_void_p,  # txtRecord
+            ctypes.c_void_p,  # callBack
+            ctypes.c_void_p,  # context
+        ]
+        self._deallocate = lib.DNSServiceRefDeallocate
+        self._deallocate.restype = None
+        self._deallocate.argtypes = [ctypes.c_void_p]
+
+    def register(self, name: str, regtype: str, port: int, txt: bytes):
+        ctypes = self._ctypes
+        ref = ctypes.c_void_p()
+        buffer = ctypes.create_string_buffer(txt, len(txt))
+        error = self._register(
+            ctypes.byref(ref), 0, 0, name.encode("utf-8"), regtype.encode("ascii"),
+            None, None, socket.htons(port), len(txt), ctypes.cast(buffer, ctypes.c_void_p),
+            None, None,
+        )
+        if error != 0:
+            raise OSError(f"DNSServiceRegister 返回 {error}")
+        return ref
+
+    def deallocate(self, ref) -> None:
+        self._deallocate(ref)
+
+
+class BonjourService:
+    """注册 ``_whiteboard._tcp``，iPad 外壳靠它找到这台 Mac。
+
+    macOS 上必须通过系统的 mDNSResponder 注册（``DNSServiceRegister``），不能再起
+    第二个 mDNS 响应程序；其他平台用 zeroconf。和 ``MDNSAdvertiser`` 一样，注册
+    失败只写日志，不影响服务启动。
+    """
+
+    def __init__(self, port: int, version: str):
+        self.port = port
+        self.version = version
+        self.fields: Dict[str, str] = {}
+        self._dnssd: Optional[_DNSSD] = None
+        self._ref = None
+        self._zeroconf: Optional[MDNSAdvertiser] = None
+
+    async def start(self) -> bool:
+        try:
+            self.fields = await asyncio.to_thread(bonjour_fields, self.port, self.version)
+            if sys.platform == "darwin":
+                await asyncio.wait_for(
+                    asyncio.to_thread(self._register_system), timeout=REGISTER_TIMEOUT
+                )
+            else:
+                self._zeroconf = MDNSAdvertiser(
+                    self.port, self.fields["name"], BONJOUR_TYPE, dict(self.fields)
+                )
+                if not await self._zeroconf.start():
+                    self._zeroconf = None
+                    return False
+        except Exception as exc:  # noqa: BLE001 - 注册失败不该影响白板本身
+            log.warning("Bonjour 注册 %s 失败（外壳可以改用安装页连接）：%s", BONJOUR_TYPE, exc)
+            await self.stop()
+            return False
+        log.info("Bonjour 已注册 %s：%s", BONJOUR_TYPE, self.fields)
+        return True
+
+    def _register_system(self) -> None:
+        self._dnssd = _DNSSD()
+        self._ref = self._dnssd.register(
+            self.fields["name"], BONJOUR_TYPE, self.port, txt_record(self.fields)
+        )
+
+    async def stop(self) -> None:
+        ref, dnssd = self._ref, self._dnssd
+        self._ref = None
+        if ref is not None and dnssd is not None:
+            try:
+                dnssd.deallocate(ref)
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Bonjour 注销失败：%s", exc)
+        zc = self._zeroconf
+        self._zeroconf = None
+        if zc is not None:
+            await zc.stop()
