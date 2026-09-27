@@ -385,6 +385,22 @@ html, body {
   right: calc(12px + env(safe-area-inset-right));
   flex-direction: row;
 }
+/*
+ * 触摸设备上这一组照 iOS 的做法：图标用强调色，按钮之间留开一点。
+ * 开了笔具盘之后普通工具栏整条藏起来，管理白板、白板设置、导出就只剩这一个入口。
+ */
+.pill.tinted {
+  gap: 6px;
+  padding: 6px 10px;
+}
+.pill.tinted .icon-btn {
+  color: var(--primary);
+}
+.pill.tinted .icon-btn svg {
+  width: 25px;
+  height: 25px;
+}
+.pill.tinted .icon-btn[disabled] { color: var(--on-surface-variant); }
 #zoombar {
   position: absolute;
   right: calc(12px + env(safe-area-inset-right));

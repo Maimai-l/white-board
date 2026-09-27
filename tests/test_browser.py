@@ -805,6 +805,40 @@ def test_the_ui_only_draws_the_entries_it_is_allowed(browser, server):
     ipad.close()
 
 
+def test_ipad_keeps_the_board_entries_when_the_picker_hides_the_toolbar(browser, server):
+    """iPad 开了笔具盘之后，管理白板、白板设置、导出仍然要有入口。
+
+    笔具盘一挂上，普通工具栏整条 `.hidden`。清空在笔具盘的「更多」里，连接状态点
+    在左上角、不属于工具栏，这两项不受影响；剩下三项只剩右上角这一组。样式照
+    iOS 的做法：同一条磨砂底，图标用强调色。
+    """
+    mac, ipad = open_pages(browser, server.port, picker=True)
+    # 笔具盘是动态载入的，挂上之后才会把普通工具栏收起来
+    ipad.wait_for_selector("#pk-host .pk-picker", timeout=20000)
+    out = ipad.evaluate("""() => {
+      const group = document.getElementById('topright');
+      const toolbar = document.getElementById('toolbar');
+      const dot = document.getElementById('status');
+      return {
+        条目: group ? [...group.querySelectorAll('button')].map((b) => b.title) : null,
+        类名: group ? group.className : null,
+        图标颜色: group ? getComputedStyle(group.querySelector('.icon-btn')).color : null,
+        强调色: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim(),
+        工具栏隐藏: toolbar.classList.contains('hidden'),
+        状态点可见: !!dot && getComputedStyle(dot).display !== 'none',
+      };
+    }""")
+    assert out["工具栏隐藏"], out           # 笔具盘模式，普通工具栏收起来了
+    assert out["条目"] == ["白板", "白板设置", "导出 PNG"], out
+    assert "tinted" in out["类名"], out
+    assert out["状态点可见"], out           # 诊断和录制的入口还在
+    # 图标用强调色，不是默认的灰色
+    r, g, b = [int(v) for v in out["图标颜色"].replace("rgb(", "").rstrip(")").split(",")]
+    assert (r, g, b) == (0, 122, 255), out
+    mac.close()
+    ipad.close()
+
+
 def test_clear_asks_before_it_wipes_the_board(browser, server):
     """垃圾桶点开要说清楚问的是什么，别让人对着一个图标猜。"""
     mac, ipad = open_pages(browser, server.port)

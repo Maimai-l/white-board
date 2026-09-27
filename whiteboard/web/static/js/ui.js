@@ -182,31 +182,45 @@ export class UI {
     this.dock = new ToolDock({ bar: this.toolbar });
     this.fillToolbar();
 
-    if (this.role === "mac") {
-      // 每个入口都对应一项权限：本机全有，别的设备看 Mac 上放开了哪几项。
-      // 「连接 iPad」和「关于」只有本机进程里才有意义（选文件、看版本、查更新），
-      // 所以跟着 native 走，不进权限体系。
-      const buttons = [];
-      if (this.may("manage")) buttons.push(iconButton("boards", "白板", () => this.openBoards()));
-      if (this.may("settings") || this.native) {
-        buttons.push(iconButton("settings", "白板设置", () => this.openSettings()));
-      }
-      if (this.may("export")) {
-        buttons.push((this.exportButton = iconButton("image", "导出 PNG", () => this.actions.onExport())));
-      }
-      if (this.native) {
-        buttons.push(iconButton("tablet", "连接 iPad", () => this.openConnect()));
-        buttons.push(iconButton("info", "关于", () => this.openAbout()));
-      }
-      const topright = el("div", { id: "topright", class: "pill" }, buttons);
-      const zoombar = el("div", { id: "zoombar", class: "pill" }, [
+    this.buildCorner();
+  }
+
+  /**
+   * 右上角那一组：管理白板、白板设置、导出。
+   *
+   * 两端都有，样式不同。Mac 上还多「连接 iPad」和「关于」两项——它们要选文件、
+   * 看版本、查更新，只有本机进程里才有意义，所以跟着 native 走，不进权限体系。
+   * 其余每一项都对应一项权限：本机全有，别的设备看 Mac 上放开了哪几项。
+   *
+   * iPad 上这一组是必须的：开了笔具盘之后普通工具栏整条藏起来，这三项就没有
+   * 别的入口了（清空在笔具盘的「更多」里，连接状态点在左上角，都不受影响）。
+   */
+  buildCorner() {
+    const buttons = [];
+    if (this.may("manage")) buttons.push(iconButton("boards", "白板", () => this.openBoards()));
+    if (this.may("settings") || this.native) {
+      buttons.push(iconButton("settings", "白板设置", () => this.openSettings()));
+    }
+    if (this.may("export")) {
+      buttons.push((this.exportButton = iconButton("image", "导出 PNG", () => this.actions.onExport())));
+    }
+    if (this.native) {
+      buttons.push(iconButton("tablet", "连接 iPad", () => this.openConnect()));
+      buttons.push(iconButton("info", "关于", () => this.openAbout()));
+    }
+    if (buttons.length) {
+      // 触摸设备上做成 iOS 那种蓝色图标控件：同一条磨砂底，图标用强调色
+      const cls = this.touchDevice ? "pill tinted" : "pill";
+      this.root.append(el("div", { id: "topright", class: cls }, buttons));
+    }
+    if (this.role !== "mac") return;
+    this.root.append(
+      el("div", { id: "zoombar", class: "pill" }, [
         iconButton("zoomIn", "放大", () => this.actions.onZoom(1.25)),
         iconButton("fit", "回到内容", () => this.actions.onFit()),
         iconButton("zoomOut", "缩小", () => this.actions.onZoom(0.8)),
-      ]);
-      if (buttons.length) this.root.append(topright);
-      this.root.append(zoombar);
-    }
+      ]),
+    );
   }
 
   may(permission) {
