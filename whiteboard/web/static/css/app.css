@@ -17,7 +17,7 @@
   --light-green: #28c840;
 
   /* 磨砂玻璃：控件是半透明的，底下的画布透上来一点 */
-  --glass: rgba(246, 246, 248, .72);
+  --glass: rgba(246, 246, 248, .92);
   --glass-solid: #f6f6f8;
   --glass-border: rgba(0, 0, 0, .08);
   --glass-blur: saturate(180%) blur(30px);
@@ -55,7 +55,7 @@
     --on-primary-container: #4da3ff;
     --error: #ff453a;
 
-    --glass: rgba(38, 38, 40, .72);
+    --glass: rgba(38, 38, 40, .92);
     --glass-solid: #262628;
     --glass-border: rgba(255, 255, 255, .12);
 
@@ -214,24 +214,25 @@ html, body {
 #pk-host .pk-picker,
 #pk-host .pk-pop { pointer-events: auto; }
 /*
- * 让那条工具盘也用磨砂：它自己的底色是实的，这里把它的颜色变量换成半透明，
- * 再给容器加一层背景模糊，和白板其它控件统一。
+ * 工具盘的底色跟着白板的配色走，但**始终是实的**，不磨砂。
+ *
+ * 原来这里给它加了背景模糊、底色换成半透明，落笔时再切回实色（模糊层底下是每帧
+ * 都在变的画布，iPad 上开销很大）。两个问题：一是工具盘就压在写字的地方，半透明
+ * 意味着刚写的字直接透出来；二是那个开关是按「一笔」切的，写一个字要落笔抬笔好
+ * 几次，工具盘就在磨砂和实色之间来回跳。
+ *
+ * 所以不切了，一直是实色：看不出磨砂的必要，顺带也没有每帧重新合成模糊层的开销。
+ * 弹层和提示条不在写字的地方，磨砂留着。
  */
 #pk-host {
-  --pk-bar: var(--glass);
-  --pk-bubble: var(--glass);
+  --pk-bar: var(--glass-solid);
+  --pk-bubble: var(--glass-solid);
   --pk-pop: var(--glass);
   --pk-cp: var(--glass);
 }
-#pk-host .pk-picker,
 #pk-host .pk-pop {
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
-}
-:root[data-drawing] #pk-host .pk-picker {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  background: var(--glass-solid);
 }
 
 /*
