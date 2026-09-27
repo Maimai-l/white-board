@@ -3156,3 +3156,87 @@ def test_the_tail_of_a_stroke_thins_out_instead_of_swelling(browser, server):
     assert r[-1] < r[0], r
     mac.close()
     ipad.close()
+
+
+# 真机录的一笔：往右上画上去再原路收回来。白洞就出在收回来那一段。
+REAL_HOOK_STROKE = [
+    (0.0, 56.598, 0.1034), (0.056, 56.485, 0.1034), (0.385, 54.983, 0.1031), (0.549, 54.191, 0.1029),
+    (1.371, 52.461, 0.1023), (1.823, 51.51, 0.1018), (3.365, 49.018, 0.0984), (4.213, 47.648, 0.0958),
+    (6.48, 44.25, 0.0924), (7.726, 42.382, 0.0899), (11.0, 37.585, 0.0892), (12.8, 34.947, 0.0887),
+    (18.065, 28.096, 0.0873), (20.961, 24.328, 0.0863), (25.366, 19.331, 0.0858), (27.789, 16.582, 0.0854),
+    (32.721, 12.089, 0.0871), (35.434, 9.618, 0.0884), (40.358, 6.121, 0.0948), (43.065, 4.198, 0.0996),
+    (46.355, 2.465, 0.1035), (48.164, 1.512, 0.1064), (50.059, 0.763, 0.1102), (51.101, 0.351, 0.113),
+    (52.518, 0.125, 0.1098), (53.297, 0.0, 0.1074), (54.12, 0.156, 0.0991), (54.572, 0.242, 0.0929),
+    (54.765, 0.515, 0.0855), (54.871, 0.665, 0.08), (54.029, 1.478, 0.0836), (53.566, 1.926, 0.0863),
+    (51.68, 3.466, 0.0909), (50.643, 4.313, 0.0944), (47.766, 6.578, 0.1014), (46.184, 7.825, 0.1066),
+    (42.782, 10.816, 0.1111), (40.912, 12.462, 0.1145), (37.464, 15.617, 0.1099), (35.568, 17.352, 0.1064),
+    (32.275, 20.5, 0.1023), (30.464, 22.231, 0.0992), (27.442, 25.209, 0.1029), (25.781, 26.846, 0.1056),
+    (23.629, 29.097, 0.1118), (22.446, 30.335, 0.1164), (21.177, 31.691, 0.1237), (20.478, 32.436, 0.1291),
+    (19.926, 33.071, 0.1288), (19.622, 33.421, 0.1286), (19.398, 33.613, 0.127), (19.275, 33.719, 0.1258),
+    (19.208, 33.777, 0.1264), (19.114, 33.865, 0.1236), (18.978, 33.94, 0.1192), (19.048, 34.028, 0.0726),
+    (19.102, 34.133, 0.0578), (19.118, 34.252, 0.0527), (19.067, 34.319, 0.0523), (19.011, 34.568, 0.0403),
+    (19.006, 34.694, 0.0332), (19.003, 34.876, 0.0273), (19.002, 34.975, 0.0228), (19.0, 35.348, 0.0228),
+]
+
+
+def test_a_stroke_never_has_holes_in_it(browser, server):
+    """笔画里不许出现白色缺口。
+
+    这一笔是真机录的：往右上画上去，再原路收回来（「往一个方向画收回会出现诡异的
+    白色」说的就是它）。以前两侧各算一条斜接偏移线、接成一条闭合回路，斜接偏移量
+    是 r / cos(转角/2)；真机上笔半径约 2.9 而采样间距只有 0.47，内侧偏移点被推出去
+    的距离是相邻点间距的六倍，一转弯就折回去自交，自交出来的小环绕向和主体相反，
+    nonzero 下算 0，笔画里就出现白洞。
+
+    现在改成逐段求并：每点一个圆、每段一个外公切梯形，全部同向。结构上不存在
+    「一条回路」，也就不可能自交。
+
+    判据不看中线——白洞在笔画边缘内侧，中线上探不到。这里把路径加密成一串圆，
+    凡是稳稳落在某个圆里面的像素都必须是实心的。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    holes = ipad.evaluate("""([flat, width]) => {
+      const S = 6, PAD = 12;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let i = 0; i < flat.length; i += 3) {
+        x0 = Math.min(x0, flat[i]); x1 = Math.max(x1, flat[i]);
+        y0 = Math.min(y0, flat[i + 1]); y1 = Math.max(y1, flat[i + 1]);
+      }
+      x0 -= PAD; y0 -= PAD; x1 += PAD; y1 += PAD;
+      const c = document.createElement('canvas');
+      c.width = Math.ceil((x1 - x0) * S); c.height = Math.ceil((y1 - y0) * S);
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.setTransform(S, 0, 0, S, -x0 * S, -y0 * S);
+      ctx.fillStyle = '#000';
+      ctx.fill(whiteboard.buildPath({ id: 'x', tool: 'pen', color: '#000', w: width, p: flat }));
+      const data = ctx.getImageData(0, 0, c.width, c.height).data;
+      const solid = (wx, wy) => {
+        const px = Math.round((wx - x0) * S), py = Math.round((wy - y0) * S);
+        if (px < 0 || py < 0 || px >= c.width || py >= c.height) return true;
+        return data[(py * c.width + px) * 4 + 3] > 200;
+      };
+      // 把路径加密，每个加密点带自己的半径；圆缩到九成，避开边缘的抗锯齿
+      let bad = 0, checked = 0;
+      const n = flat.length / 3;
+      const R = (i) => whiteboard.strokeRadius('pen', width, flat[i * 3 + 2]);
+      for (let i = 0; i + 1 < n; i++) {
+        const ax = flat[i * 3], ay = flat[i * 3 + 1], ar = R(i);
+        const bx = flat[i * 3 + 3], by = flat[i * 3 + 4], br = R(i + 1);
+        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 0.2));
+        for (let k = 0; k <= steps; k++) {
+          const t = k / steps;
+          const cx = ax + (bx - ax) * t, cy = ay + (by - ay) * t;
+          const r = (ar + (br - ar) * t) * 0.9;
+          for (let a = 0; a < 8; a++) {
+            const th = (a / 8) * Math.PI * 2;
+            checked += 1;
+            if (!solid(cx + Math.cos(th) * r, cy + Math.sin(th) * r)) bad += 1;
+          }
+        }
+      }
+      return { bad, checked };
+    }""", [[v for pt in REAL_HOOK_STROKE for v in pt], 13.0])
+    assert holes["checked"] > 5000, holes
+    assert holes["bad"] == 0, holes
+    mac.close()
+    ipad.close()

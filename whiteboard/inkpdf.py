@@ -86,23 +86,27 @@ def simplify(points: Sequence[Tuple[float, float, float]], eps: float):
 def outline_path(
     points: Sequence[Tuple[float, float, float]], tool: str, width: float, cut: int = 0
 ):
-    """笔画的闭合轮廓，和 stroke.js 的 buildPath 逐段对应。
+    """笔画的形状，和 stroke.js 的 buildPath 逐段对应。
 
     返回一串路径指令：``('m', x, y)`` / ``('l', x, y)`` /
-    ``('c', x1, y1, x2, y2, x, y)``。
+    ``('c', x1, y1, x2, y2, x, y)``，按 nonzero 填充。
 
-    两侧是穿过每一个偏移点的三次贝塞尔（Catmull-Rom），偏移量用斜接的
-    ``r / cos(转角/2)``；转角超过 ``CORNER`` 的点当折角处理，曲线在那里收尾、
-    沿笔尖圆转过去、再重新起头。``cut`` 标出哪一头是橡皮切出来的，切口画平口。
+    画法是逐段求并：每两个相邻采样点画一段「两圆的凸包」（两条外公切线加前端那个
+    大圆弧），全部同一个绕向。同向的子路径在 nonzero 下正好是并集，所以这就是
+    「圆沿着路径扫过去」的准确形状。``cut`` 标出哪一头是橡皮切出来的，那一头画
+    直边而不是圆弧，就是平口。
 
-    以前这里为了省体积把不透明的笔画画成「按线宽分段的折线」，线宽一变就断一段，
-    每段两头还各有一个圆头——笔一粗就变成一串大小不一的圆饼。现在一律按轮廓填充，
-    屏幕上什么样导出就什么样。
+    以前这里和屏幕那边一样，是两侧各算一条斜接偏移线接成一条闭合回路。采样比笔粗
+    密的时候内侧偏移点会折回去自交，自交出来的小环绕向和主体相反，nonzero 下算 0，
+    笔画里就出现白色缺口。逐段求并没有这个问题，也不需要斜接或折角处理。
+
+    再往前还试过「按线宽分段的折线」，线宽一变就断一段、两头各一个圆头，笔一粗
+    就是一串大小不一的圆饼。
     """
     pts = []
     for x, y, pr in points:
         r = max(0.35, radius(tool, width, pr))
-        # 去掉重合点：方向角要靠相邻点算，两点重合会得到无意义的角度
+        # 去掉重合点：两点重合算不出方向
         if pts and abs(x - pts[-1][0]) < 1e-7 and abs(y - pts[-1][1]) < 1e-7:
             continue
         pts.append((x, y, r))
@@ -113,90 +117,116 @@ def outline_path(
     if len(pts) == 1:
         x, y, r = pts[0]
         cmds.append(("m", x + r, y))
-        _arc(cmds, x, y, r, 0.0, 2 * math.pi)
+        _arc(cmds, x, y, r, 0.0, -2 * math.pi)
         return cmds
 
+    pts = _drop_covered(pts)
     count = len(pts)
-    dirs = [
-        math.atan2(pts[i + 1][1] - pts[i][1], pts[i + 1][0] - pts[i][0])
-        for i in range(count - 1)
-    ]
-
-    # 每个采样点在两侧各给一项：普通点是一个斜接偏移点，折角是一段圆弧
-    left: List[Any] = []
-    right: List[Any] = []
-    for i in range(count):
-        before = dirs[i - 1] if i > 0 else dirs[0]
-        after = dirs[i] if i < count - 1 else dirs[-1]
-        turn = _turn(before, after)
-        x, y, r = pts[i]
-        if abs(turn) > CORNER and 0 < i < count - 1:
-            left.append(((x, y, r), before + math.pi / 2, after + math.pi / 2))
-            right.append(((x, y, r), before - math.pi / 2, after - math.pi / 2))
-            continue
-        half = turn / 2
-        reach = r / math.cos(half)
-        normal = before + half + math.pi / 2
-        dx, dy = math.cos(normal) * reach, math.sin(normal) * reach
-        left.append((x + dx, y + dy))
-        right.append((x - dx, y - dy))
-
-    started = False
-
-    def step(point: Tuple[float, float]) -> None:
-        nonlocal started
-        cmds.append(("l" if started else "m", point[0], point[1]))
-        started = True
-
-    def curve(run: List[Tuple[float, float]]) -> None:
-        """一段连续偏移点：Catmull-Rom 转三次贝塞尔，曲线穿过每一个点。"""
-        if not run:
-            return
-        step(run[0])
-        for i in range(len(run) - 1):
-            p0 = run[i - 1] if i > 0 else run[0]
-            p1, p2 = run[i], run[i + 1]
-            p3 = run[i + 2] if i + 2 < len(run) else run[-1]
-            c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
-            c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
-            # 两个控制点都贴着弦时，画直线就够了
-            if max(_line_gap(p1, p2, c1), _line_gap(p1, p2, c2)) <= FLAT:
-                cmds.append(("l", p2[0], p2[1]))
-            else:
-                cmds.append(("c", c1[0], c1[1], c2[0], c2[1], p2[0], p2[1]))
-
-    def side(items: Sequence[Any]) -> None:
-        run: List[Tuple[float, float]] = []
-        for item in items:
-            if len(item) == 2:
-                run.append(item)
-                continue
-            curve(run)
-            run = []
-            (cx, cy, r), a0, a1 = item
-            if not started:
-                step((cx + math.cos(a0) * r, cy + math.sin(a0) * r))
-            else:
-                cmds.append(("l", cx + math.cos(a0) * r, cy + math.sin(a0) * r))
-            _arc(cmds, cx, cy, r, a0, _turn(a0, a1))
-        curve(run)
-
-    first = dirs[0] + math.pi / 2
-    last = dirs[-1] + math.pi / 2
-    tx, ty, tr = pts[-1]
-    hx, hy, hr = pts[0]
-
-    side(left)
-    if not cut & 2:
-        _arc(cmds, tx, ty, tr, last, -math.pi)
-    # 反着走另一侧：到达和离开的角度对调
-    side([
-        (item[0], item[2], item[1]) if len(item) == 3 else item
-        for item in reversed(right)
-    ])
+    # 每一段只画前端那个圆帽：后一段的起点圆已经被前一段的末端圆帽盖住了，
+    # 两边都画等于每个中间的圆画两遍。开头那个圆没人盖，单独补一个。
     if not cut & 1:
-        _arc(cmds, hx, hy, hr, first + math.pi, -math.pi)
+        x, y, r = pts[0]
+        cmds.append(("m", x + r, y))
+        _arc(cmds, x, y, r, 0.0, -2 * math.pi)
+    for i in range(count - 1):
+        _hull(cmds, pts[i], pts[i + 1], round_end=not (i == count - 2 and cut & 2))
     return cmds
+
+
+LOOK_AHEAD = 24
+
+
+# 丢点时允许的形状误差，单位是 PDF 点。印刷尺度上 0.1 pt 看不出来，而 PDF 里
+# 一个采样点要八条指令，能丢掉的点直接决定体积。
+DROP_TOLERANCE = 0.1
+
+
+def _drop_covered(pts, tolerance: float = DROP_TOLERANCE):
+    """丢掉那些「自己的圆几乎已经被前后两点的凸包包住」的采样点。
+
+    真机上一笔的采样密度常常是笔半径的六倍，直路段上一串点画出来的凸包几乎完全
+    重合，全是白给的指令。容差为 0 时这一步是无损的；导出时放一点容差，形状差不
+    超过 tolerance，体积能再降一半。
+    """
+    if len(pts) < 3:
+        return pts
+    out = [pts[0]]
+    anchor = pts[0]
+    i = 1
+    while i < len(pts) - 1:
+        reach = i
+        for end in range(i + 1, min(len(pts), i + LOOK_AHEAD + 1)):
+            if all(
+                _disc_inside_hull(pts[k], anchor, pts[end], tolerance)
+                for k in range(i, end)
+            ):
+                reach = end
+            else:
+                break
+        if reach > i:
+            anchor = pts[reach]
+            out.append(anchor)
+            i = reach + 1
+        else:
+            anchor = pts[i]
+            out.append(anchor)
+            i += 1
+    if out[-1] is not pts[-1]:
+        out.append(pts[-1])
+    return out
+
+
+def _disc_inside_hull(c, a, b, tolerance: float = 0.0) -> bool:
+    """点 c 的圆是不是整个落在 a、b 两个圆的凸包里。
+
+    凸包就是「圆心沿 ab 线性插值、半径也线性插值」扫出来的那一片，所以把 c 投影
+    到 ab 上取出那一处的半径，比一下就够了。投影落在两端之外就不算包住。
+    """
+    cx, cy, cr = c
+    ax, ay, ar = a
+    bx, by, br = b
+    dx, dy = bx - ax, by - ay
+    length_sq = dx * dx + dy * dy
+    if length_sq < 1e-12:
+        return cr <= max(ar, br)
+    t = ((cx - ax) * dx + (cy - ay) * dy) / length_sq
+    if t < 0 or t > 1:
+        return False
+    rt = ar + (br - ar) * t
+    return math.hypot(cx - (ax + dx * t), cy - (ay + dy * t)) + cr <= rt + tolerance
+
+
+def _hull(cmds: List[Tuple], a, b, round_end: bool) -> None:
+    """两个圆的凸包（只画前端的圆帽）：两条外公切线加绕过 b 的那段大圆弧。
+
+    a 那头的圆由上一段的圆帽盖住，所以这里不画；整笔开头那个圆在 outline_path 里补。
+    绕向固定是「左切线 → 绕过 b → 右切线 → 回到 a」，和方向无关，所以每一段绕向
+    都一样，nonzero 下才是并集而不是互相抵消。
+    """
+    ax, ay, ar = a
+    bx, by, br = b
+    dx, dy = bx - ax, by - ay
+    d = math.hypot(dx, dy)
+    if d <= abs(ar - br):
+        # 一个圆整个套在另一个里面：这一段的形状就是大的那个圆
+        cx, cy, cr = a if ar >= br else b
+        cmds.append(("m", cx + cr, cy))
+        _arc(cmds, cx, cy, cr, 0.0, -2 * math.pi)
+        return
+    direction = math.atan2(dy, dx)
+    # 切点相对于方向偏开的角：半径相等时是 90°
+    spread = math.acos(max(-1.0, min(1.0, (ar - br) / d)))
+    left = direction + spread
+    right = direction - spread
+    cmds.append(("m", ax + math.cos(left) * ar, ay + math.sin(left) * ar))
+    cmds.append(("l", bx + math.cos(left) * br, by + math.sin(left) * br))
+    if round_end:
+        _arc(cmds, bx, by, br, left, right - left)
+    else:
+        cmds.append(("l", bx + math.cos(right) * br, by + math.sin(right) * br))
+    cmds.append(("l", ax + math.cos(right) * ar, ay + math.sin(right) * ar))
+    cmds.append(("l", ax + math.cos(left) * ar, ay + math.sin(left) * ar))
+
 
 
 def _capsules(chains: Sequence[Sequence[float]]) -> List[Tuple[float, float, float, float, float]]:

@@ -195,10 +195,16 @@ def test_export_pdf_without_strokes_does_not_grow(tmp_path):
 
 
 def test_export_pdf_stays_small(tmp_path):
-    """体积不能增加太多：一笔平均不超过 450 字节。
+    """体积不能增加太多：一笔平均不超过 800 字节。
 
-    这里的 wave 是 300pt 长、来回拐了十来次的一笔，比真写字要费。真机上用
-    马克笔连写 800 笔测下来约每笔 370 字节。
+    这里的 wave 是 300pt 长、来回拐了十来次的一笔，比真写字要费。
+
+    这个数原来是 450（真机上用马克笔连写 800 笔约每笔 370 字节）。笔画的画法从
+    「两侧各一条斜接偏移线接成一条闭合回路」换成「逐段求并」之后涨到 733：并集
+    是一段一段画的，每段都要两条切线加一个圆帽，而原来一个采样点两侧各一条
+    贝塞尔就够。换来的是导出的 PDF 里不会再出现白色缺口——旧画法在采样比笔粗密
+    的时候内侧偏移点会折回去自交，nonzero 下自交出来的小环算 0，笔画里就破个洞。
+    正确性比体积重要，所以预算按实测放到 800。
     """
     src = make_pdf(tmp_path / "src.pdf")
     out = tmp_path / "out.pdf"
@@ -209,7 +215,7 @@ def test_export_pdf_stays_small(tmp_path):
         strokes.append(wave(40, box["y"] + 40 + (index // 3) * 5, stroke_id="s%d" % index))
     docs.export_pdf(src, strokes, out)
     grew = out.stat().st_size - src.stat().st_size
-    assert grew / len(strokes) < 450
+    assert grew / len(strokes) < 800
 
 
 def test_thick_strokes_simplify_harder(tmp_path):
@@ -452,18 +458,22 @@ def test_repeated_exports_do_not_grow(tmp_path):
 
 
 def test_cut_ends_are_flat_in_the_pdf_too(tmp_path):
-    """切口在屏幕上是平口，导出也得是平口，不然导出一次缺口又被圆头填回去。"""
-    points = [(0.0, 0.0, 1.0), (40.0, 0.0, 1.0), (80.0, 0.0, 1.0)]
-    round_ends = inkpdf.outline_path(points, "pen", 16.0, 0)
-    both_cut = inkpdf.outline_path(points, "pen", 16.0, 3)
-    start_cut = inkpdf.outline_path(points, "pen", 16.0, 1)
+    """切口在屏幕上是平口，导出也得是平口，不然导出一次缺口又被圆头填回去。
 
-    # 一个半圆笔尖是两段四分之一圆弧，也就是两条 'c'
-    assert len(round_ends) - len(both_cut) == 4
-    assert len(round_ends) - len(start_cut) == 2
-    # 平口不是把端点丢掉：两头的极值坐标不变
-    xs = [c[-2] for c in both_cut]
-    assert min(xs) == pytest.approx(0.0) and max(xs) == pytest.approx(80.0)
+    判据是墨迹往端点外伸出去多少：圆头会多伸出一个半径，平口一点都不伸。
+    不数指令条数——那跟着画法走，画法一换用例就假红。
+    """
+    points = [(0.0, 0.0, 1.0), (40.0, 0.0, 1.0), (80.0, 0.0, 1.0)]
+    half = inkpdf.radius("pen", 16.0, 1.0)
+
+    def span(cut):
+        xs = [c[-2] for c in inkpdf.outline_path(points, "pen", 16.0, cut)]
+        return min(xs), max(xs)
+
+    assert span(0) == pytest.approx((-half, 80.0 + half))
+    assert span(1) == pytest.approx((0.0, 80.0 + half))
+    assert span(2) == pytest.approx((-half, 80.0))
+    assert span(3) == pytest.approx((0.0, 80.0))
 
 
 def test_export_honours_cut_ends(tmp_path):

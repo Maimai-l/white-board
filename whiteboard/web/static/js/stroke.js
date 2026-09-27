@@ -12,14 +12,6 @@ export const TOOLS = {
   highlighter: { alpha: 0.3, scale: 6 },
 };
 
-// 折角阈值：相邻两段方向差超过这个角度就当硬角处理——轮廓在这里断开、转一段
-// 圆弧再继续，而不是让样条把角磨圆。真实手写在屏幕采样密度下，非折角处每个顶点
-// 的转角远低于这个值，所以它只会在真的拐角上触发。
-const CORNER = (45 * Math.PI) / 180;
-// 斜接偏移的最大倍数。折角已经单独处理，剩下的转角都不超过 CORNER，
-// 所以这个值就是 1 / cos(CORNER / 2)，包围盒按它留余量。
-const MITER_MAX = 1 / Math.cos(CORNER / 2);
-
 /** 把角差折算到 (-π, π]，用来判断转了多少、往哪边转。 */
 function turnOf(from, to) {
   let delta = to - from;
@@ -61,128 +53,166 @@ function samplesOf(stroke) {
  * 永远不经过自己的控制点，所以每个采样点处的轮廓都被往内侧拽，转角越急、采样越疏
  * 削得越平。换成插值曲线之后轮廓真的经过每一个偏移点。
  */
-function sideOutline(path, items, startHere) {
-  let started = !startHere;
-  const step = (p) => {
-    if (started) path.lineTo(p.x, p.y);
-    else {
-      path.moveTo(p.x, p.y);
-      started = true;
+
+/**
+ * 丢掉那些「自己的圆已经被前后两点的凸包整个包住」的采样点。
+ *
+ * 形状一点不变——被包住就是被包住——但路径能小一半还多。真机上一笔的采样密度
+ * 常常是笔半径的六倍，直路段上一串点画出来的凸包几乎完全重合，全是白给的指令。
+ * 屏幕上少花建路径的时间，导出的 PDF 直接少一半体积。
+ */
+function dropCoveredPoints(pts) {
+  if (pts.length < 3) return pts;
+  const out = [pts[0]];
+  let anchor = pts[0];
+  let i = 1;
+  while (i < pts.length - 1) {
+    // 往前看，能跳多远跳多远；看太远收益递减，也会把复杂度推成平方
+    let reach = i;
+    for (let end = i + 1; end < pts.length && end - i <= LOOK_AHEAD; end++) {
+      let covered = true;
+      for (let k = i; k < end; k++) {
+        if (!discInsideHull(pts[k], anchor, pts[end])) {
+          covered = false;
+          break;
+        }
+      }
+      if (!covered) break;
+      reach = end;
     }
-  };
-  let run = [];
-  const flush = () => {
-    if (!run.length) return;
-    step(run[0]);
-    for (let i = 0; i + 1 < run.length; i++) {
-      const p0 = run[i > 0 ? i - 1 : 0];
-      const p1 = run[i];
-      const p2 = run[i + 1];
-      const p3 = run[i + 2 < run.length ? i + 2 : run.length - 1];
-      path.bezierCurveTo(
-        p1.x + (p2.x - p0.x) / 6,
-        p1.y + (p2.y - p0.y) / 6,
-        p2.x - (p3.x - p1.x) / 6,
-        p2.y - (p3.y - p1.y) / 6,
-        p2.x,
-        p2.y
-      );
+    if (reach > i) {
+      anchor = pts[reach];
+      out.push(anchor);
+      i = reach + 1;
+    } else {
+      anchor = pts[i];
+      out.push(anchor);
+      i += 1;
     }
-    run = [];
-  };
-  for (const item of items) {
-    if (!item.corner) {
-      run.push(item);
-      continue;
-    }
-    flush();
-    const { x, y, r } = item.corner;
-    if (!started) {
-      path.moveTo(x + Math.cos(item.a0) * r, y + Math.sin(item.a0) * r);
-      started = true;
-    }
-    // Path2D.arc 是真圆弧，画布在绘制时按当时的缩放展平，放大不会看出棱
-    path.arc(x, y, r, item.a0, item.a1, turnOf(item.a0, item.a1) < 0);
   }
-  flush();
+  if (out[out.length - 1] !== pts[pts.length - 1]) out.push(pts[pts.length - 1]);
+  return out;
 }
 
+const LOOK_AHEAD = 24;
+
+/**
+ * 点 c 的圆是不是整个落在 a、b 两个圆的凸包里。
+ *
+ * 凸包就是「圆心沿 ab 线性插值、半径也线性插值」扫出来的那一片，所以把 c 投影到
+ * ab 上取出那一处的半径，比一下就够了。投影落在两端之外就不算包住。
+ */
+function discInsideHull(c, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq < 1e-12) return c.r <= Math.max(a.r, b.r);
+  let t = ((c.x - a.x) * dx + (c.y - a.y) * dy) / lengthSq;
+  if (t < 0 || t > 1) return false;
+  const rt = a.r + (b.r - a.r) * t;
+  return Math.hypot(c.x - (a.x + dx * t), c.y - (a.y + dy * t)) + c.r <= rt;
+}
+
+/**
+ * 一段笔画的形状：圆沿着路径扫过去扫出来的那一片。
+ *
+ * 画法是「逐段求并」——每个采样点一个圆，每两点之间一个梯形（两个圆的外公切线
+ * 围出来的），全部同一个绕向，用 nonzero 填充。同向的子路径在 nonzero 下正好是
+ * 并集，所以这就是扫掠区域的准确形状。
+ *
+ * 之前是另一种画法：两侧各算一条斜接偏移线，接成**一条**闭合回路。那条路在采样
+ * 比笔粗密的时候必然出问题——斜接偏移量是 ``r / cos(转角/2)``，真机上笔半径约
+ * 2.9 而采样间距只有 0.47，内侧偏移点被推出去的距离是相邻点间距的六倍，一转弯
+ * 就折回去自交；自交出来的小环绕向和主体相反，nonzero 下算 0，于是笔画里出现
+ * 白色缺口。同一批采样点还会让方向估计很抖（iPad 报的坐标是整像素的），4%～11%
+ * 的转角被判成大于 45° 的硬角，轮廓在那里断开接直线，边上就出现大棱。
+ *
+ * 逐段求并没有这两个问题：并集是逐段算的，不存在「一条回路」，自交无从谈起；
+ * 外边界就是两圆的公切线，也不需要任何斜接或折角处理。
+ *
+ * 绕向必须全部一致。圆用 ``anticlockwise = true`` 是为了和梯形的点序对上——
+ * 反了的话 nonzero 会把它们互相抵消，画出来是一堆黑白相间的碎块。
+ */
+/**
+ * 一段笔画的形状：圆沿着路径扫过去扫出来的那一片。
+ *
+ * 画法是逐段求并——每两个相邻采样点画一段「两圆的凸包」（两条外公切线加前端那个
+ * 大圆弧），全部同一个绕向，用 nonzero 填充。同向的子路径在 nonzero 下正好是并集，
+ * 所以这就是扫掠区域的准确形状，不需要任何「这个圆是不是多余」的判断。
+ *
+ * 之前是另一种画法：两侧各算一条斜接偏移线，接成**一条**闭合回路。那条路在采样
+ * 比笔粗密的时候必然出问题——斜接偏移量是 ``r / cos(转角/2)``，真机上笔半径约
+ * 2.9 而采样间距只有 0.47，内侧偏移点被推出去的距离是相邻点间距的六倍，一转弯
+ * 就折回去自交；自交出来的小环绕向和主体相反，nonzero 下算 0，笔画里就出现白色
+ * 缺口。同一批采样点还会让方向估计很抖（iPad 报的坐标是整像素的），4%～11% 的
+ * 转角被判成大于 45° 的硬角，轮廓在那里断开接直线，边上就出现大棱。
+ *
+ * 逐段求并没有这两个问题：并集是逐段算的，不存在「一条回路」，自交无从谈起；
+ * 外边界就是两圆的公切线，也不需要任何斜接或折角处理。
+ */
 export function buildPath(stroke) {
   if (stroke._path) return stroke._path;
-  const pts = samplesOf(stroke);
+  const pts = dropCoveredPoints(samplesOf(stroke));
   const count = pts.length;
   const path = new Path2D();
+  stroke._path = path;
+  if (count === 0) return path;
 
-  if (count === 0) {
-    stroke._path = path;
-    return path;
-  }
   if (count === 1) {
     const { x, y, r } = pts[0];
     path.moveTo(x + r, y);
-    path.arc(x, y, r, 0, TAU);
-    stroke._path = path;
+    path.arc(x, y, r, 0, TAU, true);
     return path;
   }
 
-  // 每一段自己的方向角。法线 = 方向 + 90°。
-  const dir = new Array(count - 1);
-  for (let i = 0; i + 1 < count; i++) {
-    dir[i] = Math.atan2(pts[i + 1].y - pts[i].y, pts[i + 1].x - pts[i].x);
-  }
-
-  // 每个采样点在两侧各给一项：普通点是一个斜接偏移点，折角是一段圆弧。
-  //
-  // 斜接偏移量是 r / cos(转角/2)，不是 r。以前用前后差分的法线配上 r，
-  // 等于把外侧的偏移点往里收了 cos(转角/2) 倍——笔画在每个转角都会缩细，
-  // 90° 转角只剩 76% 宽，采样一疏更少。
-  const left = new Array(count);
-  const right = new Array(count);
-  for (let i = 0; i < count; i++) {
-    const before = dir[i > 0 ? i - 1 : 0];
-    const after = dir[i < count - 1 ? i : count - 2];
-    const turn = turnOf(before, after);
-    const point = pts[i];
-    if (Math.abs(turn) > CORNER && i > 0 && i < count - 1) {
-      left[i] = { corner: point, a0: before + Math.PI / 2, a1: after + Math.PI / 2 };
-      right[i] = { corner: point, a0: before - Math.PI / 2, a1: after - Math.PI / 2 };
-      continue;
-    }
-    const half = turn / 2;
-    const reach = point.r / Math.cos(half);
-    const normal = before + half + Math.PI / 2;
-    const dx = Math.cos(normal) * reach;
-    const dy = Math.sin(normal) * reach;
-    left[i] = { x: point.x + dx, y: point.y + dy };
-    right[i] = { x: point.x - dx, y: point.y - dy };
-  }
-
   // cut 的两位分别表示「这一头是橡皮切出来的」：1 = 起点，2 = 终点。
-  // 切口不补半圆笔尖，直接连过去就是一道平口——橡皮扫过去时留下的本来就是
-  // 胶囊的直边，补个圆头反而会把缺口填回去一大半。
+  // 切口不画那一头的圆弧，留下的直边就是橡皮胶囊的切口。
   const cut = stroke.cut | 0;
-  const first = dir[0] + Math.PI / 2;
-  const last = dir[count - 2] + Math.PI / 2;
-  const tail = pts[count - 1];
-  const head = pts[0];
-
-  sideOutline(path, left, true);
-  // 切口不画笔尖：下一侧的第一条线段（以及 closePath）自然把平口连出来
-  if (!(cut & 2)) path.arc(tail.x, tail.y, tail.r, last, last - Math.PI, true);
-  // 反着走另一侧：到达和离开的角度对调
-  sideOutline(
-    path,
-    right
-      .slice()
-      .reverse()
-      .map((item) => (item.corner ? { corner: item.corner, a0: item.a1, a1: item.a0 } : item)),
-    false
-  );
-  if (!(cut & 1)) path.arc(head.x, head.y, head.r, first + Math.PI, first, true);
-  path.closePath();
-
-  stroke._path = path;
+  // 每一段只画前端那个圆帽：后一段的起点圆已经被前一段的末端圆帽盖住了，
+  // 两边都画等于每个中间的圆画两遍。开头那个圆没人盖，单独补一个。
+  if (!(cut & 1)) {
+    const head = pts[0];
+    path.moveTo(head.x + head.r, head.y);
+    path.arc(head.x, head.y, head.r, 0, TAU, true);
+  }
+  for (let i = 0; i + 1 < count; i++) {
+    hullPath(path, pts[i], pts[i + 1], !(i === count - 2 && cut & 2));
+  }
   return path;
+}
+
+/**
+ * 两个圆的凸包（只画前端的圆帽）：两条外公切线，加绕过 b 的那段大圆弧。
+ *
+ * a 那头的圆由上一段的圆帽盖住，所以这里不画；整笔开头那个圆在 buildPath 里补。
+ *
+ * 半径不同时切点不在法线上，要沿着连线方向偏 ``(r0 - r1) / d``。一个圆整个套在
+ * 另一个里面时没有外公切线，退化成画大的那个圆——那本来就是这一段的形状。
+ *
+ * 绕向固定是顺着「左切线 → 绕过 b → 右切线 → 回到 a」这一圈，和方向无关，
+ * 所以每一段绕向都一样，nonzero 下才是并集而不是互相抵消。
+ */
+function hullPath(path, a, b, roundEnd) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const d = Math.hypot(dx, dy);
+  if (d <= Math.abs(a.r - b.r)) {
+    const big = a.r >= b.r ? a : b;
+    path.moveTo(big.x + big.r, big.y);
+    path.arc(big.x, big.y, big.r, 0, TAU, true);
+    return;
+  }
+  const dir = Math.atan2(dy, dx);
+  // 切点相对于方向偏开的角：半径相等时是 90°
+  const spread = Math.acos(clamp((a.r - b.r) / d, -1, 1));
+  const left = dir + spread;
+  const right = dir - spread;
+  path.moveTo(a.x + Math.cos(left) * a.r, a.y + Math.sin(left) * a.r);
+  path.lineTo(b.x + Math.cos(left) * b.r, b.y + Math.sin(left) * b.r);
+  if (roundEnd) path.arc(b.x, b.y, b.r, left, right, true);
+  else path.lineTo(b.x + Math.cos(right) * b.r, b.y + Math.sin(right) * b.r);
+  path.lineTo(a.x + Math.cos(right) * a.r, a.y + Math.sin(right) * a.r);
+  path.closePath();
 }
 
 export function strokeBBox(stroke) {
@@ -201,8 +231,7 @@ export function strokeBBox(stroke) {
     const r = strokeRadius(stroke.tool, stroke.w, flat[i + 2]);
     if (r > maxR) maxR = r;
   }
-  // 斜接偏移最多到 r * MITER_MAX，包围盒按它留余量，不然折角处会漏出脏矩形
-  maxR *= MITER_MAX;
+  // 逐段求并之后，墨迹最远就到采样点外 r（圆本身），不再有斜接的额外外扩
   const bbox = { x0: x0 - maxR, y0: y0 - maxR, x1: x1 + maxR, y1: y1 + maxR, r: maxR };
   stroke._bbox = bbox;
   return bbox;
