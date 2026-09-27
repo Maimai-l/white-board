@@ -104,7 +104,9 @@ page.evaluate("async ([d]) => whiteboard.recorder.replay(d, { wait: false })", [
 
 试过但没用的（留个记录，别再试第二遍）：
 
-1. 实时层的 canvas 加 `{ desynchronized: true }`（已经在 `renderer.js` 里）。
+1. 实时层的 canvas 加 `{ desynchronized: true }`。采样率一点没变，而且写字时会闪
+   ——`drawLive` 每帧先 `clearRect` 再重画整条实时笔画，绕开合成器同步之后，清和画
+   之间的中间状态会被显示出来。已经改回去了。
 2. 设置 → Apple Pencil → 关掉「随手写」。
 3. 设置 → 应用 → Safari → 高级 → 功能开关 → 关掉「Prefer Page Rendering Updates
    near 60fps」，强制退出重开。白板是配置文件装的 Web Clip，不是 Safari，这个开关

@@ -122,10 +122,12 @@ export class Renderer {
     this.base = baseCanvas;
     this.live = liveCanvas;
     this.baseCtx = baseCanvas.getContext("2d", { alpha: false });
-    // desynchronized 让实时层绕开合成器同步：延迟低一点，而且事件在慢帧上
-    // 被丢掉的机会少一点（Safari 在动画帧超时的时候会丢指针事件）。底图不这么
-    // 开——底图会整片平移，绕开同步容易看到撕裂。
-    this.liveCtx = liveCanvas.getContext("2d", { desynchronized: true });
+    // 实时层**不要**开 desynchronized。试过，为的是「延迟低一点、慢帧上少丢指针
+    // 事件」，结果是：采样率一点没变（面板上的「新位置」还是 64/s），而写字时
+    // 出现闪烁。原因在 drawLive——它每帧先 clearRect 掉上一帧的范围再重画整条
+    // 实时笔画，而 desynchronized 绕开了合成器同步，清和画之间的中间状态会被
+    // 显示出来。要再试的话先把 drawLive 改成不清空重画。
+    this.liveCtx = liveCanvas.getContext("2d");
     this.state = state;
     this.viewport = viewport;
     this.dpr = 1;
