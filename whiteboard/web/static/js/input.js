@@ -119,6 +119,19 @@ const SPEED_FLOOR = 0.69;
 // 这支笔一次都没报过压感：按设定线宽的七成半画，也是以前的粗细。
 const NO_PRESSURE_FACTOR = 0.75;
 
+// iPad 外壳（docs/ipad-shell.md）。外壳把 UIKit 的 Pencil 采样转给网页，网页声明
+// 自己认得的接口版本范围；外壳的版本落在范围里才会开始发。提高上限时保留对上一个
+// 版本的支持，直到下一个版本发布——Mac 端先更新、外壳还没更新时照样能用。
+export const SHELL_BRIDGE = [1, 1];
+// 外壳的触摸编号从 1 开始，和浏览器的 pointerId 放进同一张表里会撞，挪开一段。
+const SHELL_POINTER_BASE = 1e6;
+// 坐标偏差：两边的时间戳换算到同一条时间轴之后，只在前后这么多毫秒之内找对应的
+// 外壳采样。Safari 的事件时间可能是派发时刻而不是触摸时刻，窗口要容得下这点延迟，
+// 又不能大到让一笔里走回头的另一段混进来。
+const SHELL_MATCH_MS = 25;
+// 同一次落笔里最多留这么多个采样用来比对坐标，够一笔两三秒。
+const SHELL_TRACE = 512;
+
 export function loadFingerDraw() {
   try {
     return localStorage.getItem(FINGER_FLAG) === "1";
@@ -157,6 +170,47 @@ export function penAltitude(event) {
   return Math.PI / 2; // 什么都报不出来，按竖直算
 }
 
+/** 压感读数加上倾斜：笔身放平时笔迹变宽，模拟侧锋。 */
+function tiltedPressure(pressure, altitude) {
+  const tilt = 1 - altitude / (Math.PI / 2);
+  return clamp(pressure * (1 + tilt * 0.45), 0, 1);
+}
+
+/**
+ * 外壳的一个采样换成 InputController 认得的样子。
+ *
+ * 字段和浏览器的指针事件一一对应，之后的判定、平滑、提交都不区分来源：
+ *
+ * * 压力取 ``f / fmax``。Safari 报的压力和它在同一量级，按文档 7.2 节推测就是
+ *   同一个量，所以不做换算；
+ * * 倾斜只给 ``altitudeAngle``，``tiltX`` / ``tiltY`` 置 0——``penAltitude`` 看到
+ *   这两个都是 0 才会去读 altitude；
+ * * 时间换成毫秒、保留小数。只在同一次落笔之内求时间差，不和 ``performance.now()``
+ *   比较（文档 5.3 节）。
+ */
+export function shellEvent(sample, id, phase) {
+  const fmax = sample.fmax > 0 ? sample.fmax : 0;
+  return {
+    clientX: sample.x,
+    clientY: sample.y,
+    pressure: fmax ? clamp(sample.f / fmax, 0, 1) : 0,
+    tiltX: 0,
+    tiltY: 0,
+    twist: 0,
+    altitudeAngle: typeof sample.alt === "number" ? sample.alt : Math.PI / 2,
+    azimuthAngle: sample.az,
+    timeStamp: sample.t * 1000,
+    pointerId: SHELL_POINTER_BASE + id,
+    pointerType: "pen",
+    isPrimary: true,
+    button: 0,
+    buttons: phase === "up" || phase === "cancel" ? 0 : 1,
+    fromShell: true,
+    preventDefault() {},
+    stopPropagation() {},
+  };
+}
+
 /**
  * 砍掉笔停下来之后那一小撮采样点。
  *
@@ -183,6 +237,18 @@ function trimSettledTail(stroke) {
     keep -= 1;
   }
   if (keep < count - 1) p.length = (keep + 1) * 3;
+}
+
+/** 丢掉一秒之前的记录，返回剩下的个数。 */
+function countTicks(ticks, now) {
+  while (ticks.length && now - ticks[0][0] > 1000) ticks.shift();
+  return ticks.length;
+}
+
+function countMoved(ticks) {
+  let moved = 0;
+  for (const [, isNew] of ticks) moved += isNew;
+  return moved;
 }
 
 export class InputController {
@@ -218,10 +284,29 @@ export class InputController {
       // 笔每秒送来多少个事件、其中多少个是新位置。这两个数差一倍以上就说明
       // 系统在重复投递同一个位置，笔迹的上限就卡在「新位置」那一个数上。
       penHz: 0, penMoveHz: 0,
+      // 外壳（docs/ipad-shell.md 7.4 节）：输入来源、外壳版本，外壳来源的采样率，
+      // 以及外壳采样和 Safari 自己的 pen 事件在同一时刻差了多少 CSS 像素
+      source: "browser", shellVersion: "", shellBridge: 0,
+      shellHz: 0, shellMoveHz: 0,
+      shellDev: null, shellDevN: 0,
+      // 估计属性更新：修正到笔画上的，和笔画提交之后才到、只能丢掉的
+      shellUpd: 0, shellUpdLate: 0,
     };
     // [时间, 是不是新位置]，只留最近一秒
     this.penTicks = [];
     this.lastPenPos = null;
+    // 外壳输入来源。active 时 #stage 上的 pen 指针事件一律不参与书写，改用外壳的采样。
+    this.shell = {
+      active: false,
+      ignored: new Set(), // 落在界面控件上的那几次落笔，整次都不管
+      ticks: [],
+      lastPos: null,
+      est: new Map(), // estimationUpdateIndex → 这个采样落进了哪一笔的第几个点
+      // 坐标偏差比对：同一次落笔里两边的采样，以及两边落笔那一刻的时间
+      trace: { shell: [], safari: [], shellDown: null, safariDown: null },
+    };
+    // 录像从这里收外壳送来的每一批原样数据
+    this.shellTap = null;
     this.canceled = null;
     this.momentum = 0;
     this._wheelTimer = 0;
@@ -362,8 +447,19 @@ export class InputController {
     return "draw";
   }
 
+  /** 外壳接管 Pencil 时，Safari 自己发的 pen 事件：不参与书写，只拿来比对坐标。 */
+  shadowedPen(event) {
+    return this.shell.active && event.pointerType === "pen" && !event.fromShell;
+  }
+
   onDown(event) {
     event.preventDefault();
+    if (this.shadowedPen(event)) {
+      // 手掌屏蔽照样要算：Safari 的这一下常常比外壳那一批先到
+      this.lastPenAt = performance.now();
+      this.traceSafari(event, true);
+      return;
+    }
     this.stopMomentum();
     this.hooks.onInteractionStart?.();
     // 有选区在就先清掉：放大镜是跟着选区走的。
@@ -403,6 +499,13 @@ export class InputController {
 
   onMove(event) {
     const now = performance.now();
+    if (this.shadowedPen(event)) {
+      event.preventDefault();
+      this.lastPenAt = now;
+      this.notePenRate(now, event);
+      this.traceSafari(event, false);
+      return;
+    }
     if (this.draw && this.lastInputAt > 0) {
       const gap = now - this.lastInputAt;
       if (gap > this.stats.maxGap) this.stats.maxGap = gap;
@@ -449,6 +552,12 @@ export class InputController {
   }
 
   onUp(event, canceled = false) {
+    if (this.shadowedPen(event)) {
+      this.lastPenAt = performance.now();
+      this.traceSafari(event, false);
+      this.measureShellOffset();
+      return;
+    }
     const entry = this.pointers.get(event.pointerId);
     this.pointers.delete(event.pointerId);
     this.capture(event.pointerId, false);
@@ -484,6 +593,218 @@ export class InputController {
     }
   }
 
+  // ------------------------------------------------------------ 外壳输入
+
+  /**
+   * 外壳握手的结果。``active`` 为真时 Pencil 的输入改由外壳提供，``#stage`` 上
+   * Safari 自己的 pen 事件只用来比对坐标；手指和鼠标照旧走指针事件。
+   */
+  setShell(state) {
+    const shell = this.shell;
+    shell.active = !!(state && state.active);
+    shell.ignored.clear();
+    shell.est.clear();
+    this.stats.source = shell.active ? "shell" : "browser";
+    this.stats.shellVersion = (state && state.version) || "";
+    this.stats.shellBridge = (state && state.bridge) || 0;
+  }
+
+  /**
+   * 外壳送来的一批采样（格式见 docs/ipad-shell.md 5.1 节）。
+   *
+   * 每个采样换成和指针事件同样的对象，交给 onDown / onMove / onUp，之后的判定、
+   * 平滑、提交和 Safari 来源完全是同一条路。估计属性更新修正还没提交的那一笔；
+   * 预测采样只画在实时层上，不进笔画。
+   */
+  receiveShell(batch) {
+    if (!batch || !this.shell.active) return;
+    if (this.shellTap) this.shellTap(batch);
+    const samples = Array.isArray(batch.samples) ? batch.samples : [];
+    for (const sample of samples) this.shellSample(sample);
+    if (Array.isArray(batch.updates)) {
+      for (const update of batch.updates) this.shellUpdate(update);
+    }
+    this.shellPredict(batch.pred || null);
+  }
+
+  shellSample(sample) {
+    const shell = this.shell;
+    const id = sample.id;
+    const phase = sample.ph;
+    const event = shellEvent(sample, id, phase);
+    if (phase === "down") {
+      // 落在界面控件上的这一整次落笔都不管，交给控件自己的点击事件——Pencil 照样
+      // 能点工具栏。判断的是「落点在不在画布里」：Safari 的 pen 事件本来也只有落在
+      // 画布上的才会走到这里，两边的行为因此一致。
+      if (!this.onStage(sample.x, sample.y)) {
+        shell.ignored.add(id);
+        return;
+      }
+      shell.ignored.delete(id);
+      if (shell.est.size > 4096) shell.est.clear();
+      this.traceShell(sample, true);
+      this.onDown(event);
+      this.noteEstimate(sample, event, 0);
+      return;
+    }
+    if (shell.ignored.has(id)) {
+      if (phase === "up" || phase === "cancel") shell.ignored.delete(id);
+      return;
+    }
+    this.traceShell(sample, false);
+    if (phase === "move") {
+      const before = this.draw ? this.draw.stroke.p.length : 0;
+      this.onMove(event);
+      this.noteEstimate(sample, event, before);
+      return;
+    }
+    this.onUp(event, phase === "cancel");
+    this.measureShellOffset();
+  }
+
+  /** 这个视口坐标上是不是画布（而不是工具栏、面板之类的界面控件）。 */
+  onStage(x, y) {
+    const target = document.elementFromPoint(x, y);
+    return !!target && this.stage.contains(target);
+  }
+
+  /** 这个采样等着更新力度，而且真的落成了笔画上的一个点：记下是哪一个点。 */
+  noteEstimate(sample, event, before) {
+    const draw = this.draw;
+    if (!draw || draw.pointerId !== event.pointerId) return;
+    if (sample.ui === null || sample.ui === undefined) return;
+    if (!Array.isArray(sample.est) || !sample.est.length) return;
+    const points = draw.stroke.p;
+    if (points.length <= before) return; // 位移太小没有落点，修不修都一样
+    this.shell.est.set(sample.ui, { stroke: draw.stroke, index: points.length / 3 - 1, sample });
+  }
+
+  /**
+   * 估计属性更新（通常是力度）。第一阶段只修还没提交的那一笔；笔画提交之后才到的
+   * 只能丢掉，记个数。按 InkProbe 四份会话，更新在采样之后约 25 ms 到达，每一笔
+   * 最后约 6 个采样的更新会落在抬笔之后（见 docs/ipad-shell.md 7.2 节）。
+   */
+  shellUpdate(update) {
+    const shell = this.shell;
+    const entry = shell.est.get(update.ui);
+    if (!entry) return;
+    shell.est.delete(update.ui);
+    const draw = this.draw;
+    if (!draw || draw.stroke !== entry.stroke) {
+      this.stats.shellUpdLate += 1;
+      return;
+    }
+    const points = draw.stroke.p;
+    const i = entry.index;
+    if (i * 3 + 2 >= points.length) return;
+    const sample = entry.sample;
+    const force = typeof update.f === "number" ? update.f : sample.f;
+    const altitude = typeof update.alt === "number" ? update.alt : sample.alt;
+    if (!(sample.fmax > 0) || !(force > 0)) return;
+    const target = tiltedPressure(
+      clamp(force / sample.fmax, 0, 1),
+      clamp(typeof altitude === "number" ? altitude : Math.PI / 2, 0, Math.PI / 2),
+    );
+    // 和 addSample 里一样的平滑：从前一个点的压感往目标走一步
+    points[i * 3 + 2] = i === 0 ? target : points[i * 3 - 1] + (target - points[i * 3 - 1]) * PRESSURE_SMOOTH;
+    clearStrokeCache(draw.stroke);
+    this.stats.shellUpd += 1;
+  }
+
+  /**
+   * 预测采样：只画在实时层上。每一批的预测整体替换上一批的，所以每次都从这一笔
+   * 当前的点列复制一份再接上去，笔画本身和发给对端的实时点都不含预测。
+   */
+  shellPredict(pred) {
+    const draw = this.draw;
+    if (!draw || !draw.shell) return;
+    const samples = pred && Array.isArray(pred.samples) ? pred.samples : [];
+    if (!samples.length || SHELL_POINTER_BASE + pred.id !== draw.pointerId) {
+      this.renderer.setLive("local", draw.stroke);
+      return;
+    }
+    const points = draw.stroke.p.slice();
+    let sp = draw.sp;
+    for (const sample of samples) {
+      const event = shellEvent(sample, pred.id, "move");
+      let [wx, wy] = this.toWorld(event);
+      if (draw.limits) {
+        wx = clamp(wx, draw.limits.x0, draw.limits.x1);
+        if (wy < draw.limits.y0) wy = draw.limits.y0;
+        if (draw.limits.y1 !== undefined && wy > draw.limits.y1) wy = draw.limits.y1;
+      }
+      const raw =
+        event.pressure > 0
+          ? event.pressure
+          : draw.lastPressure > 0
+            ? draw.lastPressure
+            : pressureForFactor(NO_PRESSURE_FACTOR);
+      sp += (tiltedPressure(raw, penAltitude(event)) - sp) * PRESSURE_SMOOTH;
+      points.push(wx, wy, sp);
+    }
+    this.renderer.setLive("local", { ...draw.stroke, p: points, _pts: null, _path: null, _bbox: null });
+  }
+
+  /**
+   * 坐标偏差（诊断面板，验收标准 A3）：同一次落笔里，外壳的采样和 Safari 自己的
+   * pen 事件在同一时刻差了多少 CSS 像素。
+   *
+   * 两边的时间戳不在同一条时间轴上，用落笔那一下对齐：两边的第一个采样是同一个
+   * UITouch，时间差就是两条时间轴的偏移。Safari 的每个采样都是 UIKit 的某一个
+   * 采样取整之后的样子，所以在换算后前后 ``SHELL_MATCH_MS`` 之内找离它最近的
+   * 外壳采样，两者之差就是偏差：取整本身最多 0.5 像素，再多就是坐标系没对齐。
+   */
+  traceShell(sample, down) {
+    const trace = this.shell.trace;
+    if (down) {
+      trace.shell = [];
+      trace.shellDown = sample.t * 1000;
+    }
+    if (trace.shell.length < SHELL_TRACE) trace.shell.push([sample.t * 1000, sample.x, sample.y]);
+  }
+
+  traceSafari(event, down) {
+    const trace = this.shell.trace;
+    if (down) {
+      trace.safari = [];
+      trace.safariDown = event.timeStamp;
+    }
+    if (trace.safari.length < SHELL_TRACE) {
+      trace.safari.push([event.timeStamp, event.clientX, event.clientY]);
+    }
+  }
+
+  measureShellOffset() {
+    const trace = this.shell.trace;
+    if (trace.shellDown === null || trace.safariDown === null) return;
+    if (!trace.shell.length || !trace.safari.length) return;
+    const offset = trace.safariDown - trace.shellDown;
+    const shell = trace.shell;
+    let worst = 0;
+    let matched = 0;
+    let start = 0;
+    for (const [time, x, y] of trace.safari) {
+      const want = time - offset;
+      while (start < shell.length && shell[start][0] < want - SHELL_MATCH_MS) start += 1;
+      let best = null;
+      let bestDist = Infinity;
+      for (let j = start; j < shell.length && shell[j][0] <= want + SHELL_MATCH_MS; j++) {
+        const dist = Math.hypot(shell[j][1] - x, shell[j][2] - y);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = shell[j];
+        }
+      }
+      if (!best) continue;
+      worst = Math.max(worst, Math.abs(best[1] - x), Math.abs(best[2] - y));
+      matched += 1;
+    }
+    if (matched) {
+      this.stats.shellDev = worst;
+      this.stats.shellDevN = matched;
+    }
+  }
+
   // --------------------------------------------------------------- 书写
 
   newStrokeId() {
@@ -512,13 +833,20 @@ export class InputController {
    */
   notePenRate(now, event) {
     const pos = `${event.clientX},${event.clientY}`;
+    if (event.fromShell) {
+      // 外壳的采样同样按「收到的时刻」计数，算法和 Safari 那两个数相同，才能直接比。
+      // 一批里的几个采样是同一时刻收到的，照样各算一个。
+      const shell = this.shell;
+      shell.ticks.push([now, pos !== shell.lastPos ? 1 : 0]);
+      shell.lastPos = pos;
+      this.stats.shellHz = countTicks(shell.ticks, now);
+      this.stats.shellMoveHz = countMoved(shell.ticks);
+      return;
+    }
     this.penTicks.push([now, pos !== this.lastPenPos ? 1 : 0]);
     this.lastPenPos = pos;
-    while (this.penTicks.length && now - this.penTicks[0][0] > 1000) this.penTicks.shift();
-    this.stats.penHz = this.penTicks.length;
-    let moved = 0;
-    for (const [, isNew] of this.penTicks) moved += isNew;
-    this.stats.penMoveHz = moved;
+    this.stats.penHz = countTicks(this.penTicks, now);
+    this.stats.penMoveHz = countMoved(this.penTicks);
   }
 
   /**
@@ -548,9 +876,7 @@ export class InputController {
       } else {
         pressure = pressureForFactor(NO_PRESSURE_FACTOR);
       }
-      // 笔身放平时笔迹变宽，模拟侧锋
-      const tilt = 1 - penAltitude(event) / (Math.PI / 2);
-      return clamp(pressure * (1 + tilt * 0.45), 0, 1);
+      return tiltedPressure(pressure, penAltitude(event));
     }
     // 鼠标 / 手指没有压感，用速度反推：走得快笔迹细。
     const factor = clamp(1 - sample.speed * SPEED_THIN, SPEED_FLOOR, 1);
@@ -583,6 +909,7 @@ export class InputController {
       lastPressure: event.pointerType === "pen" && event.pressure > 0 ? event.pressure : 0,
       lastTime: event.timeStamp,
       lastScreen: this.toScreen(event),
+      shell: !!event.fromShell,
     };
     this.liveRef = stroke;
     this.addSample(event, wx, wy, true);

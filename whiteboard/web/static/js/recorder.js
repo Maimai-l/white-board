@@ -9,6 +9,9 @@
 // 真正的新位置只有约 60/s；getCoalescedEvents() 一次都没有返回过多于一个采样点。
 // 见 docs/recording.md。
 //
+// 在 iPad 外壳里时，Pencil 的输入来自外壳而不是指针事件，外壳送来的每一批采样
+// 原样记成一条 ``type: "shell"``，回放时交回 InputController.receiveShell。
+//
 // 录的是**原始指针事件**，不是笔画。笔画是输入经过整条链路之后的结果，拿结果
 // 回放就只能复现渲染，复现不了判定、平滑、合并采样、抬笔那一刻的时序。
 
@@ -84,6 +87,17 @@ export class Recorder {
     for (const name of names) {
       stage.addEventListener(name, (e) => this.note(name, e), { capture: true });
     }
+    this.app.input.shellTap = (batch) => this.noteShell(batch);
+  }
+
+  /** 外壳现在是不是输入来源，以及它的版本。录像顶层要记，回放时照此切换。 */
+  source() {
+    const input = this.app.input;
+    if (!input.shell || !input.shell.active) return { source: "browser", shell: null };
+    return {
+      source: "shell",
+      shell: { version: input.stats.shellVersion || "", bridge: input.stats.shellBridge || 0 },
+    };
   }
 
   start(name) {
@@ -104,6 +118,12 @@ export class Recorder {
               +rect.width.toFixed(2), +rect.height.toFixed(2)],
       viewport: this.viewport(),
       fingerDraw: !!app.input.fingerDraw,
+      // browser 或 shell。shell 时 Pencil 的采样在 type 为 shell 的条目里，
+      // 同时录下的 Safari pen 事件回放时照样不参与书写
+      ...this.source(),
+      // 新笔画的 id 由前缀加计数器组成。回放时从同一个起点数，录像里新写的笔画
+      // 才能和 after 逐字对上
+      ids: { prefix: app.input.strokePrefix, counter: app.input.counter },
       // 起始板面：回放前先恢复成这个样子，不然同样的输入落在不同的墨上
       before: app.state.strokes.map(plainStroke),
       meta: app.state.meta,
@@ -119,6 +139,33 @@ export class Recorder {
   viewport() {
     const v = this.app.viewport;
     return { scale: v.scale, x: v.x, y: v.y };
+  }
+
+  /** 视口一变就记下来，见 note。 */
+  noteViewport(entry) {
+    const vp = this.viewport();
+    const last = this._vp;
+    if (!last || last.scale !== vp.scale || last.x !== vp.x || last.y !== vp.y) {
+      entry.viewport = vp;
+      this._vp = vp;
+    }
+  }
+
+  /**
+   * 外壳送来的一批采样，原样记下：5.1 节的全部字段、原始数值，不做四舍五入。
+   * 这一批里有落笔的话，和指针事件一样记下当时的工具。
+   */
+  noteShell(batch) {
+    const data = this.data;
+    if (!data) return;
+    Object.assign(data, this.source());
+    const entry = { type: "shell", t: +(performance.now() - this.t0).toFixed(2), batch };
+    const samples = Array.isArray(batch.samples) ? batch.samples : [];
+    if (samples.some((sample) => sample.ph === "down")) {
+      entry.tool = { ...this.app.input.getTool() };
+    }
+    this.noteViewport(entry);
+    data.events.push(entry);
   }
 
   note(type, event) {
@@ -141,12 +188,7 @@ export class Recorder {
     // 视口一变就记下来。只在落笔时记是不够的：中途用手指平移缩放，后面那些笔
     // 回放时就会落在错的世界坐标上，而且错得很隐蔽——擦的还是那几条笔画，
     // 只是位置偏了，结果对不上却看不出为什么。
-    const vp = this.viewport();
-    const last = this._vp;
-    if (!last || last.scale !== vp.scale || last.x !== vp.x || last.y !== vp.y) {
-      entry.viewport = vp;
-      this._vp = vp;
-    }
+    this.noteViewport(entry);
     if (type === "pointermove" && event.getCoalescedEvents) {
       const list = event.getCoalescedEvents();
       // 只有多于一个才值得记：一个的时候它就是事件本身
@@ -191,6 +233,36 @@ export class Recorder {
     }
     input.fingerDraw = !!data.fingerDraw;
     app.renderer.requestFull();
+    // 外壳来源的录像：回放期间把输入来源切到外壳，结束后恢复原样
+    const shellBefore = {
+      active: input.shell.active,
+      version: input.stats.shellVersion,
+      bridge: input.stats.shellBridge,
+    };
+    if (data.source === "shell") {
+      input.setShell({ active: true, ...(data.shell || {}) });
+    } else if (shellBefore.active) {
+      input.setShell({ ...shellBefore, active: false });
+    }
+    const idsBefore = { prefix: input.strokePrefix, counter: input.counter };
+    if (data.ids) {
+      input.strokePrefix = data.ids.prefix;
+      input.counter = data.ids.counter;
+    }
+    try {
+      await this.feed(data, { speed, wait });
+    } finally {
+      input.setShell(shellBefore);
+      // 计数器不往回拨：回放新写的笔画已经占用了这些 id
+      input.strokePrefix = idsBefore.prefix;
+      input.counter = Math.max(idsBefore.counter, input.counter);
+    }
+    return app.state.strokes.map(plainStroke);
+  }
+
+  async feed(data, { speed, wait }) {
+    const app = this.app;
+    const input = app.input;
 
     let last = 0;
     for (const entry of data.events) {
@@ -206,12 +278,15 @@ export class Recorder {
       }
       // 每条事件都重新量一次画布位置：回放时窗口尺寸不一定和录制时一样
       input._rect = null;
+      if (entry.type === "shell") {
+        input.receiveShell(entry.batch);
+        continue;
+      }
       const event = reviveEvent(entry);
       if (entry.type === "pointerdown") input.onDown(event);
       else if (entry.type === "pointermove") input.onMove(event);
       else input.onUp(event, entry.type === "pointercancel");
     }
-    return app.state.strokes.map(plainStroke);
   }
 
   /** 把录像交给 Mac 上的服务端存成文件；存不下就退回浏览器下载。 */

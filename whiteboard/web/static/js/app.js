@@ -6,6 +6,7 @@ import { InputController, penAltitude } from "./input.js";
 import { Net } from "./net.js";
 import { PerfMonitor } from "./perf.js";
 import { Recorder, mountRecorderPanel } from "./recorder.js";
+import { connectShell } from "./shell.js";
 import { Renderer } from "./renderer.js";
 import { UI } from "./ui.js";
 import { Viewport } from "./viewport.js";
@@ -162,6 +163,8 @@ class App {
       hooks: this.inputHooks(),
     });
     this.perf.setInput(this.input.stats);
+    // iPad 外壳：在外壳里时 Pencil 的采样由外壳提供，见 shell.js
+    connectShell(this);
 
     this.saveCache = debounce(() => this.persistWhenIdle(), SAVE_DEBOUNCE);
     this.saveView = debounce(() => this.persistView(), 400);

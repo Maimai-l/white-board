@@ -136,6 +136,21 @@ export class PerfMonitor {
       `  altitude ${input.altRaw === null || input.altRaw === undefined ? "无" : input.altRaw + "°"}` +
       `  实际取 ${input.tiltDeg === undefined ? 90 : input.tiltDeg}°`;
     const build = document.documentElement.dataset.build || "";
+    // 输入来源（docs/ipad-shell.md 7.4 节）。在外壳里时再多两行：外壳来源的采样率，
+    // 算法和上面「笔事件 / 新位置」相同，可以直接比；以及外壳采样和 Safari 自己的
+    // pen 事件在同一时刻差了多少像素（验收标准 A3 要求不超过 1）。
+    const source = input.source || "browser";
+    const shellLines = [];
+    if (input.shellVersion || source === "shell") {
+      shellLines.push(
+        `外壳 ${input.shellHz || 0}/s  新位置 ${input.shellMoveHz || 0}/s`,
+        `坐标偏差 ${
+          input.shellDev === null || input.shellDev === undefined
+            ? "无"
+            : `${(+input.shellDev).toFixed(2)}px（对上 ${input.shellDevN || 0} 个）`
+        }  力度更新 ${input.shellUpd || 0}  抬笔后丢弃 ${input.shellUpdLate || 0}`,
+      );
+    }
     this.node.textContent = [
       build ? `版本 ${build}  ${this.role || ""}` : "",
       `帧 ${avg ? (1000 / avg).toFixed(0) : 0}fps  最长 ${max.toFixed(0)}ms`,
@@ -143,7 +158,11 @@ export class PerfMonitor {
       `笔 ${input.down}下 ${input.cancel}断  事件间隔 ${input.maxGap.toFixed(0)}ms`,
       // 这一行和上面的帧率直接比：笔事件和帧率一样，说明笔是跟着帧走的，
       // 那 60 就是这台设备的上限；合并恒等于 1 说明 getCoalescedEvents 没有实现。
+      `输入来源 ${source}${
+        input.shellVersion ? `  外壳 ${input.shellVersion}  bridge ${input.shellBridge || 0}` : ""
+      }`,
       `笔事件 ${input.penHz || 0}/s  新位置 ${input.penMoveHz || 0}/s  合并 ${input.coalesced}`,
+      ...shellLines,
       `触摸 ${input.touch || 0}  拦不住 ${input.uncancelable || 0}  笔被抢 ${input.penCancel || 0}`,
       tilt,
       marks,
