@@ -174,6 +174,16 @@
   - 推测成立时，外壳来源的压力不做换算，笔迹格式和现有压感曲线（`stroke.js` 的 `PEN_KNEE`、`PEN_FLOOR`、`PEN_GAMMA`）都不变。
   - 推测不成立时，在输入层把 `f / fmax` 换算到 Safari 的量程再存入笔画，笔迹格式仍然不变。换算关系由这次对比确定。
 - 估计属性更新：第一阶段只用于尚未提交的笔画。收到更新时，如果对应的采样仍属于正在书写的那一笔，就修正它的压力；笔画提交之后到达的更新丢弃。丢弃的更新占多少比例、对笔宽有多大影响，用 InkProbe 数据统计后写入本文档。
+- InkProbe 四份会话的统计（只算 Pencil 的 80 笔，共 19139 个等待更新的采样，全部收到了更新）：
+
+  | 会话 | 更新数 | 抬笔之后才到 | 比例 | 更新延迟中位数 / 95 分位 | 抬笔后那些更新的力度变化（`Δf / fmax` 中位数） |
+  |---|---|---|---|---|---|
+  | test1-calibr | 3862 | 128 | 3.3% | 25.4 / 39.7 ms | −0.029 |
+  | test2-calibr | 3388 | 203 | 6.0% | 26.0 / 39.6 ms | −0.020 |
+  | test3-drag | 7191 | 101 | 1.4% | 25.3 / 39.0 ms | −0.090 |
+  | test4-contrast | 4698 | 43 | 0.9% | 26.1 / 41.3 ms | −0.016 |
+
+  合计 475 个，占 2.5%。每一笔都是最后约 6 个采样（约 25 ms）的更新落在抬笔之后，而且这些更新都是把力度改小：丢掉它们，笔画末端那几个点的压力偏大约 0.02 至 0.09（以 `f / fmax` 计）。输入层的 `trimSettledTail` 通常会砍掉笔停住之后的末尾几个点，剩下的影响限于末端收笔略粗。诊断面板的"抬笔后丢弃"一行显示实际丢弃的个数。
 
 ### 7.3 录像
 
@@ -301,4 +311,16 @@
 | Q4 | TrollStore 能否从局域网的 http 地址下载 IPA | 用 8.2 节的安装页实际安装一次 | 如果不能：首次安装改为在 Safari 中下载 IPA 后用 TrollStore 打开；更新改为外壳自己下载 IPA，再通过系统分享菜单交给 TrollStore 打开 |
 | Q5 | 4.3 节的措施能否完全阻止 Scribble 和长按菜单 | 按 9.2 节的检查项快速书写 | 如果不能，需要找其他关闭方法 |
 | Q6 | 升级系统后，已安装的外壳是否还能继续运行 | 本文档不要求验证；在决定是否升级 iPad 系统之前查阅 TrollStore 的说明 | 决定这台 iPad 能否升级系统 |
-| Q7 | 在无窗口模式下，`NSNetService` 注册是否需要额外运行 run loop 才能生效 | 按 8.4 节的验证方法，在 `--headless` 下检查 | 如果需要且不便处理，改用 `DNSServiceRegister` |
+| Q7 | 在无窗口模式下，`NSNetService` 注册是否需要额外运行 run loop 才能生效 | 按 8.4 节的验证方法，在 `--headless` 下检查 | 如果需要且不便处理，改用 `DNSServiceRegister`。实现已直接采用 `DNSServiceRegister`（回调传 NULL，不依赖 run loop），仍需按 8.4 节在 Mac 上验证一次 |
+
+## 13. 第一阶段的实现位置
+
+| 部分 | 位置 |
+|---|---|
+| 外壳（第 4 节） | `ipad/`：`PencilCapture.swift`（4.2、5.1），`ShellViewController.swift`（4.1、4.3、5.2、8.3），`MacDiscovery.swift`（Bonjour 查找与更新检查），`MacAddress.swift`（地址、本机保存、版本比较），`Settings.bundle`（"重新查找 Mac"与版本号） |
+| 网页（第 7 节） | `input.js` 的"外壳输入"一节（输入来源、坐标偏差、估计属性更新、预测），`shell.js`（握手），`recorder.js`（7.3），`perf.js`（7.4） |
+| Mac 端服务（第 8 节） | `ipadshell.py`（`/ipad`、`/ipad/version`、`/ipad/Whiteboard.ipa`），`netinfo.BonjourService`（8.4），连接 iPad 卡片上的安装页地址 |
+| 构建（8.1 节） | `.github/workflows/build-macos.yml` 的 `ipad` 任务；`ipad-check.yml` 在外壳源码变动时编译一遍；`packaging/smoke_ipad.py` 检查打包后的应用带着 IPA |
+| 测试 | `tests/test_shell_input.py`（网页端，含 A2、A4），`tests/test_ipadshell.py`（安装页、版本接口、Bonjour 注册） |
+
+需要在真机上完成的检查：9.1 节的 A1、A3，9.2 节全部，9.4 节，9.5 节的安装与更新，以及第 12 节的 Q1 至 Q5、Q7。
