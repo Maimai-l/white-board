@@ -98,11 +98,20 @@ def test_shell_samples_draw_and_safari_pen_events_are_ignored(browser, server):
     mac, ipad = open_pages(browser, server.port)
     ipad.evaluate(HELLO, ACTIVE)
     batches = shell_batches(ipad)
-    # 同一笔 Safari 也会发 pen 事件（整数坐标）：只拿来比对，不能再画出第二笔
-    ipad.evaluate(FIRE, ["pointerdown", 300, 301, "pen", 7, 0.3])
-    ipad.evaluate(FIRE, ["pointermove", 303, 303, "pen", 7, 0.3])
+    # 同一笔 Safari 也会发 pen 事件（整数坐标）：只拿来比对，不能再画出第二笔。
+    # 直接交给处理函数（和回放一样），时间戳才能照真机那样与采样对齐：
+    # 第 3 个采样在落笔之后 12.5 ms
+    safari = """([type, x, y, t]) => {
+      const e = { clientX: x, clientY: y, pointerType: 'pen', pointerId: 7, pressure: 0.3,
+                  tiltX: 0, tiltY: 0, buttons: type === 'up' ? 0 : 1, button: 0, isPrimary: true,
+                  timeStamp: 1000 + t, preventDefault() {}, getCoalescedEvents: () => [] };
+      const input = whiteboard.input;
+      if (type === 'down') input.onDown(e); else if (type === 'move') input.onMove(e); else input.onUp(e);
+    }"""
+    ipad.evaluate(safari, ["down", 300, 301, 0])
+    ipad.evaluate(safari, ["move", 309, 307, 12.5])
     send(ipad, batches)
-    ipad.evaluate(FIRE, ["pointerup", 303, 303, "pen", 7, 0])
+    ipad.evaluate(safari, ["up", 309, 307, 12.5])
     ipad.wait_for_function("() => whiteboard.state.strokes.length === 1")
     mac.wait_for_function("() => whiteboard.state.strokes.length === 1")
 
@@ -115,7 +124,7 @@ def test_shell_samples_draw_and_safari_pen_events_are_ignored(browser, server):
     stats = ipad.evaluate("() => whiteboard.input.stats")
     assert stats["shellHz"] >= 30 and stats["shellMoveHz"] >= 30
     # 坐标偏差：Safari 报的是同一批采样取整之后的样子。
-    # (300.37, 300.61) 对 (300, 301)，(303.37, 302.61) 对 (303, 303)
+    # (300.37, 300.61) 对 (300, 301)，(309.37, 306.61) 对 (309, 307)
     assert stats["shellDev"] == pytest.approx(0.39)
     assert stats["shellDevN"] == 3
     mac.close()
