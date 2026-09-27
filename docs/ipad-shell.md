@@ -75,6 +75,8 @@
 
 ### 4.2 采集 Pencil 输入
 
+> 实测修订（见 12 节 Q2）：下面挂在 WKWebView 上的手势识别器收不到完整的笔画。实现改为子类化 `UIWindow`，在 `sendEvent(_:)` 中读取每个触摸事件里的 Pencil 触摸，读取的字段不变；`touchesEstimatedPropertiesUpdated` 只会送给手势识别器，所以另挂一个只接收更新的识别器，挂在 WKWebView 的父视图上。
+
 - 在 WKWebView 上添加一个自定义的 `UIGestureRecognizer` 子类，设置如下：
   - `allowedTouchTypes = [UITouch.TouchType.pencil]`，只接收 Pencil；
   - `cancelsTouchesInView = false`、`delaysTouchesBegan = false`、`delaysTouchesEnded = false`，不影响 WKWebView 自身收到的触摸；
@@ -306,7 +308,7 @@
 | 编号 | 问题 | 确认方法 | 影响 |
 |---|---|---|---|
 | Q1 | Safari 报的压力是否等于 `force / maximumPossibleForce` | 见 7.2 节 | 决定外壳来源的压力是否需要换算 |
-| Q2 | WKWebView 上的手势识别器能否收到全部 Pencil 触摸，且不影响网页收到的 pointer 事件 | 外壳原型中打印两边的采样数 | 决定 4.2 节的做法是否可行 |
+| Q2 | WKWebView 上的手势识别器能否收到全部 Pencil 触摸，且不影响网页收到的 pointer 事件 | 外壳原型中打印两边的采样数 | 决定 4.2 节的做法是否可行。**已确认不可行**：0.9.43 的录像 20260927-211825 中，三笔都只收到落笔后约 30 ms 的采样，此后没有 move，也没有 up。采样改为在窗口的 `sendEvent` 中读取，只有估计属性更新仍用手势识别器，挂在 WKWebView 的父视图上。网页端另加两道保护：外壳断流超过 50 ms 时用 Safari 的 pen 事件补完这一笔；Safari 报抬笔后 150 ms 内外壳没有 up 时，由网页替它收尾 |
 | Q3 | `evaluateJavaScript` 每次调用的耗时，以及每帧调用一次是否会造成掉帧 | 诊断面板的帧间隔；外壳中记录调用前后的时间 | 如果耗时过长，改为减少发送次数或改用其他传递方式 |
 | Q4 | TrollStore 能否从局域网的 http 地址下载 IPA | 用 8.2 节的安装页实际安装一次 | 如果不能：首次安装改为在 Safari 中下载 IPA 后用 TrollStore 打开；更新改为外壳自己下载 IPA，再通过系统分享菜单交给 TrollStore 打开 |
 | Q5 | 4.3 节的措施能否完全阻止 Scribble 和长按菜单 | 按 9.2 节的检查项快速书写 | 如果不能，需要找其他关闭方法 |

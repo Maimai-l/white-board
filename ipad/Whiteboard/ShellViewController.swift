@@ -11,7 +11,9 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
 {
     private var webView: WKWebView!
     private let status = StatusView()
-    private let capture = PencilCapture(target: nil, action: nil)
+    /// Pencil 采样，由窗口的 sendEvent 送进来（见 PencilCapture.swift）
+    let tracker = PencilTracker()
+    private let estimates = EstimateRecognizer(target: nil, action: nil)
     private let discovery = MacDiscovery()
     private let updates = UpdateChecker()
 
@@ -59,12 +61,17 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
             webView.isInspectable = true
         }
 
-        capture.sink = { [weak self] json in
+        tracker.view = webView
+        tracker.sink = { [weak self] json in
             self?.send(json)
         }
-        webView.addGestureRecognizer(capture)
+        estimates.onUpdate = { [weak self] touches in
+            self?.tracker.estimatesUpdated(touches)
+        }
 
         let root = UIView()
+        // 挂在 WKWebView 外面：挂在它里面的识别器会被网页的 preventDefault 连带弄失败
+        root.addGestureRecognizer(estimates)
         root.backgroundColor = .systemBackground
         webView.frame = root.bounds
         webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -280,7 +287,7 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], body["type"] as? String == "hello" else { return }
         let range = (body["bridge"] as? [NSNumber])?.map { $0.intValue } ?? []
-        let bridge = PencilCapture.bridge
+        let bridge = PencilTracker.bridge
         let supported = range.count == 2 && range[0] <= bridge && bridge <= range[1]
         bridgeActive = supported
         let reply: [String: Any] = ["shellVersion": ShellVersion.current, "bridge": bridge, "active": supported]

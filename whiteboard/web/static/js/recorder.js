@@ -249,9 +249,13 @@ export class Recorder {
       input.strokePrefix = data.ids.prefix;
       input.counter = data.ids.counter;
     }
+    input.replaying = true;
     try {
       await this.feed(data, { speed, wait });
+      // 最后一笔要是正等着替外壳收尾，等它收完再切回原来的输入来源
+      if (input.shell.watchdog) await new Promise((done) => setTimeout(done, 200));
     } finally {
+      input.replaying = false;
       input.setShell(shellBefore);
       // 计数器不往回拨：回放新写的笔画已经占用了这些 id
       input.strokePrefix = idsBefore.prefix;

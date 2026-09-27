@@ -245,3 +245,81 @@ def test_shell_recording_replays_exactly(browser, server):
     assert ipad.evaluate("() => whiteboard.input.stats.source") == "shell"
     mac.close()
     ipad.close()
+
+
+def test_stroke_is_closed_when_the_shell_never_sends_up(browser, server):
+    """外壳的采样中途断了、一直没有 up：Safari 报了抬笔之后，网页替它收尾。
+
+    0.9.43 的录像 20260927-211825 就是这样：每一笔只收到落笔后约 30 ms 的采样。
+    不收尾的话这一笔一直开着，手掌屏蔽一直生效，手指的平移和缩放全部失灵。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    ipad.evaluate(HELLO, ACTIVE)
+    batches = shell_batches(ipad, count=40, per_batch=4)
+    ipad.evaluate(FIRE, ["pointerdown", 300, 301, "pen", 7, 0.3])
+    send(ipad, batches[:3])  # 之后外壳再没送过采样
+    ipad.evaluate(FIRE, ["pointermove", 360, 340, "pen", 7, 0.3])
+    ipad.evaluate(FIRE, ["pointerup", 417, 379, "pen", 7, 0])
+    assert ipad.evaluate("() => whiteboard.input.draw !== null")
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 1", timeout=2000)
+    assert ipad.evaluate("() => whiteboard.input.draw") is None
+    assert ipad.evaluate("() => whiteboard.input.stats.shellOrphan") == 1
+
+    # 外壳后来又送来这一笔的采样：不能再开出一笔
+    send(ipad, batches[3:])
+    assert ipad.evaluate("() => whiteboard.state.strokes.length") == 1
+
+    # 手指照常平移（等过手掌屏蔽的 500 ms）
+    ipad.wait_for_timeout(600)
+    before = ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]")
+    ipad.evaluate(FIRE, ["pointerdown", 600, 500, "touch", 30, 0])
+    ipad.evaluate(FIRE, ["pointermove", 660, 560, "touch", 30, 0])
+    ipad.evaluate(FIRE, ["pointerup", 660, 560, "touch", 30, 0])
+    after = ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]")
+    assert after != before
+    mac.close()
+    ipad.close()
+
+
+def test_closing_an_orphan_stroke_is_recorded_and_replays(browser, server):
+    """替外壳收尾的那一批也进录像，回放结果与 after 一致。"""
+    mac, ipad = open_pages(browser, server.port)
+    ipad.evaluate(HELLO, ACTIVE)
+    ipad.evaluate("() => whiteboard.recorder.start('断笔')")
+    ipad.evaluate(FIRE, ["pointerdown", 300, 301, "pen", 7, 0.3])
+    send(ipad, shell_batches(ipad, count=40, per_batch=4)[:3])
+    ipad.evaluate(FIRE, ["pointerup", 417, 379, "pen", 7, 0])
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 1", timeout=2000)
+    data = ipad.evaluate("() => whiteboard.recorder.stop()")
+    assert any(e["type"] == "shell" and e["batch"].get("orphan") for e in data["events"])
+    replayed = ipad.evaluate(
+        "async ([data]) => whiteboard.recorder.replay(data, { wait: false })", [data]
+    )
+    assert replayed == data["after"]
+    mac.close()
+    ipad.close()
+
+
+def test_safari_pen_events_finish_a_stalled_shell_stroke(browser, server):
+    """外壳断流（0.9.43 的外壳就是这样）：用 Safari 自己的 pen 事件把这一笔画完。"""
+    mac, ipad = open_pages(browser, server.port)
+    ipad.evaluate(HELLO, ACTIVE)
+    batches = shell_batches(ipad, count=40, per_batch=4)
+    ipad.evaluate(FIRE, ["pointerdown", 300, 301, "pen", 7, 0.3])
+    send(ipad, batches[:2])
+    ipad.wait_for_timeout(120)  # 外壳之后再没送过采样
+    for i in range(1, 11):
+        ipad.evaluate(FIRE, ["pointermove", 324 + 10 * i, 316 + 5 * i, "pen", 7, 0.3])
+    ipad.evaluate(FIRE, ["pointerup", 440, 370, "pen", 7, 0])
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 1", timeout=1000)
+    stroke = ipad.evaluate("() => whiteboard.state.strokes[0].p")
+    end = ipad.evaluate("() => whiteboard.input.toWorld({ clientX: 440, clientY: 370 })")
+    assert stroke[-3:-1] == pytest.approx(end), "笔画一直画到 Safari 报的抬笔位置"
+    stats = ipad.evaluate("() => whiteboard.input.stats")
+    assert stats["shellFallback"] == 11
+    assert stats["shellOrphan"] == 1
+    send(ipad, batches[2:])
+    assert ipad.evaluate("() => whiteboard.state.strokes.length") == 1
+    assert ipad.evaluate("() => whiteboard.input.draw") is None
+    mac.close()
+    ipad.close()

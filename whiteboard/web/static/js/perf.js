@@ -149,6 +149,8 @@ export class PerfMonitor {
             ? "无"
             : `${(+input.shellDev).toFixed(2)}px（对上 ${input.shellDevN || 0} 个）`
         }  力度更新 ${input.shellUpd || 0}  抬笔后丢弃 ${input.shellUpdLate || 0}`,
+        // 外壳没送 up、由网页替它收尾的笔画。正常应当一直是 0
+        `外壳断笔 ${input.shellOrphan || 0}  Safari 补点 ${input.shellFallback || 0}`,
       );
     }
     this.node.textContent = [

@@ -131,6 +131,13 @@ const SHELL_POINTER_BASE = 1e6;
 const SHELL_MATCH_MS = 25;
 // 同一次落笔里最多留这么多个采样用来比对坐标，够一笔两三秒。
 const SHELL_TRACE = 512;
+// Safari 的 pen 已经抬起，外壳那一笔过了这么久还没有 up：由网页替它收尾。
+// 不收尾的话这一笔一直开着，手掌屏蔽就一直生效，手指的平移缩放全部失灵——
+// 0.9.43 的录像 20260927-211825 就是这样。
+const SHELL_ORPHAN_MS = 150;
+// 外壳这一笔超过这么久没有新采样、Safari 的 pen 事件却还在来：外壳断流了，
+// 用 Safari 的事件把这一笔接着画完。外壳每帧至少送一批，正常间隔不到 20 ms。
+const SHELL_STALL_MS = 50;
 
 export function loadFingerDraw() {
   try {
@@ -206,6 +213,8 @@ export function shellEvent(sample, id, phase) {
     button: 0,
     buttons: phase === "up" || phase === "cancel" ? 0 : 1,
     fromShell: true,
+    // 外壳断流时网页用 Safari 事件补的采样，不算进外壳的采样率
+    fallback: sample.k === "safari",
     preventDefault() {},
     stopPropagation() {},
   };
@@ -291,6 +300,8 @@ export class InputController {
       shellDev: null, shellDevN: 0,
       // 估计属性更新：修正到笔画上的，和笔画提交之后才到、只能丢掉的
       shellUpd: 0, shellUpdLate: 0,
+      // 外壳没送 up、由网页替它收尾的笔画数；外壳断流时用 Safari 事件补上的采样数
+      shellOrphan: 0, shellFallback: 0,
     };
     // [时间, 是不是新位置]，只留最近一秒
     this.penTicks = [];
@@ -304,9 +315,17 @@ export class InputController {
       est: new Map(), // estimationUpdateIndex → 这个采样落进了哪一笔的第几个点
       // 坐标偏差比对：同一次落笔里两边的采样，以及两边落笔那一刻的时间
       trace: { shell: [], safari: [], shellDown: null, safariDown: null },
+      // 最近一个外壳采样（原始数据）和收到它的时刻，替外壳收尾时用
+      lastSample: null,
+      lastAt: -Infinity,
+      // 最近一次收到外壳真实采样的时刻（不算网页自己补的）
+      realAt: -Infinity,
+      watchdog: 0,
     };
     // 录像从这里收外壳送来的每一批原样数据
     this.shellTap = null;
+    // 回放时为真：补点和收尾都在录像里，不再按时间重新判断一遍
+    this.replaying = false;
     this.canceled = null;
     this.momentum = 0;
     this._wheelTimer = 0;
@@ -504,6 +523,7 @@ export class InputController {
       this.lastPenAt = now;
       this.notePenRate(now, event);
       this.traceSafari(event, false);
+      if (this.shellStalled()) this.shellFallback(event, "move");
       return;
     }
     if (this.draw && this.lastInputAt > 0) {
@@ -556,6 +576,8 @@ export class InputController {
       this.lastPenAt = performance.now();
       this.traceSafari(event, false);
       this.measureShellOffset();
+      if (this.shellStalled()) this.shellFallback(event, "up");
+      else this.watchShellStroke();
       return;
     }
     const entry = this.pointers.get(event.pointerId);
@@ -620,7 +642,10 @@ export class InputController {
     if (!batch || !this.shell.active) return;
     if (this.shellTap) this.shellTap(batch);
     const samples = Array.isArray(batch.samples) ? batch.samples : [];
+    if (samples.length && !batch.fallback && !batch.orphan) this.shell.realAt = performance.now();
     for (const sample of samples) this.shellSample(sample);
+    // 网页替外壳收尾的那一笔：外壳之后要是又送来这一笔的采样，一律不管
+    if (batch.orphan) for (const sample of samples) this.shell.ignored.add(sample.id);
     if (Array.isArray(batch.updates)) {
       for (const update of batch.updates) this.shellUpdate(update);
     }
@@ -629,6 +654,8 @@ export class InputController {
 
   shellSample(sample) {
     const shell = this.shell;
+    shell.lastSample = sample;
+    shell.lastAt = performance.now();
     const id = sample.id;
     const phase = sample.ph;
     const event = shellEvent(sample, id, phase);
@@ -660,6 +687,88 @@ export class InputController {
     }
     this.onUp(event, phase === "cancel");
     this.measureShellOffset();
+  }
+
+  /** 外壳这一笔现在是不是开着：书写或擦除都算。返回它的触摸编号。 */
+  openShellId() {
+    if (this.draw && this.draw.shell) return this.draw.pointerId - SHELL_POINTER_BASE;
+    if (this.erase && this.erase.pointerId >= SHELL_POINTER_BASE) {
+      return this.erase.pointerId - SHELL_POINTER_BASE;
+    }
+    return null;
+  }
+
+  /**
+   * Safari 报了抬笔：等一会儿，外壳要是一直没再送采样，就替它送一个 up。
+   *
+   * 替它送的这一批照样经过 receiveShell，所以录像里有它，回放时结果相同。
+   * 这一笔之后如果外壳又送来采样，按 ignored 丢掉。
+   */
+  watchShellStroke() {
+    const shell = this.shell;
+    if (this.replaying || this.openShellId() === null) return;
+    const liftedAt = performance.now();
+    clearTimeout(shell.watchdog);
+    shell.watchdog = setTimeout(() => {
+      shell.watchdog = 0;
+      if (shell.lastAt > liftedAt) return; // 外壳还在送，它自己会收尾
+      const id = this.openShellId();
+      const last = shell.lastSample;
+      if (id === null || !last || last.id !== id) return;
+      this.stats.shellOrphan += 1;
+      this.receiveShell({
+        bridge: SHELL_BRIDGE[1],
+        samples: [{ ...last, ph: "up", est: [], ui: null }],
+        pred: null,
+        updates: [],
+        orphan: true,
+      });
+    }, SHELL_ORPHAN_MS);
+  }
+
+  /** 外壳这一笔开着，却已经有一阵没送真实采样了。 */
+  shellStalled() {
+    if (this.replaying || this.openShellId() === null) return false;
+    return performance.now() - this.shell.realAt > SHELL_STALL_MS;
+  }
+
+  /**
+   * 外壳断流时，用 Safari 自己的 pen 事件把这一笔接着画完。
+   *
+   * 0.9.43 的外壳在网页 preventDefault 之后就收不到这一笔的触摸了（见
+   * docs/ipad-shell.md 12 节 Q2），每一笔只有开头约 30 ms。外壳要重新安装才能
+   * 修好，网页这边先兜住：精度退回 Safari 的水平，但笔画是完整的。
+   *
+   * 补的采样也走 receiveShell，录像里有它，回放时不再重新判断。
+   */
+  shellFallback(event, phase) {
+    const shell = this.shell;
+    const id = this.openShellId();
+    const last = shell.lastSample;
+    const t = last ? last.t + (performance.now() - shell.lastAt) / 1000 : 0;
+    this.stats.shellFallback += 1;
+    if (phase === "up") this.stats.shellOrphan += 1;
+    this.receiveShell({
+      bridge: SHELL_BRIDGE[1],
+      samples: [{
+        id,
+        ph: phase,
+        k: "safari",
+        t,
+        x: event.clientX,
+        y: event.clientY,
+        f: event.pressure || 0,
+        fmax: 1,
+        alt: penAltitude(event),
+        az: typeof event.azimuthAngle === "number" ? event.azimuthAngle : 0,
+        est: [],
+        ui: null,
+      }],
+      pred: null,
+      updates: [],
+      fallback: true,
+      orphan: phase === "up",
+    });
   }
 
   /** 这个视口坐标上是不是画布（而不是工具栏、面板之类的界面控件）。 */
@@ -834,6 +943,7 @@ export class InputController {
   notePenRate(now, event) {
     const pos = `${event.clientX},${event.clientY}`;
     if (event.fromShell) {
+      if (event.fallback) return;
       // 外壳的采样同样按「收到的时刻」计数，算法和 Safari 那两个数相同，才能直接比。
       // 一批里的几个采样是同一时刻收到的，照样各算一个。
       const shell = this.shell;

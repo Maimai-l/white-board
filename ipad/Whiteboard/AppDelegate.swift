@@ -9,7 +9,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        let window = UIWindow(frame: UIScreen.main.bounds)
+        // 窗口在分发之前先把每个触摸事件交给外壳的 Pencil 采集
+        let window = ShellWindow(frame: UIScreen.main.bounds)
+        window.tracker = shell.tracker
         window.rootViewController = shell
         window.makeKeyAndVisible()
         self.window = window
