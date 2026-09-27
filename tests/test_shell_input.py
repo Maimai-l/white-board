@@ -323,3 +323,29 @@ def test_safari_pen_events_finish_a_stalled_shell_stroke(browser, server):
     assert ipad.evaluate("() => whiteboard.input.draw") is None
     mac.close()
     ipad.close()
+
+
+def test_safari_pen_events_draw_when_the_shell_sends_nothing(browser, server):
+    """外壳整笔一个采样都没送：由 Safari 的 pen 事件起笔、画完；点一下也留下一点。
+
+    外壳的采样到得晚了，也不能再开出第二笔。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    ipad.evaluate(HELLO, ACTIVE)
+    ipad.evaluate(FIRE, ["pointerdown", 300, 300, "pen", 7, 0.3])
+    ipad.wait_for_timeout(80)
+    for i in range(1, 11):
+        ipad.evaluate(FIRE, ["pointermove", 300 + 12 * i, 300 + 6 * i, "pen", 7, 0.3])
+    ipad.evaluate(FIRE, ["pointerup", 420, 360, "pen", 7, 0])
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 1", timeout=1000)
+    assert ipad.evaluate("() => whiteboard.input.draw") is None
+    # 外壳这一笔的采样后来才到
+    send(ipad, shell_batches(ipad, stroke_id=5, x0=299.63, y0=299.39, count=12, per_batch=4))
+    assert ipad.evaluate("() => whiteboard.state.strokes.length") == 1
+
+    # 点一下就抬起
+    ipad.evaluate(FIRE, ["pointerdown", 600, 500, "pen", 8, 0.3])
+    ipad.evaluate(FIRE, ["pointerup", 600, 500, "pen", 8, 0])
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 2", timeout=1000)
+    mac.close()
+    ipad.close()

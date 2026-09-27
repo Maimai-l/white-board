@@ -248,6 +248,19 @@ function trimSettledTail(stroke) {
   if (keep < count - 1) p.length = (keep + 1) * 3;
 }
 
+/** 指针事件里补点要用的字段，复制出来：事件对象过后不一定还能读。 */
+function snapPen(event) {
+  return {
+    clientX: event.clientX,
+    clientY: event.clientY,
+    pressure: event.pressure,
+    tiltX: event.tiltX,
+    tiltY: event.tiltY,
+    altitudeAngle: event.altitudeAngle,
+    azimuthAngle: event.azimuthAngle,
+  };
+}
+
 /** 丢掉一秒之前的记录，返回剩下的个数。 */
 function countTicks(ticks, now) {
   while (ticks.length && now - ticks[0][0] > 1000) ticks.shift();
@@ -321,6 +334,11 @@ export class InputController {
       // 最近一次收到外壳真实采样的时刻（不算网页自己补的）
       realAt: -Infinity,
       watchdog: 0,
+      // Safari 最近一次 pen 落笔（外壳一直没送这一笔时，由它起笔），以及网页自己
+      // 起的笔用的编号（负数，和外壳的编号不会重）
+      safariDown: null,
+      fallbackSeq: 0,
+      fallbackDown: null,
     };
     // 录像从这里收外壳送来的每一批原样数据
     this.shellTap = null;
@@ -477,6 +495,7 @@ export class InputController {
       // 手掌屏蔽照样要算：Safari 的这一下常常比外壳那一批先到
       this.lastPenAt = performance.now();
       this.traceSafari(event, true);
+      this.shell.safariDown = { event: snapPen(event), at: performance.now() };
       return;
     }
     this.stopMomentum();
@@ -523,6 +542,7 @@ export class InputController {
       this.lastPenAt = now;
       this.notePenRate(now, event);
       this.traceSafari(event, false);
+      if (this.shellMissing()) this.shellFallback(this.shell.safariDown.event, "down");
       if (this.shellStalled()) this.shellFallback(event, "move");
       return;
     }
@@ -576,8 +596,11 @@ export class InputController {
       this.lastPenAt = performance.now();
       this.traceSafari(event, false);
       this.measureShellOffset();
+      if (this.shellMissing()) this.shellFallback(this.shell.safariDown.event, "down");
       if (this.shellStalled()) this.shellFallback(event, "up");
-      else this.watchShellStroke();
+      else if (this.openShellId() !== null) this.watchShellStroke();
+      else this.watchShellTap(snapPen(event));
+      this.shell.safariDown = null;
       return;
     }
     const entry = this.pointers.get(event.pointerId);
@@ -660,6 +683,21 @@ export class InputController {
     const phase = sample.ph;
     const event = shellEvent(sample, id, phase);
     if (phase === "down") {
+      // 网页已经替这一笔用 Safari 的事件起了笔，外壳的落笔才到：不再开第二笔
+      if (!sample.k || sample.k === "real") {
+        const open = this.openShellId();
+        // 同一个触摸：外壳和 Safari 报的落点只差取整，1.5 像素以内
+        const late = shell.fallbackDown;
+        const same =
+          late && performance.now() - late.at < 2000 &&
+          Math.abs(late.x - sample.x) <= 1.5 && Math.abs(late.y - sample.y) <= 1.5;
+        if ((open !== null && open < 0) || same) {
+          shell.ignored.add(id);
+          return;
+        }
+      } else if (sample.k === "safari") {
+        shell.fallbackDown = { x: sample.x, y: sample.y, at: performance.now() };
+      }
       // 落在界面控件上的这一整次落笔都不管，交给控件自己的点击事件——Pencil 照样
       // 能点工具栏。判断的是「落点在不在画布里」：Safari 的 pen 事件本来也只有落在
       // 画布上的才会走到这里，两边的行为因此一致。
@@ -726,6 +764,33 @@ export class InputController {
     }, SHELL_ORPHAN_MS);
   }
 
+  /**
+   * Safari 已经落笔一阵了，外壳却一个采样都没送：这一笔由网页用 Safari 的事件起笔。
+   */
+  shellMissing() {
+    const down = this.shell.safariDown;
+    if (this.replaying || !down || this.openShellId() !== null) return false;
+    if (this.shell.realAt >= down.at) return false; // 外壳在 Safari 落笔之后送过采样
+    return performance.now() - down.at > SHELL_STALL_MS;
+  }
+
+  /**
+   * 点一下就抬起、外壳这期间一个采样都没送：再等一会儿，还是没有的话，
+   * 用 Safari 的落笔和抬笔补出这一点。
+   */
+  watchShellTap(up) {
+    const shell = this.shell;
+    const down = shell.safariDown;
+    if (this.replaying || !down || shell.realAt >= down.at) return;
+    clearTimeout(shell.watchdog);
+    shell.watchdog = setTimeout(() => {
+      shell.watchdog = 0;
+      if (shell.realAt >= down.at || this.openShellId() !== null) return;
+      this.shellFallback(down.event, "down");
+      this.shellFallback(up, "up");
+    }, SHELL_ORPHAN_MS);
+  }
+
   /** 外壳这一笔开着，却已经有一阵没送真实采样了。 */
   shellStalled() {
     if (this.replaying || this.openShellId() === null) return false;
@@ -743,7 +808,9 @@ export class InputController {
    */
   shellFallback(event, phase) {
     const shell = this.shell;
-    const id = this.openShellId();
+    if (phase === "down") shell.fallbackSeq += 1;
+    const id = phase === "down" ? -shell.fallbackSeq : this.openShellId();
+    if (id === null) return;
     const last = shell.lastSample;
     const t = last ? last.t + (performance.now() - shell.lastAt) / 1000 : 0;
     this.stats.shellFallback += 1;
