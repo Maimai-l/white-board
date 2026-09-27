@@ -10,8 +10,9 @@ from typing import Optional
 
 from aiohttp import web
 
+from . import __version__
 from .config import Config
-from .netinfo import MDNSAdvertiser
+from .netinfo import BonjourService, MDNSAdvertiser, bonjour_default
 from .server import HUB_KEY, create_app
 from .store import BoardStore
 
@@ -23,10 +24,18 @@ PORT_ATTEMPTS = 20
 class ServerThread:
     """启动 / 停止服务端，并暴露实际使用的端口。"""
 
-    def __init__(self, config: Config, store: Optional[BoardStore] = None, advertise: bool = True):
+    def __init__(
+        self,
+        config: Config,
+        store: Optional[BoardStore] = None,
+        advertise: bool = True,
+        bonjour: Optional[bool] = None,
+    ):
         self.config = config
         self.store = store
         self.advertise = advertise
+        # iPad 外壳靠 _whiteboard._tcp 找到这台 Mac，默认只在 macOS 上注册
+        self.bonjour = bonjour_default() if bonjour is None else bonjour
         self.port: int = config.port
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._runner: Optional[web.AppRunner] = None
@@ -35,6 +44,8 @@ class ServerThread:
         self._error: Optional[BaseException] = None
         self._mdns: Optional[MDNSAdvertiser] = None
         self._mdns_task: Optional[asyncio.Task] = None
+        self._bonjour: Optional[BonjourService] = None
+        self._bonjour_task: Optional[asyncio.Task] = None
         self.app: Optional[web.Application] = None
 
     # --------------------------------------------------------------- 生命周期
@@ -98,6 +109,11 @@ class ServerThread:
         if self.advertise:
             self._mdns = MDNSAdvertiser(self.port)
             self._mdns_task = asyncio.create_task(self._advertise())
+        # 外壳的服务注册同样放在后台：端口已经定下来（顺延之后的值），TXT 里写的
+        # 就是实际监听的端口
+        if self.bonjour:
+            self._bonjour = BonjourService(self.port, __version__)
+            self._bonjour_task = asyncio.create_task(self._register_bonjour())
 
     async def _advertise(self) -> None:
         try:
@@ -105,7 +121,19 @@ class ServerThread:
         except Exception:  # noqa: BLE001 - 广播异常不能冒泡到服务端
             log.exception("mDNS 广播异常（不影响使用）")
 
+    async def _register_bonjour(self) -> None:
+        try:
+            await self._bonjour.start()
+        except Exception:  # noqa: BLE001 - 注册异常不能冒泡到服务端
+            log.exception("Bonjour 注册异常（不影响使用）")
+
     async def _shutdown(self) -> None:
+        if self._bonjour_task is not None:
+            self._bonjour_task.cancel()
+            self._bonjour_task = None
+        if self._bonjour is not None:
+            await self._bonjour.stop()
+            self._bonjour = None
         if self._mdns_task is not None:
             self._mdns_task.cancel()
             self._mdns_task = None

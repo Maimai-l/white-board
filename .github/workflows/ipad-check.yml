@@ -1,0 +1,38 @@
+name: 编译 iPad 外壳
+
+# 改了外壳的源码就编译一遍，不出 IPA、不发布。正式的 IPA 由 build-macos.yml
+# 在打 tag 时构建，并随 Mac 应用一起发布。
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "ipad/**"
+      - ".github/workflows/ipad-check.yml"
+  pull_request:
+    paths:
+      - "ipad/**"
+
+jobs:
+  compile:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成图标和工程
+        run: |
+          python3 ipad/make_icon.py
+          cd ipad && xcodegen generate
+
+      - name: 编译
+        run: |
+          xcodebuild \
+            -project ipad/WhiteboardShell.xcodeproj \
+            -target Whiteboard \
+            -configuration Release \
+            -sdk iphoneos \
+            SYMROOT="$PWD/ipad/build" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build

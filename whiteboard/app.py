@@ -313,7 +313,9 @@ class NativeApi:
         self.config.data_dir = new_dir
         self.config.save()
         self.server.stop()
-        server = ServerThread(self.config, advertise=self.server.advertise)
+        server = ServerThread(
+            self.config, advertise=self.server.advertise, bonjour=self.server.bonjour
+        )
         server.start()
         self.server = server
         if self.window is not None:
@@ -369,7 +371,12 @@ def _decode_data_url(data_url: str) -> Optional[bytes]:
         return None
 
 
-def run(config: Optional[Config] = None, debug: bool = False, advertise: Optional[bool] = None) -> None:
+def run(
+    config: Optional[Config] = None,
+    debug: bool = False,
+    advertise: Optional[bool] = None,
+    bonjour: Optional[bool] = None,
+) -> None:
     """启动服务端并打开 pywebview 窗口（阻塞直到窗口关闭）。"""
     import webview
 
@@ -377,7 +384,7 @@ def run(config: Optional[Config] = None, debug: bool = False, advertise: Optiona
     config = config or Config()
     if advertise is None:
         advertise = netinfo.mdns_default()
-    server = ServerThread(config, advertise=advertise)
+    server = ServerThread(config, advertise=advertise, bonjour=bonjour)
     server.start()
     config.save()
 

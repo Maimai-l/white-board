@@ -1,0 +1,36 @@
+# iPad 外壳（docs/ipad-shell.md）。用 XcodeGen 生成工程：
+#
+#   python3 ipad/make_icon.py        # 生成图标（仓库里不放二进制文件）
+#   cd ipad && xcodegen generate
+#
+# 版本号由构建时传入的 MARKETING_VERSION 决定，与 Mac 端相同，见
+# .github/workflows/build-macos.yml 的 ipad 任务。不签名编译，再用 ldid 伪签名，
+# 通过 TrollStore 安装。
+name: WhiteboardShell
+options:
+  bundleIdPrefix: local.whiteboard
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    MARKETING_VERSION: "0.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "2"
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGN_IDENTITY: ""
+    ENABLE_BITCODE: "NO"
+targets:
+  Whiteboard:
+    type: application
+    platform: iOS
+    sources:
+      - path: Whiteboard
+    settings:
+      base:
+        PRODUCT_NAME: Whiteboard
+        PRODUCT_BUNDLE_IDENTIFIER: local.whiteboard.shell
+        INFOPLIST_FILE: Whiteboard/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

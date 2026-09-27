@@ -13,6 +13,14 @@ VERSION = os.environ.get("WHITEBOARD_VERSION", "0.0.0")
 ICON = os.path.join(SPECPATH, "whiteboard.icns")
 
 datas = [(os.path.join(ROOT, "whiteboard", "web"), "whiteboard/web")]
+# 同版本的 iPad 外壳：CI 的 ipad 任务先构建好放在这里，安装页和 /ipad/Whiteboard.ipa
+# 从资源目录里取（见 whiteboard/ipadshell.py）。本地打包没有它时照常打，安装页会
+# 提示去 Release 下载。
+IPA = os.path.join(ROOT, "packaging", "ipad", "Whiteboard.ipa")
+if os.path.exists(IPA):
+    datas.append((IPA, "whiteboard/ipad"))
+else:
+    print("[spec] 没有 packaging/ipad/Whiteboard.ipa，这个包不带 iPad 外壳")
 binaries = []
 hiddenimports = ["webview.platforms.cocoa"]
 
@@ -76,6 +84,7 @@ app = BUNDLE(
         "NSHighResolutionCapable": True,
         # macOS 15 起，访问局域网要有这段说明，否则 iPad 连不上
         "NSLocalNetworkUsageDescription": "与同一局域网内的 iPad 同步白板内容。",
-        "NSBonjourServices": ["_http._tcp"],
+        # _whiteboard._tcp 给 iPad 外壳自动发现这台 Mac 用（docs/ipad-shell.md 8.4 节）
+        "NSBonjourServices": ["_http._tcp", "_whiteboard._tcp"],
     },
 )

@@ -76,6 +76,7 @@ python run.py --headless                     # 不开窗口，只跑服务（用
 python run.py --port 9000                    # 换端口（被占用时会自动顺延）
 python run.py --data-dir ~/Documents/白板    # 换白板存储目录
 python run.py --mdns                         # 额外注册 _http._tcp 服务（macOS 默认交给系统）
+python run.py --no-bonjour                   # 不注册 iPad 外壳用的 _whiteboard._tcp 服务
 python run.py --version
 ```
 
@@ -108,6 +109,30 @@ WHITEBOARD_VERSION=1.1.0 pyinstaller --noconfirm packaging/whiteboard.spec`。
 Mac 和 iPad 必须在同一个局域网里，且路由器没有屏蔽 mDNS / Bonjour。
 `.local` 名字由 macOS 自带的 Bonjour 发布，程序不需要也不会去抢这件事；
 `--mdns` 只是额外注册一个 `_http._tcp` 服务方便别的工具发现，失败也不影响使用。
+
+## iPad 外壳（可选，需要 TrollStore）
+
+Safari 给网页的 Pencil 输入每秒只有约 60 个新位置，坐标是整数；原生应用能拿到
+约 240 个，坐标带小数，还有预测采样。外壳是一个装着 WKWebView 的原生应用，加载
+的还是 Mac 上的同一个网页，只是把 UIKit 里的 Pencil 采样转给网页。白板的其余
+部分都在网页里，Mac 端更新之后外壳下次打开就是新代码。设计与验收标准见
+[docs/ipad-shell.md](docs/ipad-shell.md)。
+
+外壳通过 TrollStore 安装，iPad 的系统版本要在 TrollStore 支持的范围内
+（iPadOS 14.0 beta 2 至 16.6.1、16.7 RC、17.0）。没有 TrollStore 就继续用上面的
+描述文件，功能完全一样。
+
+1. 在 Mac 窗口的「连接 iPad」卡片上能看到外壳安装页的地址
+   `http://你的电脑名.local:8848/ipad`，用 iPad 的 Safari 打开。
+2. 点「安装白板外壳」，由 TrollStore 安装（先在 TrollStore 的设置里打开 URL Scheme）。
+3. 打开外壳。局域网里只有一台 Mac 时直接进入白板；有多台时点选一台；路由器屏蔽
+   Bonjour 时回到安装页点「打开外壳」。
+
+以后 Mac 端更新到新版本，外壳启动时会提示更新，确认后同样交给 TrollStore 安装。
+换一台 Mac：「设置」App → 白板 → 打开「重新查找 Mac」，再回到外壳。
+
+Mac 端通过系统的 mDNSResponder 注册 `_whiteboard._tcp` 服务，外壳就是靠它找到
+Mac 的；`--no-bonjour` 可以关掉，关掉之后外壳只能从安装页进入。
 
 ## 别的设备默认只能写字
 
@@ -332,11 +357,13 @@ whiteboard/
   codec.py      点数据的量化 / 增量 / varint 编码
   models.py     数据模型与来自局域网的数据校验
   profile.py    .mobileconfig 与图标生成（纯 Python 画 PNG）
-  netinfo.py    .local 主机名、局域网地址、mDNS 广播
+  netinfo.py    .local 主机名、局域网地址、mDNS 广播、给外壳的 Bonjour 注册
+  ipadshell.py  iPad 外壳的安装页、版本信息与 IPA 下载
   runner.py     后台线程里跑服务端
   app.py        pywebview 窗口与本地文件对话框
   web/          前端（原生 ES Module，无构建步骤）
     static/js/  stroke 几何、渲染、输入、网络、缓存、界面
+ipad/           iPad 外壳（Swift，XcodeGen 生成工程）
 ```
 
 协议细节见 [docs/protocol.md](docs/protocol.md)，存档格式见 [docs/format.md](docs/format.md)，像素橡皮的参数怎么从原生量出来的见 [docs/eraser.md](docs/eraser.md)。

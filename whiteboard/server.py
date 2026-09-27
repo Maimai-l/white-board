@@ -16,7 +16,7 @@ from typing import Any, Dict, FrozenSet, Optional
 
 from aiohttp import WSMsgType, web
 
-from . import __version__, models, netinfo, profile, resources
+from . import __version__, ipadshell, models, netinfo, profile, resources, updater
 from .config import REMOTE_PERMISSIONS, Config
 from .hub import Hub
 from .store import BoardStore
@@ -103,6 +103,41 @@ async def handle_profile(request: web.Request) -> web.Response:
         content_type="application/x-apple-aspen-config",
         headers={
             "Content-Disposition": 'attachment; filename="whiteboard.mobileconfig"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+# ------------------------------------------------------------- iPad 外壳
+
+def _shell_host(request: web.Request) -> str:
+    """安装页上写的主机名，取值与描述文件相同。"""
+    return request.query.get("host") or netinfo.local_hostname()
+
+
+async def handle_ipad_page(request: web.Request) -> web.Response:
+    """外壳的安装页：安装外壳，或者把这台 Mac 的地址交给已经装好的外壳。"""
+    config: Config = request.app[CONFIG_KEY]
+    page = ipadshell.install_page(
+        _shell_host(request), config.port, f"https://github.com/{updater.REPO}/releases"
+    )
+    return web.Response(text=page, content_type="text/html", headers={"Cache-Control": "no-store"})
+
+
+async def handle_ipad_version(request: web.Request) -> web.Response:
+    """外壳每次启动和回到前台时来问：Mac 上带的外壳是哪个版本。"""
+    return web.json_response(ipadshell.version_info(), headers={"Cache-Control": "no-store"})
+
+
+async def handle_ipad_ipa(request: web.Request) -> web.StreamResponse:
+    path = ipadshell.ipa_path()
+    if path is None:
+        raise web.HTTPNotFound(text="这个版本没有附带外壳")
+    return web.FileResponse(
+        path,
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": f'attachment; filename="{ipadshell.IPA_NAME}"',
             "Cache-Control": "no-store",
         },
     )
@@ -611,6 +646,9 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app.router.add_get("/ws", handle_ws)
     app.router.add_get("/profile.mobileconfig", handle_profile)
     app.router.add_get("/icon.png", handle_icon)
+    app.router.add_get("/ipad", handle_ipad_page)
+    app.router.add_get("/ipad/version", handle_ipad_version)
+    app.router.add_get(f"/ipad/{ipadshell.IPA_NAME}", handle_ipad_ipa)
     app.router.add_get("/api/info", handle_info)
     app.router.add_get("/api/boards", handle_boards)
     app.router.add_post("/api/debug", handle_debug)
