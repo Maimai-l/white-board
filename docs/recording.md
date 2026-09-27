@@ -73,28 +73,39 @@ page.evaluate("async ([d]) => whiteboard.recorder.replay(d, { wait: false })", [
 
 ## 笔的采样率（先看这个）
 
-诊断面板上有一行 `笔事件 N/s  其中新位置 M/s`。改渲染之前先看这两个数。
+诊断面板上有两行要一起看：
 
-八份真机录像量下来的结果：一笔之内笔事件约 120/s，其中**恰好一半**和前一条坐标
-完全相同，真正的新位置只有约 60/s。板上 1 条笔画和 692 条笔画量出来一样，所以
-不是主线程忙不过来，是投递本身就是 60 Hz。
+```
+帧 60fps  最长 18ms
+笔事件 64/s  新位置 60/s  合并 1
+```
+
+**两个数一样大，就说明笔是跟着帧走的**，那一帧一个采样点就是这台设备的上限，
+改渲染改不动它。`合并` 恒等于 1 说明 `getCoalescedEvents()` 没有返回过帧内的采样点。
+
+量出来的结果（八份真机录像 + 面板实测）：
+
+* 一笔之内笔事件约 60～64/s，新位置约 60/s。板上 1 条笔画和 692 条笔画一样，
+  不是主线程忙不过来。
+* **坐标全是整数**：八份录像里 100% 的 `clientX`/`clientY` 都是整数，没有小数。
+  也就是说位置的分辨率是一个 CSS 像素，和采样率是两回事，都得认。
+* `getCoalescedEvents()` 一次都没有返回过多于一个采样点（录像里没有一条事件带
+  `c` 字段）。MDN 把这个 API 标为 limited availability；Apple 开发者论坛上的讨论
+  （最后一帖 2023 年 11 月）说 Mobile Safari 没有实现它。`pointerrawupdate` 按
+  caniuse 的表在任何版本的 Safari 上都不支持。
 
 后果：写字速度 1.6 px/ms 时，相邻两个新位置隔开 26 个屏幕像素，而笔本身只有
-13 像素宽。中间那一段没有任何数据，任何平滑算法都只能猜——这时候换渲染库改善
-不了什么，`perfect-freehand`、`atrament` 和我们自己的实现画出来差别很小。
+13 像素宽。中间那一段没有任何数据，任何平滑算法都只能猜。所以**平滑参数按 60 Hz
+来调**，而不是指望更多采样点——`perfect-freehand` 的 `streamline` 就是干这个的，
+输入层因此不再自己预平滑笔的位置（两层叠起来只是多一份延迟、把转角多削一道）。
 
-`getCoalescedEvents()` 在这八份录像里**一次都没有**返回过多于一个采样点
-（录像里没有一条事件带 `c` 字段）。MDN 把这个 API 标为 limited availability，
-Apple 开发者论坛上的讨论（最后一帖 2023 年 11 月）说 Mobile Safari 没有实现它。
-`pointerrawupdate` 按 caniuse 的表在任何版本的 Safari 上都不支持。
+试过但没用的（留个记录，别再试第二遍）：
 
-能试的几项（前两项已经在代码里，后几项是设备设置，改完看面板上的数变不变）：
+1. 实时层的 canvas 加 `{ desynchronized: true }`（已经在 `renderer.js` 里）。
+2. 设置 → Apple Pencil → 关掉「随手写」。
+3. 设置 → 应用 → Safari → 高级 → 功能开关 → 关掉「Prefer Page Rendering Updates
+   near 60fps」，强制退出重开。白板是配置文件装的 Web Clip，不是 Safari，这个开关
+   对它生不生效没查到依据；实测面板上的数没有变。
+4. 关掉低电量模式。
 
-1. 实时层的 canvas 用 `{ desynchronized: true }`（`renderer.js`）。
-2. 每帧的活要控制在一帧之内——动画帧超时的时候 Safari 会丢指针事件。
-3. 设置 → Apple Pencil → 关掉「随手写」（Scribble）。
-4. 设置 → 应用 → Safari → 高级 → 功能开关 → 关掉「Prefer Page Rendering
-   Updates near 60fps」，然后强制退出 Safari 重开。这一项在 ProMotion 的 iPad 上
-   把渲染从 60 Hz 放到 120 Hz。**我们的白板是配置文件装的 Web Clip，不是 Safari，
-   这个开关对 Web Clip 生效不生效没有查到依据，只能改完看面板上的数。**
-5. 关掉低电量模式。
+以上都试过之后面板上仍然是 60 左右。

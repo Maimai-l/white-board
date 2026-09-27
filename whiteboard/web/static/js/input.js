@@ -90,7 +90,6 @@ function eraserDiameter(deg) {
   return curve[curve.length - 1][1];
 }
 
-const SMOOTH_PEN = 0.45;
 const SMOOTH_MOUSE = 0.6;
 const PRESSURE_SMOOTH = 0.25;
 
@@ -549,13 +548,15 @@ export class InputController {
   addSample(event, wx, wy, first = false) {
     const draw = this.draw;
     if (!draw) return;
-    const alpha = draw.type === "pen" ? SMOOTH_PEN : SMOOTH_MOUSE;
-    if (first) {
+    // 笔的位置原样存，不预平滑：轮廓那边 perfect-freehand 的 streamline 已经在做
+    // 同一件事，两层叠起来只是多一份延迟、把转角多削一道。鼠标和手指照旧要平滑
+    // ——它们的坐标抖动来源不一样（轨迹球、手指接触面积），而且没有压感可参照。
+    if (first || draw.type === "pen") {
       draw.sx = wx;
       draw.sy = wy;
     } else {
-      draw.sx += (wx - draw.sx) * alpha;
-      draw.sy += (wy - draw.sy) * alpha;
+      draw.sx += (wx - draw.sx) * SMOOTH_MOUSE;
+      draw.sy += (wy - draw.sy) * SMOOTH_MOUSE;
     }
 
     const [screenX, screenY] = this.toScreen(event);

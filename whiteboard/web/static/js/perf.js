@@ -140,8 +140,10 @@ export class PerfMonitor {
       build ? `版本 ${build}  ${this.role || ""}` : "",
       `帧 ${avg ? (1000 / avg).toFixed(0) : 0}fps  最长 ${max.toFixed(0)}ms`,
       `渲染 ${this.renderMs.toFixed(1)}ms  采样 ${rate}/s`,
-      `笔 ${input.down}下 ${input.cancel}断  事件间隔 ${input.maxGap.toFixed(0)}ms  合并 ${input.coalesced}`,
-      `笔事件 ${input.penHz || 0}/s  其中新位置 ${input.penMoveHz || 0}/s`,
+      `笔 ${input.down}下 ${input.cancel}断  事件间隔 ${input.maxGap.toFixed(0)}ms`,
+      // 这一行和上面的帧率直接比：笔事件和帧率一样，说明笔是跟着帧走的，
+      // 那 60 就是这台设备的上限；合并恒等于 1 说明 getCoalescedEvents 没有实现。
+      `笔事件 ${input.penHz || 0}/s  新位置 ${input.penMoveHz || 0}/s  合并 ${input.coalesced}`,
       `触摸 ${input.touch || 0}  拦不住 ${input.uncancelable || 0}  笔被抢 ${input.penCancel || 0}`,
       tilt,
       marks,
