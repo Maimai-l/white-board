@@ -2408,6 +2408,88 @@ def test_screen_and_pdf_outlines_agree(browser, server):
     ipad.close()
 
 
+def test_object_eraser_deletes_only_the_piece_you_touch(browser, server):
+    """像素橡皮把一笔断成两截之后，对象橡皮点哪一截只删哪一截。
+
+    像素橡皮不拆笔画，只给笔画挂一条遮罩（见 docs/format.md）。所以看上去断成
+    两截的笔画其实还是一条，两截共用一个 id——对象橡皮点任意一截都会把整条删掉。
+
+    现在对象橡皮碰到带遮罩的笔画时先按缺口切成独立的几条，再只删碰到的那一条。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    out = ipad.evaluate("""() => {
+      const w = window.whiteboard;
+      const p = [];
+      for (let x = 0; x <= 400; x += 10) p.push(x, 0, 1);
+      w.state.reset(w.state.meta, [{ id: 'long', tool: 'pen', color: '#1b1b1f', w: 6, p, n: 0 }]);
+      w.net.send = () => {};
+      // 像素橡皮在正中间横着擦一刀，把它断成两截
+      w.tool.eraserMode = 'pixel';
+      w.input.hooks.onErase(200, 0, 24, [200, -40]);
+      w.input.hooks.onErase(200, 0, 24, [200, 40]);
+      w.flushErase();
+      const afterCut = w.state.strokes.map((s) => ({ id: s.id, 有遮罩: !!(s.m && s.m.length) }));
+      // 换对象橡皮，点左边那一截
+      w.tool.eraserMode = 'object';
+      w.input.hooks.onErase(60, 0, 6, [60, 0]);
+      w.input.hooks.onEraseEnd();
+      const left = w.state.strokes.filter((s) => {
+        let x0 = Infinity; for (let i = 0; i < s.p.length; i += 3) x0 = Math.min(x0, s.p[i]);
+        return x0 < 100;
+      });
+      const right = w.state.strokes.filter((s) => {
+        let x1 = -Infinity; for (let i = 0; i < s.p.length; i += 3) x1 = Math.max(x1, s.p[i]);
+        return x1 > 300;
+      });
+      return { 断开后: afterCut, 剩下: w.state.strokes.length, 左边还在: left.length, 右边还在: right.length };
+    }""")
+    # 像素橡皮擦完仍然是一条（挂着遮罩），这是设计如此
+    assert len(out["断开后"]) == 1, out
+    assert out["断开后"][0]["有遮罩"], out
+    # 对象橡皮点左边：左边没了，右边还在
+    assert out["左边还在"] == 0, out
+    assert out["右边还在"] >= 1, out
+    mac.close()
+    ipad.close()
+
+
+def test_undo_after_erasing_one_piece_brings_the_whole_stroke_back(browser, server):
+    """点掉一截之后撤销，要把原来那一条整个换回来，不是只回来一截。
+
+    对象橡皮删这一截之前先做了切分，撤销记录记的是「原来那一条换成这几截」加上
+    「这一截被删了」两件事，合成一条：换回原来那一条，把切出来的段全部清掉。
+    """
+    mac, ipad = open_pages(browser, server.port)
+    out = ipad.evaluate("""() => {
+      const w = window.whiteboard;
+      const p = [];
+      for (let x = 0; x <= 400; x += 10) p.push(x, 0, 1);
+      w.state.reset(w.state.meta, [{ id: 'long', tool: 'pen', color: '#1b1b1f', w: 6, p, n: 0 }]);
+      w.net.send = () => {};
+      w.tool.eraserMode = 'pixel';
+      w.input.hooks.onErase(200, 0, 24, [200, -40]);
+      w.input.hooks.onErase(200, 0, 24, [200, 40]);
+      w.flushErase();
+      w.input.hooks.onEraseEnd();
+      w.tool.eraserMode = 'object';
+      w.input.hooks.onErase(60, 0, 6, [60, 0]);
+      w.input.hooks.onEraseEnd();
+      const afterErase = w.state.strokes.length;
+      w.undo();
+      const back = w.state.strokes;
+      let x0 = Infinity, x1 = -Infinity;
+      for (const s of back) for (let i = 0; i < s.p.length; i += 3) {
+        x0 = Math.min(x0, s.p[i]); x1 = Math.max(x1, s.p[i]);
+      }
+      return { 删后: afterErase, 撤销后: back.length, 跨度: [x0, x1] };
+    }""")
+    assert out["撤销后"] == 1, out
+    # 换回来的是完整的那一条，从 0 铺到 400
+    assert out["跨度"][0] <= 1 and out["跨度"][1] >= 399, out
+    mac.close()
+    ipad.close()
+
+
 def test_pixel_eraser_always_masks(browser, server):
     """像素橡皮只有一种处理方式：记遮罩，不拆笔画。
 

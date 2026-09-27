@@ -423,10 +423,15 @@ class App {
       },
       onErase: (x, y, radius, from) => {
         if (this.tool.eraserMode === "pixel") return this.erasePixels(x, y, radius, from);
-        const ids = this.state.hitTest(x, y, radius, strokeHit);
+        let ids = this.state.hitTest(x, y, radius, strokeHit);
         if (!ids.length) return [];
+        // 碰到被像素橡皮啃断过的笔画，先按缺口切成独立的几条，再只删碰到的那一条
+        if (this.splitBitten(ids)) {
+          ids = this.state.hitTest(x, y, radius, strokeHit);
+          if (!ids.length) return [];
+        }
         const removed = this.state.remove(ids);
-        this.eraseBatch.push(...removed);
+        this.noteObjectErase(removed);
         // 只重画被删掉的那几笔占的地方，整屏重绘在笔多的板上每帧要十几毫秒
         this.dirtyFor(removed);
         this.queueErase(removed, []);
@@ -435,7 +440,9 @@ class App {
       onEraseEnd: () => {
         this.flushErase();
         const cut = this.pixelBatch;
-        if (cut.removed.length || cut.bites.size) {
+        // 对象橡皮碰到啃过的笔画时也会走切分，所以这一批可能两种都有，得并成一条
+        const plain = this.eraseBatch.map(plainStroke);
+        if (cut.removed.length || cut.added.length || cut.bites.size) {
           const bites = [...cut.bites.entries()].map(([id, before]) => ({
             id,
             before,
@@ -443,13 +450,13 @@ class App {
           }));
           this.pushUndo({
             type: "split",
-            removed: cut.removed,
+            removed: [...cut.removed, ...plain],
             added: cut.added,
             bites: bites.filter((b) => b.after || b.before),
           });
           this.pixelBatch = { removed: [], added: [], bites: new Map() };
-        } else if (this.eraseBatch.length) {
-          this.pushUndo({ type: "removed", strokes: this.eraseBatch.map(plainStroke) });
+        } else if (plain.length) {
+          this.pushUndo({ type: "removed", strokes: plain });
         } else {
           return;
         }
@@ -618,6 +625,59 @@ class App {
     }
     if (!this.eraseFlush) {
       this.eraseFlush = requestAnimationFrame(() => this.flushErase());
+    }
+  }
+
+  /**
+   * 对象橡皮碰到被像素橡皮啃过的笔画：先按缺口把它切成独立的几条。
+   *
+   * 像素橡皮不拆笔画，只给笔画挂一条遮罩（见 docs/format.md）。所以看上去断成
+   * 两截的笔画其实还是一条，对象橡皮点哪一截都会把整条删掉——这不是橡皮的问题，
+   * 是那两截本来就共用一个 id。切开之后每一截是独立的一条，点哪一截删哪一截。
+   *
+   * 只对真正被碰到的那几条做，不碰橡皮路过的。切分表达不了「削掉半边」，所以
+   * 贴边的细条会在这一步被清掉——反正接下来就要删它，看不出区别。
+   *
+   * 返回有没有切过。切过的话调用方要重新判一次命中，id 全换了。
+   */
+  splitBitten(ids) {
+    const removed = [];
+    const added = [];
+    for (const id of ids) {
+      const stroke = this.state.byId.get(id);
+      if (!stroke || !stroke.m || !stroke.m.length) continue;
+      const baked = this.bakeMask(stroke);
+      if (!baked) continue;
+      removed.push(baked.removed);
+      added.push(...baked.added);
+    }
+    if (!removed.length) return false;
+    this.state.remove(removed.map((s) => s.id));
+    if (added.length) this.state.add(added.map((s) => ({ ...s })));
+    this.queueErase(removed, added);
+    this.dirtyFor(removed);
+    this.pixelBatch.removed.push(...removed);
+    this.pixelBatch.added.push(...added);
+    return true;
+  }
+
+  /**
+   * 对象橡皮删掉的这几笔记进撤销批次。
+   *
+   * 这次拖动里没切过分的话照旧走 eraseBatch。切过的话就得用切分那套记法：
+   * 刚切出来又被删掉的段两边都不进——撤销只需要把原来那一条换回来。
+   */
+  noteObjectErase(removed) {
+    const cut = this.pixelBatch;
+    if (!cut.removed.length && !cut.added.length) {
+      this.eraseBatch.push(...removed);
+      return;
+    }
+    const gone = new Set(removed.map((s) => s.id));
+    const mine = new Set(cut.added.map((s) => s.id));
+    cut.added = cut.added.filter((s) => !gone.has(s.id));
+    for (const stroke of removed) {
+      if (!mine.has(stroke.id)) cut.removed.push(plainStroke(stroke));
     }
   }
 
