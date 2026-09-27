@@ -13,7 +13,7 @@ import {
   addMask,
   buildPath,
   clearStrokeCache,
-  curvePoints,
+  strokeOutline,
   eraseKind,
   maskBounds,
   maskFor,
@@ -1274,7 +1274,7 @@ window.whiteboard.Renderer = Renderer;
 window.whiteboard.strokeHit = strokeHit;
 window.whiteboard.strokeRadius = strokeRadius;
 window.whiteboard.clearStrokeCache = clearStrokeCache;
-window.whiteboard.curvePoints = curvePoints;
+window.whiteboard.strokeOutline = strokeOutline;
 window.whiteboard.penForce = penForce;
 window.whiteboard.pressureForFactor = pressureForFactor;
 window.whiteboard.penAltitude = penAltitude;

@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 import math
+
+from whiteboard import freehand
 import zlib
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
@@ -37,10 +39,10 @@ ARC_K = 0.5522847498307936
 CORNER = math.radians(45)
 
 
-# 补曲线：世界坐标里弦离曲线最多能差多少，超过就再细分；一段最多切几刀。
-# 必须和 stroke.js 的 CURVE_TOLERANCE / MAX_SUBDIVISION 一致。
-CURVE_TOLERANCE = 0.25
-MAX_SUBDIVISION = 32
+# perfect-freehand 的两个默认值，必须和 stroke.js 的 OUTLINE_SMOOTHING /
+# OUTLINE_STREAMLINE 一致。
+OUTLINE_SMOOTHING = 0.5
+OUTLINE_STREAMLINE = 0.5
 
 
 def epsilon(width: float) -> float:
@@ -102,258 +104,63 @@ def simplify(points: Sequence[Tuple[float, float, float]], eps: float):
 
 
 def outline_path(
-    points: Sequence[Tuple[float, float, float]],
-    tool: str,
-    width: float,
-    cut: int = 0,
-    curve_tolerance: float = CURVE_TOLERANCE,
+    points: Sequence[Tuple[float, float, float]], tool: str, width: float, cut: int = 0
 ):
-    """笔画的形状，和 stroke.js 的 buildPath 逐段对应。
+    """笔画的形状，和 stroke.js 的 buildPath 画同一个东西。
 
     返回一串路径指令：``('m', x, y)`` / ``('l', x, y)`` /
     ``('c', x1, y1, x2, y2, x, y)``，按 nonzero 填充。
 
-    画法是逐段求并：每两个相邻采样点画一段「两圆的凸包」（两条外公切线加前端那个
-    大圆弧），全部同一个绕向。同向的子路径在 nonzero 下正好是并集，所以这就是
-    「圆沿着路径扫过去」的准确形状。``cut`` 标出哪一头是橡皮切出来的，那一头画
-    直边而不是圆弧，就是平口。
+    轮廓点由 perfect-freehand 生成（``whiteboard/freehand.py`` 是它的移植，屏幕那边
+    用的是原版），再按 README 里那条 ``Q`` + ``T`` 画成闭合回路：二次贝塞尔穿过相邻
+    两点的中点，顶点当控制点。PDF 没有二次贝塞尔，按 ``C1 = P0 + 2/3(Q-P0)``、
+    ``C2 = P2 + 2/3(Q-P2)`` 精确升成三次。
 
-    以前这里和屏幕那边一样，是两侧各算一条斜接偏移线接成一条闭合回路。采样比笔粗
-    密的时候内侧偏移点会折回去自交，自交出来的小环绕向和主体相反，nonzero 下算 0，
-    笔画里就出现白色缺口。逐段求并没有这个问题，也不需要斜接或折角处理。
+    ``cut`` 的两位是像素橡皮切出来的平口，对应 perfect-freehand 的 ``start.cap`` /
+    ``end.cap``——不画圆帽，留下直边。
 
-    再往前还试过「按线宽分段的折线」，线宽一变就断一段、两头各一个圆头，笔一粗
-    就是一串大小不一的圆饼。
-
-    ``curve_tolerance`` 是补曲线时「直线代替曲线」允许差多少。默认值和 stroke.js
-    一致，屏幕上什么样导出就什么样。导出时另给一个值：导出前先做过 RDP 抽稀，
-    中心线本来就已经允许差一个 ``epsilon(width)``，再按 0.12 去铺点没有意义，
-    只是把抽掉的点又补回来。
+    自己写过的两版已经删掉了：先是两侧各算一条斜接偏移线接成闭合回路（采样比笔粗密
+    的时候内侧偏移点折回去自交，nonzero 下破白洞），后来改成相邻两点的两圆凸包逐段
+    求并（白洞没有了，但中心线还是折线，笔走得快时一眼能看出是直线拼的）。
     """
-    pts = []
-    for x, y, pr in points:
-        r = max(0.35, radius(tool, width, pr))
-        # 去掉重合点：两点重合算不出方向
-        if pts and abs(x - pts[-1][0]) < 1e-7 and abs(y - pts[-1][1]) < 1e-7:
-            continue
-        pts.append((x, y, r))
+    if not points:
+        return []
 
+    half = max(width, 0.6)
+    pts = [(x, y, radius(tool, width, pr) / max(width, 1e-6)) for x, y, pr in points]
+    outline = freehand.get_stroke(
+        pts,
+        size=half,
+        thinning=1.0,
+        smoothing=OUTLINE_SMOOTHING,
+        streamline=OUTLINE_STREAMLINE,
+        cap_start=not cut & 1,
+        cap_end=not cut & 2,
+        last=True,
+    )
+    return quad_commands(outline)
+
+
+def quad_commands(pts: Sequence[Tuple[float, float]]) -> List[Tuple]:
+    """轮廓点列画成闭合回路，和 stroke.js 的 quadPath 一一对应。"""
     cmds: List[Tuple] = []
-    if not pts:
-        return cmds
-    if len(pts) == 1:
-        x, y, r = pts[0]
-        cmds.append(("m", x + r, y))
-        _arc(cmds, x, y, r, 0.0, -2 * math.pi)
-        return cmds
-
-    pts = _drop_covered(_curve_samples(pts, curve_tolerance), curve_tolerance=curve_tolerance)
-    count = len(pts)
-    # 每一段只画前端那个圆帽：后一段的起点圆已经被前一段的末端圆帽盖住了，
-    # 两边都画等于每个中间的圆画两遍。开头那个圆没人盖，单独补一个。
-    if not cut & 1:
-        x, y, r = pts[0]
-        cmds.append(("m", x + r, y))
-        _arc(cmds, x, y, r, 0.0, -2 * math.pi)
-    for i in range(count - 1):
-        _hull(cmds, pts[i], pts[i + 1], round_end=not (i == count - 2 and cut & 2))
-    return cmds
-
-
-LOOK_AHEAD = 24
-
-
-# 丢点时允许的形状误差，单位是 PDF 点。印刷尺度上 0.1 pt 看不出来，而 PDF 里
-# 一个采样点要八条指令，能丢掉的点直接决定体积。
-DROP_TOLERANCE = 0.1
-
-
-def _bezier_controls(p0, p1, p2, p3):
-    """向心 Catmull-Rom 的一段换算成三次贝塞尔的两个控制点。
-
-    公式与 stroke.js 的 bezierControls 相同。
-    """
-    d1 = math.sqrt(math.hypot(p1[0] - p0[0], p1[1] - p0[1]))
-    d2 = math.sqrt(math.hypot(p2[0] - p1[0], p2[1] - p1[1]))
-    d3 = math.sqrt(math.hypot(p3[0] - p2[0], p3[1] - p2[1]))
-    c1x = p1[0] + (p2[0] - p1[0]) / 3
-    c1y = p1[1] + (p2[1] - p1[1]) / 3
-    c2x = p2[0] - (p2[0] - p1[0]) / 3
-    c2y = p2[1] - (p2[1] - p1[1]) / 3
-    if d1 > 1e-6 and d2 > 1e-6:
-        k = 3 * d1 * (d1 + d2)
-        w = 2 * d1 * d1 + 3 * d1 * d2 + d2 * d2
-        c1x = (d1 * d1 * p2[0] - d2 * d2 * p0[0] + w * p1[0]) / k
-        c1y = (d1 * d1 * p2[1] - d2 * d2 * p0[1] + w * p1[1]) / k
-    if d3 > 1e-6 and d2 > 1e-6:
-        k = 3 * d3 * (d3 + d2)
-        w = 2 * d3 * d3 + 3 * d3 * d2 + d2 * d2
-        c2x = (d3 * d3 * p1[0] - d2 * d2 * p3[0] + w * p2[0]) / k
-        c2y = (d3 * d3 * p1[1] - d2 * d2 * p3[1] + w * p2[1]) / k
-    return c1x, c1y, c2x, c2y
-
-
-def _curve_samples(pts, tolerance: float = CURVE_TOLERANCE):
-    """把采样点之间补成曲线，和 stroke.js 的 curveSamples 相同。
-
-    采样点本身是折线。笔走得快时相邻两点能隔开几十个单位，折线和该走的曲线差出
-    好几个单位，转角大的地方就是肉眼可见的直线拼接。这里穿过每一个采样点拟一条
-    向心 Catmull-Rom 曲线再自适应细分；曲线穿过每一个点，走向不变。
-    """
     n = len(pts)
-    if n < 3:
-        return pts
-    out = [pts[0]]
-    for i in range(n - 1):
-        p0 = pts[i - 1] if i > 0 else pts[i]
-        p1 = pts[i]
-        p2 = pts[i + 1]
-        p3 = pts[i + 2] if i + 2 < n else pts[i + 1]
-        # 先便宜地看一眼这一段直不直，和 stroke.js 的 curveSamples 一样：
-        # 真机录像里六万四千段，76% 在这里就跳过去了
-        if (
-            _offset_from_line(p1, p0, p2) <= tolerance
-            and _offset_from_line(p2, p1, p3) <= tolerance
-        ):
-            out.append(p2)
-            continue
-        c1x, c1y, c2x, c2y = _bezier_controls(p0, p1, p2, p3)
-        away = max(
-            _point_segment_distance(c1x, c1y, p1[0], p1[1], p2[0], p2[1]),
-            _point_segment_distance(c2x, c2y, p1[0], p1[1], p2[0], p2[1]),
-        )
-        steps = max(1, min(MAX_SUBDIVISION, math.ceil(math.sqrt(away / tolerance))))
-        if steps == 1:
-            out.append(p2)
-            continue
-        for k in range(1, steps + 1):
-            t = k / steps
-            u = 1 - t
-            w0 = u * u * u
-            w1 = 3 * u * u * t
-            w2 = 3 * u * t * t
-            w3 = t * t * t
-            out.append(
-                (
-                    w0 * p1[0] + w1 * c1x + w2 * c2x + w3 * p2[0],
-                    w0 * p1[1] + w1 * c1y + w2 * c2y + w3 * p2[1],
-                    p1[2] + (p2[2] - p1[2]) * t,
-                )
-            )
-    return out
-
-
-def _offset_from_line(p, a, b) -> float:
-    """点 p 离 a、b 两点连线有多远；a、b 重合时算 0。与 stroke.js 的 offsetFromLine 相同。"""
-    dx = b[0] - a[0]
-    dy = b[1] - a[1]
-    base = math.hypot(dx, dy)
-    if base < 1e-9:
-        return 0.0
-    return abs((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) / base
-
-
-def _point_segment_distance(px, py, ax, ay, bx, by):
-    dx = bx - ax
-    dy = by - ay
-    length_sq = dx * dx + dy * dy
-    if length_sq < 1e-12:
-        return math.hypot(px - ax, py - ay)
-    t = ((px - ax) * dx + (py - ay) * dy) / length_sq
-    t = 0.0 if t < 0 else (1.0 if t > 1 else t)
-    return math.hypot(px - (ax + dx * t), py - (ay + dy * t))
-
-
-def _drop_covered(pts, tolerance: float = DROP_TOLERANCE, curve_tolerance: float = CURVE_TOLERANCE):
-    """丢掉那些「自己的圆几乎已经被前后两点的凸包包住」的采样点。
-
-    真机上一笔的采样密度常常是笔半径的六倍，直路段上一串点画出来的凸包几乎完全
-    重合，全是白给的指令。容差为 0 时这一步是无损的；导出时放一点容差，形状差不
-    超过 tolerance，体积能再降一半。
-    """
-    if len(pts) < 3:
-        return pts
-    out = [pts[0]]
-    anchor = pts[0]
-    i = 1
-    while i < len(pts) - 1:
-        reach = i
-        for end in range(i + 1, min(len(pts), i + LOOK_AHEAD + 1)):
-            if all(
-                _disc_inside_hull(pts[k], anchor, pts[end], tolerance, curve_tolerance)
-                for k in range(i, end)
-            ):
-                reach = end
-            else:
-                break
-        if reach > i:
-            anchor = pts[reach]
-            out.append(anchor)
-            i = reach + 1
-        else:
-            anchor = pts[i]
-            out.append(anchor)
-            i += 1
-    if out[-1] is not pts[-1]:
-        out.append(pts[-1])
-    return out
-
-
-def _disc_inside_hull(c, a, b, tolerance: float = 0.0, curve_tolerance: float = CURVE_TOLERANCE) -> bool:
-    """点 c 能不能丢：圆要整个落在 a、b 两个圆的凸包里，圆心还不能离 ab 太远。
-
-    凸包就是「圆心沿 ab 线性插值、半径也线性插值」扫出来的那一片，所以把 c 投影
-    到 ab 上取出那一处的半径，比一下就够了。投影落在两端之外就不算包住。
-    """
-    cx, cy, cr = c
-    ax, ay, ar = a
-    bx, by, br = b
-    dx, dy = bx - ax, by - ay
-    length_sq = dx * dx + dy * dy
-    if length_sq < 1e-12:
-        return cr <= max(ar, br)
-    t = ((cx - ax) * dx + (cy - ay) * dy) / length_sq
-    if t < 0 or t > 1:
-        return False
-    off = math.hypot(cx - (ax + dx * t), cy - (ay + dy * t))
-    # 中心线也不许被拉直超过 curve_tolerance，否则刚补出来的曲线又被抹回折线
-    if off > curve_tolerance:
-        return False
-    rt = ar + (br - ar) * t
-    return off + cr <= rt + tolerance
-
-
-def _hull(cmds: List[Tuple], a, b, round_end: bool) -> None:
-    """两个圆的凸包（只画前端的圆帽）：两条外公切线加绕过 b 的那段大圆弧。
-
-    a 那头的圆由上一段的圆帽盖住，所以这里不画；整笔开头那个圆在 outline_path 里补。
-    绕向固定是「左切线 → 绕过 b → 右切线 → 回到 a」，和方向无关，所以每一段绕向
-    都一样，nonzero 下才是并集而不是互相抵消。
-    """
-    ax, ay, ar = a
-    bx, by, br = b
-    dx, dy = bx - ax, by - ay
-    d = math.hypot(dx, dy)
-    if d <= abs(ar - br):
-        # 一个圆整个套在另一个里面：这一段的形状就是大的那个圆
-        cx, cy, cr = a if ar >= br else b
-        cmds.append(("m", cx + cr, cy))
-        _arc(cmds, cx, cy, cr, 0.0, -2 * math.pi)
-        return
-    direction = math.atan2(dy, dx)
-    # 切点相对于方向偏开的角：半径相等时是 90°
-    spread = math.acos(max(-1.0, min(1.0, (ar - br) / d)))
-    left = direction + spread
-    right = direction - spread
-    cmds.append(("m", ax + math.cos(left) * ar, ay + math.sin(left) * ar))
-    cmds.append(("l", bx + math.cos(left) * br, by + math.sin(left) * br))
-    if round_end:
-        _arc(cmds, bx, by, br, left, right - left)
-    else:
-        cmds.append(("l", bx + math.cos(right) * br, by + math.sin(right) * br))
-    cmds.append(("l", ax + math.cos(right) * ar, ay + math.sin(right) * ar))
-    cmds.append(("l", ax + math.cos(left) * ar, ay + math.sin(left) * ar))
-
+    if n < 4:
+        return cmds
+    cmds.append(("m", pts[0][0], pts[0][1]))
+    cur = pts[0]
+    for i in range(1, n - 1):
+        a = pts[i]
+        b = pts[i + 1]
+        end = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        cmds.append((
+            "c",
+            cur[0] + 2 / 3 * (a[0] - cur[0]), cur[1] + 2 / 3 * (a[1] - cur[1]),
+            end[0] + 2 / 3 * (a[0] - end[0]), end[1] + 2 / 3 * (a[1] - end[1]),
+            end[0], end[1],
+        ))
+        cur = end
+    return cmds
 
 
 def _capsules(chains: Sequence[Sequence[float]]) -> List[Tuple[float, float, float, float, float]]:
@@ -629,19 +436,13 @@ def content_stream(
         tool = stroke.get("tool", "pen")
         alpha = ALPHA.get(tool, 1.0)
         width = float(stroke.get("w", 3.0))
-        thin = epsilon(width) if eps is None else eps
-        points = simplify(points, thin)
+        points = simplify(points, epsilon(width) if eps is None else eps)
         color = stroke.get("color", "#1b1b1f")
         shift = lambda path: [
             (cmd[0],) + tuple(v - (ox if i % 2 == 0 else oy) for i, v in enumerate(cmd[1:]))
             for cmd in path
         ]
-        # 补曲线按抽稀本来就接受的误差铺点。曲线是穿过抽稀之后那些点拟的，
-        # 弦落在曲线和直线之间——按 thin 铺点只会比「一路直线」更接近原来的
-        # 中心线，不会更远，而点数和以前一样。
-        cmds = shift(
-            outline_path(points, tool, width, int(stroke.get("cut") or 0), thin)
-        )
+        cmds = shift(outline_path(points, tool, width, int(stroke.get("cut") or 0)))
         chains = stroke.get("m") or []
         if chains:
             clips = [shift(clip) for clip in mask_clips(chains, _bounds(cmds))]

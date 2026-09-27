@@ -485,8 +485,9 @@ def test_the_pressure_curve_is_the_same_on_both_sides():
 def test_cut_ends_are_flat_in_the_pdf_too(tmp_path):
     """切口在屏幕上是平口，导出也得是平口，不然导出一次缺口又被圆头填回去。
 
-    判据是墨迹往端点外伸出去多少：圆头会多伸出一个半径，平口一点都不伸。
-    不数指令条数——那跟着画法走，画法一换用例就假红。
+    判据是墨迹往端点外伸出去多少：圆头多伸出大约一个半径，平口一点都不伸。
+    不数指令条数，也不卡到小数点后几位——圆帽是分段画的，外加轮廓那层二次贝塞尔
+    穿的是中点，会把圆帽往里收一点点。画法一换，卡死的数字就会假红。
     """
     points = [(0.0, 0.0, 1.0), (40.0, 0.0, 1.0), (80.0, 0.0, 1.0)]
     half = inkpdf.radius("pen", 16.0, 1.0)
@@ -495,10 +496,22 @@ def test_cut_ends_are_flat_in_the_pdf_too(tmp_path):
         xs = [c[-2] for c in inkpdf.outline_path(points, "pen", 16.0, cut)]
         return min(xs), max(xs)
 
-    assert span(0) == pytest.approx((-half, 80.0 + half))
-    assert span(1) == pytest.approx((0.0, 80.0 + half))
-    assert span(2) == pytest.approx((-half, 80.0))
-    assert span(3) == pytest.approx((0.0, 80.0))
+    def round_end(value, at):
+        """圆头：伸出去的量在一个半径的 ±10% 之内。"""
+        assert 0.9 * half <= abs(value - at) <= 1.1 * half, (value, at, half)
+
+    def flat_end(value, at):
+        """平口：一点都不伸出去（留 0.05 pt 给浮点）。"""
+        assert abs(value - at) <= 0.05, (value, at)
+
+    round_end(span(0)[0], 0.0)
+    round_end(span(0)[1], 80.0)
+    flat_end(span(1)[0], 0.0)
+    round_end(span(1)[1], 80.0)
+    round_end(span(2)[0], 0.0)
+    flat_end(span(2)[1], 80.0)
+    flat_end(span(3)[0], 0.0)
+    flat_end(span(3)[1], 80.0)
 
 
 def test_export_honours_cut_ends(tmp_path):

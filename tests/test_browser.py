@@ -2219,6 +2219,50 @@ def test_status_dot_uses_traffic_light_colours(browser, server):
     _ipad.close()
 
 
+def test_python_outline_matches_perfect_freehand(browser, server):
+    """Python 那份 perfect-freehand 移植必须和原版给出一模一样的点。
+
+    屏幕用的是原版（``static/js/vendor/perfect-freehand.js``），导出用的是
+    ``whiteboard/freehand.py``——因为导出在服务端跑，碰不到浏览器。两份实现一旦
+    漂开，导出的 PDF 和屏幕就不是一个形状，而这种偏差只有把 PDF 打开才看得见。
+
+    所以这里不是「差不多就行」：拿真机录的两条笔画，逐点比对，容差 1e-9。升级
+    vendor 里那个文件之后第一个要跑的就是这条。
+    """
+    mac, _ = open_pages(browser, server.port)
+    cases = [
+        ("真机-快笔", [list(p) for p in REAL_FAST_STROKE], 13.0, 0),
+        ("真机-回钩", [list(p) for p in REAL_HOOK_STROKE], 13.0, 0),
+        ("切口两头", [[0.0, 0.0, 1.0], [40.0, 0.0, 1.0], [80.0, 0.0, 1.0]], 16.0, 3),
+        ("单点", [[5.0, 5.0, 0.4]], 9.0, 0),
+    ]
+    for name, pts, width, cut in cases:
+        flat = [v for p in pts for v in p]
+        js = mac.evaluate(
+            """([flat, width, cut]) =>
+                whiteboard.strokeOutline(
+                    { id: 'x', tool: 'pen', color: '#000', w: width, cut, p: flat })""",
+            [flat, width, cut],
+        )
+        # 压感通道和 stroke.js 的 outlinePressure 一样：半径除以笔宽
+        py = inkpdf.freehand.get_stroke(
+            [(x, y, inkpdf.radius("pen", width, pr) / max(width, 1e-6)) for x, y, pr in
+             [(flat[i], flat[i + 1], flat[i + 2]) for i in range(0, len(flat), 3)]],
+            size=max(width, 0.6),
+            thinning=1.0,
+            smoothing=inkpdf.OUTLINE_SMOOTHING,
+            streamline=inkpdf.OUTLINE_STREAMLINE,
+            cap_start=not cut & 1,
+            cap_end=not cut & 2,
+            last=True,
+        )
+        assert len(js) == len(py), (name, len(js), len(py))
+        for i, (a, b) in enumerate(zip(js, py)):
+            assert a[0] == pytest.approx(b[0], abs=1e-9), (name, i, a, b)
+            assert a[1] == pytest.approx(b[1], abs=1e-9), (name, i, a, b)
+    mac.close()
+
+
 def test_screen_and_pdf_outlines_agree(browser, server):
     """屏幕的 buildPath 和导出的 outline_path 必须画出同一个形状。
 
@@ -3289,71 +3333,65 @@ REAL_FAST_STROKE = [
 ]
 
 
-def test_a_fast_stroke_is_a_curve_not_a_chain_of_straight_lines(browser, server):
-    """笔走得快的时候采样点会隔得很开，中心线不能就是那条折线。
+def test_the_outline_is_drawn_as_curves_not_chords(browser, server):
+    """轮廓点之间要画二次贝塞尔，不能直接连直线。
 
-    逐段求并只保证轮廓是中心线的准确扫掠形状；中心线本身是折线，扫出来当然也是
-    折的——转角大的地方一眼就能看出是直线拼出来的「曲线」。所以中心线要先穿过
-    每一个采样点拟一条向心 Catmull-Rom 曲线再自适应细分。
+    perfect-freehand 的 getStroke 返回的是一串轮廓点，配套的渲染是「二次贝塞尔穿过
+    相邻两点的中点、顶点当控制点」。直接 lineTo 连那串点也能出形状，但笔走得快、
+    轮廓点隔得开的时候边上就是一段段直线——正是当初那个「直线拼出来的曲线」。
 
-    判据是弦高：每个折点两侧的平均段长乘转角再除以八，就是「直线代替曲线」在
-    那里差了多少。原始折线最远差 7.3 个世界单位，补过曲线之后必须降到细分容差
-    （0.25）的量级。
-
-    另一半判据同样重要：原始采样点都还落在画出来的中心线上（差不超过细分容差）
-    ——这一步只补点，不改笔迹的走向。拟的曲线本身穿过每一个采样点；后面丢多余点
-    那一步可能丢掉其中个别一个，但丢的前提就是它离弦不超过同一个容差。
+    判据：同一串轮廓点，一份按 buildPath 画，一份 lineTo 连起来，比两者的面积。
+    弦永远落在曲线内侧，所以曲线那份必须明显更大。用真机录的那一笔量，它的采样点
+    隔开几十个单位，差别最明显。
     """
     mac, _ = open_pages(browser, server.port)
-    out = mac.evaluate(
-        """([raw, width]) => {
-      const flat = raw.flat();
-      const sag = (pts) => {
-        let worst = 0;
-        for (let i = 1; i + 1 < pts.length; i++) {
-          const a = pts[i - 1], b = pts[i], c = pts[i + 1];
-          const d1 = Math.hypot(b.x - a.x, b.y - a.y);
-          const d2 = Math.hypot(c.x - b.x, c.y - b.y);
-          if (d1 < 1e-9 || d2 < 1e-9) continue;
-          const a1 = Math.atan2(b.y - a.y, b.x - a.x);
-          const a2 = Math.atan2(c.y - b.y, c.x - b.x);
-          let turn = Math.abs(a2 - a1) % (2 * Math.PI);
-          if (turn > Math.PI) turn = 2 * Math.PI - turn;
-          worst = Math.max(worst, ((d1 + d2) / 2) * turn / 8);
-        }
-        return worst;
+    out = mac.evaluate("""([flat, width]) => {
+      const stroke = { id:'x', tool:'pen', color:'#000', w:width, p:flat };
+      const pts = whiteboard.strokeOutline(stroke);
+      const S = 2, PAD = 8;
+      let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+      for (const q of pts) { x0=Math.min(x0,q[0]); x1=Math.max(x1,q[0]);
+        y0=Math.min(y0,q[1]); y1=Math.max(y1,q[1]); }
+      x0-=PAD; y0-=PAD; x1+=PAD; y1+=PAD;
+      const fill = (path) => {
+        const c = document.createElement('canvas');
+        c.width = Math.ceil((x1-x0)*S); c.height = Math.ceil((y1-y0)*S);
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.setTransform(S,0,0,S,-x0*S,-y0*S);
+        ctx.fillStyle = '#000'; ctx.fill(path);
+        const d = ctx.getImageData(0,0,c.width,c.height).data;
+        const m = new Uint8Array(d.length/4);
+        for (let i = 0; i < m.length; i++) m[i] = d[i*4+3] > 128 ? 1 : 0;
+        return m;
       };
-      const raw3 = [];
-      for (let i = 0; i < flat.length; i += 3) raw3.push({ x: flat[i], y: flat[i + 1] });
-      const curve = whiteboard.curvePoints({ id: 'x', tool: 'pen', color: '#000', w: width, p: flat });
-      // 每个原始采样点都还落在画出来的中心线上吗（到折线的距离，不是到顶点）
-      const toSegment = (p, a, b) => {
-        const dx = b.x - a.x, dy = b.y - a.y;
-        const len = dx * dx + dy * dy;
-        const t = len < 1e-12 ? 0 : Math.max(0, Math.min(1,
-          ((p.x - a.x) * dx + (p.y - a.y) * dy) / len));
-        return Math.hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t));
+      const count = (m) => { let n = 0; for (const v of m) n += v; return n/(S*S); };
+      const xor = (a, b) => {
+        const A = fill(a), B = fill(b);
+        let n = 0; for (let i = 0; i < A.length; i++) if (A[i] !== B[i]) n++;
+        return n/(S*S);
       };
-      let missed = 0;
-      for (const p of raw3) {
-        let best = Infinity;
-        for (let i = 0; i + 1 < curve.length; i++) {
-          best = Math.min(best, toSegment(p, curve[i], curve[i + 1]));
-        }
-        if (best > 0.25) missed += 1;
-      }
-      return { before: sag(raw3), after: sag(curve), missed, points: curve.length };
-    }""",
-        [[list(p) for p in REAL_FAST_STROKE], 3.0],
-    )
-    assert out["before"] > 5.0, out
-    # 剩下的最大值出在笔真的折返的那个尖角上（两边的段长 1.6 和 5.1，转 93°），
-    # 那是笔迹本来的形状，不是棱；判据留出十倍余量钉住「7.3 不许回来」
-    assert out["after"] < 1.0, out
-    assert out["missed"] == 0, out
+      const area = (path) => {
+        const c = document.createElement('canvas');
+        c.width = Math.ceil((x1-x0)*S); c.height = Math.ceil((y1-y0)*S);
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.setTransform(S,0,0,S,-x0*S,-y0*S);
+        ctx.fillStyle = '#000'; ctx.fill(path);
+        const d = ctx.getImageData(0,0,c.width,c.height).data;
+        let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 128) n++;
+        return n/(S*S);
+      };
+      const chords = new Path2D();
+      chords.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) chords.lineTo(pts[i][0], pts[i][1]);
+      chords.closePath();
+      const curve = whiteboard.buildPath(stroke);
+      return { curve: area(curve), chord: area(chords),
+               差: xor(curve, chords), n: pts.length };
+    }""", [[v for pt in REAL_FAST_STROKE for v in pt], 13.0])
+    assert out["n"] > 50, out
+    # 两份形状必须真的不一样：换成 lineTo 的话这个数会是 0
+    assert out["差"] > out["curve"] * 0.02, out
     mac.close()
-
-
 # 真机录的一笔：往右上画上去再原路收回来。白洞就出在收回来那一段。
 REAL_HOOK_STROKE = [
     (0.0, 56.598, 0.1034), (0.056, 56.485, 0.1034), (0.385, 54.983, 0.1031), (0.549, 54.191, 0.1029),
@@ -3376,63 +3414,56 @@ REAL_HOOK_STROKE = [
 
 
 def test_a_stroke_never_has_holes_in_it(browser, server):
-    """笔画里不许出现白色缺口。
+    """笔画里不许出现被墨迹围住的白色缺口。
 
     这一笔是真机录的：往右上画上去，再原路收回来（「往一个方向画收回会出现诡异的
-    白色」说的就是它）。以前两侧各算一条斜接偏移线、接成一条闭合回路，斜接偏移量
-    是 r / cos(转角/2)；真机上笔半径约 2.9 而采样间距只有 0.47，内侧偏移点被推出去
-    的距离是相邻点间距的六倍，一转弯就折回去自交，自交出来的小环绕向和主体相反，
-    nonzero 下算 0，笔画里就出现白洞。
+    白色」说的就是它）。白洞当初出在收回来那一段——那时两侧各算一条斜接偏移线接成
+    闭合回路，内侧偏移点折回去自交，自交出来的小环绕向和主体相反，nonzero 下算 0。
 
-    现在改成逐段求并：每点一个圆、每段一个外公切梯形，全部同向。结构上不存在
-    「一条回路」，也就不可能自交。
-
-    判据不看中线——白洞在笔画边缘内侧，中线上探不到。这里把路径加密成一串圆，
-    凡是稳稳落在某个圆里面的像素都必须是实心的。
+    判据不假设任何画法：把笔画填出来，从图像边界灌水，灌不到的白色像素就是被墨迹
+    围住的洞。换渲染实现也不会假红。
     """
     mac, ipad = open_pages(browser, server.port)
     holes = ipad.evaluate("""([flat, width]) => {
-      const S = 6, PAD = 12;
-      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      const S = 4, PAD = 8;
+      let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
       for (let i = 0; i < flat.length; i += 3) {
-        x0 = Math.min(x0, flat[i]); x1 = Math.max(x1, flat[i]);
-        y0 = Math.min(y0, flat[i + 1]); y1 = Math.max(y1, flat[i + 1]);
+        x0=Math.min(x0,flat[i]); x1=Math.max(x1,flat[i]);
+        y0=Math.min(y0,flat[i+1]); y1=Math.max(y1,flat[i+1]);
       }
-      x0 -= PAD; y0 -= PAD; x1 += PAD; y1 += PAD;
+      x0-=PAD; y0-=PAD; x1+=PAD; y1+=PAD;
       const c = document.createElement('canvas');
-      c.width = Math.ceil((x1 - x0) * S); c.height = Math.ceil((y1 - y0) * S);
+      c.width = Math.ceil((x1-x0)*S); c.height = Math.ceil((y1-y0)*S);
       const ctx = c.getContext('2d', { willReadFrequently: true });
-      ctx.setTransform(S, 0, 0, S, -x0 * S, -y0 * S);
+      ctx.setTransform(S,0,0,S,-x0*S,-y0*S);
       ctx.fillStyle = '#000';
-      ctx.fill(whiteboard.buildPath({ id: 'x', tool: 'pen', color: '#000', w: width, p: flat }));
-      const data = ctx.getImageData(0, 0, c.width, c.height).data;
-      const solid = (wx, wy) => {
-        const px = Math.round((wx - x0) * S), py = Math.round((wy - y0) * S);
-        if (px < 0 || py < 0 || px >= c.width || py >= c.height) return true;
-        return data[(py * c.width + px) * 4 + 3] > 200;
-      };
-      // 把路径加密，每个加密点带自己的半径；圆缩到九成，避开边缘的抗锯齿
-      let bad = 0, checked = 0;
-      const n = flat.length / 3;
-      const R = (i) => whiteboard.strokeRadius('pen', width, flat[i * 3 + 2]);
-      for (let i = 0; i + 1 < n; i++) {
-        const ax = flat[i * 3], ay = flat[i * 3 + 1], ar = R(i);
-        const bx = flat[i * 3 + 3], by = flat[i * 3 + 4], br = R(i + 1);
-        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 0.2));
-        for (let k = 0; k <= steps; k++) {
-          const t = k / steps;
-          const cx = ax + (bx - ax) * t, cy = ay + (by - ay) * t;
-          const r = (ar + (br - ar) * t) * 0.9;
-          for (let a = 0; a < 8; a++) {
-            const th = (a / 8) * Math.PI * 2;
-            checked += 1;
-            if (!solid(cx + Math.cos(th) * r, cy + Math.sin(th) * r)) bad += 1;
-          }
-        }
+      ctx.fill(whiteboard.buildPath({ id:'x', tool:'pen', color:'#000', w:width, p:flat }));
+      const W = c.width, H = c.height;
+      const d = ctx.getImageData(0,0,W,H).data;
+      const white = new Uint8Array(W*H);
+      let ink = 0;
+      for (let i = 0; i < W*H; i++) {
+        const solid = d[i*4+3] > 128;
+        white[i] = solid ? 0 : 1;
+        if (solid) ink++;
       }
-      return { bad, checked };
+      const seen = new Uint8Array(W*H);
+      const stack = [];
+      const push = (x,y) => { const k=y*W+x; if(white[k] && !seen[k]){seen[k]=1; stack.push(k);} };
+      for (let x = 0; x < W; x++) { push(x,0); push(x,H-1); }
+      for (let y = 0; y < H; y++) { push(0,y); push(W-1,y); }
+      while (stack.length) {
+        const k = stack.pop(), x = k % W, y = (k - x) / W;
+        if (x > 0) push(x-1,y);
+        if (x < W-1) push(x+1,y);
+        if (y > 0) push(x,y-1);
+        if (y < H-1) push(x,y+1);
+      }
+      let trapped = 0;
+      for (let k = 0; k < W*H; k++) if (white[k] && !seen[k]) trapped++;
+      return { trapped: Math.round(trapped/(S*S)), ink: Math.round(ink/(S*S)) };
     }""", [[v for pt in REAL_HOOK_STROKE for v in pt], 13.0])
-    assert holes["checked"] > 5000, holes
-    assert holes["bad"] == 0, holes
+    assert holes["ink"] > 500, holes
+    assert holes["trapped"] == 0, holes
     mac.close()
     ipad.close()
