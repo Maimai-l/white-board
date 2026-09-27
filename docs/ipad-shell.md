@@ -60,7 +60,7 @@
    - 5 秒内一台都没有找到时，显示第 3 步的操作说明。
 3. **一键链接。** 外壳注册 URL scheme `whiteboard-shell`。在 iPad 的 Safari 中打开 Mac 提供的安装页（8.2 节），点"打开外壳"，即打开 `whiteboard-shell://connect?host=<主机名>.local&port=<端口>`，外壳收到后保存地址并连接。这一步用于路由器屏蔽 Bonjour 的网络。
 
-连接成功的地址保存在本机，下次启动直接使用。外壳的设置页提供"重新查找 Mac"，用于换到另一台 Mac。
+连接成功的地址保存在本机，下次启动直接使用。换到另一台 Mac 有两个入口：iOS 设置里的"重新查找 Mac"，以及白板页面上"白板设置"里的"换一台 Mac"（网页发一条 `rediscover` 给外壳，见 5.2 节）。主动要求换一台时，即便局域网里只找到一台也要列出来让用户确认，否则外壳会直接又连回刚才那一台；页面还开着的时候这个列表多一个"取消"。
 
 页面的加载方式：
 
@@ -72,6 +72,18 @@
   - `CFBundleURLTypes` 中注册 `whiteboard-shell`。
 - 页面加载失败时，外壳显示错误原因，以及"重试""重新查找 Mac"两个按钮。
 - WKWebView 铺满屏幕，禁止页面滚动和缩放（`scrollView.isScrollEnabled = false`，`bounces = false`，最小和最大缩放都为 1）。
+
+### 4.1.1 导出文件
+
+页面上的"导出"要把 PNG 或者合成好的 PDF 交给用户。WKWebView 默认不处理下载：点一个带 `download` 的链接，或者给 `location.href` 赋一个 `data:` / 导出接口的地址，都会被当成一次导航——白板页面被换走，WebSocket 跟着断，用户看到的是一句连接断开，文件也没有存下来。
+
+外壳按下载接住这类请求：
+
+- `decidePolicyFor navigationAction` 里 `navigationAction.shouldPerformDownload` 为真时回 `.download`；
+- 响应头带 `Content-Disposition: attachment` 时（文档板导出），`decidePolicyFor navigationResponse` 也回 `.download`；
+- `WKDownloadDelegate` 把文件下到临时目录下一个随机子目录里（同名文件不会互相覆盖），下完之后弹 `UIActivityViewController`，用户自己选存到"文件"还是发出去。
+
+网页那边的配套要求：一律用带 `download` 的链接触发下载（`exporter.js` 的 `downloadURL`），PNG 先把 `data:` 转成 `blob:` 再下。
 
 ### 4.2 采集 Pencil 输入
 
@@ -136,9 +148,10 @@
 
 ### 5.2 网页发给外壳的消息
 
-网页通过 `window.webkit.messageHandlers.whiteboard.postMessage(<对象>)` 发送消息。第一阶段只有一种：
+网页通过 `window.webkit.messageHandlers.whiteboard.postMessage(<对象>)` 发送消息，有两种：
 
 - 页面加载完成后，网页发送 `{"type": "hello", "bridge": [最低版本, 最高版本]}`，表示网页支持的接口版本范围。
+- 用户在"白板设置"里点"换一台 Mac"时，网页发送 `{"type": "rediscover"}`。外壳重新查找并列出局域网里的 Mac，不回复。
 
 外壳收到后回复（通过 `evaluateJavaScript` 调用 `window.whiteboardShell.hello(<JSON>)`）：
 

@@ -1120,6 +1120,86 @@ def test_board_cards_show_names_and_dates(browser, server):
     ipad.close()
 
 
+def test_boards_can_be_filed_into_a_folder(browser, server):
+    """文件夹是格子里的一块卡片：点进去只剩里面的白板，在里面新建的也留在里面。"""
+    mac, ipad = open_pages(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title="新建文件夹"]')
+    mac.wait_for_selector(".board-card.folder")
+    assert mac.evaluate("() => document.querySelector('.board-name.folder').value") == "未命名文件夹"
+
+    # 归类：卡片下面那个文件夹按钮，选现成的名字
+    mac.click(".board-folder")
+    mac.click('.folder-row:has-text("未命名文件夹")')
+    mac.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
+    ipad.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
+
+    # 最外面那一层只剩文件夹卡片和「新建」，白板收进去了
+    count = "() => document.querySelectorAll('.board-item').length"
+    mac.wait_for_function(f"{count} === 2")
+    mac.click(".board-card.folder")
+    mac.wait_for_selector(".folder-bar")
+    assert mac.evaluate(count) == 2  # 里面那块白板 + 「新建」
+
+    # 在文件夹里新建的白板跟着落在这个文件夹里
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title^="笔记"]')
+    mac.wait_for_function("() => whiteboard.state.kind === 'note'")
+    mac.wait_for_function("() => whiteboard.ui.boards.length === 2")
+    assert mac.evaluate("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
+
+    # 再打开选择界面，直接停在当前白板所在的那一层
+    mac.click('button[title="白板"]')
+    mac.wait_for_selector(".folder-bar")
+    mac.close()
+    ipad.close()
+
+
+def test_deleting_a_folder_keeps_the_boards(browser, server):
+    """删文件夹只是取消归类，里面的白板一块都不能少。"""
+    mac, ipad = open_pages(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title="新建文件夹"]')
+    mac.wait_for_selector(".board-card.folder")
+    mac.click(".board-folder")
+    mac.click('.folder-row:has-text("未命名文件夹")')
+    mac.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
+
+    mac.click(".board-card.folder")
+    mac.click('button[title="删除文件夹"]')
+    mac.click('.dialog button[title="确定"]')
+    mac.wait_for_function("() => whiteboard.ui.folders.length === 0")
+    assert mac.evaluate("() => whiteboard.ui.boards.length") == 1
+    assert mac.evaluate("() => whiteboard.ui.boards.every(b => !b.folder)")
+    mac.wait_for_selector(".board-card:not(.folder)")
+    mac.close()
+    ipad.close()
+
+
+def test_a_folder_can_be_renamed_from_its_card(browser, server):
+    """文件夹的名字就是它的身份，改名要把里面每块白板上记的名字一起改掉。"""
+    mac, ipad = open_pages(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title="新建文件夹"]')
+    mac.wait_for_selector(".board-card.folder")
+    mac.click(".board-folder")
+    mac.click('.folder-row:has-text("未命名文件夹")')
+    mac.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
+
+    field = mac.wait_for_selector('.board-name[data-focus-key="folder:未命名文件夹"]')
+    field.click()
+    field.fill("  数学  ")
+    mac.keyboard.press("Enter")
+    mac.wait_for_function("() => whiteboard.ui.folders.includes('数学')")
+    assert mac.evaluate("() => whiteboard.ui.boards.every(b => b.folder === '数学')")
+    ipad.wait_for_function("() => whiteboard.ui.folders.join() === '数学'")
+    mac.close()
+    ipad.close()
+
+
 def test_board_search_filters_by_name(browser, server):
     """搜索框按名字筛，搜不到给个空态；清空之后「新建」那块回来。"""
     mac, ipad = open_pages(browser, server.port)
@@ -1356,9 +1436,12 @@ def test_picker_is_the_default_on_touch_devices(browser, server):
     ipad.wait_for_selector("#pk-host .pk-picker", timeout=20000)
     assert ipad.is_hidden("#toolbar")
 
-    # 在「更多」里换回普通工具栏，这个选择要记住
+    # 界面上没有换回普通工具栏的入口了；早先关掉过的机器要能回到普通工具栏，
+    # 所以这个开关本身还在，关掉之后的选择要记住
     ipad.click("#pk-host button[data-act='more']")
-    ipad.click("#pk-host .pk-pop [data-wb='leave']")
+    assert ipad.query_selector("#pk-host .pk-pop [data-wb='leave']") is None
+    ipad.keyboard.press("Escape")
+    ipad.evaluate("() => whiteboard.ui.setPicker(false)")
     ipad.wait_for_selector("#toolbar", state="visible")
     ipad.reload()
     ipad.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
@@ -1858,8 +1941,8 @@ def test_pencilkit_picker_drives_the_board(browser, server):
     ipad.close()
 
 
-def test_pencilkit_picker_undo_clear_and_exit(browser, server):
-    """撤销按钮跟着白板的撤销栈亮灭，清屏和「换回普通工具栏」在更多菜单里。"""
+def test_pencilkit_picker_undo_and_clear(browser, server):
+    """撤销按钮跟着白板的撤销栈亮灭，清屏在更多菜单里。"""
     mac, ipad = open_pages(browser, server.port)
     enable_pk_picker(ipad)
     undo = "#pk-host button[data-act='undo']"
@@ -1879,11 +1962,9 @@ def test_pencilkit_picker_undo_clear_and_exit(browser, server):
     ipad.click('.dialog button[title="确定"]')
     wait_strokes(mac, 0)
 
-    # 换回普通工具栏
+    # 触摸设备上这条笔具盘就是唯一的工具栏，更多菜单里没有换回普通工具栏那一行
     ipad.click("#pk-host button[data-act='more']")
-    ipad.click("#pk-host .pk-pop [data-wb='leave']")
-    ipad.wait_for_selector('button[title="颜色与粗细"]', state="visible")
-    assert ipad.query_selector("#pk-host") is None
+    assert ipad.query_selector("#pk-host .pk-pop [data-wb='leave']") is None
     mac.close()
     ipad.close()
 

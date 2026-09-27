@@ -61,13 +61,20 @@ final class StatusView: UIView, UITableViewDataSource, UITableViewDelegate {
         show(title: "正在连接", message: mac.label, busy: true)
     }
 
-    /// 找到多台 Mac：列出名称，由用户点选。
-    func showList(_ macs: [MacAddress], onPick: @escaping (MacAddress) -> Void) {
+    /// 找到多台 Mac：列出名称，由用户点选。已经连上之后再来换一台的，多给一个取消。
+    func showList(
+        _ macs: [MacAddress],
+        onPick: @escaping (MacAddress) -> Void,
+        cancel: (() -> Void)? = nil
+    ) {
         show(title: "选择一台 Mac", message: "局域网里有 \(macs.count) 台 Mac 在运行白板。", busy: false)
         self.macs = macs
         self.onPick = onPick
         table.isHidden = false
         table.reloadData()
+        if let cancel = cancel {
+            addButton("取消", action: cancel)
+        }
     }
 
     /// 5 秒内一台都没找到：路由器可能屏蔽了 Bonjour，改走安装页的「打开外壳」。

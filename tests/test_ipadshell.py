@@ -26,6 +26,39 @@ def test_bridge_range_matches_the_web_page():
     assert tuple(int(v) for v in match.groups()) == ipadshell.BRIDGE
 
 
+def test_exporting_is_a_download_not_a_navigation():
+    """导出不能给 location.href 赋值。
+
+    外壳是一个 WKWebView，赋值 location.href 是一次导航：白板页面被换走，
+    WebSocket 跟着断，界面上看到的就是一句连接断开，文件也没存下来。带 download
+    的链接外壳会当成下载接住（见 ShellViewController 的 WKDownloadDelegate）。
+    """
+    app_js = (ROOT / "whiteboard/web/static/js/app.js").read_text("utf-8")
+    exporter_js = (ROOT / "whiteboard/web/static/js/exporter.js").read_text("utf-8")
+    assert "downloadURL(`/api/export/${boardId}`" in app_js
+    assert "location.href = `/api/export" not in app_js
+    assert "link.download" in exporter_js
+    # PNG 也不能直接下 data: 链接，WKWebView 下不了，要先转成 blob:
+    assert "URL.createObjectURL" in exporter_js
+
+    swift = (ROOT / "ipad/Whiteboard/ShellViewController.swift").read_text("utf-8")
+    assert "WKDownloadDelegate" in swift
+    assert "navigationAction.shouldPerformDownload" in swift
+    assert "UIActivityViewController" in swift  # 下完了交给系统的分享面板
+
+
+def test_the_page_can_ask_the_shell_to_switch_macs():
+    """局域网里有好几台 Mac 时，从页面的设置里换一台；两边的命令名要对得上。"""
+    shell_js = (ROOT / "whiteboard/web/static/js/shell.js").read_text("utf-8")
+    ui_js = (ROOT / "whiteboard/web/static/js/ui.js").read_text("utf-8")
+    swift = (ROOT / "ipad/Whiteboard/ShellViewController.swift").read_text("utf-8")
+    assert "export function shellCommand(" in shell_js
+    assert 'shellCommand("rediscover")' in ui_js
+    assert 'body["type"] as? String == "rediscover"' in swift
+    # 只找到一台也要列出来，否则「换一台」会直接又连回原来那台
+    assert "startDiscovery(switching: true)" in swift
+
+
 def test_version_needs_no_permission_and_reports_no_ipa_from_source(tmp_path):
     async def main():
         async with make_client(tmp_path) as (client, _app):

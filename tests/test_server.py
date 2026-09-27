@@ -247,6 +247,136 @@ def test_mac_renames_any_board_and_ipad_hears_it(tmp_path):
     run(main())
 
 
+def test_mac_puts_a_board_in_a_folder_and_ipad_hears_it(tmp_path):
+    """归类和改名走同一条路：只广播列表，不把当前白板切走。"""
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            mac = await client.ws_connect("/ws")
+            ipad = await client.ws_connect("/ws")
+            await hello(mac, "mac", client_id="mac-1")
+            await hello(ipad, "ipad", client_id="ipad-1")
+
+            await mac.send_json({"t": "newboard"})
+            switched = await mac.receive_json()
+            await ipad.receive_json()
+            second = switched["board"]["id"]
+            first = next(m["id"] for m in switched["boards"] if m["id"] != second)
+
+            await mac.send_json({"t": "folder", "board": first, "folder": " 数学 "})
+            for side in (mac, ipad):
+                msg = await side.receive_json()
+                assert msg["t"] == "boards"
+                assert msg["board"]["id"] == second  # 当前白板没有被切走
+                assert {m["id"]: m.get("folder") for m in msg["boards"]}[first] == "数学"
+            assert hub.store.get_meta(first)["folder"] == "数学"
+
+            # 移出来之后这个字段就没了，界面上那块白板回到没归类的那一段
+            await mac.send_json({"t": "folder", "board": first, "folder": ""})
+            for side in (mac, ipad):
+                msg = await side.receive_json()
+                assert "folder" not in {m["id"]: m for m in msg["boards"]}[first]
+
+            await mac.close()
+            await ipad.close()
+
+    run(main())
+
+
+def test_a_folder_can_be_created_renamed_and_deleted(tmp_path):
+    """空文件夹只有索引里有记录，所以新建、改名、删除都得各有一条消息。"""
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            mac = await client.ws_connect("/ws")
+            await hello(mac, "mac", client_id="mac-1")
+            board = hub.current_id
+
+            await mac.send_json({"t": "newfolder", "name": " 数学 "})
+            msg = await mac.receive_json()
+            assert msg["t"] == "boards" and msg["folders"] == ["数学"]
+
+            await mac.send_json({"t": "newfolder", "name": "数学"})  # 重名不会再发一条
+            await mac.send_json({"t": "folder", "board": board, "folder": "数学"})
+            msg = await mac.receive_json()
+            assert {m["id"]: m.get("folder") for m in msg["boards"]}[board] == "数学"
+
+            await mac.send_json({"t": "renamefolder", "name": "数学", "to": "线性代数"})
+            msg = await mac.receive_json()
+            assert msg["folders"] == ["线性代数"]
+            # 名字就是身份：里面那块白板记的名字要跟着改
+            assert {m["id"]: m.get("folder") for m in msg["boards"]}[board] == "线性代数"
+
+            await mac.send_json({"t": "delfolder", "name": "线性代数"})
+            msg = await mac.receive_json()
+            assert msg["folders"] == []
+            assert "folder" not in {m["id"]: m for m in msg["boards"]}[board]  # 白板还在
+            assert len(msg["boards"]) == 1
+
+            await mac.close()
+
+    run(main())
+
+
+def test_a_board_made_inside_a_folder_lands_in_it(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            mac = await client.ws_connect("/ws")
+            await hello(mac, "mac", client_id="mac-1")
+            await mac.send_json({"t": "newfolder", "name": "数学"})
+            await mac.receive_json()
+
+            await mac.send_json({"t": "newboard", "kind": "note", "folder": "数学"})
+            msg = await mac.receive_json()
+            assert msg["board"]["folder"] == "数学"
+            assert hub.store.get_meta(msg["board"]["id"])["folder"] == "数学"
+
+            # 没有这个文件夹的话就当没写，新白板照常建在外面
+            await mac.send_json({"t": "newboard", "kind": "note", "folder": "查无此夹"})
+            msg = await mac.receive_json()
+            assert "folder" not in msg["board"]
+
+            await mac.close()
+
+    run(main())
+
+
+def test_ipad_cannot_make_or_delete_folders(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            hub.create_folder("数学")
+            ws = await client.ws_connect("/ws")
+            await hello(ws, "ipad", client_id="ipad-1")
+            await ws.send_json({"t": "newfolder", "name": "偷偷建"})
+            await ws.send_json({"t": "delfolder", "name": "数学"})
+            await ws.send_json({"t": "renamefolder", "name": "数学", "to": "改了"})
+            await ws.send_json({"t": "ping", "ts": 7})
+            pong = await ws.receive_json()
+            assert pong["t"] == "pong"  # 前面三条都被丢掉了，下一条才是回音
+            assert hub.store.folders() == ["数学"]
+            await ws.close()
+
+    run(main())
+
+
+def test_ipad_cannot_move_a_board_into_a_folder(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            ws = await client.ws_connect("/ws")
+            await hello(ws, "ipad", client_id="ipad-1")
+            await ws.send_json({"t": "folder", "board": hub.current_id, "folder": "偷偷归类"})
+            await ws.send_json({"t": "ping", "ts": 7})
+            pong = await ws.receive_json()
+            assert pong["t"] == "pong"  # 归类那条被丢掉了，下一条才是回音
+            assert "folder" not in hub.store.get_meta(hub.current_id)
+            await ws.close()
+
+    run(main())
+
+
 def test_ipad_cannot_rename(tmp_path):
     async def main():
         async with make_client(tmp_path) as (client, app):

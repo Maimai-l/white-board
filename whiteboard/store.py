@@ -27,6 +27,18 @@ FILE_VERSION = 1
 BOARD_SUFFIX = ".wbz"
 
 
+def _folder_list(raw: Any) -> List[str]:
+    """索引里那份文件夹名单：只留字符串，去掉空的和重复的，顺序按存的来。"""
+    names: List[str] = []
+    if not isinstance(raw, list):
+        return names
+    for item in raw:
+        name = models.sanitize_folder(item)
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 class BoardStore:
     """负责白板的持久化，不涉及任何网络 / 实时逻辑。"""
 
@@ -40,7 +52,7 @@ class BoardStore:
         self.boards_dir.mkdir(parents=True, exist_ok=True)
         self.thumbs_dir.mkdir(parents=True, exist_ok=True)
         self.docs_dir.mkdir(parents=True, exist_ok=True)
-        self._index: Dict[str, Any] = {"boards": [], "current": None}
+        self._index: Dict[str, Any] = {"boards": [], "folders": [], "current": None}
         self._load_index()
 
     # ------------------------------------------------------------------ 索引
@@ -50,7 +62,8 @@ class BoardStore:
             try:
                 raw = json.loads(self.index_path.read_text("utf-8"))
                 boards = [models.sanitize_meta(m) for m in raw.get("boards", [])]
-                self._index = {"boards": boards, "current": raw.get("current")}
+                folders = _folder_list(raw.get("folders", []))
+                self._index = {"boards": boards, "folders": folders, "current": raw.get("current")}
             except (OSError, ValueError) as exc:
                 log.warning("索引损坏，将重建：%s", exc)
                 self._rebuild_index()
@@ -63,6 +76,7 @@ class BoardStore:
         if known - on_disk or on_disk - known:
             self._rebuild_index()
 
+        self._sync_folders()
         if not self._index["boards"]:
             self.create_board()
         if self._index["current"] not in {m["id"] for m in self._index["boards"]}:
@@ -79,9 +93,21 @@ class BoardStore:
                 log.warning("白板文件无法读取，已跳过 %s：%s", path.name, exc)
         boards.sort(key=lambda m: m.get("updated", 0), reverse=True)
         current = self._index.get("current") if self._index else None
-        self._index = {"boards": boards, "current": current}
+        # 空文件夹只在索引里有记录，索引丢了就没了；至少把还装着白板的那些找回来。
+        folders = _folder_list(self._index.get("folders", []) if self._index else [])
+        self._index = {"boards": boards, "folders": folders, "current": current}
+        self._sync_folders()
         if boards:
             self._write_index()
+
+    def _sync_folders(self) -> None:
+        """白板上写着的文件夹名一定要在名单里，否则那块白板会从界面上消失。"""
+        known = set(self._index["folders"])
+        for meta in self._index["boards"]:
+            name = meta.get("folder")
+            if name and name not in known:
+                known.add(name)
+                self._index["folders"].append(name)
 
     def _write_index(self) -> None:
         _atomic_write(self.index_path, json.dumps(self._index, ensure_ascii=False).encode("utf-8"))
@@ -90,6 +116,48 @@ class BoardStore:
 
     def list_metas(self) -> List[Dict[str, Any]]:
         return [dict(meta) for meta in self._index["boards"]]
+
+    def folders(self) -> List[str]:
+        """现有的文件夹名。空文件夹也在里面，所以名单要单独存，不能从白板里现推。"""
+        return list(self._index["folders"])
+
+    def create_folder(self, name: str) -> str:
+        """新建一个空文件夹，返回规整之后的名字；名字为空或者已经有了就返回空串。"""
+        clean = models.sanitize_folder(name)
+        if not clean or clean in self._index["folders"]:
+            return ""
+        self._index["folders"].append(clean)
+        self._write_index()
+        return clean
+
+    def delete_folder(self, name: str) -> bool:
+        """删掉文件夹本身，里面的白板移到没归类，不跟着删。"""
+        clean = models.sanitize_folder(name)
+        if clean not in self._index["folders"]:
+            return False
+        for meta in self.list_metas():
+            if meta.get("folder") == clean:
+                self.edit_meta(meta["id"], folder="")
+        self._index["folders"] = [f for f in self._index["folders"] if f != clean]
+        self._write_index()
+        return True
+
+    def rename_folder(self, name: str, to: str) -> bool:
+        """给文件夹改名。名字就是身份，所以里面每块白板上记的名字都要跟着改。"""
+        clean = models.sanitize_folder(name)
+        target = models.sanitize_folder(to)
+        if not target or clean not in self._index["folders"]:
+            return False
+        if target == clean:
+            return False
+        if target in self._index["folders"]:
+            return False  # 重名会把两个文件夹并成一个，不如让界面上报错
+        for meta in self.list_metas():
+            if meta.get("folder") == clean:
+                self.edit_meta(meta["id"], folder=target)
+        self._index["folders"] = [target if f == clean else f for f in self._index["folders"]]
+        self._write_index()
+        return True
 
     def get_meta(self, board_id: str) -> Optional[Dict[str, Any]]:
         for meta in self._index["boards"]:
@@ -245,7 +313,26 @@ class BoardStore:
         self.update_meta(meta)
 
     def rename_board(self, board_id: str, name: str) -> bool:
-        """给白板改名。改动要同时落到索引和 ``.wbz`` 里：索引决定列表显示，
+        """给白板改名。"""
+        return self.edit_meta(board_id, name=name if isinstance(name, str) else "")
+
+    def move_board(self, board_id: str, folder: str) -> bool:
+        """把白板放进某个文件夹；``folder`` 是空串就是移出来。
+
+        文件夹只有一层，名字本身就是身份，没有单独的文件夹 id。所以「新建文件夹」
+        就是给某块白板填一个还没人用过的名字，「删除文件夹」就是把里面的白板都移
+        出来。这样不需要一套单独的文件夹存储，索引丢了也能从各块白板的 meta 重建。
+        """
+        clean = models.sanitize_folder(folder)
+        if not self.edit_meta(board_id, folder=clean):
+            return False
+        if clean and clean not in self._index["folders"]:
+            self._index["folders"].append(clean)
+            self._write_index()
+        return True
+
+    def edit_meta(self, board_id: str, **changes: Any) -> bool:
+        """改白板的元数据。改动要同时落到索引和 ``.wbz`` 里：索引决定列表显示，
         ``.wbz`` 里那份是索引丢失后重建的依据，只改一边早晚会对不上。
 
         重写 ``.wbz`` 时笔画还是原来那串 base64，原样搬过去，不重新编解码。
@@ -253,7 +340,7 @@ class BoardStore:
         current = self.get_meta(board_id)
         if current is None:
             return False
-        meta = models.sanitize_meta(dict(current, name=name if isinstance(name, str) else ""))
+        meta = models.sanitize_meta(dict(current, **changes))
         if meta == current:
             return False
         path = self._board_path(board_id)
@@ -264,7 +351,7 @@ class BoardStore:
                 blob = json.dumps(payload, ensure_ascii=False).encode("utf-8")
                 _atomic_write(path, zlib.compress(blob, 6))
             except (OSError, ValueError, zlib.error) as exc:
-                log.error("白板 %s 改名时写文件失败：%s", board_id, exc)
+                log.error("白板 %s 改元数据时写文件失败：%s", board_id, exc)
                 return False
         self.update_meta(meta)
         return True

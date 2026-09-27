@@ -30,7 +30,7 @@ import {
   strokeRadius,
 } from "./stroke.js";
 import { debounce, plainStroke, uid } from "./util.js";
-import { contentBounds, downloadDataURL, exportDataURL, uploadThumb } from "./exporter.js";
+import { contentBounds, downloadDataURL, downloadURL, exportDataURL, uploadThumb } from "./exporter.js";
 
 const UNDO_LIMIT = 200;
 // 写 IndexedDB 会卡主线程（iOS 上首次写事务尤其慢），离最后一次落笔足够远才写。
@@ -319,13 +319,14 @@ class App {
   }
 
   /** 上传一份 PDF / 图片，服务端建好板之后会广播切换，这里不用自己跳。 */
-  async importDoc(file) {
+  async importDoc(file, folder = "") {
     if (this.importing) return;
     this.importing = true;
     const done = this.ui.message(`正在打开 ${file.name}…`, "doc", 60000);
     try {
       await uploadThumb(this.state, this.state.id);
-      const response = await fetch(`/api/doc?name=${encodeURIComponent(file.name)}`, {
+      const query = `name=${encodeURIComponent(file.name)}&folder=${encodeURIComponent(folder)}`;
+      const response = await fetch(`/api/doc?${query}`, {
         method: "POST",
         body: file,
       });
@@ -354,7 +355,8 @@ class App {
         if (path) this.ui.toast("check");
         else if (path === false) this.ui.message("导出失败，日志里有详细原因", "close", 6000);
       } else {
-        location.href = `/api/export/${boardId}`;
+        // 文件名由服务端的 Content-Disposition 决定，这里不写死
+        downloadURL(`/api/export/${boardId}`, "");
         done();
         this.ui.toast("check");
       }
@@ -880,7 +882,7 @@ class App {
           this.state.meta = msg.board;
           this.ui.setMeta(msg.board);
         }
-        this.ui.setBoards(msg.boards || [], this.state.id);
+        this.ui.setBoards(msg.boards || [], this.state.id, msg.folders);
         break;
       default:
         break;
@@ -901,7 +903,7 @@ class App {
       this.ui.setUndoEnabled(false);
     }
     this.applyBoard(msg.board, msg.strokes || [], msg.seq || 0, { keepView: !switched });
-    if (msg.boards) this.ui.setBoards(msg.boards, msg.board.id);
+    if (msg.boards) this.ui.setBoards(msg.boards, msg.board.id, msg.folders);
     this.reapplyPending();
   }
 
@@ -912,7 +914,7 @@ class App {
       this.ui.setMeta(msg.board);
     }
     for (const op of msg.ops || []) this.applyOp(op, { remote: true });
-    if (msg.boards) this.ui.setBoards(msg.boards, msg.board ? msg.board.id : this.state.id);
+    if (msg.boards) this.ui.setBoards(msg.boards, msg.board ? msg.board.id : this.state.id, msg.folders);
     this.renderer.requestFull();
     this.reapplyPending();
     this.saveCache();
@@ -1245,12 +1247,16 @@ class App {
         await uploadThumb(this.state, this.state.id);
         this.net.send({ t: "sel", board: boardId });
       },
-      onNewBoard: async (kind) => {
+      onNewBoard: async (kind, folder = "") => {
         await uploadThumb(this.state, this.state.id);
-        this.net.send({ t: "newboard", kind });
+        this.net.send({ t: "newboard", kind, folder });
       },
       onDeleteBoard: (boardId) => this.net.send({ t: "delboard", board: boardId }),
       onRenameBoard: (boardId, name) => this.net.send({ t: "rename", board: boardId, name }),
+      onMoveBoard: (boardId, folder) => this.net.send({ t: "folder", board: boardId, folder }),
+      onNewFolder: (name) => this.net.send({ t: "newfolder", name }),
+      onDeleteFolder: (name) => this.net.send({ t: "delfolder", name }),
+      onRenameFolder: (name, to) => this.net.send({ t: "renamefolder", name, to }),
       onRemotePermission: async (name, enabled) => {
         const api = nativeApi();
         if (!api || !api.set_remote_permission) return null;
@@ -1265,21 +1271,25 @@ class App {
         this.renderer.requestFull();
         this.net.sendOp({ op: "meta", meta: patch });
       },
-      onNewDoc: (file) => this.importDoc(file),
+      onNewDoc: (file, folder) => this.importDoc(file, folder),
       onExport: async () => {
         if (this.state.kind === "doc") {
           await this.exportDoc();
           return;
         }
-        const dataUrl = exportDataURL(this.state);
-        const api = nativeApi();
         const name = `whiteboard-${new Date().toISOString().slice(0, 10)}.png`;
-        if (api && api.save_png) {
-          const path = await api.save_png(dataUrl, name);
-          if (path) this.ui.toast("check");
-        } else {
-          downloadDataURL(dataUrl, name);
-          this.ui.toast("check");
+        try {
+          const dataUrl = exportDataURL(this.state);
+          const api = nativeApi();
+          if (api && api.save_png) {
+            const path = await api.save_png(dataUrl, name);
+            if (path) this.ui.toast("check");
+          } else {
+            await downloadDataURL(dataUrl, name);
+            this.ui.toast("check");
+          }
+        } catch (err) {
+          this.ui.message(`导出失败：${String(err).slice(0, 80)}`, "close", 6000);
         }
       },
       onProfile: async () => {

@@ -74,11 +74,28 @@ export async function uploadThumb(state, boardId) {
   }
 }
 
-export function downloadDataURL(dataUrl, filename) {
+/**
+ * 触发一次下载。
+ *
+ * 一律用带 download 的链接，不要给 ``location.href`` 赋值：iPad 外壳（WKWebView）
+ * 里那是一次导航，页面会被换走，白板和 WebSocket 一起没了，界面上看到的是一句
+ * 连接断开。带 download 的链接外壳会当成下载，存好之后弹系统的分享面板。
+ */
+export function downloadURL(url, filename) {
   const link = document.createElement("a");
-  link.href = dataUrl;
-  link.download = filename;
+  link.href = url;
+  link.download = filename || "";
+  link.rel = "noopener";
   document.body.append(link);
   link.click();
   link.remove();
+}
+
+/** 导出 PNG。data: 链接在 WKWebView 里下载不了，先转成 blob: 再下。 */
+export async function downloadDataURL(dataUrl, filename) {
+  const blob = await (await fetch(dataUrl)).blob();
+  const url = URL.createObjectURL(blob);
+  downloadURL(url, filename);
+  // 立刻撤销的话有的浏览器还没来得及读，留一分钟再收
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }

@@ -105,6 +105,16 @@ def sanitize_doc(raw: Any) -> Optional[Dict[str, Any]]:
     return {"type": doc_type, "name": name, "ext": ext, "pages": pages}
 
 
+FOLDER_NAME_MAX = 64
+
+
+def sanitize_folder(raw: Any) -> str:
+    """规整文件夹名。不是字符串、去掉首尾空白之后是空串，都当作「没归类」。"""
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip()[:FOLDER_NAME_MAX]
+
+
 def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     """把（可能来自局域网客户端的）白板元数据收敛到合法范围。
 
@@ -130,6 +140,10 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
         name = ""
     name = name.strip()
 
+    # 文件夹只有一层，白板记的是文件夹的名字，没有单独的文件夹 id。空串表示
+    # 没归类。名字列表另外存在索引里，见 store.BoardStore.folders。
+    folder = sanitize_folder(raw.get("folder", ""))
+
     board_id = raw.get("id", "")
     if not isinstance(board_id, str) or not _ID_RE.match(board_id):
         board_id = new_id()
@@ -151,6 +165,9 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
         "created": created,
         "updated": updated,
     }
+    # 没归类的白板不带这个字段，省得每块白板的元数据里都多一个空串
+    if folder:
+        meta["folder"] = folder
     if doc is not None:
         meta["doc"] = doc
     return meta

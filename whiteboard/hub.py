@@ -200,6 +200,7 @@ class Hub:
             "seq": runtime.seq,
             "epoch": runtime.epoch,
             "boards": self.store.list_metas(),
+            "folders": self.store.folders(),
         }
 
     def select_board(self, board_id: str) -> bool:
@@ -227,17 +228,62 @@ class Hub:
 
     def rename_board(self, board_id: str, name: str) -> bool:
         """给任意一块白板改名，不必是当前这块。改名不算「编辑」，不动 updated。"""
+        return self._edit_meta(board_id, name=name if isinstance(name, str) else "")
+
+    def move_board(self, board_id: str, folder: str) -> bool:
+        """把白板放进某个文件夹，空串是移出来。和改名一样不动 updated。"""
+        clean = models.sanitize_folder(folder)
+        if not self._edit_meta(board_id, folder=clean):
+            return False
+        # 在「归入文件夹」里直接输一个新名字就等于新建，名字要登记进名单，
+        # 否则这个文件夹只写在白板上，界面上的文件夹列表里没有它。
+        if clean:
+            self.store.create_folder(clean)
+        return True
+
+    def _edit_meta(self, board_id: str, **changes: Any) -> bool:
         runtime = self._boards.get(board_id)
         if runtime is None:
-            return self.store.rename_board(board_id, name)
+            return self.store.edit_meta(board_id, **changes)
         # 已经在内存里的那块不能直接写文件：自动保存会拿内存里的 meta 覆盖回去。
-        merged = models.sanitize_meta(dict(runtime.meta, name=name if isinstance(name, str) else ""))
+        merged = models.sanitize_meta(dict(runtime.meta, **changes))
         if merged == runtime.meta:
             return False
         runtime.meta = merged
         runtime.dirty = True  # 索引先更新，文件交给自动保存
         self.store.update_meta(merged)
         return True
+
+    # ------------------------------------------------------------- 文件夹
+
+    def create_folder(self, name: str) -> str:
+        return self.store.create_folder(name)
+
+    def delete_folder(self, name: str) -> bool:
+        """删文件夹不删白板：里面的白板先移出来，再把名字从名单里去掉。"""
+        clean = models.sanitize_folder(name)
+        if clean not in self.store.folders():
+            return False
+        # 已经载入内存的那几块要走 Hub 自己这条路，否则自动保存会把改动覆盖回去
+        for board_id, runtime in self._boards.items():
+            if runtime.meta.get("folder") == clean:
+                self._edit_meta(board_id, folder="")
+        return self.store.delete_folder(clean)
+
+    def rename_folder(self, name: str, to: str) -> bool:
+        """给文件夹改名。名字就是身份，里面每块白板上记的名字都要跟着改。"""
+        clean = models.sanitize_folder(name)
+        target = models.sanitize_folder(to)
+        folders = self.store.folders()
+        # 先把不成立的情况挡掉：改到一半才发现改不了的话，内存里那几块已经动过了
+        if not target or target == clean or clean not in folders or target in folders:
+            return False
+        # 这里不能走 move_board：它会把新名字当成一个新文件夹记进名单，
+        # 名单里多出一个同名的，下面的改名就成了「改到一个已经存在的名字」。
+        for board_id, runtime in self._boards.items():
+            if runtime.meta.get("folder") == clean:
+                self._edit_meta(board_id, folder=target)
+        return self.store.rename_folder(clean, target)
 
     def strokes_of(self, board_id: str) -> List[Dict[str, Any]]:
         """导出用：已经载入内存的用内存里的，其余的从磁盘读。"""

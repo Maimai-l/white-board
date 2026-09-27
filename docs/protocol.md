@@ -21,8 +21,12 @@
 {"t":"live","id":"<笔画 id>","phase":"m","p":[x,y,压感, ...]}
 {"t":"live","id":"<笔画 id>","phase":"e"}      // 结束；"x" 表示这一笔作废
 {"t":"sel","board":"<白板 id>"}                // 仅 Mac
-{"t":"newboard","kind":"board|note"} / {"t":"delboard","board":"<白板 id>"}   // 仅 Mac
-                                             // 文档板不走这里，走 POST /api/doc
+{"t":"newboard","kind":"board|note","folder":"数学"} / {"t":"delboard","board":"<白板 id>"}  // 仅 Mac
+                                             // folder 可省；文档板不走这里，走 POST /api/doc
+{"t":"rename","board":"<白板 id>","name":"线性代数"}            // 仅 Mac
+{"t":"folder","board":"<白板 id>","folder":"数学"}              // 仅 Mac，空串是移出文件夹
+{"t":"newfolder","name":"数学"} / {"t":"delfolder","name":"数学"}          // 仅 Mac
+{"t":"renamefolder","name":"数学","to":"线性代数"}                         // 仅 Mac
 {"t":"ping","ts":1730000000000}
 ```
 
@@ -35,8 +39,13 @@
 {"t":"op","op":{...,"seq":43},"src":"<来源客户端 id>"}
 {"t":"ack","cid":"<本地操作 id>","seq":43,"op":{...}}     // 回执，带上服务端分配的层叠序号
 {"t":"live", ..., "src":"<来源客户端 id>"}
+{"t":"boards","boards":[...],"folders":["数学"],"board":{...}}
+                             // 只有列表变了（改名、归类、动文件夹）：不重发笔画
 {"t":"pong","ts":...}
 ```
+
+`init` / `sync` / `switch` / `boards` 都带 `folders`，就是现有的文件夹名单。
+文件夹没有单独的 id，名字就是身份，见 `docs/format.md`。
 
 ## 操作
 
@@ -97,17 +106,20 @@ WebSocket 之外还有几条普通的 HTTP 路由，文档板（beta）用的是
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
 | GET | `/api/info` | 主机名、端口、候选地址、当前在线客户端 |
-| GET | `/api/boards` | 白板列表 |
+| GET | `/api/boards` | 白板列表和文件夹名单 |
 | GET / POST | `/api/thumb/{board}` | 缩略图；文档板没有上传过时直接返回原件首页 |
 | POST | `/api/debug` | 客户端上报的卡顿 / 报错，打到服务端日志 |
-| POST | `/api/doc?name=<文件名>` | 上传 PDF / 图片新建文档板，请求体就是文件本身 |
+| POST | `/api/doc?name=<文件名>&folder=<文件夹>` | 上传 PDF / 图片新建文档板，请求体就是文件本身；`folder` 可省 |
 | GET | `/api/doc/{board}/{页码}?w=<像素宽>` | 渲染好的页面位图（JPEG / PNG） |
-| GET | `/api/export/{board}` | 笔迹合进原件后的 PDF / 图片 |
+| GET | `/api/export/{board}` | 笔迹合进原件后的 PDF / 图片，带 `Content-Disposition: attachment` |
 
 - 上传按块读完请求体（`StreamReader.read(n)` 只保证「至多 n 字节」），上限 256 MB。
 - 页面位图带 ETag，`Cache-Control: immutable`：原件不会变，客户端可以一直缓存。
 - 渲染串在一把锁后面：pdfium 不是线程安全的，两个线程同时渲染会直接把进程带走。
 - 新建文档板之后服务端主动广播一条 `switch`，iPad 不用自己轮询。
+- 导出在页面上一律用带 `download` 的链接触发，不给 `location.href` 赋值：iPad 外壳
+  是一个 WKWebView，赋值就是一次导航，页面连同 WebSocket 一起被换走（见
+  `docs/ipad-shell.md`）。
 
 ## mDNS
 
@@ -124,4 +136,5 @@ WebSocket 之外还有几条普通的 HTTP 路由，文档板（beta）用的是
 - 客户端再用 `navigator.maxTouchPoints` 校正一次（iPadOS 的 Safari 默认报 Mac 的 UA）。
 - URL 上的 `?role=mac` / `?role=ipad` 优先级最高，pywebview 窗口用的就是它。
 - 白板列表、背景、存储目录这些只在 `mac` 角色下出现；服务端对
-  `sel` / `newboard` / `delboard` / `meta` 也只接受来自 `mac` 的请求。
+  `sel` / `newboard` / `delboard` / `rename` / `folder` / `newfolder` / `delfolder` /
+  `renamefolder` / `meta` 也只接受来自 `mac` 的请求。

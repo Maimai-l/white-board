@@ -120,6 +120,42 @@ def test_rename_loaded_board_survives_autosave(tmp_path):
     assert BoardStore(tmp_path).load_board(board_id)[0]["name"] == "线性代数"
 
 
+def test_deleting_or_renaming_a_folder_reaches_loaded_boards(tmp_path):
+    """改文件夹要把内存里那几块也改到，否则自动保存会把文件夹写回去。"""
+    store = BoardStore(tmp_path)
+    hub = Hub(store)
+    board_id = hub.current_id
+    hub.board(board_id).apply({"op": "add", "strokes": [stroke("a")]})  # 载入内存
+    hub.move_board(board_id, "数学")
+
+    assert hub.rename_folder("数学", "线性代数") is True
+    assert hub.rename_folder("线性代数", "线性代数") is False
+    hub.save_all()
+    assert BoardStore(tmp_path).load_board(board_id)[0]["folder"] == "线性代数"
+
+    assert hub.delete_folder("线性代数") is True
+    assert hub.store.folders() == []
+    hub.save_all()
+    assert "folder" not in BoardStore(tmp_path).load_board(board_id)[0]
+
+
+def test_moving_a_loaded_board_into_a_folder_survives_autosave(tmp_path):
+    """和改名一样：内存里那块不能直接写文件，否则自动保存会把文件夹覆盖掉。"""
+    store = BoardStore(tmp_path)
+    hub = Hub(store)
+    board_id = hub.current_id
+    hub.board(board_id).apply({"op": "add", "strokes": [stroke("a")]})
+
+    assert hub.move_board(board_id, "数学") is True
+    assert store.get_meta(board_id)["folder"] == "数学"  # 索引立刻就对
+    hub.save_all()
+    assert BoardStore(tmp_path).load_board(board_id)[0]["folder"] == "数学"
+
+    assert hub.move_board(board_id, "") is True
+    hub.save_all()
+    assert "folder" not in BoardStore(tmp_path).load_board(board_id)[0]
+
+
 def test_rename_board_that_is_not_loaded(tmp_path):
     store = BoardStore(tmp_path)
     hub = Hub(store)

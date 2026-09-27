@@ -4,13 +4,15 @@
 // 描述文件）、导出与缩放。
 //
 // 工具栏有两套：默认那条是一排图标，位置（上 / 下）由 toolpicker.js 的 ToolDock 管；
-// 触摸设备上默认走 pkpicker.js 接进来的那条 PencilKit 工具盘，普通那条收起来；
-// 在笔具盘的「更多」里可以换回普通工具栏，选择记在本机。
+// 触摸设备上走 pkpicker.js 接进来的那条 PencilKit 工具盘，普通那条收起来。
+// 触摸设备上没有换回普通工具栏的入口，颜色面板里那个「笔具盘」开关是留给
+// 早先关掉过笔具盘的机器回来用的（选择记在本机）。
 
 import { icon } from "./icons.js";
 import { loadFingerDraw } from "./input.js";
 import { renderNotes } from "./notes.js";
 import { loadPicker } from "./pkpicker.js";
+import { inShell, shellCommand } from "./shell.js";
 import { ToolDock } from "./toolpicker.js";
 import { el, clamp } from "./util.js";
 
@@ -69,10 +71,10 @@ function boardDate(seconds) {
   );
 }
 
-/** 搜索匹配的范围：显示出来的名字，加上文档板的原件文件名。 */
+/** 搜索匹配的范围：显示出来的名字、文件夹名，加上文档板的原件文件名。 */
 function boardHaystack(board) {
   const doc = board.kind === "doc" && board.doc ? board.doc.name || "" : "";
-  return `${boardLabel(board)} ${board.name || ""} ${doc}`.toLowerCase();
+  return `${boardLabel(board)} ${board.name || ""} ${board.folder || ""} ${doc}`.toLowerCase();
 }
 
 /** 每件工具各记一套颜色和粗细，换笔不会把上一支的设置带过去。 */
@@ -152,6 +154,8 @@ export class UI {
     this.tool = loadTool();
     this.meta = null;
     this.boards = [];
+    this.folders = [];
+    this.openFolder = ""; // 空串表示停在最外面那一层
     this.boardQuery = "";
     this.info = null;
     this.popover = null;
@@ -198,7 +202,8 @@ export class UI {
   buildCorner() {
     const buttons = [];
     if (this.may("manage")) buttons.push(iconButton("boards", "白板", () => this.openBoards()));
-    if (this.may("settings") || this.native) {
+    // 外壳里这一项还管着「换一台 Mac」，所以没有设置权限也要给
+    if (this.may("settings") || this.native || inShell()) {
       buttons.push(iconButton("settings", "白板设置", () => this.openSettings()));
     }
     if (this.may("export")) {
@@ -862,8 +867,11 @@ export class UI {
     return sheet;
   }
 
-  setBoards(boards, currentId) {
+  setBoards(boards, currentId, folders) {
     this.boards = boards;
+    if (folders) this.folders = folders;
+    // 正在看的文件夹被别处删掉了，就退回最外面那一层，否则会停在一个空壳里
+    if (this.openFolder && !this.folders.includes(this.openFolder)) this.openFolder = "";
     this.currentBoardId = currentId;
     if (this.gallery) this.renderBoards();
   }
@@ -878,6 +886,9 @@ export class UI {
   /** 打开选择界面前先把当前白板的缩略图刷新一遍，免得看到的是旧图。 */
   async openBoards() {
     this.boardQuery = "";
+    // 打开时停在当前白板所在的那一层，否则归过类的白板一打开界面就看不见了
+    const current = this.boards.find((board) => board.id === this.currentBoardId);
+    this.openFolder = (current && current.folder) || "";
     if (this.actions.onBoardsOpen) await this.actions.onBoardsOpen();
     this.renderBoards();
   }
@@ -913,17 +924,22 @@ export class UI {
       },
     });
 
-    this.boardGrid = el("div", { class: "gallery-grid" });
-    const gallery = el("div", { class: "gallery" }, [
-      el("div", { class: "gallery-head" }, [
-        el("label", { class: "search-box" }, [
-          el("span", { class: "search-icon", html: icon("search", 18) }),
-          search,
-        ]),
-        iconButton("close", "关闭", () => this.closeGallery()),
+    const head = el("div", { class: "gallery-head" });
+    // 进了文件夹，搜索框前面多一个返回；搜索本身始终在全部白板里找
+    if (this.openFolder) head.append(iconButton("back", "返回", () => this.leaveFolder()));
+    head.append(
+      el("label", { class: "search-box" }, [
+        el("span", { class: "search-icon", html: icon("search", 18) }),
+        search,
       ]),
-      this.boardGrid,
-    ]);
+      iconButton("close", "关闭", () => this.closeGallery())
+    );
+
+    this.boardGrid = el("div", { class: "gallery-grid" });
+    const gallery = el("div", { class: "gallery" }, [head]);
+    this.folderBarNode = this.openFolder ? this.folderBar(this.openFolder) : null;
+    if (this.folderBarNode) gallery.append(this.folderBarNode);
+    gallery.append(this.boardGrid);
     this.root.append(gallery);
     this.gallery = gallery;
     this.fillBoardGrid();
@@ -935,32 +951,131 @@ export class UI {
     if (caret && back.setSelectionRange) back.setSelectionRange(caret[0], caret[1]);
   }
 
-  /** 只重铺格子。搜索时不碰上面那条，输入框和输入法状态才不会被打断。 */
+  /** 现有的文件夹名，按名字排序。空文件夹也在里面，所以名单是服务端给的。 */
+  folderNames() {
+    return [...this.folders].sort((a, b) => a.localeCompare(b, "zh"));
+  }
+
+  enterFolder(name) {
+    this.openFolder = name;
+    this.boardQuery = "";
+    this.renderBoards();
+  }
+
+  leaveFolder() {
+    this.openFolder = "";
+    this.boardQuery = "";
+    this.renderBoards();
+  }
+
+  /**
+   * 只重铺格子。搜索时不碰上面那条，输入框和输入法状态才不会被打断。
+   *
+   * 最外面那一层：文件夹排在前面，后面是没归类的白板。进了文件夹就只剩里面那些。
+   * 搜索是在全部白板里找，结果平铺，不分文件夹，也不放「新建」，免得点错。
+   */
   fillBoardGrid() {
     const grid = this.boardGrid;
     if (!grid) return;
     grid.textContent = "";
     const query = this.boardQuery.trim().toLowerCase();
-    const matched = query ? this.boards.filter((b) => boardHaystack(b).includes(query)) : this.boards;
-
-    for (const board of matched) grid.append(this.boardItem(board));
-
+    // 搜索是在全部白板里找的，这时候顶上那条文件夹说明反而对不上，先藏起来
+    if (this.folderBarNode) this.folderBarNode.style.display = query ? "none" : "";
     if (query) {
-      if (!matched.length) {
-        grid.append(el("p", { class: "gallery-empty", text: "没有匹配的白板" }));
-      }
-      return; // 搜索结果里不放「新建」，免得点错
+      const matched = this.boards.filter((board) => boardHaystack(board).includes(query));
+      for (const board of matched) grid.append(this.boardItem(board));
+      if (!matched.length) grid.append(el("p", { class: "gallery-empty", text: "没有匹配的白板" }));
+      return;
+    }
+    if (!this.openFolder) {
+      for (const name of this.folderNames()) grid.append(this.folderItem(name));
+    }
+    for (const board of this.boards) {
+      if ((board.folder || "") === this.openFolder) grid.append(this.boardItem(board));
     }
     grid.append(
       el("div", { class: "board-item" }, [
         el("button", {
           class: "board-card add",
           html: icon("add", 32),
-          title: "新建白板",
+          title: "新建",
           onclick: () => this.chooseKind(),
         }),
       ])
     );
+  }
+
+  /** 文件夹在格子里就是一块卡片：点开进去，名字可以直接改。 */
+  folderItem(name) {
+    const count = this.boards.filter((board) => board.folder === name).length;
+    const card = el(
+      "div",
+      {
+        class: "board-card folder",
+        title: `打开文件夹：${name}`,
+        onclick: () => this.enterFolder(name),
+      },
+      [
+        el("span", { class: "folder-card-icon", html: icon("folder", 56) }),
+        el("span", { class: "folder-card-count", text: String(count) }),
+      ]
+    );
+    return el("div", { class: "board-item" }, [card, el("div", { class: "board-meta" }, [this.folderName(name)])]);
+  }
+
+  /** 文件夹的名字就是它的身份，改名等于把里面每块白板上记的名字一起改掉。 */
+  folderName(name) {
+    const input = el("input", {
+      class: "board-name folder",
+      type: "text",
+      value: name,
+      title: "重命名文件夹",
+      spellcheck: "false",
+      maxlength: "64",
+      "data-focus-key": `folder:${name}`,
+      onclick: (event) => event.stopPropagation(),
+      onkeydown: (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          input.blur();
+        } else if (event.key === "Escape") {
+          event.stopPropagation();
+          input.value = name;
+          input.blur();
+        }
+      },
+      onchange: () => {
+        const next = input.value.trim();
+        input.value = next || name;
+        if (!next || next === name) return;
+        if (this.folders.includes(next)) {
+          input.value = name;
+          this.message("已经有同名的文件夹了", "close", 4000);
+          return;
+        }
+        if (this.openFolder === name) this.openFolder = next;
+        this.actions.onRenameFolder(name, next);
+      },
+    });
+    return input;
+  }
+
+  /** 进了文件夹之后，搜索框下面那一行：名字、装了几块、删除。 */
+  folderBar(name) {
+    return el("div", { class: "folder-bar" }, [
+      el("span", { class: "folder-bar-icon", html: icon("folder", 20) }),
+      this.folderName(name),
+      el("span", {
+        class: "folder-bar-count",
+        text: `${this.boards.filter((board) => board.folder === name).length} 块`,
+      }),
+      iconButton("trash", "删除文件夹", () => {
+        this.confirm("trash", "删除文件夹？里面的白板会移到外面", () => {
+          this.openFolder = "";
+          this.actions.onDeleteFolder(name);
+        });
+      }),
+    ]);
   }
 
   /** 一块白板：缩略图 + 可以直接改的名字 + 最后一次写的时间。 */
@@ -1027,10 +1142,20 @@ export class UI {
       },
     });
 
+    // 文件夹按钮放在名字这一行，不放卡片上：卡片上那个删除按钮是 hover 才出现的，
+    // 触摸屏上按不到。
+    const folder = el("button", {
+      class: `board-folder${board.folder ? " on" : ""}`,
+      html: icon("folder", 17),
+      title: board.folder ? `文件夹：${board.folder}` : "归入文件夹",
+      onclick: () => this.chooseFolder(board),
+    });
+
     return el("div", { class: "board-item" }, [
       card,
       el("div", { class: "board-meta" }, [
         name,
+        folder,
         el("span", {
           class: "board-date",
           text: boardDate(board.updated),
@@ -1038,6 +1163,73 @@ export class UI {
         }),
       ]),
     ]);
+  }
+
+  /**
+   * 归入文件夹。文件夹只有一层，名字本身就是身份：点现成的名字是移进去，输入一个
+   * 没人用过的名字就等于新建；最后一块白板移走之后，这个文件夹自己就不在了。
+   */
+  chooseFolder(board) {
+    const scrim = el("div", { class: "scrim", onclick: () => scrim.remove() });
+    const move = (folder) => {
+      scrim.remove();
+      if (folder === (board.folder || "")) return;
+      this.actions.onMoveBoard(board.id, folder);
+    };
+    const row = (folder, label, iconName) =>
+      el(
+        "button",
+        {
+          class: `folder-row${folder === (board.folder || "") ? " active" : ""}`,
+          onclick: () => move(folder),
+        },
+        [
+          el("span", { class: "folder-row-icon", html: icon(iconName, 18) }),
+          el("span", { class: "folder-row-name", text: label }),
+        ]
+      );
+    const rows = [row("", "不归类", "boards")];
+    for (const name of this.folderNames()) rows.push(row(name, name, "folder"));
+
+    // 不自动聚焦：iPad 上一开就把键盘顶上来，现成的文件夹反而看不见了
+    const input = el("input", {
+      class: "folder-new",
+      type: "text",
+      placeholder: "新文件夹",
+      spellcheck: "false",
+      maxlength: "64",
+      onkeydown: (event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          scrim.remove();
+          return;
+        }
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        const next = input.value.trim();
+        if (next) move(next);
+      },
+    });
+    const dialog = el("div", { class: "dialog folders" }, [
+      el("div", { class: "folder-list" }, rows),
+      el("label", { class: "folder-add" }, [
+        el("span", { class: "search-icon", html: icon("add", 18) }),
+        input,
+      ]),
+    ]);
+    dialog.addEventListener("click", (event) => event.stopPropagation());
+    scrim.append(dialog);
+    this.root.append(scrim);
+  }
+
+  /** 现在这一层里还没用过的文件夹名，用来给新建的文件夹起个默认名。 */
+  freeFolderName() {
+    const base = "未命名文件夹";
+    if (!this.folders.includes(base)) return base;
+    for (let n = 2; ; n += 1) {
+      const name = `${base} ${n}`;
+      if (!this.folders.includes(name)) return name;
+    }
   }
 
   /** 弹一个文件选择框，选中的 PDF / 图片交给上层去建板。 */
@@ -1050,7 +1242,7 @@ export class UI {
     input.addEventListener("change", () => {
       const file = input.files && input.files[0];
       input.remove();
-      if (file) this.actions.onNewDoc(file);
+      if (file) this.actions.onNewDoc(file, this.openFolder);
     });
     this.root.append(input);
     input.click();
@@ -1062,7 +1254,8 @@ export class UI {
     const pick = (kind) => {
       scrim.remove();
       this.closeGallery();
-      this.actions.onNewBoard(kind);
+      // 在文件夹里按的「新建」，新白板就落在这个文件夹里
+      this.actions.onNewBoard(kind, this.openFolder);
     };
     const dialog = el("div", { class: "dialog kinds" }, [
       el("button", {
@@ -1083,11 +1276,27 @@ export class UI {
         title: "打开 PDF / 图片，直接在上面写（也可以把文件拖进窗口）",
         onclick: () => {
           scrim.remove();
+          const folder = this.openFolder;
           this.closeGallery();
+          this.openFolder = folder; // 关了界面也要记住在哪个文件夹里按的
           this.pickDoc();
         },
       }),
     ]);
+    // 文件夹只有一层，所以只有在最外面那一层才给这一项
+    if (!this.openFolder) {
+      dialog.append(
+        el("button", {
+          class: "kind-tile",
+          html: icon("folder", 48),
+          title: "新建文件夹",
+          onclick: () => {
+            scrim.remove();
+            this.actions.onNewFolder(this.freeFolderName());
+          },
+        })
+      );
+    }
     dialog.addEventListener("click", (event) => event.stopPropagation());
     scrim.append(dialog);
     this.root.append(scrim);
@@ -1127,6 +1336,10 @@ export class UI {
     if (!isDoc && this.may("settings")) {
       groups.push(this.settingsGroup("背景", [this.backgroundOptions()]));
     }
+    // 在 iPad 外壳里才有这一段：局域网里有好几台 Mac 时，从这里换一台连。
+    if (inShell()) {
+      groups.push(this.settingsGroup("Mac", [this.macCard()]));
+    }
     // 选目录要开本地文件对话框，只有 pywebview 窗口里才有；别的设备看不到这两段。
     if (this.native) {
       groups.push(this.settingsGroup("存储目录", [this.dataDirCard()]));
@@ -1145,6 +1358,18 @@ export class UI {
     return el("section", { class: "group" }, [
       el("h2", { class: "group-title", text: title }),
       ...children,
+    ]);
+  }
+
+  /** 外壳里多的那一段：现在连的是哪台 Mac，以及换一台。 */
+  macCard() {
+    const info = this.info || {};
+    const host = info.hostname || "";
+    return el("div", { class: "card" }, [
+      el("div", { class: "addr", text: host ? `${host}:${info.port || ""}` : "未知" }),
+      iconButton("refresh", "换一台 Mac", () => {
+        if (shellCommand("rediscover")) this.closeSheet();
+      }),
     ]);
   }
 

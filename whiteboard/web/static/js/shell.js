@@ -14,6 +14,23 @@ function shellHandler() {
   return (handlers && handlers.whiteboard) || null;
 }
 
+/** 页面是不是跑在 iPad 外壳里。 */
+export function inShell() {
+  return shellHandler() !== null;
+}
+
+/** 给外壳发一条命令（目前只有「换一台 Mac」）。不在外壳里就什么都不做。 */
+export function shellCommand(type) {
+  const handler = shellHandler();
+  if (!handler) return false;
+  try {
+    handler.postMessage({ type });
+  } catch (err) {
+    return false;
+  }
+  return true;
+}
+
 /** 外壳报来的接口版本在不在网页认得的范围里。 */
 export function bridgeSupported(bridge) {
   return Number.isInteger(bridge) && bridge >= SHELL_BRIDGE[0] && bridge <= SHELL_BRIDGE[1];

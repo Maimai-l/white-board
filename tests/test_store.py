@@ -131,6 +131,80 @@ def test_rename_to_empty_falls_back_to_the_default_name(tmp_path):
     assert store.get_meta(meta["id"])["name"] == ""
 
 
+def test_a_folder_survives_losing_the_index(tmp_path):
+    """文件夹名只存在白板自己的 meta 里和索引里两份，索引重建时要能从 .wbz 找回来。"""
+    store = BoardStore(tmp_path)
+    meta = store.create_board()
+    store.save_board(meta, make_strokes())
+    assert store.move_board(meta["id"], "  数学  ") is True  # 首尾空白要去掉
+    assert store.get_meta(meta["id"])["folder"] == "数学"
+
+    (tmp_path / "index.json").unlink()
+    rebuilt = BoardStore(tmp_path)
+    assert rebuilt.get_meta(meta["id"])["folder"] == "数学"
+
+
+def test_moving_a_board_out_of_a_folder_clears_it(tmp_path):
+    """没有单独的文件夹记录：里面的白板都移走，这个文件夹自己就不在了。"""
+    store = BoardStore(tmp_path)
+    meta = store.create_board()
+    assert store.move_board(meta["id"], "数学") is True
+    assert store.move_board(meta["id"], "数学") is False  # 已经在里面了
+    assert store.move_board(meta["id"], "") is True
+    assert "folder" not in store.get_meta(meta["id"])
+    assert store.move_board("没有这块", "数学") is False
+
+
+def test_an_empty_folder_only_lives_in_the_index(tmp_path):
+    """空文件夹没有白板可依附，索引丢了就找不回来；装着白板的那些要能重建出来。"""
+    store = BoardStore(tmp_path)
+    assert store.create_folder(" 数学 ") == "数学"
+    assert store.create_folder("数学") == ""  # 重名不再建一个
+    assert store.create_folder("   ") == ""
+    meta = store.create_board()
+    store.move_board(meta["id"], "物理")
+    assert store.folders() == ["数学", "物理"]  # 归类时顺手把名字记进名单
+
+    (tmp_path / "index.json").unlink()
+    rebuilt = BoardStore(tmp_path)
+    assert rebuilt.folders() == ["物理"]
+
+
+def test_renaming_a_folder_moves_everything_in_it(tmp_path):
+    store = BoardStore(tmp_path)
+    first = store.create_board()
+    second = store.create_board()
+    store.move_board(first["id"], "数学")
+    store.move_board(second["id"], "物理")
+
+    assert store.rename_folder("数学", " 线性代数 ") is True
+    assert store.get_meta(first["id"])["folder"] == "线性代数"
+    assert store.get_meta(second["id"])["folder"] == "物理"  # 别的文件夹没动
+    assert store.rename_folder("线性代数", "物理") is False  # 重名会把两个并成一个
+    assert store.rename_folder("查无此夹", "随便") is False
+    assert store.rename_folder("线性代数", "  ") is False
+
+
+def test_deleting_a_folder_does_not_delete_the_boards(tmp_path):
+    store = BoardStore(tmp_path)
+    meta = store.create_board()
+    store.move_board(meta["id"], "数学")
+    assert store.delete_folder("数学") is True
+    assert store.delete_folder("数学") is False
+    assert store.folders() == []
+    assert store.get_meta(meta["id"]) is not None
+    assert "folder" not in store.get_meta(meta["id"])
+
+
+def test_renaming_a_board_keeps_its_folder(tmp_path):
+    store = BoardStore(tmp_path)
+    meta = store.create_board()
+    store.move_board(meta["id"], "数学")
+    store.rename_board(meta["id"], "第三章")
+    after = store.get_meta(meta["id"])
+    assert (after["name"], after["folder"]) == ("第三章", "数学")
+
+
 def test_cut_ends_survive_a_save_and_load(tmp_path):
     """橡皮切出来的端头标记要跟着笔画落盘，不然重开一次板切口又变回圆笔尖。"""
     store = BoardStore(tmp_path)

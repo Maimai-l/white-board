@@ -248,7 +248,9 @@ async def handle_recording(request: web.Request) -> web.Response:
 async def handle_boards(request: web.Request) -> web.Response:
     require(request, "manage")
     hub: Hub = request.app[HUB_KEY]
-    return web.json_response({"boards": hub.store.list_metas(), "current": hub.current_id})
+    return web.json_response(
+        {"boards": hub.store.list_metas(), "folders": hub.store.folders(), "current": hub.current_id}
+    )
 
 
 _BLANK_THUMB = profile._png(3, 2, [bytearray(b"\xff" * 12) for _ in range(2)])
@@ -316,6 +318,8 @@ async def handle_doc_upload(request: web.Request) -> web.Response:
     require(request, "manage")  # 建板算管理操作
     hub: Hub = request.app[HUB_KEY]
     filename = request.query.get("name") or request.headers.get("X-Filename") or ""
+    # 在某个文件夹里导入的原件，新建出来的文档板就落在那个文件夹里
+    folder = models.sanitize_folder(request.query.get("folder"))
     body = await _read_body(request, MAX_DOC_BYTES)
     try:
         meta = await asyncio.to_thread(hub.import_doc, body, filename)
@@ -325,6 +329,9 @@ async def handle_doc_upload(request: web.Request) -> web.Response:
     except Exception as exc:  # noqa: BLE001 - 坏文件不该把服务端带崩
         log.exception("导入文档出错")
         raise web.HTTPBadRequest(text="文件读不出来") from exc
+    if folder and folder in hub.store.folders():
+        hub.move_board(meta["id"], folder)
+        meta = hub.store.get_meta(meta["id"]) or meta
     await hub.broadcast({"t": "switch", **hub.snapshot()})
     return web.json_response({"board": meta})
 
@@ -475,6 +482,10 @@ class _Session:
             "newboard": self._new_board,
             "delboard": self._del_board,
             "rename": self._rename,
+            "folder": self._folder,
+            "newfolder": self._new_folder,
+            "delfolder": self._del_folder,
+            "renamefolder": self._rename_folder,
             "ping": self._ping,
         }.get(kind)
         if handler is not None:
@@ -516,6 +527,7 @@ class _Session:
                 "data_dir": str(config.data_dir),
             },
             "boards": self.hub.store.list_metas(),
+            "folders": self.hub.store.folders(),
             "board": dict(runtime.meta),
             "seq": runtime.seq,
             "epoch": runtime.epoch,
@@ -577,7 +589,11 @@ class _Session:
         if not self._may("manage"):
             return
         kind = msg.get("kind")
-        self.hub.create_board(kind if kind in models.KINDS else "board")
+        # 在某个文件夹里按的「新建」，新白板就落在那个文件夹里
+        folder = models.sanitize_folder(msg.get("folder"))
+        meta = self.hub.create_board(kind if kind in models.KINDS else "board")
+        if folder and folder in self.hub.store.folders():
+            self.hub.move_board(meta["id"], folder)
         await self._broadcast_switch()
 
     async def _rename(self, msg: Dict[str, Any]) -> None:
@@ -590,10 +606,50 @@ class _Session:
             return
         if not self.hub.rename_board(board_id, name):
             return
+        await self._broadcast_boards()
+
+    async def _folder(self, msg: Dict[str, Any]) -> None:
+        """把白板放进文件夹，或者移出来（``folder`` 是空串）。同样只广播列表。"""
+        if not self._may("manage"):
+            return
+        board_id = msg.get("board")
+        folder = msg.get("folder")
+        if not isinstance(board_id, str) or not isinstance(folder, str):
+            return
+        if not self.hub.move_board(board_id, folder):
+            return
+        await self._broadcast_boards()
+
+    async def _new_folder(self, msg: Dict[str, Any]) -> None:
+        """新建一个空文件夹。空文件夹只有索引里有记录，所以必须单独有这一条。"""
+        if not self._may("manage"):
+            return
+        if not self.hub.create_folder(msg.get("name")):
+            return
+        await self._broadcast_boards()
+
+    async def _del_folder(self, msg: Dict[str, Any]) -> None:
+        """删文件夹不删白板：里面的白板移到没归类那一段。"""
+        if not self._may("manage"):
+            return
+        if not self.hub.delete_folder(msg.get("name")):
+            return
+        await self._broadcast_boards()
+
+    async def _rename_folder(self, msg: Dict[str, Any]) -> None:
+        if not self._may("manage"):
+            return
+        if not self.hub.rename_folder(msg.get("name"), msg.get("to")):
+            return
+        await self._broadcast_boards()
+
+    async def _broadcast_boards(self) -> None:
+        """只刷白板列表：改的可能不是当前这块，没必要让所有人重载笔画。"""
         await self.hub.broadcast(
             {
                 "t": "boards",
                 "boards": self.hub.store.list_metas(),
+                "folders": self.hub.store.folders(),
                 "board": dict(self.hub.board().meta),
             }
         )

@@ -815,16 +815,21 @@ function makeClass(Base) {
       return { x: (this.W - w) / 2, y: this.H - h - 20, w, h, r };
     }
 
-    /** 「更多」菜单里补上白板自己的两项。 */
+    /**
+     * 「更多」菜单里补上白板自己的一项：清空白板。
+     *
+     * 以前这里还有一行「换回普通工具栏」。触摸设备上这条笔具盘就是唯一的工具栏，
+     * 那一行去掉了；接这条消息的代码（``data-wb="leave"`` 和 ``onLeave``）留着没删，
+     * 真要再放出来的话把这一行加回去就行。
+     */
     _popHTML(kind) {
       const html = super._popHTML(kind);
       if (kind !== "more") return html;
       // 清空白板是一项单独的权限，白板那边没给就别把这一行画出来
       const rows =
-        (this.allowClear === false
+        this.allowClear === false
           ? ""
-          : `<button type="button" class="pk-row" data-wb="clear"><span>清空白板</span></button>`) +
-        `<button type="button" class="pk-row" data-wb="leave"><span>换回普通工具栏</span></button>`;
+          : `<button type="button" class="pk-row" data-wb="clear"><span>清空白板</span></button>`;
       return html.replace(/<\/div>$/, rows + "</div>");
     }
 

@@ -7,7 +7,7 @@ import WebKit
 /// 外壳只提供输入和平台服务，不包含白板逻辑（docs/ipad-shell.md 1.2 节）：笔迹、
 /// 同步、橡皮、界面都在 Mac 提供的网页里，Mac 端更新之后 iPad 下次打开就是新代码。
 final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDelegate,
-    WKScriptMessageHandler, UIScribbleInteractionDelegate
+    WKDownloadDelegate, WKScriptMessageHandler, UIScribbleInteractionDelegate
 {
     private var webView: WKWebView!
     private let status = StatusView()
@@ -28,6 +28,10 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
 
     private var found: [MacAddress] = []
     private var listing = false
+    /// 这次查找是用户在页面里主动要求换一台：只有一台也要列出来，并且可以取消。
+    private var switching = false
+    /// 正在下载的导出文件，下载完了交给分享面板。
+    private var downloads: [WKDownload: URL] = [:]
     private var searchTimeout: DispatchWorkItem?
     private var settle: DispatchWorkItem?
 
@@ -136,11 +140,12 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         webView.load(URLRequest(url: mac.pageURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8))
     }
 
-    func startDiscovery() {
+    func startDiscovery(switching: Bool = false) {
         loadViewIfNeeded()
         stopDiscovery()
         found = []
         listing = false
+        self.switching = switching
         status.showSearching()
         discovery.onChange = { [weak self] macs in
             self?.discovered(macs)
@@ -170,7 +175,7 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         if macs.isEmpty {
             return
         }
-        if listing || macs.count > 1 {
+        if listing || switching || macs.count > 1 {
             showList()
             return
         }
@@ -178,9 +183,9 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
             let work = DispatchWorkItem { [weak self] in
                 guard let self = self else { return }
                 self.settle = nil
-                if self.found.count == 1 {
+                if self.found.count == 1 && !self.switching {
                     self.connect(to: self.found[0])
-                } else if self.found.count > 1 {
+                } else if !self.found.isEmpty {
                     self.showList()
                 }
             }
@@ -193,9 +198,21 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         listing = true
         settle?.cancel()
         settle = nil
-        status.showList(found) { [weak self] mac in
-            self?.connect(to: mac)
-        }
+        // 换一台的时候页面还开着，不选也能退回去；第一次连接时没有可退的地方
+        let cancel: (() -> Void)? = (switching && loaded) ? { [weak self] in
+            guard let self = self else { return }
+            self.stopDiscovery()
+            self.switching = false
+            self.status.isHidden = true
+        } : nil
+        status.showList(
+            found,
+            onPick: { [weak self] mac in
+                self?.switching = false
+                self?.connect(to: mac)
+            },
+            cancel: cancel
+        )
     }
 
     // MARK: - 页面加载
@@ -261,12 +278,87 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
             decisionHandler(.allow)
             return
         }
+        // 导出：网页点的是一个带 download 的链接。WKWebView 默认会当成导航，整页跳走，
+        // 页面上的白板和 WebSocket 都没了（界面上看到的就是一句连接断开）。
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download)
+            return
+        }
         if ["http", "https", "about", "blob", "data"].contains(scheme) {
             decisionHandler(.allow)
             return
         }
         UIApplication.shared.open(url)
         decisionHandler(.cancel)
+    }
+
+    /// 服务端标了 attachment 的（例如文档板导出）同样当下载处理，不占着页面。
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        if let http = navigationResponse.response as? HTTPURLResponse,
+           let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
+           disposition.lowercased().contains("attachment")
+        {
+            decisionHandler(.download)
+            return
+        }
+        decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    // MARK: - 导出（下载到临时目录，再交给分享面板）
+
+    func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String,
+        completionHandler: @escaping (URL?) -> Void
+    ) {
+        // 每次下载单独一个临时目录：同名文件不会互相覆盖，分享面板里看到的也是原文件名
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("export-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            NSLog("白板外壳：建导出目录失败 %@", error.localizedDescription)
+            completionHandler(nil)
+            return
+        }
+        let name = suggestedFilename.isEmpty ? "whiteboard" : suggestedFilename
+        let url = dir.appendingPathComponent(name)
+        downloads[download] = url
+        completionHandler(url)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let url = downloads.removeValue(forKey: download) else { return }
+        share(url)
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        downloads.removeValue(forKey: download)
+        present(alert(title: "导出失败", message: error.localizedDescription), animated: true)
+    }
+
+    /// 导出的文件交给系统的分享面板：存到「文件」、发出去，或者存进相册。
+    private func share(_ url: URL) {
+        let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        // iPad 上这个面板是气泡，必须给一个锚点，否则直接崩
+        sheet.popoverPresentationController?.sourceView = view
+        sheet.popoverPresentationController?.sourceRect = CGRect(
+            x: view.bounds.midX, y: view.bounds.minY + 12, width: 1, height: 1
+        )
+        sheet.popoverPresentationController?.permittedArrowDirections = .up
+        present(sheet, animated: true)
     }
 
     /// ``window.open``（例如「前往 Release 页面」）：交给 Safari。
@@ -285,7 +377,13 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
     // MARK: - 与网页的接口（docs/ipad-shell.md 第 5、6 节）
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let body = message.body as? [String: Any], body["type"] as? String == "hello" else { return }
+        guard let body = message.body as? [String: Any] else { return }
+        // 页面上的「换一台 Mac」：重新查找，这次即便只有一台也列出来让用户确认
+        if body["type"] as? String == "rediscover" {
+            startDiscovery(switching: true)
+            return
+        }
+        guard body["type"] as? String == "hello" else { return }
         let range = (body["bridge"] as? [NSNumber])?.map { $0.intValue } ?? []
         let bridge = PencilTracker.bridge
         let supported = range.count == 2 && range[0] <= bridge && bridge <= range[1]

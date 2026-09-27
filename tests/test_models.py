@@ -17,6 +17,15 @@ def test_meta_drops_legacy_board_size():
     assert "cols" not in meta and "rows" not in meta and "unit" not in meta
 
 
+def test_a_board_without_a_folder_has_no_folder_field():
+    """文件夹是可选的：没归类的白板不带这个字段，省得每份元数据都多一个空串。"""
+    assert "folder" not in models.sanitize_meta({"id": "abc"})
+    assert "folder" not in models.sanitize_meta({"id": "abc", "folder": "   "})
+    assert "folder" not in models.sanitize_meta({"id": "abc", "folder": 7})
+    assert models.sanitize_meta({"id": "abc", "folder": "  数学  "})["folder"] == "数学"
+    assert len(models.sanitize_meta({"id": "abc", "folder": "长" * 200})["folder"]) == 64
+
+
 def test_stroke_validation():
     good = models.sanitize_stroke(
         {"id": "a-1", "tool": "marker", "color": "#ABCDEF", "w": 4, "p": [0, 0, 0.5, 1, 1, 0.5]}

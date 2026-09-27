@@ -657,6 +657,107 @@ html, body {
   border: 1px dashed var(--outline);
 }
 
+/* 文件夹：格子里的一块卡片，点开进去。名字用主色，和白板的名字区分开 */
+.board-card.folder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+  color: var(--primary);
+  border: 1px solid var(--outline);
+}
+.folder-card-icon { display: flex; }
+.folder-card-count {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--on-surface-variant);
+  font-size: 12px;
+  text-align: center;
+}
+.board-name.folder { color: var(--primary); }
+/* 进了文件夹之后搜索框下面那一行：名字、装了几块、删除 */
+.folder-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 14px;
+  color: var(--primary);
+}
+.folder-bar-icon { display: flex; }
+.folder-bar .board-name { flex: 0 1 auto; font-size: 15px; font-weight: 500; }
+.folder-bar-count { flex: none; font-size: 12.5px; color: var(--on-surface-variant); }
+.folder-bar > .icon-btn { margin-left: auto; }
+/* 名字那一行右边的小按钮：归过类的用主色，没归类的和日期一个深浅 */
+.board-folder {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  margin: -2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+}
+.board-folder:hover { background: var(--fill); }
+.board-folder.on { color: var(--primary); }
+
+/* 归入文件夹：现成的文件夹一行一个，最下面一行输入新名字 */
+.dialog.folders {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: 260px;
+  padding: 14px;
+}
+.folder-list { display: flex; flex-direction: column; max-height: 50vh; overflow-y: auto; }
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--on-surface);
+  text-align: left;
+  cursor: pointer;
+}
+.folder-row:hover { background: var(--fill); }
+.folder-row.active { color: var(--primary); background: var(--primary-container); }
+.folder-row-icon { flex: none; display: flex; color: var(--on-surface-variant); }
+.folder-row.active .folder-row-icon { color: var(--primary); }
+.folder-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius-m);
+  background: var(--fill);
+  color: var(--on-surface-variant);
+}
+.folder-add:focus-within { box-shadow: 0 0 0 3px var(--primary-container); }
+.folder-new {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--on-surface);
+  outline: none;
+}
+
 /* 新建白板时选延伸方式 */
 .dialog.kinds { gap: 20px; }
 .kind-tile {
