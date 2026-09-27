@@ -91,6 +91,23 @@ function eraserDiameter(deg) {
 }
 
 const SMOOTH_MOUSE = 0.6;
+// 两个采样点至少要隔开多少个**屏幕**像素才算动过。
+//
+// iPad 报的 clientX/clientY 是整数（八份真机录像里 100%），所以位移小于一个像素
+// 的那些采样点不带位置信息，只有量化噪声。笔停在原地、或者正在抬起来的时候，
+// 坐标就在相邻整数之间跳，方向每次翻 90°——真机录像里一笔的末尾有连着七个采样点
+// 都是这样。轮廓那边会把这些当成真的急转弯：偏移方向按 lrp(下一段, 这一段, 点积)
+// 取，转角一大长度就缩，笔画在那里被掐细到应有宽度的 62%，紧接着末端又扣一个
+// 整圆的帽子——看上去就是「细一下再鼓个球」。
+//
+// 门槛原来是 0.65 个屏幕像素，一个像素的抖动照样过得去。1.2 挡得住，同时慢慢写
+// 的时候也不丢细节：真正在动的笔累计走满 1.2 像素就会留下一个点。
+const MIN_STEP_PX = 1.2;
+// 也不能小于笔半宽的这个比例。笔停下来之前的那几个采样点位移只有零点几个世界
+// 单位，而笔本身有六七个单位宽——这种位移改变不了形状，只会给轮廓送去乱跳的方向。
+const MIN_STEP_RATIO = 0.12;
+// 抬笔前「已经停住」的判定半径，按笔半宽算。见 trimSettledTail。
+const TAIL_SETTLE = 0.3;
 const PRESSURE_SMOOTH = 0.25;
 
 // 没有压感读数的指针（鼠标、手指、不带压感的笔）该画多粗。粗细本身是按速度算的，
@@ -138,6 +155,34 @@ export function penAltitude(event) {
     return clamp(altitude, 0, Math.PI / 2);
   }
   return Math.PI / 2; // 什么都报不出来，按竖直算
+}
+
+/**
+ * 砍掉笔停下来之后那一小撮采样点。
+ *
+ * 抬笔之前笔通常已经停住了，但事件还在来：坐标在相邻整数之间游走，真机录像里
+ * 一笔末尾常有四五个点挤在一两个世界单位之内，而且相对笔画的走向偏出去一点。
+ * 轮廓那边会在最后一个点上扣一个整圆的笔帽，于是那一撮点把笔帽顶到笔画的轴线
+ * 外面——看上去就是笔画的头上鼓一个球。
+ *
+ * 所以从末尾往回走，凡是离终点不到 ``TAIL_SETTLE`` 倍笔半宽的点都砍掉，让笔画
+ * 停在最后一个「还在动」的位置上。至少留两个点，点一下画个点的情形不受影响。
+ */
+function trimSettledTail(stroke) {
+  const p = stroke.p;
+  const count = (p.length / 3) | 0;
+  if (count < 3) return;
+  const limit = (stroke.w / 2) * TAIL_SETTLE;
+  const ex = p[(count - 1) * 3];
+  const ey = p[(count - 1) * 3 + 1];
+  let keep = count - 1;
+  while (keep > 1) {
+    const dx = p[(keep - 1) * 3] - ex;
+    const dy = p[(keep - 1) * 3 + 1] - ey;
+    if (dx * dx + dy * dy > limit * limit) break;
+    keep -= 1;
+  }
+  if (keep < count - 1) p.length = (keep + 1) * 3;
 }
 
 export class InputController {
@@ -579,7 +624,10 @@ export class InputController {
     if (!first) {
       const dx = draw.sx - points[points.length - 3];
       const dy = draw.sy - points[points.length - 2];
-      const minDist = 0.65 / this.viewport.scale;
+      const minDist = Math.max(
+        MIN_STEP_PX / this.viewport.scale,
+        (draw.stroke.w / 2) * MIN_STEP_RATIO,
+      );
       if (dx * dx + dy * dy < minDist * minDist) return;
     }
     points.push(draw.sx, draw.sy, draw.sp);
@@ -616,6 +664,7 @@ export class InputController {
       }
       draw.stroke.p.push(wx, wy, draw.sp);
       this.pendingLive.push(wx, wy, draw.sp);
+      trimSettledTail(draw.stroke);
       clearStrokeCache(draw.stroke);
     }
     this.draw = null;

@@ -92,7 +92,11 @@ export function strokeOutline(stroke) {
   const flat = stroke.p;
   const input = [];
   for (let i = 0; i + 2 < flat.length; i += 3) {
-    input.push([flat[i], flat[i + 1], outlinePressure(stroke, flat[i + 2])]);
+    input.push([
+      flat[i] * INK_SCALE,
+      flat[i + 1] * INK_SCALE,
+      outlinePressure(stroke, flat[i + 2]),
+    ]);
   }
   const cut = stroke.cut | 0;
   const size = Math.max(stroke.w, 0.6);
@@ -101,12 +105,12 @@ export function strokeOutline(stroke) {
   // 抖动的，按笔宽算的话，13 宽的笔要走满 13 个单位才开始出墨——写小字时每个
   // 笔画的头都被吞掉一截，手感上就是「笔动了墨没跟上」。
   const points = getStrokePoints(input, {
-    size: START_NOISE,
+    size: START_NOISE * INK_SCALE,
     streamline: OUTLINE_STREAMLINE,
     last: true,
   });
   const out = getStrokeOutlinePoints(points, {
-    size,
+    size: size * INK_SCALE,
     thinning: 1,
     smoothing: OUTLINE_SMOOTHING,
     simulatePressure: false,
@@ -114,6 +118,10 @@ export function strokeOutline(stroke) {
     start: { cap: !(cut & 1) },
     end: { cap: !(cut & 2) },
   });
+  for (const q of out) {
+    q[0] /= INK_SCALE;
+    q[1] /= INK_SCALE;
+  }
   stroke._pts = out;
   return out;
 }
@@ -126,6 +134,18 @@ const OUTLINE_STREAMLINE = 0.5;
 // 起笔处先丢掉多长一段（世界单位）。原版拿笔宽当这个值，对笔来说太大了——
 // 落笔抖动的幅度是一两个像素，不是一个笔宽。
 const START_NOISE = 1;
+// 送进 perfect-freehand 之前先把坐标放大这么多倍，出来再缩回去。
+//
+// 它里面有一个写死的绝对常数 END_NOISE_THRESHOLD = 3：末端 3 个单位之内的轮廓点
+// 一律跳过，用来掐掉抬笔前的噪声。在它自己的坐标系里 3 很小，在我们的世界坐标里
+// 3 差不多是 13 宽的笔的半个半径——笔画末尾那一小段就没有轮廓点了，二次贝塞尔
+// 直接从更靠前的地方拐进末端的圆帽，于是先细一下再鼓个球。真机录像里量到末尾
+// 五个点的墨迹宽度从应有的 96% 一路掉到 66%。
+//
+// 放大坐标之后那个常数在我们这边相当于 0.3 个世界单位，影响就看不出来了。其他
+// 参数（size、压感折算出来的半径、smoothing 决定的最小间距）都是长度，跟着一起
+// 放大，形状不变。
+const INK_SCALE = 10;
 
 /**
  * 把轮廓点列画成闭合路径：二次贝塞尔穿过相邻两点的中点，顶点当控制点。

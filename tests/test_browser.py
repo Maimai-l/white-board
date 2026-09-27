@@ -2219,6 +2219,50 @@ def test_status_dot_uses_traffic_light_colours(browser, server):
     _ipad.close()
 
 
+def test_the_settled_tail_does_not_leave_a_knob(browser, server):
+    """笔停住之后的那几个采样点不能留在笔画里，否则末端会鼓一个球。
+
+    抬笔之前笔通常已经停住了，事件却还在来：坐标在相邻整数之间游走，真机录像里
+    一笔末尾常有四五个点挤在一两个世界单位之内，而且相对笔画走向偏出去一点。
+    轮廓那边会在最后一个点上扣一个整圆的笔帽，于是那一撮点把笔帽顶到轴线外面。
+
+    判据是末端那个笔帽的圆心离笔画轴线多远：把最后一段真实走向延长出去，看帽心
+    偏出去多少。偏出去超过半个笔半宽就是肉眼能看见的球。
+    """
+    mac, _ = open_pages(browser, server.port)
+    out = mac.evaluate("""() => {
+      const stage = document.getElementById('stage');
+      whiteboard.state.remove(whiteboard.state.strokes.map((s) => s.id));
+      whiteboard.tool = { ...whiteboard.tool, tool: 'pen', w: 13 };
+      const fire = (type, x, y, pressure) => stage.dispatchEvent(new PointerEvent(type, {
+        clientX: x, clientY: y, pointerType: 'pen', pointerId: 4, pressure,
+        tiltX: 40, tiltY: 0, buttons: type === 'pointerup' ? 0 : 1,
+        bubbles: true, cancelable: true, isPrimary: true }));
+      // 一条直线，最后减速停住，再在原地抖四下（真机录像里就是这样）
+      fire('pointerdown', 100, 300, 0.05);
+      let x = 100;
+      for (const step of [12, 12, 12, 12, 12, 8, 5, 3, 2]) {
+        x += step; fire('pointermove', x, 300, 0.05);
+      }
+      for (const [dx, dy] of [[1,-1],[0,-1],[1,0],[0,-1]]) {
+        x += dx; fire('pointermove', x, 300 + dy, 0.05);
+      }
+      fire('pointerup', x, 299, 0.05);
+      const s = whiteboard.state.strokes[0];
+      const p = s.p, n = p.length / 3;
+      // 笔画主体是一条直线，用前两个点定出轴线（世界坐标），再看末点离它多远
+      const x0 = p[0], y0 = p[1], x1 = p[3], y1 = p[4];
+      const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy);
+      const ex = p[(n-1)*3], ey = p[(n-1)*3+1];
+      const off = Math.abs((ex - x0) * dy - (ey - y0) * dx) / len;
+      return { 偏离: +off.toFixed(2), 点数: n };
+    }""")
+    # 笔画主体是直的，末端帽心不该被抖动顶到半个笔半宽（3.25）以外
+    assert out["偏离"] <= 3.25, out
+    assert out["点数"] >= 6, out
+    mac.close()
+
+
 def test_the_start_of_a_stroke_is_not_swallowed(browser, server):
     """起笔那一小截必须立刻出墨，不能等笔走够一个笔宽。
 
@@ -2273,18 +2317,23 @@ def test_python_outline_matches_perfect_freehand(browser, server):
             [flat, width, cut],
         )
         # 压感通道和 stroke.js 的 outlinePressure 一样：半径除以笔宽
-        py = inkpdf.freehand.get_stroke(
-            [(x, y, inkpdf.radius("pen", width, pr) / max(width, 1e-6)) for x, y, pr in
-             [(flat[i], flat[i + 1], flat[i + 2]) for i in range(0, len(flat), 3)]],
-            size=max(width, 0.6),
-            thinning=1.0,
-            smoothing=inkpdf.OUTLINE_SMOOTHING,
-            streamline=inkpdf.OUTLINE_STREAMLINE,
-            cap_start=not cut & 1,
-            cap_end=not cut & 2,
-            last=True,
-            start_noise=inkpdf.START_NOISE,
-        )
+        k = inkpdf.INK_SCALE
+        raw = [(flat[i], flat[i + 1], flat[i + 2]) for i in range(0, len(flat), 3)]
+        py = [
+            (x / k, y / k)
+            for x, y in inkpdf.freehand.get_stroke(
+                [(x * k, y * k, inkpdf.radius("pen", width, pr) / max(width, 1e-6))
+                 for x, y, pr in raw],
+                size=max(width, 0.6) * k,
+                thinning=1.0,
+                smoothing=inkpdf.OUTLINE_SMOOTHING,
+                streamline=inkpdf.OUTLINE_STREAMLINE,
+                cap_start=not cut & 1,
+                cap_end=not cut & 2,
+                last=True,
+                start_noise=inkpdf.START_NOISE * k,
+            )
+        ]
         assert len(js) == len(py), (name, len(js), len(py))
         for i, (a, b) in enumerate(zip(js, py)):
             assert a[0] == pytest.approx(b[0], abs=1e-9), (name, i, a, b)

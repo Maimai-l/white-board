@@ -45,6 +45,11 @@ OUTLINE_SMOOTHING = 0.5
 OUTLINE_STREAMLINE = 0.5
 # 起笔处先丢掉多长一段（世界单位）。必须和 stroke.js 的 START_NOISE 一致。
 START_NOISE = 1.0
+# 送进 perfect-freehand 之前把坐标放大这么多倍，出来再缩回去。它里面有一个写死的
+# 绝对常数 END_NOISE_THRESHOLD = 3（末端三个单位之内的轮廓点一律跳过），在我们的
+# 世界坐标里那差不多是 13 宽的笔的半个半径，笔画末尾会先细一下再鼓个球。放大之后
+# 它相当于 0.3 个世界单位。必须和 stroke.js 的 INK_SCALE 一致。
+INK_SCALE = 10.0
 
 
 def epsilon(width: float) -> float:
@@ -129,19 +134,22 @@ def outline_path(
         return []
 
     half = max(width, 0.6)
-    pts = [(x, y, radius(tool, width, pr) / max(width, 1e-6)) for x, y, pr in points]
+    pts = [
+        (x * INK_SCALE, y * INK_SCALE, radius(tool, width, pr) / max(width, 1e-6))
+        for x, y, pr in points
+    ]
     outline = freehand.get_stroke(
         pts,
-        size=half,
+        size=half * INK_SCALE,
         thinning=1.0,
         smoothing=OUTLINE_SMOOTHING,
         streamline=OUTLINE_STREAMLINE,
         cap_start=not cut & 1,
         cap_end=not cut & 2,
         last=True,
-        start_noise=START_NOISE,
+        start_noise=START_NOISE * INK_SCALE,
     )
-    return quad_commands(outline)
+    return quad_commands([(x / INK_SCALE, y / INK_SCALE) for x, y in outline])
 
 
 def quad_commands(pts: Sequence[Tuple[float, float]]) -> List[Tuple]:
