@@ -152,3 +152,28 @@ def test_unexpected_error_in_a_handler_still_acknowledges(tmp_path, monkeypatch)
             await ws.close()
 
     run(main())
+
+
+# ------------------------------------------------------------ 自动保存
+
+
+def test_one_board_failing_to_save_does_not_block_the_others(tmp_path, monkeypatch):
+    store = BoardStore(tmp_path)
+    hub = Hub(store)
+    first = hub.current_id
+    hub.board().apply({"op": "add", "strokes": [stroke("a")]})
+    second = hub.create_board()["id"]  # 这一步会先把第一块存掉
+    hub.board(first).apply({"op": "add", "strokes": [stroke("a2")]})
+    hub.board().apply({"op": "add", "strokes": [stroke("b")]})
+
+    original = store.save_board
+
+    def flaky(meta, strokes):
+        if meta["id"] == first:
+            raise OverflowError("坏数据")
+        original(meta, strokes)
+
+    monkeypatch.setattr(store, "save_board", flaky)
+    hub.save_all()  # 不抛
+    assert [s["id"] for s in store.load_board(second)[1]] == ["b"]
+    assert hub.board(first).dirty  # 没存成的那块留着脏标记，下一轮再试
