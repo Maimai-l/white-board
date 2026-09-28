@@ -8,7 +8,6 @@ from __future__ import annotations
 import math
 import os
 import re
-import time
 from pathlib import Path
 
 import pytest
@@ -78,11 +77,32 @@ def browser():
         instance.close()
 
 
+def free_port():
+    """让系统给一个空闲端口。以前按当前毫秒数取 8000～9999，两次运行挨得近就会撞。"""
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+@pytest.fixture(autouse=True)
+def close_pages(request):
+    """每个用例结束时把它开的页面都关掉，用例中途失败也一样，不留给下一个用例。"""
+    yield
+    if "browser" in request.fixturenames:
+        for context in list(request.getfixturevalue("browser").contexts):
+            try:
+                context.close()
+            except Exception:  # noqa: BLE001 - 已经关掉的就算了
+                pass
+
+
 @pytest.fixture
 def server(tmp_path):
     config = Config(path=tmp_path / "config.json")
     config.data_dir = tmp_path / "data"
-    config.port = 8000 + (int(time.time() * 1000) % 2000)
+    config.port = free_port()
     thread = ServerThread(config, advertise=False)
     thread.start()
     yield thread
@@ -297,9 +317,8 @@ def test_cache_writes_never_land_on_a_stroke(browser, server):
     during = [w for w in writes if start <= w <= end]
     assert not during, f"第二笔期间写了 {len(during)} 次盘"
 
-    # 停下来之后总得写进去
-    ipad.wait_for_timeout(6000)
-    assert ipad.evaluate("() => window.__writes.length") > 0
+    # 停下来之后总得写进去（写盘在停笔之后几秒内发生，等到写了为止）
+    ipad.wait_for_function("() => window.__writes.length > 0", timeout=10000)
     cached = ipad.evaluate(
         "async () => { const c = whiteboard.cache; const b = await c.loadBoard(whiteboard.state.id);"
         "return b ? b.strokes.length : 0; }"
@@ -4071,7 +4090,7 @@ def test_a_board_that_cannot_be_read_opens_read_only_until_unlocked(browser, tmp
 
     config = Config(path=tmp_path / "config.json")
     config.data_dir = tmp_path / "data"
-    config.port = 8000 + (int(time.time() * 1000) % 2000)
+    config.port = free_port()
     store = BoardStore(config.data_dir)
     board_file = store.boards_dir / f"{store.current_id}.wbz"
     board_file.write_bytes(b"not a board")
