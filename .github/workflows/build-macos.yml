@@ -164,10 +164,23 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      # 应用里的更新对话框显示的就是 Release 的说明，所以从 CHANGELOG.md 取这个
+      # 版本的那一节；没写的话退回 GitHub 自动生成的说明
+      - name: 取更新说明
+        id: notes
+        run: |
+          if python3 packaging/release_notes.py "$GITHUB_REF_NAME" > notes.md; then
+            echo "args=--notes-file notes.md" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=--generate-notes" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: 发布 Release
         env:
@@ -179,4 +192,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.ipa \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes $prerelease
+            ${{ steps.notes.outputs.args }} $prerelease
