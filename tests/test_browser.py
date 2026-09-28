@@ -4093,3 +4093,50 @@ def test_a_stroke_never_has_holes_in_it(browser, server):
     assert holes["trapped"] == 0, holes
     mac.close()
     ipad.close()
+
+
+# ---------------------------------------------- 读不全的白板以只读方式打开
+
+
+def test_a_board_that_cannot_be_read_opens_read_only_until_unlocked(browser, tmp_path):
+    """文件损坏的白板：两边都提示并停止书写；Mac 上选「仍然编辑」之后，
+    先备份原文件，两边一起恢复书写。"""
+    from whiteboard.store import BoardStore
+
+    config = Config(path=tmp_path / "config.json")
+    config.data_dir = tmp_path / "data"
+    config.port = 8000 + (int(time.time() * 1000) % 2000)
+    store = BoardStore(config.data_dir)
+    board_file = store.boards_dir / f"{store.current_id}.wbz"
+    board_file.write_bytes(b"not a board")
+    thread = ServerThread(config, advertise=False)
+    thread.start()
+    try:
+        mac, ipad = open_pages(browser, thread.port)
+        for page in (mac, ipad):
+            page.wait_for_selector(".dialog.locked")
+            assert page.evaluate("() => whiteboard.locked.reason") == "corrupt"
+        # 只有 Mac（有管理权限）才有「仍然编辑」；测试里两边都是本机，所以都有
+        ipad.locator(".dialog.locked button.danger").wait_for()
+
+        # 只读时落笔不生效，也不会发给服务端（合成事件直接发到画布上，不经过提示框）
+        draw(ipad, [(300, 300), (360, 340), (430, 300)])
+        assert stroke_count(ipad) == 0
+        assert thread.hub.board().strokes == {}
+        assert board_file.read_bytes() == b"not a board"
+
+        mac.locator(".dialog.locked button.danger").click()
+        for page in (mac, ipad):
+            page.wait_for_function("() => whiteboard.locked === null")
+        # 在 Mac 上选了之后，iPad 上还开着的那个提示也自己收起来
+        for page in (mac, ipad):
+            assert page.locator(".dialog.locked").count() == 0
+        backups = list((config.data_dir / "backups" / "locked").glob("*.wbz"))
+        assert len(backups) == 1 and backups[0].read_bytes() == b"not a board"
+
+        draw(ipad, [(300, 300), (360, 340), (430, 300)])
+        wait_strokes(mac, 1)
+        mac.close()
+        ipad.close()
+    finally:
+        thread.stop()

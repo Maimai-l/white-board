@@ -505,6 +505,7 @@ class _Session:
             "newfolder": self._new_folder,
             "delfolder": self._del_folder,
             "renamefolder": self._rename_folder,
+            "unlock": self._unlock,
             "ping": self._ping,
         }.get(kind)
         if handler is not None:
@@ -553,6 +554,8 @@ class _Session:
             "board": dict(runtime.meta),
             "seq": runtime.seq,
             "epoch": runtime.epoch,
+            # 读不全的白板以只读方式打开，客户端据此提示并停止书写
+            "locked": runtime.problem,
         }
 
         # 断线重连：白板没换、epoch 一致且历史够长时只补差量，避免整块白板重传。
@@ -689,6 +692,14 @@ class _Session:
             return
         board_id = msg.get("board")
         if isinstance(board_id, str) and self.hub.delete_board(board_id):
+            await self._broadcast_switch()
+
+    async def _unlock(self, msg: Dict[str, Any]) -> None:
+        """用户看过提示、确认要编辑一块读不全的白板。只对当前这块，要管理权限。"""
+        if not self._may("manage"):
+            return
+        if self.hub.unlock():
+            # 所有设备一起解除只读，发整块 switch：白板没换，客户端不会丢视角和撤销栈
             await self._broadcast_switch()
 
     async def _ping(self, msg: Dict[str, Any]) -> None:

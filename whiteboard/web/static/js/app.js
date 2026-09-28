@@ -850,6 +850,7 @@ class App {
   }
 
   clearBoard() {
+    if (this.locked) return;
     const all = this.state.clear();
     if (!all.length) return;
     this.pushUndo({ type: "removed", strokes: all.map(plainStroke) });
@@ -891,6 +892,7 @@ class App {
 
   onSnapshot(msg) {
     if (msg.info) this.ui.setInfo(msg.info);
+    this.setLocked(msg.board.id, msg.locked);
     const switched = this.state.id !== msg.board.id;
     this.net.boardId = msg.board.id;
     this.net.lastSeq = msg.seq || 0;
@@ -909,6 +911,7 @@ class App {
 
   onSync(msg) {
     if (msg.info) this.ui.setInfo(msg.info);
+    if (msg.board) this.setLocked(msg.board.id, msg.locked);
     if (msg.board) {
       this.state.meta = msg.board;
       this.ui.setMeta(msg.board);
@@ -918,6 +921,26 @@ class App {
     this.renderer.requestFull();
     this.reapplyPending();
     this.saveCache();
+  }
+
+  /**
+   * 服务端说这块白板的文件没能完整读出来（损坏、个别笔画解不开，或者是更新的
+   * 版本写的），以只读方式打开。停止书写，并告诉用户为什么；有管理权限的设备
+   * 可以选择仍然编辑——服务端会先备份原文件。同一块白板每次打开只提示一次。
+   */
+  setLocked(boardId, locked) {
+    this.locked = locked || null;
+    this.input.readOnly = !!this.locked;
+    document.documentElement.toggleAttribute("data-locked", !!this.locked);
+    if (!this.locked) {
+      // 别的设备上点了「仍然编辑」，这边还开着的提示也收起来
+      this.lockNotified = null;
+      this.ui.hideLocked();
+      return;
+    }
+    if (this.lockNotified === boardId) return;
+    this.lockNotified = boardId;
+    this.ui.showLocked(this.locked, () => this.net.send({ t: "unlock" }));
   }
 
   /** 快照会覆盖本地内容，这里把还没发出去的操作重新贴回来。 */
@@ -1266,6 +1289,7 @@ class App {
         return granted;
       },
       onMeta: (patch) => {
+        if (this.locked) return;
         const meta = { ...this.state.meta, ...patch };
         this.state.meta = meta;
         this.ui.setMeta(meta);
