@@ -1469,12 +1469,16 @@ def test_a_finger_can_drag_a_board_on_a_touch_device(browser, server):
     ipad.click('button[title="白板"]')
     ipad.wait_for_selector(".board-card.folder")
 
-    # 手指一放就走：当成滚列表，不拖
-    ipad.evaluate(TOUCH_DRAG, [".board-item[data-board] .board-card", ".board-card.folder", 0, 6, 0])
+    # 手指一放就竖着走：当成滚列表，不拖。必须是竖着走——横着走的手势按规则立刻
+    # 起拖（见 test_a_sideways_swipe_starts_the_drag_without_waiting）。这里以前是
+    # 从白板卡片直接划向旁边的文件夹，那是横着走，会不会真的落进文件夹全看时机，
+    # 用例因此时好时坏。
+    lifted = ipad.evaluate(SWIPE, [".board-item[data-board] .board-card", 0, 120, 6])
+    assert lifted is False
     assert ipad.evaluate("() => whiteboard.ui.boards.every(b => !b.folder)")
     assert ipad.evaluate("() => !document.querySelector('.board-card.ghost')")
 
-    # 按住 400ms 再拖：这次算数
+    # 按住一会儿再拖：这次算数
     ipad.evaluate(TOUCH_DRAG, [".board-item[data-board] .board-card", ".board-card.folder", 500, 6, 200])
     ipad.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
     mac.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
