@@ -377,7 +377,8 @@ implement it, and the drag image and animation would be the browser's rather
 than ours. Everything is built on pointer events in
 `static/js/dragsort.js`, with the timings and spring curves listed at the top of
 that file. `static/lab/drag.html` is a standalone copy of it that can be opened
-on an iPad to adjust those numbers by feel.
+on an iPad to adjust those numbers by feel (only when running from source; the
+packaged app leaves it out).
 
 **Folders** are one level deep and appear as cards in the same grid; opening one
 shows only the boards inside it.
