@@ -103,6 +103,9 @@ enum ShellVersion {
     }
 
     /// 按数字逐段比较，``1.10.0`` 比 ``1.9.3`` 新；段里的非数字后缀忽略。
+    /// 预发布后缀（``1.0.0-rc.1`` 的 ``-rc.1``）整个不算：外壳自己的版本号只有
+    /// 数字（CFBundleShortVersionString），带着后缀比的话 1.0.0-rc.1 会被当成比
+    /// 1.0.0 新，同一个版本每次打开都提示更新。
     static func isNewer(_ candidate: String, than current: String) -> Bool {
         let a = parts(candidate)
         let b = parts(current)
@@ -117,7 +120,8 @@ enum ShellVersion {
     }
 
     private static func parts(_ text: String) -> [Int] {
-        let trimmed = text.hasPrefix("v") || text.hasPrefix("V") ? String(text.dropFirst()) : text
+        let unprefixed = text.hasPrefix("v") || text.hasPrefix("V") ? String(text.dropFirst()) : text
+        let trimmed = unprefixed.split(separator: "-", maxSplits: 1).first.map(String.init) ?? ""
         return trimmed.split(separator: ".").map { part in
             Int(part.prefix(while: { $0.isNumber })) ?? 0
         }

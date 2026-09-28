@@ -10,6 +10,11 @@ if not os.path.exists(os.path.join(ROOT, "whiteboard")):
     ROOT = os.path.dirname(os.path.abspath(SPECPATH))
 
 VERSION = os.environ.get("WHITEBOARD_VERSION", "0.0.0")
+# CFBundleShortVersionString / CFBundleVersion 只收数字和点：1.0.0-rc.1 写成 1.0.0。
+# 完整的版本号（含后缀）在 whiteboard/__init__.py 里，界面和更新检查用的是那个。
+import re as _re
+
+MARKETING = _re.sub(r"[^0-9.].*$", "", VERSION) or "0.0.0"
 ICON = os.path.join(SPECPATH, "whiteboard.icns")
 
 def _is_lab(dest):
@@ -82,12 +87,12 @@ app = BUNDLE(
     name="Whiteboard.app",
     icon=ICON if os.path.exists(ICON) else None,
     bundle_identifier="local.whiteboard",
-    version=VERSION,
+    version=MARKETING,
     info_plist={
         "CFBundleName": "Whiteboard",
         "CFBundleDisplayName": "白板",
-        "CFBundleShortVersionString": VERSION,
-        "CFBundleVersion": VERSION,
+        "CFBundleShortVersionString": MARKETING,
+        "CFBundleVersion": MARKETING,
         "LSMinimumSystemVersion": "11.0",
         "NSHighResolutionCapable": True,
         # macOS 15 起，访问局域网要有这段说明，否则 iPad 连不上
