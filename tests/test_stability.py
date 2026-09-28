@@ -351,3 +351,41 @@ def test_board_file_with_wrong_shape_does_not_crash_startup(tmp_path):
     again = BoardStore(tmp_path)  # 重建索引时读到它
     assert again.list_metas()
     assert Hub(again).board("weird").locked
+
+
+# ------------------------------------------------------------ 线程
+
+
+def test_importing_a_document_touches_hub_state_only_on_the_event_loop(tmp_path, monkeypatch):
+    """旧代码：整个 hub.import_doc 在工作线程里跑，同时事件循环还在改同一份状态。"""
+    pytest.importorskip("pypdfium2")
+    threads = {}
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            loop_thread = threading.current_thread()
+            original_save_all = hub.save_all
+            original_create = hub.store.create_board
+
+            def save_all():
+                threads.setdefault("save_all", set()).add(threading.current_thread() is loop_thread)
+                original_save_all()
+
+            def create_board(*args, **kwargs):
+                threads.setdefault("create_board", set()).add(threading.current_thread() is loop_thread)
+                return original_create(*args, **kwargs)
+
+            monkeypatch.setattr(hub, "save_all", save_all)
+            monkeypatch.setattr(hub.store, "create_board", create_board)
+
+            buffer = io.BytesIO()
+            Image.new("RGB", (80, 60), (200, 200, 200)).save(buffer, "PNG")
+            response = await client.post("/api/doc?name=page.png", data=buffer.getvalue())
+            assert response.status == 200
+            meta = (await response.json())["board"]
+            assert hub.current_id == meta["id"]
+            assert hub.store.get_meta(meta["id"])["kind"] == "doc"
+
+    run(main())
+    assert threads == {"save_all": {True}, "create_board": {True}}

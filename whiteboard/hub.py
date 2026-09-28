@@ -266,8 +266,15 @@ class Hub:
 
     def import_doc(self, data: bytes, filename: str) -> Dict[str, Any]:
         """由一份 PDF / 图片新建文档板，并切到它上面。"""
+        return self.add_doc(self.store.prepare_doc(data, filename))
+
+    def add_doc(self, prepared: Dict[str, Any]) -> Dict[str, Any]:
+        """为 ``store.prepare_doc`` 准备好的原件建板并切过去。
+
+        和其余 Hub 方法一样只能在事件循环线程上调用：它要改索引和内存里的白板。
+        """
         self.save_all()
-        meta = self.store.import_doc(data, filename)
+        meta = self.store.register_doc(prepared)
         self._boards[meta["id"]] = BoardRuntime(meta, [])
         self.current_id = meta["id"]
         return meta
