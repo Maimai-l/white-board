@@ -12,5 +12,5 @@
   （MIT，Copyright (c) 2021 Stephen Ruiz Ltd），tldraw 和 Excalidraw 用的就是它。
 - 白板只用它的工具栏，画布那一半在 `static/js/pkpicker.js` 里通过继承摘掉了，
   这个文件本身一个字节都没改。
-- 体积约 470 KB（大部分是 base64 图片），所以是**按需加载**：只有打开
-  「笔具盘 beta」时才会 `import()` 它。
+- 体积约 470 KB（大部分是 base64 图片），所以是**按需加载**：只有 iPad 上
+  （笔具盘是 iPad 的工具栏）才会 `import()` 它，别的设备不下载。
