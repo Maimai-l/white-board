@@ -1,9 +1,20 @@
 name: 打包 macOS 应用
 
 # 打 tag（v1.2.3）就构建并发布 Release；也可以手动跑一次只出构建产物。
+# 带连字符的 tag（v1.0.0-rc.1）发成预发布版：应用内的更新检查读的是
+# releases/latest，不包括预发布版，所以不会推给现有用户。
+# PR 里改到应用本身或打包配置时也构建一次（不发布），打包的问题不必等到发版才发现。
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - "whiteboard/**"
+      - "packaging/**"
+      - "ipad/**"
+      - "run.py"
+      - "requirements.txt"
+      - ".github/workflows/build-macos.yml"
   workflow_dispatch:
     inputs:
       version:
@@ -163,7 +174,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # IPA 也单独发布，用于首次安装
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.ipa \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes
+            --generate-notes $prerelease
