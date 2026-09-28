@@ -17,10 +17,8 @@ import {
   strokeOutline,
   eraseKind,
   maskBounds,
-  maskFor,
   maskSize,
   MASK_LIMIT,
-  penForce,
   pressureForFactor,
   simplifyMask,
   splitLongStroke,
@@ -533,13 +531,12 @@ class App {
     this.ui.setRedoEnabled(this.redoStack.length > 0);
   }
 
-  /** 把一条记录正着或反着应用到白板上。 */
   /**
-   * 像素橡皮擦：把扫过的笔画切开，用切剩的几段换掉原来那一条。
+   * 像素橡皮擦：把扫过的那一段记进笔画的遮罩（``m``），渲染和导出时从轮廓里裁掉。
    *
-   * 笔迹仍然是矢量的，所以同步、撤销、导出都不用改格式——发出去的就是一条
-   * ``remove`` 加一条 ``restore``，切出来的段沿用原来那条的层叠序号 ``n``，
-   * 叠放关系不会变。
+   * 遮罩太大、抽稀之后仍然超过 ``MASK_LIMIT`` 时，才把它落实成切分（见
+   * ``bakeMask``）：用切剩的几段换掉原来那一条，发出去的是一条 ``remove`` 加一条
+   * ``restore``，切出来的段沿用原来那条的层叠序号 ``n``，叠放关系不会变。
    */
   erasePixels(x, y, radius, from) {
     const [fromX, fromY] = from || [x, y];
@@ -547,45 +544,30 @@ class App {
     const added = [];
     // 只看扫过的那几格里的笔画。以前是每个事件把整块白板过一遍，笔画一多，
     // 擦得越快每个事件要走的距离越长、要比的笔画却一点没少。
-    // near() 拿到的是候选，精确判定照旧在 splitStroke 里做。
+    // near() 拿到的是候选，精确判定在 eraseKind 里做。
     const bitten = [];
     const candidates = this.state.near(fromX, fromY, x, y, radius);
     for (const stroke of candidates) {
-      // 橡皮不比笔细就切断，比笔细就只能啃——啃出来的形状切笔画表达不了
-      const kind = eraseKind(stroke, fromX, fromY, x, y, radius);
-      if (kind === null) continue;
-      if (kind === "bite") {
-        const before = stroke.m ? stroke.m.map((c) => c.slice()) : null;
-        addMask(stroke, fromX, fromY, x, y, radius);
+      // 像素橡皮只有一种处理方式：记进遮罩（见 stroke.js 的 eraseKind）
+      if (eraseKind(stroke, fromX, fromY, x, y, radius) === null) continue;
+      const before = stroke.m ? stroke.m.map((c) => c.slice()) : null;
+      addMask(stroke, fromX, fromY, x, y, radius);
+      if (maskSize(stroke) > MASK_LIMIT) {
+        // 先抽稀。擦一大块时相邻几段胶囊几乎完全重合，抽掉之后形状看不出变化，
+        // 段数能少一个量级。落实成切分是看得见的变化——啃出来的形状换成平口
+        // 断面，还会把贴边的细条一起清掉——能不走就不走。
+        simplifyMask(stroke);
+        // 抽完还超，说明橡皮真的覆盖了这么多互不重合的地方，再抽也抽不动
         if (maskSize(stroke) > MASK_LIMIT) {
-          // 先抽稀。擦一大块时相邻几段胶囊几乎完全重合，抽掉之后形状看不出变化，
-          // 段数能少一个量级。落实成切分是看得见的变化——啃出来的形状换成平口
-          // 断面，还会把贴边的细条一起清掉——能不走就不走。
-          simplifyMask(stroke);
-          // 抽完还超，说明橡皮真的覆盖了这么多互不重合的地方，再抽也抽不动
-          if (maskSize(stroke) > MASK_LIMIT) {
-            const baked = this.bakeMask(stroke);
-            if (baked) {
-              removed.push(baked.removed);
-              added.push(...baked.added);
-              continue;
-            }
+          const baked = this.bakeMask(stroke);
+          if (baked) {
+            removed.push(baked.removed);
+            added.push(...baked.added);
+            continue;
           }
         }
-        bitten.push({ stroke, before });
-        continue;
       }
-      const runs = splitStroke(stroke, fromX, fromY, x, y, radius);
-      if (runs === null) continue;
-      const base = plainStroke(stroke);
-      removed.push(base);
-      for (const run of runs) {
-        const piece = { ...base, id: uid(12), p: run.p, cut: run.cut };
-        // 切出来的每一段只留自己够得着的那几段胶囊
-        if (base.m) piece.m = maskFor(base.m, strokeBBox(piece));
-        if (piece.m && !piece.m.length) delete piece.m;
-        added.push(piece);
-      }
+      bitten.push({ stroke, before });
     }
     if (bitten.length) this.noteBites(bitten, fromX, fromY, x, y, radius);
     if (!removed.length) return [];
@@ -901,7 +883,7 @@ class App {
     this.renderer.clearLive();
     if (switched) {
       this.undoStack = [];
-    this.redoStack = [];
+      this.redoStack = [];
       this.ui.setUndoEnabled(false);
     }
     this.applyBoard(msg.board, msg.strokes || [], msg.seq || 0, { keepView: !switched });
@@ -1353,7 +1335,8 @@ class App {
 }
 
 window.whiteboard = new App();
-// 输入录制：平时只是挂着不花钱，?record=1 才画出那个开始 / 停止的小面板。
+// 输入录制：平时只是挂着不花钱，诊断面板打开时（连点状态圆点三下，或者地址后面
+// 加 ?debug=1）才画出那个开始 / 停止的小面板。
 // 真笔才触发得了的问题（压感、倾角、同一个位置投两遍）靠它带回开发机。
 window.whiteboard.recorder = new Recorder(window.whiteboard);
 window.whiteboard.recorder.attach(window.whiteboard.input.stage);
@@ -1361,18 +1344,12 @@ window.whiteboard.recorderPanel = mountRecorderPanel(window.whiteboard.recorder)
 window.whiteboard.recorderPanel.toggle(window.whiteboard.perf.enabled);
 // 切笔画的几何是纯函数，挂出来给端到端测试直接调
 window.whiteboard.splitStroke = splitStroke;
-window.whiteboard.splitLongStroke = splitLongStroke;
 window.whiteboard.buildPath = buildPath;
-window.whiteboard.eraseKind = eraseKind;
-window.whiteboard.strokeBBox = strokeBBox;
-window.whiteboard.plainStroke = plainStroke;
 window.whiteboard.maskSize = maskSize;
 window.whiteboard.simplifyMask = simplifyMask;
 window.whiteboard.Renderer = Renderer;
 window.whiteboard.strokeHit = strokeHit;
 window.whiteboard.strokeRadius = strokeRadius;
-window.whiteboard.clearStrokeCache = clearStrokeCache;
 window.whiteboard.strokeOutline = strokeOutline;
-window.whiteboard.penForce = penForce;
 window.whiteboard.pressureForFactor = pressureForFactor;
 window.whiteboard.penAltitude = penAltitude;

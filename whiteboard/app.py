@@ -221,11 +221,6 @@ class NativeApi:
         updater.swap_and_restart(self.staged_app, bundle, relaunch=False)
         log.info("退出后将完成更新替换")
 
-    def _quit(self) -> None:
-        self._save_before_exit()
-        if self.window is not None:
-            self.window.destroy()
-
     # ------------------------------------------------------------------ 导出
 
     def save_png(self, data_url: str, suggested: str = "whiteboard.png") -> Optional[str]:

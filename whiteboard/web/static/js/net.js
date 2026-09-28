@@ -198,11 +198,4 @@ export class Net {
     }
     this._setStatus(this.outbox.length ? "syncing" : "online");
   }
-
-  close() {
-    this._closed = true;
-    this._stopPing();
-    clearTimeout(this._timer);
-    if (this.ws) this.ws.close();
-  }
 }

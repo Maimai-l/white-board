@@ -16,7 +16,7 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict, deque
-from typing import Any, Deque, Dict, FrozenSet, Iterable, List, Optional
+from typing import Any, Deque, Dict, FrozenSet, List, Optional
 
 from . import models
 from .store import BoardStore
@@ -370,12 +370,11 @@ class Hub:
         self,
         message: Dict[str, Any],
         exclude: Optional[str] = None,
-        only: Optional[Iterable[str]] = None,
     ) -> None:
         targets = [
             client
             for client in list(self.clients.values())
-            if client.id != exclude and (only is None or client.role in only)
+            if client.id != exclude
         ]
         if targets:
             await asyncio.gather(*(client.send(message) for client in targets))

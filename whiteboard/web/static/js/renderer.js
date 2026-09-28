@@ -145,8 +145,8 @@ export class Renderer {
     this.cursor = null;
     this._liveDrawn = false;
     this._liveClip = null;
-    // 文档板的页面底图：解码完一页就重画一次
     this.dirty = null;
+    // 文档板的页面底图：解码完一页就重画一次
     this.docPages = new DocPages(() => this.requestFull());
     this.resize();
   }
@@ -197,7 +197,6 @@ export class Renderer {
 
   // ------------------------------------------------------------------ 背景
 
-  /** 纸张（笔记页 / 文档页）在屏幕上的范围；大白板返回 null。 */
   /** 铺一张纸，四周带投影。投影是屏幕像素单位的，不跟着缩放变。 */
   paintPaper(ctx, left, top, width, height) {
     ctx.save();
@@ -447,7 +446,6 @@ export class Renderer {
     }
   }
 
-  /** 离屏导出：整块白板（含背景）渲染成一张 canvas。 */
   /** 离屏导出：把指定的世界矩形（含背景）渲染成一张 canvas。 */
   static renderToCanvas(state, { scale = 1, background = true, bounds } = {}) {
     const area = bounds || { x0: 0, y0: 0, x1: 1, y1: 1 };

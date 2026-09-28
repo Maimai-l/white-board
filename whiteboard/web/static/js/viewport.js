@@ -42,10 +42,6 @@ export class Viewport {
     this.scale = next;
   }
 
-  setScaleAt(scale, sx, sy) {
-    this.zoomAt(clamp(scale, MIN_SCALE, MAX_SCALE) / this.scale, sx, sy);
-  }
-
   /** 把一块世界矩形放进视口。 */
   fit(bounds, viewW, viewH, padding = 48) {
     const width = Math.max(1, bounds.x1 - bounds.x0);

@@ -16,10 +16,10 @@
 from __future__ import annotations
 
 import math
-
-from whiteboard import freehand
 import zlib
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
+
+from whiteboard import freehand
 
 # 与前端 stroke.js 的 TOOLS 保持一致。这里只取透明度：笔宽在落笔时就已经
 # 乘过工具倍数了（input.js 里 `w: tool.width * scale`），再乘一次就会粗一大圈。
@@ -31,12 +31,6 @@ SIMPLIFY_MAX = 1.5  # 抽稀阈值上限（pt）
 # 抽稀允许的偏差取笔宽的这个比例：细笔差半点就看得见，马克笔差一点半也看不出来，
 # 而马克笔恰好是点最多、最占体积的那一类。
 SIMPLIFY_RATIO = 0.05
-# 二次曲线离弦不到这个距离就退化成直线：量化到 1/4 pt 之后本来也看不出来。
-FLAT = 0.18
-# 四分之一圆弧用一段三次贝塞尔近似时的控制点长度（误差约万分之二）
-ARC_K = 0.5522847498307936
-# 折角阈值，和 stroke.js 的 CORNER 一致：转角超过它就断开轮廓、转一段圆弧
-CORNER = math.radians(45)
 
 
 # perfect-freehand 的两个默认值，必须和 stroke.js 的 OUTLINE_SMOOTHING /
@@ -261,25 +255,6 @@ def mask_clips(chains: Sequence[Sequence[float]], bbox: Tuple[float, float, floa
     return clips
 
 
-def _line_gap(a: Tuple[float, float], b: Tuple[float, float], p: Tuple[float, float]) -> float:
-    """点到线段所在直线的距离，用来判断这一段值不值得画成曲线。"""
-    dx, dy = b[0] - a[0], b[1] - a[1]
-    length = math.hypot(dx, dy)
-    if length < 1e-9:
-        return math.hypot(p[0] - a[0], p[1] - a[1])
-    return abs(dx * (a[1] - p[1]) - dy * (a[0] - p[0])) / length
-
-
-def _turn(before: float, after: float) -> float:
-    """角差折算到 (-π, π]，和 stroke.js 的 turnOf 一致。"""
-    delta = after - before
-    while delta > math.pi:
-        delta -= 2 * math.pi
-    while delta <= -math.pi:
-        delta += 2 * math.pi
-    return delta
-
-
 def _arc(cmds: List[Tuple], cx: float, cy: float, r: float, start: float, sweep: float):
     """从 ``start`` 转过 ``sweep``（带符号）的圆弧，按 90° 切段，每段一条三次贝塞尔。
 
@@ -293,7 +268,7 @@ def _arc(cmds: List[Tuple], cx: float, cy: float, r: float, start: float, sweep:
         return (x, y)
     steps = max(1, math.ceil(abs(sweep) / (math.pi / 2) - 1e-9))
     piece = sweep / steps
-    # 控制点长度按张角算，90° 时退化成 ARC_K
+    # 控制点长度按张角算，90° 时是 0.5523（四分之一圆弧的标准近似，误差约万分之二）
     k = (4 / 3) * math.tan(piece / 4) * r
     for _ in range(steps):
         nxt = angle + piece

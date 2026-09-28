@@ -13,8 +13,8 @@
 // 松手分「甩」和「慢放」两种：甩的时候先飞到位再展开、带回弹；慢放时飞行、转笔、展开
 // 几乎同时进行、不回弹。动画进行中可以随时拿起。手感参数都在下面。
 //
-// 没接的：不透明度（笔迹格式里还没有这个字段）、重做（白板没有重做）、
-// 直尺和套索（白板没有这两个功能，对应的按钮已经从布局里去掉）。
+// 没接的：不透明度（笔迹格式里还没有这个字段）、直尺和套索（白板没有这两个功能，
+// 对应的按钮已经从布局里去掉）。撤销和重做都接到白板自己的历史栈上。
 
 import { clamp } from "./util.js";
 
@@ -231,11 +231,11 @@ function makeClass(Base) {
         button.title = TITLES[tool];
         button.setAttribute("aria-label", TITLES[tool]);
       }
-      // 动画的时长和曲线交给 css/pk-host.css 使用，数值只在本文件顶部的 TUNING 里维护
+      // 动画的时长和曲线交给 css/app.css 里 #pk-host 那几段使用，数值只在本文件顶部的 TUNING 里维护
       this._applyTuning();
     }
 
-    /** 把 TUNING 里的动画时长和曲线写进 css/pk-host.css 使用的 --pkm-* 变量；改了 TUNING 后再调一次。 */
+    /** 把 TUNING 里的动画时长和曲线写进 css/app.css 使用的 --pkm-* 变量；改了 TUNING 后再调一次。 */
     _applyTuning() {
       const style = this.picker.style;
       style.setProperty("--pkm-travel", `${TUNING.TRAVEL_MS}ms ${TUNING.TRAVEL_EASE}`);
@@ -289,7 +289,6 @@ function makeClass(Base) {
         const what = row.dataset.wb;
         this._closePop();
         if (what === "clear" && this.onClear) this.onClear();
-        if (what === "leave" && this.onLeave) this.onLeave();
       });
     }
 
@@ -818,9 +817,8 @@ function makeClass(Base) {
     /**
      * 「更多」菜单里补上白板自己的一项：清空白板。
      *
-     * 以前这里还有一行「换回普通工具栏」。触摸设备上这条笔具盘就是唯一的工具栏，
-     * 那一行去掉了；接这条消息的代码（``data-wb="leave"`` 和 ``onLeave``）留着没删，
-     * 真要再放出来的话把这一行加回去就行。
+     * 以前这里还有一行「换回普通工具栏」。iPad 上这条笔具盘就是唯一的工具栏，
+     * 那一行连同接它的代码都去掉了。
      */
     _popHTML(kind) {
       const html = super._popHTML(kind);

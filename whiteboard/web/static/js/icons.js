@@ -33,7 +33,6 @@ export const ICONS = {
   folderOpen: path("M4 18.4V6.8h5.4l1.8 2.2h6.6v2.2") +
     path("M4.2 18.4l2.6-6.4h14l-2.6 6.4H4.2z"),
   download: path("M12 4.5v10.5") + path("M8 11l4 4 4-4") + path("M5 19.5h14"),
-  palette: `<circle cx="12" cy="12" r="8"/>`,
   note:
     path("M6.6 3.8h10.8v12.6H6.6z") +
     path("M9.2 7.4h5.6M9.2 10.3h5.6M9.2 13.2h3.4") +
@@ -55,7 +54,6 @@ export const ICONS = {
   dockBottom: `<rect x="3.6" y="16.4" width="16.8" height="4.6" rx="2.3"/>` +
     path("M12 3.4v9.2") + path("M8.8 9.4 12 12.6l3.2-3.2"),
   info: `<circle cx="12" cy="12" r="8.6"/>` + path("M12 11.2v5") + path("M12 7.9h.01"),
-  history: path("M4.2 12a7.8 7.8 0 1 0 2.4-5.6") + path("M4 5.8v4h4") + path("M12 8.2V12l2.8 1.8"),
   refresh: path("M19.4 12a7.4 7.4 0 1 1-2.2-5.3") + path("M19.8 4.7v4.3h-4.3"),
   hand: path("M9.6 12.2V6.1a1.6 1.6 0 1 1 3.2 0v4.4") +
     path("M12.8 10.5V9.2a1.6 1.6 0 1 1 3.2 0v1.7") +
