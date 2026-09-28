@@ -42,3 +42,23 @@ def test_setup_logging_writes_a_file(tmp_path, monkeypatch):
             if handler not in before:
                 root.removeHandler(handler)
                 handler.close()
+
+
+def test_setup_logging_twice_writes_each_line_once(tmp_path, monkeypatch):
+    """打包运行时 run.py 和 app.run 各调一次 setup_logging，日志不能写两遍。"""
+    monkeypatch.setattr(resources.sys, "platform", "linux")
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    root = logging.getLogger()
+    before = list(root.handlers)
+    try:
+        resources.setup_logging(debug=False, to_file=True)
+        path = resources.setup_logging(debug=False, to_file=True)
+        logging.getLogger("whiteboard.test").info("只写一次")
+        for handler in root.handlers:
+            handler.flush()
+        assert path.read_text("utf-8").count("只写一次") == 1
+    finally:
+        for handler in list(root.handlers):
+            if handler not in before:
+                root.removeHandler(handler)
+                handler.close()
