@@ -310,13 +310,24 @@ class NativeApi:
         new_dir = result if isinstance(result, str) else result[0]
         if str(new_dir) == str(self.config.data_dir):
             return str(new_dir)
+        old_dir = self.config.data_dir
+        advertise, bonjour = self.server.advertise, self.server.bonjour
         self.config.data_dir = new_dir
-        self.config.save()
         self.server.stop()
-        server = ServerThread(
-            self.config, advertise=self.server.advertise, bonjour=self.server.bonjour
-        )
-        server.start()
+        server = ServerThread(self.config, advertise=advertise, bonjour=bonjour)
+        try:
+            server.start()
+        except Exception:  # noqa: BLE001 - 新目录用不了就退回原来的，不能让服务端就此停着
+            log.exception("换存储目录失败，退回 %s", old_dir)
+            self.config.data_dir = old_dir
+            server = ServerThread(self.config, advertise=advertise, bonjour=bonjour)
+            server.start()
+            self.server = server
+            if self.window is not None:
+                self.window.load_url(f"http://127.0.0.1:{server.port}/?role=mac")
+            return None
+        # 新目录真的用上了才写进配置
+        self.config.save()
         self.server = server
         if self.window is not None:
             self.window.load_url(f"http://127.0.0.1:{server.port}/?role=mac")

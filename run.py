@@ -42,11 +42,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"日志写在 {log_file}")
 
     config = Config()
-    if args.port:
-        config.port = args.port
-    if args.data_dir:
-        config.data_dir = args.data_dir
-    config.save()
+    # 命令行参数只管这一次运行，不写进配置文件：想长期换目录就在界面上选
+    config.set_runtime(port=args.port or None, data_dir=args.data_dir or None)
 
     from whiteboard.netinfo import mdns_default
 
