@@ -76,8 +76,25 @@ def parse_version(text: Any) -> tuple:
     return tuple(int(n) for n in numbers[:4])
 
 
+def _order_key(text: Any) -> tuple:
+    """比较先后用的键：同一个版本号，带后缀的预发布版（1.0.0-rc.1）排在正式版前面。
+
+    parse_version 把后缀里的数字也接在后面，1.0.0-rc.1 会变成 (1, 0, 0, 1)，比
+    1.0.0 的 (1, 0, 0) 还大——装了预发布版的机器就永远收不到正式版了。
+    """
+    if not isinstance(text, str):
+        return ((0,), 1, ())
+    head, _, suffix = text.split("+")[0].partition("-")
+    core = tuple(int(n) for n in _NUMBER_RE.findall(head)[:4]) or (0,)
+    # 末尾补零再比，1.0 和 1.0.0 算同一个版本
+    core = core + (0,) * (4 - len(core))
+    if not suffix:
+        return (core, 1, ())
+    return (core, 0, tuple(int(n) for n in _NUMBER_RE.findall(suffix)))
+
+
 def is_newer(candidate: str, current: str) -> bool:
-    return parse_version(candidate) > parse_version(current)
+    return _order_key(candidate) > _order_key(current)
 
 
 def arch_tag(machine: Optional[str] = None) -> str:

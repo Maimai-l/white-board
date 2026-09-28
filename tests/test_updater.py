@@ -45,6 +45,16 @@ def test_version_parsing_and_comparison():
     assert not updater.is_newer("0.9.9", "1.0.0")
 
 
+def test_a_prerelease_comes_before_its_release():
+    """装了预发布版的机器要能收到同一版本号的正式版。"""
+    assert updater.is_newer("1.0.0-rc.1", "0.9.53")
+    assert updater.is_newer("1.0.0", "1.0.0-rc.1")
+    assert updater.is_newer("1.0.0-rc.2", "1.0.0-rc.1")
+    assert not updater.is_newer("1.0.0-rc.1", "1.0.0")
+    assert updater.is_newer("v1.0.1", "1.0.0-rc.3")
+    assert not updater.is_newer("1.0", "1.0.0")
+
+
 def test_arch_tag():
     assert updater.arch_tag("arm64") == "arm64"
     assert updater.arch_tag("aarch64") == "arm64"
