@@ -1254,6 +1254,7 @@ class App {
       onDeleteBoard: (boardId) => this.net.send({ t: "delboard", board: boardId }),
       onRenameBoard: (boardId, name) => this.net.send({ t: "rename", board: boardId, name }),
       onMoveBoard: (boardId, folder) => this.net.send({ t: "folder", board: boardId, folder }),
+      onReorderBoards: (ids) => this.net.send({ t: "order", ids }),
       onNewFolder: (name) => this.net.send({ t: "newfolder", name }),
       onDeleteFolder: (name) => this.net.send({ t: "delfolder", name }),
       onRenameFolder: (name, to) => this.net.send({ t: "renamefolder", name, to }),

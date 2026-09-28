@@ -254,6 +254,10 @@ class Hub:
         self.store.update_meta(merged)
         return True
 
+    def reorder_boards(self, ids: Any) -> bool:
+        """拖动排序。顺序只存在索引里，白板文件本身不动，所以不必管内存里那几块。"""
+        return self.store.set_order(ids)
+
     # ------------------------------------------------------------- 文件夹
 
     def create_folder(self, name: str) -> str:

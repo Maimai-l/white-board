@@ -483,6 +483,7 @@ class _Session:
             "delboard": self._del_board,
             "rename": self._rename,
             "folder": self._folder,
+            "order": self._order,
             "newfolder": self._new_folder,
             "delfolder": self._del_folder,
             "renamefolder": self._rename_folder,
@@ -617,6 +618,14 @@ class _Session:
         if not isinstance(board_id, str) or not isinstance(folder, str):
             return
         if not self.hub.move_board(board_id, folder):
+            return
+        await self._broadcast_boards()
+
+    async def _order(self, msg: Dict[str, Any]) -> None:
+        """拖动排序：界面送来的是当前这一层看到的顺序。"""
+        if not self._may("manage"):
+            return
+        if not self.hub.reorder_boards(msg.get("ids")):
             return
         await self._broadcast_boards()
 

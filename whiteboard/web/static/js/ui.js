@@ -30,6 +30,10 @@ export const ERASER_MODES = [
 // 橡皮的粗细不用手动调：对象橡皮擦一直是笔尖，像素橡皮擦跟着笔身角度走，
 // 数值都在 input.js 的 ERASER_* 里。
 
+// 拖白板卡片时放进 dataTransfer 的类型。窗口那个「拖进 PDF」的处理只认 Files，
+// 用一个自己的类型就不会互相干扰。
+const BOARD_DRAG_TYPE = "application/x-whiteboard-board";
+
 const TOOL_KEY = "whiteboard.tool";
 const PICKER_KEY = "whiteboard.picker";
 
@@ -156,6 +160,10 @@ export class UI {
     this.boards = [];
     this.folders = [];
     this.openFolder = ""; // 空串表示停在最外面那一层
+    this.dragBoard = ""; // 正在拖的那块白板的 id
+    this.dragItem = null; // 它在格子里的那一格，拖动过程中直接搬来搬去
+    this.dragSorted = false; // 这一次拖动动过顺序
+    this.dragFiled = false; // 这一次拖动的落点是文件夹
     this.boardQuery = "";
     this.info = null;
     this.popover = null;
@@ -926,7 +934,11 @@ export class UI {
 
     const head = el("div", { class: "gallery-head" });
     // 进了文件夹，搜索框前面多一个返回；搜索本身始终在全部白板里找
-    if (this.openFolder) head.append(iconButton("back", "返回", () => this.leaveFolder()));
+    if (this.openFolder) {
+      const back = iconButton("back", "返回（把白板拖到这里就移出文件夹）", () => this.leaveFolder());
+      this.makeDropTarget(back, "");
+      head.append(back);
+    }
     head.append(
       el("label", { class: "search-box" }, [
         el("span", { class: "search-icon", html: icon("search", 18) }),
@@ -936,6 +948,7 @@ export class UI {
     );
 
     this.boardGrid = el("div", { class: "gallery-grid" });
+    this.bindGridSorting(this.boardGrid);
     const gallery = el("div", { class: "gallery" }, [head]);
     this.folderBarNode = this.openFolder ? this.folderBar(this.openFolder) : null;
     if (this.folderBarNode) gallery.append(this.folderBarNode);
@@ -1005,14 +1018,140 @@ export class UI {
     );
   }
 
-  /** 文件夹在格子里就是一块卡片：点开进去，名字可以直接改。 */
+  /**
+   * 把白板卡片变成可以拖的。
+   *
+   * 用的是浏览器自带的拖放（HTML5 drag and drop），不是自己接指针事件：Mac 上
+   * 鼠标和触控板都走这一套，光标形状、半透明的拖影都是系统给的。iOS Safari 不
+   * 发这些事件，所以触摸设备上照旧用名字旁边那个文件夹按钮，两条路都留着。
+   */
+  makeDraggable(card, boardId) {
+    card.setAttribute("draggable", "true");
+    card.addEventListener("dragstart", (event) => {
+      this.dragBoard = boardId;
+      this.dragItem = card.closest(".board-item");
+      this.dragFiled = false;
+      this.dragSorted = false;
+      card.classList.add("dragging");
+      if (!event.dataTransfer) return;
+      event.dataTransfer.effectAllowed = "move";
+      // 带上一份数据，不然 Safari 不认这次拖动；窗口那个「拖进 PDF」的处理只看
+      // types 里有没有 Files，所以拖卡片不会把它的提示层勾出来
+      event.dataTransfer.setData(BOARD_DRAG_TYPE, boardId);
+    });
+    card.addEventListener("dragend", (event) => {
+      const cancelled = event.dataTransfer && event.dataTransfer.dropEffect === "none";
+      this.dragBoard = "";
+      this.dragItem = null;
+      card.classList.remove("dragging");
+      for (const node of this.root.querySelectorAll(".drop-target")) {
+        node.classList.remove("drop-target");
+      }
+      // 按 Esc 或者丢到窗口外面：拖动过程中已经让过位了，重铺一遍退回原样
+      if (cancelled) {
+        this.dragSorted = false;
+        this.dragFiled = false;
+        this.fillBoardGrid();
+        return;
+      }
+      // 拖进文件夹的那一下不算排序：列表马上就会被广播刷新，这里再发一条顺序
+      // 反而是拿拖动过程中的临时位置去覆盖服务端。
+      if (this.dragSorted && !this.dragFiled) this.actions.onReorderBoards(this.boardOrder());
+      this.dragSorted = false;
+      this.dragFiled = false;
+    });
+  }
+
+  /** 格子里现在这些白板的先后，就是要存下来的顺序（文件夹和「新建」不算）。 */
+  boardOrder() {
+    if (!this.boardGrid) return [];
+    return [...this.boardGrid.children].map((node) => node.dataset.board).filter(Boolean);
+  }
+
+  /**
+   * 拖着白板在格子里走：经过谁就插到谁前面或者后面，剩下的卡片让开。
+   *
+   * 和启动台一样是边拖边让位，松手只是定下来。让位用 FLIP：先记住每块卡片在
+   * 哪，改完 DOM 再从原位滑到新位，不然重排是一下跳过去的。
+   */
+  bindGridSorting(grid) {
+    grid.addEventListener("dragover", (event) => {
+      if (!this.dragBoard || !this.dragItem) return;
+      const over = event.target.closest && event.target.closest(".board-item");
+      // 只在白板之间排序：文件夹那块卡片是「放进去」，「新建」那块不参与
+      if (!over || over === this.dragItem || !over.dataset.board) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      const box = over.getBoundingClientRect();
+      const after = event.clientX > box.left + box.width / 2;
+      const ref = after ? over.nextSibling : over;
+      if (ref === this.dragItem || this.dragItem.nextSibling === ref) return;
+      this.flip(grid, () => grid.insertBefore(this.dragItem, ref));
+      this.dragSorted = true;
+    });
+    // 松手落在格子上也得接住，否则浏览器当这次拖动没成功（dropEffect 是 none），
+    // 下面 dragend 里就会把它当成按 Esc 取消，刚排好的顺序又被退回去。
+    grid.addEventListener("drop", (event) => {
+      if (this.dragBoard) event.preventDefault();
+    });
+  }
+
+  /** FLIP：记住动之前的位置，改完 DOM 让每块卡片从原位滑过来。 */
+  flip(grid, mutate) {
+    const before = new Map();
+    for (const node of grid.children) before.set(node, node.getBoundingClientRect());
+    mutate();
+    for (const node of grid.children) {
+      const first = before.get(node);
+      if (!first) continue;
+      const last = node.getBoundingClientRect();
+      const dx = first.left - last.left;
+      const dy = first.top - last.top;
+      if (!dx && !dy) continue;
+      node.animate(
+        [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
+        { duration: 180, easing: "ease-out" }
+      );
+    }
+  }
+
+  /**
+   * 把一个元素变成放手的地方：拖着白板经过时亮起来，松手就把它移到 ``folder``
+   * 里（空串是移出文件夹）。
+   */
+  makeDropTarget(node, folder) {
+    const leave = (event) => {
+      // 经过子元素时 dragleave 也会响，真的出去了才熄灭
+      if (event && event.relatedTarget && node.contains(event.relatedTarget)) return;
+      node.classList.remove("drop-target");
+    };
+    node.addEventListener("dragover", (event) => {
+      if (!this.dragBoard) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      node.classList.add("drop-target");
+    });
+    node.addEventListener("dragleave", leave);
+    node.addEventListener("drop", (event) => {
+      if (!this.dragBoard) return;
+      event.preventDefault();
+      leave();
+      const board = this.boards.find((item) => item.id === this.dragBoard);
+      this.dragFiled = true; // 这一下是归类，不是排序
+      this.dragBoard = "";
+      if (!board || (board.folder || "") === folder) return;
+      this.actions.onMoveBoard(board.id, folder);
+    });
+  }
+
+  /** 文件夹在格子里就是一块卡片：点开进去，名字可以直接改，也可以把白板拖进来。 */
   folderItem(name) {
     const count = this.boards.filter((board) => board.folder === name).length;
     const card = el(
       "div",
       {
         class: "board-card folder",
-        title: `打开文件夹：${name}`,
+        title: `打开文件夹：${name}（也可以把白板拖进来）`,
         onclick: () => this.enterFolder(name),
       },
       [
@@ -1020,6 +1159,7 @@ export class UI {
         el("span", { class: "folder-card-count", text: String(count) }),
       ]
     );
+    this.makeDropTarget(card, name);
     return el("div", { class: "board-item" }, [card, el("div", { class: "board-meta" }, [this.folderName(name)])]);
   }
 
@@ -1062,7 +1202,7 @@ export class UI {
 
   /** 进了文件夹之后，搜索框下面那一行：名字、装了几块、删除。 */
   folderBar(name) {
-    return el("div", { class: "folder-bar" }, [
+    const bar = el("div", { class: "folder-bar" }, [
       el("span", { class: "folder-bar-icon", html: icon("folder", 20) }),
       this.folderName(name),
       el("span", {
@@ -1076,6 +1216,9 @@ export class UI {
         });
       }),
     ]);
+    // 往外拖：这一行和它左边的返回按钮都收，松手就移出这个文件夹
+    this.makeDropTarget(bar, "");
+    return bar;
   }
 
   /** 一块白板：缩略图 + 可以直接改的名字 + 最后一次写的时间。 */
@@ -1099,6 +1242,7 @@ export class UI {
         }),
       ]
     );
+    this.makeDraggable(card, board.id);
     if (this.boards.length > 1) {
       card.append(
         el("button", {
@@ -1151,7 +1295,7 @@ export class UI {
       onclick: () => this.chooseFolder(board),
     });
 
-    return el("div", { class: "board-item" }, [
+    return el("div", { class: "board-item", "data-board": board.id }, [
       card,
       el("div", { class: "board-meta" }, [
         name,

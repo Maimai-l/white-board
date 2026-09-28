@@ -1156,6 +1156,68 @@ def test_boards_can_be_filed_into_a_folder(browser, server):
     ipad.close()
 
 
+def test_a_board_can_be_dragged_into_a_folder_and_back_out(browser, server):
+    """Mac 上归类不用开对话框：把卡片拖到文件夹上，拖回返回按钮就是移出来。"""
+    mac, ipad = open_pages(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title="新建文件夹"]')
+    mac.wait_for_selector(".board-card.folder")
+
+    # 拖进去：松手之后这块白板收进文件夹，最外面那层只剩文件夹卡片和「新建」
+    mac.drag_and_drop(".board-card:not(.folder):not(.add)", ".board-card.folder")
+    mac.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
+    ipad.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
+    mac.wait_for_function("() => document.querySelectorAll('.board-item').length === 2")
+
+    # 拖出来：进文件夹，把卡片拖到搜索框左边那个返回按钮上
+    mac.click(".board-card.folder")
+    mac.wait_for_selector(".folder-bar")
+    mac.drag_and_drop(".board-card:not(.folder):not(.add)", 'button[title^="返回"]')
+    mac.wait_for_function("() => whiteboard.ui.boards.every(b => !b.folder)")
+    assert mac.evaluate("() => whiteboard.ui.folders.length") == 1  # 文件夹还在，只是空了
+    mac.close()
+    ipad.close()
+
+
+def test_boards_can_be_dragged_into_a_new_order(browser, server):
+    """拖着卡片在格子里走，别的卡片让位；松手之后这个顺序两端都认，也存得住。"""
+    mac, ipad = open_pages(browser, server.port)
+    for kind in ("笔记", "笔记"):
+        mac.click('button[title="白板"]')
+        mac.click(".board-card.add")
+        mac.click(f'.kind-tile[title^="{kind}"]')
+        mac.wait_for_function("() => whiteboard.state.kind === 'note'")
+    mac.click('button[title="白板"]')
+    mac.wait_for_function("() => document.querySelectorAll('.board-item').length === 4")
+
+    order = "() => [...document.querySelectorAll('.board-item[data-board]')].map(n => n.dataset.board)"
+    before = mac.evaluate(order)
+    assert len(before) == 3
+
+    # 把第一块拖到第三块的右半边，它就排到最后（落点在左半边是插到前面）
+    items = ".board-item[data-board] .board-card"
+    mac.drag_and_drop(f"{items} >> nth=0", f"{items} >> nth=2", target_position={"x": 200, "y": 60})
+    mac.wait_for_function(
+        f"() => JSON.stringify(whiteboard.ui.boards.map(b => b.id)) === "
+        f"JSON.stringify({before[1:] + before[:1]})"
+    )
+    ipad.wait_for_function(
+        f"() => JSON.stringify(whiteboard.ui.boards.map(b => b.id)) === "
+        f"JSON.stringify({before[1:] + before[:1]})"
+    )
+    assert mac.evaluate(order) == before[1:] + before[:1]
+
+    # 刷新之后还是这个顺序：顺序存在服务端的索引里，不是本机记的
+    mac.reload()
+    mac.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    mac.click('button[title="白板"]')
+    mac.wait_for_selector(".board-item")
+    assert mac.evaluate(order) == before[1:] + before[:1]
+    mac.close()
+    ipad.close()
+
+
 def test_deleting_a_folder_keeps_the_boards(browser, server):
     """删文件夹只是取消归类，里面的白板一块都不能少。"""
     mac, ipad = open_pages(browser, server.port)

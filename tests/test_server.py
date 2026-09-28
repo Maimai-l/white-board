@@ -283,6 +283,51 @@ def test_mac_puts_a_board_in_a_folder_and_ipad_hears_it(tmp_path):
     run(main())
 
 
+def test_mac_reorders_boards_and_everyone_hears_it(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            mac = await client.ws_connect("/ws")
+            ipad = await client.ws_connect("/ws")
+            await hello(mac, "mac", client_id="mac-1")
+            await hello(ipad, "ipad", client_id="ipad-1")
+
+            await mac.send_json({"t": "newboard"})
+            switched = await mac.receive_json()
+            await ipad.receive_json()
+            order = [m["id"] for m in switched["boards"]]
+
+            await mac.send_json({"t": "order", "ids": list(reversed(order))})
+            for side in (mac, ipad):
+                msg = await side.receive_json()
+                assert msg["t"] == "boards"
+                assert [m["id"] for m in msg["boards"]] == list(reversed(order))
+            assert [m["id"] for m in hub.store.list_metas()] == list(reversed(order))
+
+            await mac.close()
+            await ipad.close()
+
+    run(main())
+
+
+def test_ipad_cannot_reorder_boards(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            hub.create_board()
+            before = [m["id"] for m in hub.store.list_metas()]
+            ws = await client.ws_connect("/ws")
+            await hello(ws, "ipad", client_id="ipad-1")
+            await ws.send_json({"t": "order", "ids": list(reversed(before))})
+            await ws.send_json({"t": "ping", "ts": 7})
+            pong = await ws.receive_json()
+            assert pong["t"] == "pong"  # 排序那条被丢掉了，下一条才是回音
+            assert [m["id"] for m in hub.store.list_metas()] == before
+            await ws.close()
+
+    run(main())
+
+
 def test_a_folder_can_be_created_renamed_and_deleted(tmp_path):
     """空文件夹只有索引里有记录，所以新建、改名、删除都得各有一条消息。"""
     async def main():

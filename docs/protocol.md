@@ -25,6 +25,7 @@
                                              // folder 可省；文档板不走这里，走 POST /api/doc
 {"t":"rename","board":"<白板 id>","name":"线性代数"}            // 仅 Mac
 {"t":"folder","board":"<白板 id>","folder":"数学"}              // 仅 Mac，空串是移出文件夹
+{"t":"order","ids":["<白板 id>", ...]}                          // 仅 Mac，拖动排序
 {"t":"newfolder","name":"数学"} / {"t":"delfolder","name":"数学"}          // 仅 Mac
 {"t":"renamefolder","name":"数学","to":"线性代数"}                         // 仅 Mac
 {"t":"ping","ts":1730000000000}
@@ -46,6 +47,10 @@
 
 `init` / `sync` / `switch` / `boards` 都带 `folders`，就是现有的文件夹名单。
 文件夹没有单独的 id，名字就是身份，见 `docs/format.md`。
+
+`order` 送的是**当前这一层**看到的顺序（最外面那层的散板，或者某个文件夹里那几块），
+不是全部白板：服务端只把这几块在索引里换位置，别的白板不动。`boards` 数组的先后
+就是界面上的先后。
 
 ## 操作
 
@@ -136,5 +141,5 @@ WebSocket 之外还有几条普通的 HTTP 路由，文档板（beta）用的是
 - 客户端再用 `navigator.maxTouchPoints` 校正一次（iPadOS 的 Safari 默认报 Mac 的 UA）。
 - URL 上的 `?role=mac` / `?role=ipad` 优先级最高，pywebview 窗口用的就是它。
 - 白板列表、背景、存储目录这些只在 `mac` 角色下出现；服务端对
-  `sel` / `newboard` / `delboard` / `rename` / `folder` / `newfolder` / `delfolder` /
-  `renamefolder` / `meta` 也只接受来自 `mac` 的请求。
+  `sel` / `newboard` / `delboard` / `rename` / `folder` / `order` / `newfolder` /
+  `delfolder` / `renamefolder` / `meta` 也只接受来自 `mac` 的请求。

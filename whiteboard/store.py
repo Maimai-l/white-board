@@ -159,6 +159,31 @@ class BoardStore:
         self._write_index()
         return True
 
+    def set_order(self, ids: Any) -> bool:
+        """按 ``ids`` 给白板重新排序。
+
+        列表里的白板只占用它们原来占着的那几个位置，别的白板一个都不动——界面上
+        送来的是当前这一层看到的顺序（最外面那层，或者某个文件夹里那几块），
+        不是全部白板。索引里的顺序就是界面上的顺序。
+        """
+        if not isinstance(ids, list):
+            return False
+        known = {meta["id"]: meta for meta in self._index["boards"]}
+        wanted: List[str] = []
+        for board_id in ids:
+            if isinstance(board_id, str) and board_id in known and board_id not in wanted:
+                wanted.append(board_id)
+        if len(wanted) < 2:
+            return False
+        picked = set(wanted)
+        slots = [i for i, meta in enumerate(self._index["boards"]) if meta["id"] in picked]
+        if [self._index["boards"][i]["id"] for i in slots] == wanted:
+            return False  # 顺序没变，不用写盘也不用广播
+        for slot, board_id in zip(slots, wanted):
+            self._index["boards"][slot] = known[board_id]
+        self._write_index()
+        return True
+
     def get_meta(self, board_id: str) -> Optional[Dict[str, Any]]:
         for meta in self._index["boards"]:
             if meta["id"] == board_id:

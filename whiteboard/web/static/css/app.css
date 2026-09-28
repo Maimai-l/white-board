@@ -680,6 +680,20 @@ html, body {
   text-align: center;
 }
 .board-name.folder { color: var(--primary); }
+/* 拖白板卡片：拖着的那块淡下去，能放手的地方亮起来 */
+.board-card[draggable="true"] { cursor: grab; }
+.board-card.dragging { opacity: .4; }
+.board-card.folder.drop-target {
+  border-color: var(--primary);
+  background: var(--primary-container);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-2);
+}
+.folder-bar.drop-target,
+.gallery-head .icon-btn.drop-target {
+  border-radius: var(--radius-m);
+  box-shadow: 0 0 0 2px var(--primary);
+}
 /* 进了文件夹之后搜索框下面那一行：名字、装了几块、删除 */
 .folder-bar {
   display: flex;

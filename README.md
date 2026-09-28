@@ -350,11 +350,25 @@ or folder.
 - Any board can be renamed without switching to it; only the list is broadcast,
   not the board itself.
 
+**Dragging** (with a mouse or trackpad; see the note below for touch):
+
+- Drag a board onto a folder card to file it there.
+- Inside a folder, drag a board onto the back button or the folder bar to move
+  it back out.
+- Drag a board between two other boards to reorder them. The other cards move
+  aside while you drag, exactly where the card will land, and the order is saved
+  when you release. Escape puts everything back.
+- The order lives in `index.json` on the Mac, so it is the same on every device
+  and survives a restart. Folders stay sorted by name.
+
+This uses the browser's own drag-and-drop, which iOS Safari does not implement,
+so on a touch device use the folder icon next to a board's name instead.
+
 **Folders** are one level deep and appear as cards in the same grid; opening one
 shows only the boards inside it.
 
-- To file a board, use the folder icon next to its name and pick an existing
-  folder or type a new name (which creates it).
+- To file a board, drag it onto the folder, or use the folder icon next to its
+  name and pick an existing folder or type a new name (which creates it).
 - A folder's name is its identity: renaming it rewrites the name recorded on
   every board inside, and a name already in use is rejected.
 - Boards created inside a folder — including dropped PDFs and images — stay in

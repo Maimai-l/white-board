@@ -155,6 +155,36 @@ def test_moving_a_board_out_of_a_folder_clears_it(tmp_path):
     assert store.move_board("没有这块", "数学") is False
 
 
+def test_reordering_only_moves_the_boards_you_name(tmp_path):
+    """界面送来的是当前这一层的顺序，别的白板不能跟着动。"""
+    store = BoardStore(tmp_path)
+    ids = [store.create_board(name)["id"] for name in ("一", "二", "三", "四")]
+    # create_board 插在最前面，所以现在是倒着的；最后那块没名字的是开店时自带的
+    assert [m["name"] for m in store.list_metas()] == ["四", "三", "二", "一", ""]
+
+    # 只排「三」和「一」这两块：它们占着第 2、第 4 个位置，换过来之后别的不动
+    assert store.set_order([ids[0], ids[2]]) is True
+    assert [m["name"] for m in store.list_metas()] == ["四", "一", "二", "三", ""]
+
+    assert store.set_order([ids[0], ids[2]]) is False  # 顺序没变就不写盘
+    assert store.set_order([ids[0]]) is False  # 一块白板谈不上顺序
+    assert store.set_order(["没有这块", ids[0]]) is False  # 认不出的先滤掉，剩一块
+    assert store.set_order("不是个列表") is False
+    assert [m["name"] for m in store.list_metas()] == ["四", "一", "二", "三", ""]
+
+
+def test_the_order_survives_a_restart_but_not_an_index_rebuild(tmp_path):
+    """顺序只存在索引里：索引没了就只能按最后写的时间倒着排。"""
+    store = BoardStore(tmp_path)
+    ids = [store.create_board(name)["id"] for name in ("一", "二", "三")]
+    store.set_order([ids[0], ids[1], ids[2]])
+    assert [m["name"] for m in BoardStore(tmp_path).list_metas()] == ["一", "二", "三", ""]
+
+    (tmp_path / "index.json").unlink()
+    names = [m["name"] for m in BoardStore(tmp_path).list_metas()]
+    assert sorted(names) == ["", "一", "三", "二"]  # 白板一块没少，只是顺序回到按时间
+
+
 def test_an_empty_folder_only_lives_in_the_index(tmp_path):
     """空文件夹没有白板可依附，索引丢了就找不回来；装着白板的那些要能重建出来。"""
     store = BoardStore(tmp_path)
