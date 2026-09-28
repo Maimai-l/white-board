@@ -75,8 +75,8 @@ python run.py                 # 打开 Mac 窗口，同时在局域网上开服�
 
 ```bash
 python run.py --headless                     # 不开窗口，只跑服务（用浏览器访问）
-python run.py --port 9000                    # 换端口（被占用时会自动顺延）
-python run.py --data-dir ~/Documents/白板    # 换白板存储目录
+python run.py --port 9000                    # 换端口（被占用时会自动顺延；只对这一次运行有效）
+python run.py --data-dir ~/Documents/白板    # 换白板存储目录（只对这一次运行有效）
 python run.py --mdns                         # 额外注册 _http._tcp 服务（macOS 默认交给系统）
 python run.py --no-bonjour                   # 不注册 iPad 外壳用的 _whiteboard._tcp 服务
 python run.py --version
@@ -343,6 +343,12 @@ Pencil 有两条路起拖：横着走就立刻开始——列表只竖着滚，�
 - `thumbs/<id>.png` 只是 Mac 端选白板用的缩略图；文档板不生成，直接拿原件首页当封面。
 - `docs/<id>.<扩展名>` 是文档板的原件副本，只读不改；删掉白板时一起删。
 - 服务端每 3 秒自动保存一次改动，关窗口 / Ctrl+C 退出前会再存一次。
+- 文件没能完整读出来的白板（损坏、部分读不出来，或者是更新版本写的）**以只读方式
+  打开**：读得出来的内容照常显示，原文件不会被覆盖。Mac 上看过提示之后可以选择
+  仍然编辑，原文件会先复制到 `backups/locked/`。细节见
+  [docs/format.md](docs/format.md#版本与读不全的文件)。
+- `backups/upgrade/`：换版本后第一次启动时，先把 `boards/` 和 `index.json` 复制到这里
+  再碰任何文件，只留最近 5 份。
 
 ## 出问题时
 

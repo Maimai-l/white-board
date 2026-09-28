@@ -127,6 +127,11 @@ python run.py                 # opens the Mac window and serves on the LAN
 | `--headless` | Serve only, no window (reach it from a browser) |
 | `--port 9000` | Change the port (taken ports roll over to the next one) |
 | `--data-dir DIR` | Change where boards are stored |
+
+`--port` and `--data-dir` apply to this run only and are not written to the
+configuration; to change the storage directory permanently, pick it in the
+interface. A port that rolls over because it is taken is likewise used for this
+run only, so the next launch tries the configured port again.
 | `--mdns` | Also register an `_http._tcp` service (macOS leaves this to the system) |
 | `--no-bonjour` | Do not register the `_whiteboard._tcp` service used by the iPad shell |
 | `--version` | Print the version |
@@ -454,6 +459,13 @@ on the Mac. Nothing is granted by default.
   with the board.
 - The server saves changes every 3 seconds, and once more when the window closes
   or the process is interrupted.
+- A board whose file cannot be read completely (damaged, partly unreadable, or
+  written by a newer version) opens **read-only**: what can be read is shown,
+  and the file is never overwritten. The Mac can choose to edit it anyway after
+  a warning; the original file is first copied to `backups/locked/`. Details:
+  [docs/format.md](docs/format.md#版本与读不全的文件).
+- `backups/upgrade/` — the first launch after a version change copies `boards/`
+  and `index.json` here before touching anything. The latest five are kept.
 
 ### Disconnection and restarts
 
