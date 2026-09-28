@@ -12,6 +12,11 @@ if not os.path.exists(os.path.join(ROOT, "whiteboard")):
 VERSION = os.environ.get("WHITEBOARD_VERSION", "0.0.0")
 ICON = os.path.join(SPECPATH, "whiteboard.icns")
 
+def _is_lab(dest):
+    """打包目标路径是不是 whiteboard/web/static/lab/ 底下的文件。"""
+    return dest.replace(os.sep, "/").startswith("whiteboard/web/static/lab/")
+
+
 datas = [(os.path.join(ROOT, "whiteboard", "web"), "whiteboard/web")]
 # 同版本的 iPad 外壳：CI 的 ipad 任务先构建好放在这里，安装页和 /ipad/Whiteboard.ipa
 # 从资源目录里取（见 whiteboard/ipadshell.py）。本地打包没有它时照常打，安装页会
@@ -46,6 +51,9 @@ a = Analysis(
     excludes=["tkinter", "pytest", "playwright"],
     noarchive=False,
 )
+# static/lab/ 是在真机上调手感用的开发页面（见 README「拖动」一节），不进正式包；
+# 从源码运行时照常能打开。
+a.datas = [entry for entry in a.datas if not _is_lab(entry[0])]
 pyz = PYZ(a.pure)
 
 exe = EXE(
