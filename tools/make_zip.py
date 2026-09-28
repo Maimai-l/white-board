@@ -18,6 +18,7 @@ INCLUDE_FILES = [
     "run.py",
     "requirements.txt",
     "README.md",
+    "README.zh-CN.md",
     "GETTING-STARTED.txt",
     "start-whiteboard.command",
     "browser-mode.command",

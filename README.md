@@ -1,403 +1,533 @@
-# 局域网共享白板
+# Whiteboard
 
-Mac 上启动程序，iPad 从主屏图标打开，两块屏幕写同一块白板，内容实时互相显示。
-只走局域网，不需要账号、不连外网。
+A shared handwriting whiteboard for a Mac and an iPad on the same local network.
+Run the app on the Mac, open the icon on the iPad home screen, and both screens
+write on the same board with every stroke appearing on the other in real time.
+
+Everything stays on the LAN. There is no account, no cloud service and no
+outbound connection other than the update check.
 
 ```
 ┌──────────── Mac ────────────┐            ┌─────── iPad ───────┐
-│ pywebview 窗口（role=mac）  │            │ 主屏 Web Clip 图标 │
-│   白板列表 / 背景 / 缩放    │  WebSocket │   全屏书写界面     │
-│   缩放 / 导出 PNG           │◀──────────▶│   Apple Pencil     │
-│ aiohttp 服务 + mDNS 广播    │  局域网    │                    │
-│ 白板压缩存盘（矢量，非图片）│            │ IndexedDB 本地缓存 │
+│ pywebview window (role=mac) │            │ Home screen icon   │
+│   boards / background       │  WebSocket │   Full-screen page │
+│   zoom / export PNG         │◀──────────▶│   Apple Pencil     │
+│ aiohttp server + mDNS       │    LAN     │                    │
+│ boards stored as vectors    │            │ IndexedDB cache    │
 └─────────────────────────────┘            └────────────────────┘
 ```
 
-## 安装（Mac）
+Chinese version of this document: [README.zh-CN.md](README.zh-CN.md).
+The design notes under `docs/` are in Chinese.
 
-打过 tag 之后，GitHub Actions 会自动构建并发布 `.app`，到仓库的 Releases 页面下载
-对应架构的压缩包（`arm64` 是 Apple 芯片，`x86_64` 是 Intel），解压把 **Whiteboard.app**
-拖进「应用程序」即可。
+## Contents
 
-第一次打开有两个系统提示，都是一次性的：
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installing on the Mac](#installing-on-the-mac)
+- [Connecting an iPad](#connecting-an-ipad)
+- [Native iPad shell (optional)](#native-ipad-shell-optional)
+- [Writing](#writing)
+- [Boards, folders and documents](#boards-folders-and-documents)
+- [Permissions for other devices](#permissions-for-other-devices)
+- [Stored data](#stored-data)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Non-goals](#non-goals)
 
-- 「无法验证开发者」——应用只做了 ad-hoc 签名（没有 Apple 开发者证书）。
-  右键点应用 →「打开」→ 再点「打开」，之后就能正常双击。
-- 「白板想要查找并连接到本地网络上的设备」——**必须允许**，否则 iPad 连不上。
-  （macOS 15 起的要求，应用里已经写了用途说明。）
+## Features
 
-之后的版本不用再手动下载。应用启动时会在后台查一次 GitHub Release，发现新版本就
-弹出更新对话框：显示版本号、Release 里的更新说明，以及三个选择——
+- **Real-time sync over the LAN.** One Mac serves the page and stores the
+  boards; any device on the network opens it in a browser and writes.
+- **Vector ink.** Strokes are stored as points, not images — a 500-point stroke
+  is usually under 2 KB. Outlines come from
+  [perfect-freehand](https://github.com/steveruizok/perfect-freehand).
+- **Apple Pencil first.** Pressure and tilt drive the pen width, the palm is
+  ignored while the Pencil is down, and fingers pan and zoom unless finger
+  drawing is switched on.
+- **Two erasers.** One deletes whole strokes; the other cuts a stroke into the
+  pieces that survive, still as vectors.
+- **Three kinds of board**, including annotating a PDF or an image and
+  exporting it with the ink merged back in.
+- **Works while disconnected.** Strokes queue locally (and in IndexedDB) and are
+  replayed in order once the connection returns.
+- **Everything but writing is opt-in.** Any device on the network can draw;
+  managing boards, changing settings, clearing and exporting are each granted
+  separately from the Mac.
 
-- **跳过这个版本**：记住这个版本号，以后不再提示（换更新的版本会照常提示）；
-- **退出应用时安装**：后台下好，等你关窗口时静默替换，下次打开就是新版；
-- **安装并重启应用**：立刻替换并重新打开。
+## Requirements
 
-左下角的「以后自动下载更新」**默认关着**：检查更新只拿版本信息，不会先占带宽；
-点了「下载并安装」才开始下，下载进度显示在对话框里。打开这个开关之后，启动时
-查到新版本会在后台先把包下好，弹窗时直接可装——但手动点「检查更新」永远不下载。
+- A Mac for the server. The packaged app declares macOS 11 as its minimum and
+  is published for Apple silicon only; see [Building](#building) for Intel.
+- An iPad with Safari. Apple Pencil is optional but is what the input layer is
+  tuned for.
+- Both devices on the same network, with mDNS/Bonjour not blocked by the router.
+- From source: Python 3.10 or later (releases are built with 3.12).
 
-右上角最后一个图标是**关于**：应用图标、名字、版本与地址，「更新日志」「日志文件」
-是链接，「检查更新」在最底下。检查结果写在按钮上方（按钮位置固定，不会被结果顶着动）——
-已是最新会带上版本号，失败会写明原因（连不上、被限流、没有适配本机的包），
-不会只给一个对勾。
+## Installing on the Mac
 
-更新包解开之后会先验一遍才替换：`.app` 里有几百个符号链接和带执行权限的文件，
-解压时丢掉任何一样，macOS 都会拒绝打开、报「应用程序无法打开」。所以 macOS 上
-用 `ditto` 解包（Sparkle、electron-updater 也是这么做的），装之前检查可执行文件
-和代码签名，替换之后再验一次签名——验不过就把旧版本原样放回去并打开，
-宁可这次没更新，也不留下一个打不开的应用。
+Download the archive for your architecture from the repository's Releases page
+(`arm64` for Apple silicon, `x86_64` for Intel), unpack it, and drag
+**Whiteboard.app** into `/Applications`.
 
-### 从源码跑
+The first launch raises two system prompts, both one-off:
+
+- **"Cannot verify developer."** The app is ad-hoc signed. Right-click the app,
+  choose **Open**, then **Open** again; afterwards double-clicking works.
+- **"Whiteboard would like to find and connect to devices on your local
+  network."** This must be allowed, or the iPad cannot reach the Mac. (Required
+  since macOS 15; the app ships the usage description.)
+
+### Updates
+
+The app checks GitHub Releases once at startup and offers three choices when a
+newer version exists: **skip this version** (remembered, newer ones still
+prompt), **install on quit** (downloaded in the background, swapped in silently
+when you close the window), or **install and restart now**.
+
+"Download updates automatically" is **off** by default, so the check only
+fetches version information. Turning it on pre-downloads the package at startup;
+a manual check never downloads.
+
+The downloaded package is unpacked with `ditto` and verified before it replaces
+anything: a `.app` contains hundreds of symlinks and executable files, and
+dropping any of them makes macOS refuse to open the bundle. The executable and
+the code signature are checked before the swap and again after it; if the check
+fails, the previous version is put back and reopened.
+
+The About panel (关于, last icon in the top-right corner) shows the version and
+links to the changelog and the log file, with 检查更新 (check for updates) at the
+bottom. The result
+is written above the button, including the version when already current and the
+reason when the check fails.
+
+### Running from source
 
 ```bash
 git clone https://github.com/Maimai-l/white-board.git
 cd white-board
 ```
 
-Mac 上双击 **start-whiteboard.command**：第一次会自动建好运行环境并装依赖，
-之后每次双击直接开窗口。更新双击 **update.command**（就是 `git pull`）。
+On a Mac, double-click **start-whiteboard.command**: the first run creates the
+environment and installs the dependencies, and later runs open the window
+directly. **update.command** runs `git pull`.
 
+macOS may refuse to open the scripts ("unidentified developer"); right-click →
+**Open** → **Open**, or run `xattr -dr com.apple.quarantine <this folder>` once.
 
-macOS 可能提示「无法打开，因为来自身份不明的开发者」，右键点脚本 →「打开」→「打开」
-即可；或者执行一次 `xattr -dr com.apple.quarantine <这个文件夹>`。
-
-想自己敲命令也可以：
+By hand:
 
 ```bash
 pip install -r requirements.txt
-python run.py                 # 打开 Mac 窗口，同时在局域网上开服务
+python run.py                 # opens the Mac window and serves on the LAN
 ```
 
-其他用法：
-
-```bash
-python run.py --headless                     # 不开窗口，只跑服务（用浏览器访问）
-python run.py --port 9000                    # 换端口（被占用时会自动顺延）
-python run.py --data-dir ~/Documents/白板    # 换白板存储目录
-python run.py --mdns                         # 额外注册 _http._tcp 服务（macOS 默认交给系统）
-python run.py --no-bonjour                   # 不注册 iPad 外壳用的 _whiteboard._tcp 服务
-python run.py --version
-```
-
-端口默认 8848。启动后 Mac 窗口右上角的「iPad」按钮里能看到 iPad 该访问的地址，
-形如 `http://你的电脑名.local:8848/`。
-
-### 自己打包
-
-```bash
-git tag v1.1.0 && git push origin v1.1.0     # 触发构建并发布 Release
-```
-
-也可以在 Actions 页面手动跑「打包 macOS 应用」，只出构建产物、不发布。
-本地打包：`pip install pyinstaller && python packaging/make_icns.py packaging/whiteboard.icns &&
-WHITEBOARD_VERSION=1.1.0 pyinstaller --noconfirm packaging/whiteboard.spec`。
-
-应用数据仍在 `~/Library/Application Support/Whiteboard`，与源码运行时共用，
-换版本不会丢白板；日志写在 `~/Library/Logs/Whiteboard.log`（.app 里没有终端）。
-
-## 把白板装到 iPad 主屏
-
-1. 在 Mac 窗口里点右上角的 **iPad 图标**，再点卡片上的 **下载** 按钮，得到
-   `whiteboard.mobileconfig`；也可以直接让 iPad 的 Safari 打开
-   `http://你的电脑名.local:8848/profile.mobileconfig`。
-2. iPad 上打开这个描述文件 → 「设置」→「已下载描述文件」→ 安装。
-   描述文件未签名，系统会提示「未签名」，确认安装即可。
-3. 主屏会出现「白板」图标，点开就是全屏白板，没有 Safari 的地址栏。
-
-描述文件里写的是 `.local` mDNS 主机名，Mac 换了 IP 也不用重装。
-Mac 和 iPad 必须在同一个局域网里，且路由器没有屏蔽 mDNS / Bonjour。
-`.local` 名字由 macOS 自带的 Bonjour 发布，程序不需要也不会去抢这件事；
-`--mdns` 只是额外注册一个 `_http._tcp` 服务方便别的工具发现，失败也不影响使用。
-
-## iPad 外壳（可选，需要 TrollStore）
-
-Safari 给网页的 Pencil 输入每秒只有约 60 个新位置，坐标是整数；原生应用能拿到
-约 240 个，坐标带小数，还有预测采样。外壳是一个装着 WKWebView 的原生应用，加载
-的还是 Mac 上的同一个网页，只是把 UIKit 里的 Pencil 采样转给网页。白板的其余
-部分都在网页里，Mac 端更新之后外壳下次打开就是新代码。设计与验收标准见
-[docs/ipad-shell.md](docs/ipad-shell.md)。
-
-外壳通过 TrollStore 安装，iPad 的系统版本要在 TrollStore 支持的范围内
-（iPadOS 14.0 beta 2 至 16.6.1、16.7 RC、17.0）。没有 TrollStore 就继续用上面的
-描述文件，功能完全一样。
-
-1. 在 Mac 窗口的「连接 iPad」卡片上能看到外壳安装页的地址
-   `http://你的电脑名.local:8848/ipad`，用 iPad 的 Safari 打开。
-2. 点「安装白板外壳」，由 TrollStore 安装（先在 TrollStore 的设置里打开 URL Scheme）。
-3. 打开外壳。局域网里只有一台 Mac 时直接进入白板；有多台时点选一台；路由器屏蔽
-   Bonjour 时回到安装页点「打开外壳」。
-
-以后 Mac 端更新到新版本，外壳启动时会提示更新，确认后同样交给 TrollStore 安装。
-换一台 Mac：「设置」App → 白板 → 打开「重新查找 Mac」，再回到外壳。
-
-Mac 端通过系统的 mDNSResponder 注册 `_whiteboard._tcp` 服务，外壳就是靠它找到
-Mac 的；`--no-bonjour` 可以关掉，关掉之后外壳只能从安装页进入。
-
-## 别的设备默认只能写字
-
-局域网里任何人都能打开这个地址开始写字——这是它的用法。但**别的都得一项项放开**，
-默认什么都不给。权限分三项，在 Mac 的**白板设置**里各有一个开关：
-
-| 权限 | 放开之后能做 |
+| Option | Effect |
 | --- | --- |
-| 管理白板 | 切换、新建、删除、改名、归类和动文件夹，拖入 PDF 建板 |
-| 设置白板 | 背景纹理 |
-| 清空白板 | 一下把整块白板抹掉 |
-| 导出白板 | 把白板连同原件整份取走 |
+| `--headless` | Serve only, no window (reach it from a browser) |
+| `--port 9000` | Change the port (taken ports roll over to the next one) |
+| `--data-dir DIR` | Change where boards are stored |
+| `--mdns` | Also register an `_http._tcp` service (macOS leaves this to the system) |
+| `--no-bonjour` | Do not register the `_whiteboard._tcp` service used by the iPad shell |
+| `--version` | Print the version |
 
-- 判断依据是 TCP 对端地址（回环，或者本机自己的局域网地址），不是浏览器
-  User-Agent，也不是 WebSocket 握手里那个 role——那两样客户端想填什么填什么。
-  WebSocket 的权限在连接建立那一刻就定死了，握手之后改不动。
-- 服务端按权限拦截：`/api/info`、`/api/boards`、`/api/thumb`、`/api/doc` 上传要
-  「管理白板」，`/api/export` 要「导出白板」，改背景的 meta 操作要「设置白板」，
-  clear 操作要「清空白板」。写字要用的（页面、WebSocket、文档分页图、描述文件、
-  诊断上报）永远通。
-- 前三项只有 Mac 那套界面里有入口；清空白板两套界面都有按钮，所以只看权限。
-  没给的设备，工具栏上连那个垃圾桶都不画。
-- 界面跟着权限走：页面上带一份 `data-perms`，右上角那几个入口没权限就根本不画。
-  真正的拦截在服务端，前端只是不画出来。
-- **检查更新、选存储目录不在这个体系里**：它们走 pywebview 的本地接口，
-  别的设备本来就够不着，所以「关于」和「连接 iPad」两个按钮只有那个窗口里有。
+The default port is 8848. The **iPad** button in the window's top-right corner
+shows the address the iPad should open, of the form
+`http://your-mac-name.local:8848/`.
 
-## 用法
+### Building
 
-**iPad**：默认是 PencilKit 那条**笔具盘**（下面单说）。也可以在它的「⋯」里换回
-普通工具栏——钢笔、马克笔、荧光笔、橡皮擦、手指书写开关、工具栏位置、颜色与粗细、
-撤销、重做、清空白板；选择记在本机。样式和 Mac 端一样是 iOS 那套：磨砂玻璃、
-系统蓝、绿色小开关。
+```bash
+git tag v1.1.0 && git push origin v1.1.0     # builds and publishes a Release
+```
 
-笔具盘挂上之后普通工具栏整条收起来，所以管理白板、白板设置、导出这三项挪到了
-右上角那一组蓝色图标里（和 Mac 端同一组，只是图标用强调色）。清空白板在笔具盘的
-「⋯」里，左上角的连接状态点不属于工具栏，照旧在那里——连点三下开诊断面板和录制。
+The "打包 macOS 应用" workflow can also be run manually from the Actions page,
+which produces build artifacts without publishing a Release. Locally:
 
-- **默认只有 Apple Pencil 能画线**，手指一律是平移 / 缩放，手掌搭在屏幕上不会留痕。
-- 没有 Pencil 的人点亮工具栏上的手形图标即可用手指书写：单指画线、双指平移缩放，
-  第二根手指落下时刚起笔的那一下会被撤掉。这个开关记在本机。
-- 钢笔跟随压感与笔身倾斜出粗细，马克笔和荧光笔等宽，荧光笔半透明。
-  轮廓用 [perfect-freehand](https://github.com/steveruizok/perfect-freehand)，粗细是按 iPad 实际报的压感量程另定的一条曲线
-  （真机上一整段手写只落在 0～0.13），见 [docs/format.md](docs/format.md#笔画轮廓)。
-- **橡皮有两种**，在橡皮的面板里选（普通工具栏和笔具盘是同一个设置）。
-  两种的粗细都**不用手动调**：
-  - **对象橡皮擦**（默认）：碰到哪一笔就整笔删掉，作用点固定在笔尖（直径 6），
-    任何角度都一样。
-  - **像素橡皮擦**：把扫过的那一段从笔画里切掉，两头留下来。切口多宽就是擦多宽，
-    所以跟着笔身与屏幕的夹角走：**25° 以上都是笔尖，15° 以下都是最粗**（直径 45），
-    中间这 10° 是过渡（23° → 10，21° → 20，19° → 31，17° → 41）。常握笔的角度远在
-    25° 以上，所以平时一直是笔尖，要把笔按得很平才开始变宽。
-    鼠标和手指没有倾斜可依据，按中间那一档给。
-  - 角度读的是 `tiltX` / `tiltY`（Pointer Events Level 2，从竖直方向算起），
-    按规范附录换算成与屏幕的夹角；两个都是 0 时才去看 `altitudeAngle`。
-    **不能只看 `altitudeAngle`**：规范规定设备报不出倾斜时它返回 π/2，也就是竖直，
-    不支持这个属性的浏览器于是看起来「笔一直立着」，倾斜永远读不出来。
-    真机上拿不准就连点左上角状态圆点三下，诊断面板里有一行实时显示两套读数
-    和最后取用的角度。
-  - 像素橡皮擦的笔迹仍然是矢量的——它不是往位图上抹，而是把一条笔画换成切剩的
-    几段，所以同步、撤销、导出 PDF 一概不用改格式，发出去的就是一条 `remove`
-    加一条 `restore`，切出来的段沿用原来那条的层叠序号，叠放关系不变。代价是
-    笔画数量会涨，切一刀多一条。比橡皮粗的笔会被整条切断而不是啃掉一半，
-    切笔画这个做法只能整个截面一起断。一次拖动算一次撤销。
-  - 擦除的开销只跟扫过的那一片有关，和白板上一共有多少笔无关。三处：
-    笔画按 256 的网格做了**空间索引**，橡皮只看扫过的那几格；擦除**只重画脏矩形**
-    而不是整屏（加笔画可以往底图上叠，删笔画只能把那一块连背景一起重画——
-    整屏重绘是和笔画总数成正比的，几千笔的板上每帧十几毫秒，而擦除每帧都要重来）；
-    一次拖动里产生的网络操作**攒到每帧发一次**，帧内刚切出来又被再切掉的段两边
-    对消，根本不发。三千笔的板上擦一道实测 438ms → 4.4ms（对象）、465ms → 13ms
-    （像素），六千笔时 854ms → 28ms。脏区重绘的结果和整屏重绘逐像素一致。
+```bash
+pip install pyinstaller
+python packaging/make_icns.py packaging/whiteboard.icns
+WHITEBOARD_VERSION=1.1.0 pyinstaller --noconfirm packaging/whiteboard.spec
+```
 
-- 手掌屏蔽：Pencil 落笔期间以及抬笔后的 0.5 秒内，手指 / 手掌一概不参与操作；
-  手掌比笔尖先碰到屏幕时拖出来的那一点位移，会在笔落下的瞬间撤回去，画面不会跳。
-- 工具栏默认贴在下边，点手形图标右边那个按钮可以把它挪到上边去（手拿着 iPad 写字时
-  底下那条够不着）。位置记在本机，颜色面板会跟着改成往下开。
-- **笔具盘**：触摸设备上的默认工具栏，就是 iPadOS PencilKit 那条
-  （直接用的现成实现，见
-  [static/vendor/README.md](whiteboard/web/static/vendor/README.md)）：
-  - 四件工具是真的笔的样子，选中的那支抬起来，笔身上就是当前墨色；
-  - **每支笔各记各的颜色和粗细**，换笔不会把上一支的设置带过去；
-  - 点正在用的那支笔弹出粗细面板；点彩虹色块是完整的取色器（色板 / 色谱 / 滑块），
-    颜色不再限于面板上那十个；
-  - 按住握把可以把整条工具盘拖到**上下左右四条边**的任意一边（原实现只有下 / 左 /
-    右，顶部是加的：用的就是底部那套横排布局，笔照旧立着，只是面板改成往下开）。
-    拖和松手的手感照着 iPadOS 重写过：
-    - 每条边上有一块贴边的触发区，圆进去**停一下**（默认 250ms）才变成那条边的长条，
-      出了触发区立刻变回圆。变形的时候只是变形，整条栏仍然跟在手底下，不会自己跑掉。
-      跟手这一段的位置和形状由 js 逐帧算，以手指为中心向两端伸缩，不走 CSS 过渡；
-    - 松手分「甩」和「慢放」两种。甩出去按惯性推算停点，先飞到位再展开、末尾带回弹；
-      慢放以松手点为停点，飞行、转笔、展开几乎同时进行，不回弹。停点落在触发区里就
-      贴那条边，落在角落就缩成一个圆。上下两边之间甩过去时长条直接滑，不经过圆，
-      时长按距离算、速度有上限；
-    - 圆里的笔会转向：去左边朝右、去右边朝左、上下竖直；
-    - 动画进行中随时可以再拿起来，从画面上当前的位置、大小和角度接着变，不会跳；
-    - 松手当下派生的那一次点击会被吞掉（长条以手指为中心跟手，手指正压在橡皮那一格上），
-      但只吞这一次，拖完马上点别的工具立刻生效。
+Application data stays in `~/Library/Application Support/Whiteboard` and is
+shared with source runs, so switching between them keeps the boards. The
+packaged app logs to `~/Library/Logs/Whiteboard.log`, as it has no terminal.
 
-    手感参数（触发区大小、停留时长、各段动画的时长和曲线）集中在
-    `static/js/pkpicker.js` 顶部的 `TUNING` 里；
-  - 丢进屏幕角落会缩成一个圆，圆上显示当前那支笔；笔或光标**靠近就自动展开**，
-    不用非得点中那个圆（手指没有悬停，仍然是点一下）；
-  - 撤销和重做都接到白板自己的历史栈上，按钮的亮灭跟着栈走；
-  - 「⋯」里有自动最小化、手指绘图和清空白板。
+## Connecting an iPad
 
-  触摸设备上这条就是唯一的工具栏，没有换回普通工具栏的入口。画布、同步、缩放、
-  笔记和文档板都还是白板自己的——那份实现自带的画布、直尺和套索没有接进来。
-  不透明度暂时也没接（笔迹格式里还没有这个字段）。
-- 页面挡掉了 Safari 的选择 / 查词 / 长按菜单手势，否则写快一点就会被它抢走一笔
-  （表现为顿一下、弹出气泡，或者那一笔直接没了）。
+1. In the Mac window, click the iPad icon in the top-right corner (连接 iPad),
+   then the download button on the card to get `whiteboard.mobileconfig`. Safari on the iPad
+   can also fetch it directly from
+   `http://your-mac-name.local:8848/profile.mobileconfig`.
+2. On the iPad, open the profile → **Settings** → **Profile Downloaded** →
+   **Install**. The profile is unsigned, so iPadOS says so; confirm.
+3. A **Whiteboard** icon appears on the home screen and opens the board full
+   screen, without Safari's address bar.
 
-**Mac**：同一套工具栏，另外多出右上角（白板列表、白板设置、导出 PNG、iPad 连接）
-和右下角（放大、适应窗口、缩小）。界面照着 macOS / iOS 的系统控件做：工具条、
-弹层、面板是磨砂玻璃，强调色用系统蓝，左上角的连接状态点用的是窗口红绿灯
-那三个颜色（绿 = 已连接，黄 = 同步中，红 = 断开）。书写期间会临时关掉背景模糊，
-模糊层底下就是每帧都在变的画布，落笔时省下这份合成开销。
+The profile refers to the `.local` mDNS host name, so it survives the Mac
+changing its IP address. The name is published by the system's own Bonjour
+responder; `--mdns` only adds an extra `_http._tcp` service for discovery tools
+and is harmless if it fails.
 
-**笔具盘（iPad 上那条工具盘）不磨砂**，底色始终是实的。它就压在写字的地方，
-半透明意味着刚写的字直接透出来；而且那个「书写期间关掉模糊」的开关是按一笔切的，
-写一个字要落笔抬笔好几次，工具盘就在磨砂和实色之间来回跳。
+## Native iPad shell (optional)
 
-- 鼠标左键书写，中键 / 右键 / 按住空格拖动画布，滚轮平移，⌘ / Ctrl + 滚轮缩放。
-- **触控板双指捏合缩放**。这件事两家浏览器发的事件不一样：Chrome / Firefox 发
-  `ctrl + wheel`，WebKit（Safari 和 Mac 窗口用的 WKWebView）发非标准的
-  `gesturestart / gesturechange / gestureend`，两条都接了，不然打包成 .app
-  之后捏合是没反应的。ctrl + 滚轮那一路把单次 `deltaY` 夹在 25 以内：
-  触控板一次只来几个像素，鼠标滚轮一格却是 100，不夹住一格就缩掉三分之二。
-- 快捷键：`⌘Z` 撤销，`⌘⇧Z` / `⌘Y` 重做，`⌘0` 适应窗口，`⌘+` / `⌘-` 缩放。
-- 白板设置里可以换背景（空白 / 方格 / 横线 / 点阵）、换白板存储目录、放开其他设备的权限。
-- 垃圾桶和白板列表里的删除都会先问一句（「清空白板？」「删除白板？」），
-  确定那个按钮是警示色。
+Safari hands the page about 60 new Pencil positions per second, with integer
+coordinates. A native app receives about 240, with fractional coordinates and
+predicted samples. The shell is a small native app wrapping a `WKWebView`: it
+loads the same page from the Mac and forwards the UIKit Pencil samples to it.
+All whiteboard logic stays in the page, so updating the Mac updates the shell's
+behaviour the next time it opens. Design and acceptance criteria:
+[docs/ipad-shell.md](docs/ipad-shell.md).
 
-**三种白板**，新建时选定，之后不可更改（也没必要改）：
+The shell is installed through TrollStore, so the iPad must run a version
+TrollStore supports (iPadOS 14.0 beta 2 through 16.6.1, 16.7 RC, 17.0). Without
+TrollStore, keep using the profile above; the features are the same.
 
-| | 延伸方式 | 起始视角 |
+1. The 连接 iPad card in the Mac window shows the install page address,
+   `http://your-mac-name.local:8848/ipad`. Open it in Safari on the iPad.
+2. Tap **安装白板外壳** to install through TrollStore (enable URL schemes in
+   TrollStore's settings first).
+3. Open the shell. With one Mac on the network it connects directly; with
+   several it lists them; if the router blocks Bonjour, return to the install
+   page and tap **打开外壳**.
+
+When the Mac is updated, the shell offers to update itself on the next launch
+and hands the package to TrollStore. To connect to a different Mac, open the
+board settings (白板设置) and use 换一台 Mac, or turn on 重新查找 Mac in the iOS
+Settings app under Whiteboard. Either way the shell lists what it finds, even if
+that is a single Mac, so you can confirm which one to join.
+
+The Mac registers `_whiteboard._tcp` through the system mDNS responder, which is
+how the shell finds it; `--no-bonjour` turns that off, leaving only the install
+page as a way in.
+
+Exports on the iPad are caught by the shell as downloads and handed to the
+system share sheet, so they can be saved to Files or sent on.
+
+## Writing
+
+### iPad
+
+The default toolbar is the PencilKit tool picker. Managing boards, board
+settings and export sit in the tinted group in the top-right corner; clearing
+the board is under the picker's ⋯ menu; the connection dot in the top-left
+corner is outside the toolbar (triple-tap it for the diagnostics panel).
+
+- **Only the Apple Pencil draws by default.** Fingers pan and zoom, and a palm
+  resting on the screen leaves nothing behind.
+- Without a Pencil, switch on finger drawing (hand icon): one finger draws, two
+  pan and zoom, and the stroke just started is withdrawn when a second finger
+  lands. The choice is remembered on the device.
+- The pen varies its width with pressure and tilt; the marker and highlighter
+  are uniform, and the highlighter is translucent. The pressure curve is fitted
+  to the range an iPad actually reports (a whole line of handwriting lands
+  between 0 and 0.13); see [docs/format.md](docs/format.md).
+- **Palm rejection** covers the whole time the Pencil is down plus 0.5 s after
+  it lifts. Movement caused by a palm that touched down first is undone the
+  moment the Pencil lands, so the view does not jump.
+- The page suppresses Safari's selection, lookup and long-press gestures, which
+  otherwise steal a stroke when you write quickly.
+
+The picker is the implementation from
+[static/vendor](whiteboard/web/static/vendor/README.md), with these additions:
+
+- Each of the four tools keeps its own colour and width.
+- Tapping the tool in use opens the width panel; the rainbow swatch opens the
+  full colour picker.
+- Dragging the grip docks the picker to **any of the four edges** (the original
+  offers three; the top edge reuses the bottom layout with panels opening
+  downwards). Both the drag and the release were rewritten to match iPadOS:
+  a dwell of 250 ms inside an edge zone turns the pill into a bar, a flick is
+  carried past the release point by inertia, and animations can be interrupted
+  at any point. The tuning constants live in `TUNING` at the top of
+  `static/js/pkpicker.js`.
+- Dropped in a corner it shrinks to a circle showing the current tool, and
+  expands again when the Pencil or cursor comes near.
+- Undo and redo are wired to the board's own history stack.
+- ⋯ holds auto-minimise, finger drawing and clear board.
+
+On touch devices the picker is the only toolbar; there is no way back to the
+plain one. The canvas, sync, zoom, notes and document boards are the
+whiteboard's own — the vendor canvas, ruler and lasso are not connected, and
+opacity is not wired up (the stroke format has no field for it).
+
+### Erasers
+
+Both erasers are selected in the eraser panel and share one setting between the
+toolbars. Neither has a manual width.
+
+| Eraser | Behaviour | Width |
 | --- | --- | --- |
-| 大白板 | 四个方向都无限 | Mac 适应内容，iPad 1:1 |
-| 笔记 | 宽度固定成一页（1000 单位），只向下无限延伸 | 按页宽铺满，停在页首 |
-| 文档（beta） | 由一份 PDF / 图片生成，页面自上而下排好，范围固定 | 按页宽铺满，停在首页 |
+| Object (default) | Deletes each stroke it touches, whole | Fixed at the pen tip, diameter 6 |
+| Pixel | Cuts the swept section out, leaving both ends | Follows the angle of the barrel |
 
-笔记模式里纸张之外不落笔——在页边拖动就是翻页；横向划不出纸外，往上也翻不过页首。
-上下翻页有惯性：甩一下会继续滑一段再停（约 350 px/s 以上才算甩，慢慢拖不会滑）。
-缩放到接近「一页正好占满屏幕宽」时，松手（或滚轮停下）会自动吸附，纸的左右边贴住屏幕两侧。
-大白板则没有任何边界，缩放上下限 0.05×～8×。右下角中间那个按钮是「回到内容」。
+The pixel eraser is at its tip above 25°, at its widest (diameter 45) below 15°,
+and interpolated in between (23° → 10, 21° → 20, 19° → 31, 17° → 41). A normal
+writing grip is well above 25°, so it stays at the tip until you deliberately
+lay the Pencil down. A mouse or finger has no tilt and gets the middle step.
 
-点右上角第一个图标进入**白板选择界面**：满屏缩略图，左上角的小图标标出这块板
-是大白板、笔记还是文档，「＋」那块新建（先选类型，也可以新建文件夹）。
+The angle is read from `tiltX`/`tiltY` (Pointer Events Level 2) and converted
+with the formula in the specification's appendix; `altitudeAngle` is consulted
+only when both are zero. Reading `altitudeAngle` alone does not work: the
+specification requires π/2 — perfectly upright — when a device cannot report
+tilt, so browsers without support look like a pen that never tilts.
 
-- 缩略图下面是**名字**和**最后一次写的时间**。时间按远近给：今天只给时刻，今年不给年份。
-- 名字直接点一下就能改，回车或点别处生效，Esc 取消。清空就回到默认叫法。
-- 没起名的显示默认叫法（「白板」「笔记」「文档」，灰色）；**拖进来的 PDF / 图片
-  默认用原文件名**（去掉扩展名）。
-- 左上角的搜索框按名字筛，默认叫法和文档原件的文件名也算在内，所以没起名的也搜得到。
-  Esc 清空搜索（不关界面）。
-- 改名可以改列表里任意一块，不必先切过去；改完只广播列表，不会把整块白板重发一遍。
+Cut strokes stay vectors: a stroke is replaced by the pieces that survive, so
+sync, undo and PDF export need no format change, and the pieces keep the
+original stacking order. One drag is one undo step. A stroke wider than the
+eraser is cut through rather than nibbled — the whole cross-section goes at
+once. Measurements and the reasoning are in [docs/eraser.md](docs/eraser.md).
 
-**文件夹**只有一层，在同一个格子里显示成一块卡片，点开进去就只剩里面的白板。
+Erasing costs depend on the area swept, not on how many strokes the board
+holds: strokes are indexed on a 256-unit grid, only dirty rectangles are
+repainted, and the operations produced during one drag are batched per frame.
+On a 3000-stroke board one sweep measured 438 ms → 4.4 ms (object) and
+465 ms → 13 ms (pixel); at 6000 strokes, 854 ms → 28 ms.
 
-- 归类：名字右边那个文件夹图标，选一个现成的，或者在下面输一个新名字（等于新建）。
-- 文件夹的名字就是它的身份：改名等于把里面每块白板上记的名字一起改，重名不给改。
-- 在文件夹里新建的白板（包括拖进去的 PDF / 图片）就留在这个文件夹里。
-- 删除文件夹不删白板，里面的白板移到外面。
-- 再次打开选择界面时，直接停在当前这块白板所在的那一层。
-- 搜索始终是在全部白板里找，结果平铺不分文件夹；文件夹名也算在搜索范围里。
+### Mac
 
-### 在 PDF / 图片上写（beta）
+The Mac uses the plain toolbar: pen, marker, highlighter, eraser, the finger
+drawing switch, the toolbar position, colour and width, undo, redo and clear
+board. It docks to the top or the bottom edge, and the choice is remembered on
+the device (the bottom edge is out of reach when you hold an iPad to write, so
+that button moves the bar up). Around it are the top-right group (boards, board
+settings, export PNG, iPad) and the bottom-right group (zoom in, fit, zoom out).
 
-把一份 PDF 或图片**拖进 Mac 窗口**，或者在新建对话框里点第三块（文档图标）选文件，
-就会新建一块文档板：原件按页排在画布上，直接在上面写，iPad 那边同步跟着切过去。
+The interface follows the system controls: frosted glass, the system blue
+accent, and a connection dot in the traffic-light colours (green connected,
+yellow syncing, red offline). Background blur is switched off while a stroke is
+in progress, since the canvas underneath changes every frame.
 
-- 原件一个字节都不改，只是复制进存储目录的 `docs/` 里；笔迹照旧是矢量，存在 `.wbz` 里。
-- 写不出文档范围：页面之外落不了笔，往上翻不过首页，往下翻不过末页。
-- 页面底图由 Mac 渲染好再发给 iPad，按缩放分档取，只保留看得见的那几页。
-- 右上角第三个图标导出：PDF 导出 PDF，图片导出图片。iPad 上导出的文件由外壳接住，
-  存好之后弹系统的分享面板（存到「文件」或者直接发出去）。
-  **笔迹是以矢量追加上去的，原有内容不重新编码**，所以体积基本只增加笔迹本身——
-  实测每一笔三四百字节，一份写满批注的讲义通常也就几百 KB。
-- 支持 PDF 与 png / jpg / gif / bmp / webp / tiff；加密的 PDF 打不开。
-- 页与页之间那条缝里也能落笔，导出时这部分会归给最近的一页，超出页面的部分会被裁掉。
+The iPad tool picker is never frosted: it sits directly over the writing area,
+and the per-stroke blur switch would otherwise make it flicker between frosted
+and solid several times per character.
 
-## 数据
+- Left button writes; middle button, right button or held space pans; the wheel
+  scrolls; ⌘/Ctrl + wheel zooms.
+- **Trackpad pinch zoom** is handled on both paths, because the browsers differ:
+  Chrome and Firefox send `ctrl + wheel`, WebKit (Safari and the `WKWebView` in
+  the packaged app) sends the non-standard `gesturestart`/`gesturechange`/
+  `gestureend`. Without the second path, pinching does nothing in the `.app`.
+  On the wheel path a single `deltaY` is clamped to 25: a trackpad reports a few
+  pixels at a time while a mouse wheel notch reports 100.
+- Shortcuts: `⌘Z` undo, `⌘⇧Z` / `⌘Y` redo, `⌘0` fit, `⌘+` / `⌘-` zoom.
+- Board settings (白板设置) hold the background (blank, grid, lines, dots), the
+  storage directory and the permissions for other devices.
+- Deleting a board and clearing a board both ask first, with the confirming
+  button in the warning colour.
 
-- 默认目录：`~/Library/Application Support/Whiteboard/boards-data`，可在 GUI 里改。
-- 每块白板一个 `boards/<id>.wbz`：**矢量笔画**（不是图片）先做量化 + 增量 + varint 编码，
-  再整体 zlib 压缩；一条 500 点的笔画通常不到 2 KB。格式细节见
-  [docs/format.md](docs/format.md)。
-- `index.json` 保存白板列表和文件夹名单，删掉也能从 `.wbz` 文件重建；
-  重建时空文件夹找不回来（它没有白板可依附），装着白板的那些能。
-- `thumbs/<id>.png` 只是 Mac 端选白板用的缩略图；文档板不生成，直接拿原件首页当封面。
-- `docs/<id>.<扩展名>` 是文档板的原件副本，只读不改；删掉白板时一起删。
-- 服务端每 3 秒自动保存一次改动，关窗口 / Ctrl+C 退出前会再存一次。
+## Boards, folders and documents
 
-## 出问题时
+A board's kind is chosen when it is created and does not change afterwards:
 
-连点左上角的状态圆点三下（或者在地址后面加 `?debug=1`）会打开诊断面板：
-帧率与最长帧间隔、渲染耗时、采样率、落笔数与被系统中断的次数、事件间隔、写盘耗时。
+| Kind | Extent | Initial view |
+| --- | --- | --- |
+| Board | Infinite in all four directions | Fit to content on the Mac, 1:1 on the iPad |
+| Note | One page wide (1000 units), infinite downwards | Page width, at the top |
+| Document (beta) | Fixed, from a PDF or an image | Page width, first page |
 
-诊断打开时，卡顿数据会同时报到 Mac 的终端；页面报错无论是否打开诊断都会报过去。
-所以 iPad 上卡了，直接看 Mac 终端里 `[诊断]` 开头的那几行即可：
+Notes do not accept ink outside the paper — dragging at the edge turns the page
+instead, and you cannot scroll past the first page. Page turns carry inertia
+(above roughly 350 px/s), and zoom snaps when a page nearly fills the width.
+Boards have no bounds at all, with zoom limited to 0.05×–8×. The middle button
+in the bottom-right corner returns to the content.
 
-- `最长帧` 大、`事件间隔` 小 → 主线程被什么东西卡住了；
-- `最长帧` 正常、`事件间隔` 大或 `中断` 在涨 → 事件被系统手势抢走了。
+### The board chooser
 
-窗口切到后台时 rAF 会整个停住，那种「超长帧」不算卡顿，已经从上报里排除。
+The first icon in the top-right corner (白板) opens the chooser: thumbnails
+filling the screen, each marked with its kind, and a **+** tile for a new board
+or folder.
 
-### iPad 上冒放大镜、笔迹被吃掉
+- The name and the time of the last stroke sit under each thumbnail. Times are
+  relative: today shows the time of day, this year omits the year.
+- Click a name to edit it; Enter or clicking elsewhere commits, Escape cancels,
+  and emptying it returns to the default name. Boards created from a dropped PDF
+  or image are named after the file.
+- The search box filters on the name, the default name, the folder and the
+  document's original filename. Escape clears the search without closing the
+  chooser.
+- Any board can be renamed without switching to it; only the list is broadcast,
+  not the board itself.
 
-页面这侧能做的都做了：禁选中、禁长按菜单、在捕获阶段第一时间 `preventDefault`
-掉 touch 事件（Excalidraw 修同类问题也是这个做法，见
-[excalidraw#4705](https://github.com/excalidraw/excalidraw/pull/4705)）、落笔时清空选区。
+**Folders** are one level deep and appear as cards in the same grid; opening one
+shows only the boards inside it.
 
-但有一类干扰是系统级的，网页拦不住：**iPadOS 的「随手写」（Scribble）**。它在系统
-层面监听 Apple Pencil，判断你可能在写字时会把笔迹截走，表现就是某一笔整段消失、
-或者冒出选择 / 放大镜界面 —— 断笔重新落笔（相当于双击后拖动）最容易触发。
+- To file a board, use the folder icon next to its name and pick an existing
+  folder or type a new name (which creates it).
+- A folder's name is its identity: renaming it rewrites the name recorded on
+  every board inside, and a name already in use is rejected.
+- Boards created inside a folder — including dropped PDFs and images — stay in
+  it.
+- Deleting a folder only removes the folder; its boards move back out.
+- Reopening the chooser lands on the level holding the current board.
+- Search always covers every board and shows a flat list.
 
-    设置 → Apple Pencil → 随手写（Scribble）→ 关闭
+### Writing on a PDF or an image (beta)
 
-程序检测到 Pencil 连续三次被系统打断时，会自己弹一条提示说明这件事。
-另一个可能是「设置 → 辅助功能 → 缩放」，三指双击触发，同样拦不住。
+Drop a PDF or an image **onto the Mac window**, or pick the document tile in the
+new-board dialog, to create a document board: the pages are laid out on the
+canvas, ready to be written on, and the iPad follows the switch.
 
-## 断线与重启
+- The original file is not modified, only copied into `docs/` in the storage
+  directory. Ink remains vector data in the `.wbz` file.
+- Ink cannot leave the document: no strokes outside the pages, and no scrolling
+  past the first or last page.
+- Page bitmaps are rendered on the Mac and sent to the iPad, per zoom step, for
+  the pages currently visible.
+- The third icon in the top-right corner exports: a PDF from a PDF, an image
+  from an image. **Ink is appended as vectors and the existing content is not
+  re-encoded**, so the file grows by roughly the size of the ink — a few hundred
+  bytes per stroke, a few hundred KB for a heavily annotated handout. On the
+  iPad the shell catches the file and opens the system share sheet.
+- PDF and png/jpg/gif/bmp/webp/tiff are supported; encrypted PDFs are not.
+- Ink in the gap between two pages is assigned to the nearer page on export, and
+  anything outside the page is clipped.
 
-- 断线时本地照常书写，操作进待发队列（同时写进 IndexedDB，刷新页面也不丢），
-  重连后按序号补齐；服务端按笔画 id 去重，不会画两遍。
-- 重连时客户端带上 `epoch + 序号`：服务端重启过就换了 `epoch`，此时直接补发整块白板，
-  iPad 不会停留在旧内容或空白上。
-- 窗口尺寸、方向变化后整屏重绘；缩放平移时只重绘可见范围内的笔画。
-- 导出 PNG 与缩略图按内容范围外扩一圈来取景，空白板导出一屏大小的空白。
+## Permissions for other devices
 
-## 开发
+Anyone on the network can open the address and write — that is the point. Every
+other action has to be granted, one at a time, from the board settings (白板设置)
+on the Mac. Nothing is granted by default.
+
+| Permission | Allows |
+| --- | --- |
+| Manage boards | Switch, create, delete, rename, file into folders, create from a dropped PDF |
+| Board settings | Background texture |
+| Clear board | Wipe a whole board at once |
+| Export board | Take a whole board, original file included |
+
+- The decision is made from the TCP peer address (loopback, or one of this
+  machine's own LAN addresses), not from the User-Agent or the `role` in the
+  WebSocket handshake — a client can put anything it likes in those. A
+  WebSocket's permissions are fixed when the connection is established.
+- The server enforces them: `/api/info`, `/api/boards`, `/api/thumb` and
+  uploads to `/api/doc` need *manage boards*, `/api/export` needs *export
+  board*, background changes need *board settings*, and clearing needs *clear
+  board*. What writing needs — the page, the WebSocket, page bitmaps, the
+  profile, diagnostics — is always allowed.
+- The page carries a `data-perms` attribute and draws each entry only where the
+  permission allows it: on the Mac in the top-right group, on a touch device in
+  the tinted group in the same corner, and clearing the board in the tool
+  picker's ⋯ menu. That is cosmetic — the enforcement is on the server.
+- **Update checks and choosing the storage directory are outside this system.**
+  They go through the local pywebview bridge, which other devices cannot reach,
+  so About and iPad appear only in that window.
+
+## Stored data
+
+- Default directory: `~/Library/Application Support/Whiteboard/boards-data`,
+  changeable in the interface.
+- `boards/<id>.wbz` — one file per board. Points are quantised, delta-coded and
+  varint-packed, then the whole file is zlib-compressed; a 500-point stroke is
+  usually under 2 KB. Format: [docs/format.md](docs/format.md).
+- `index.json` — the board list and the folder names. Deleting it rebuilds from
+  the `.wbz` files; empty folders cannot be recovered that way, since nothing
+  refers to them, while folders holding boards can.
+- `thumbs/<id>.png` — chooser thumbnails only. Document boards have none; their
+  first page is used instead.
+- `docs/<id>.<ext>` — the document board's original file, read-only, deleted
+  with the board.
+- The server saves changes every 3 seconds, and once more when the window closes
+  or the process is interrupted.
+
+### Disconnection and restarts
+
+- Strokes drawn while offline queue locally and in IndexedDB, so a page reload
+  does not lose them, and are replayed in order on reconnect. The server
+  deduplicates by stroke id.
+- A reconnecting client sends its `epoch` and sequence number. A restarted
+  server has a new `epoch` and replies with the whole board, so the iPad is
+  never left showing stale or blank content.
+- Resizing or rotating repaints everything; panning and zooming repaint only the
+  strokes in view.
+- PNG export and thumbnails frame the content with a margin; an empty board
+  exports one screen of blank paper.
+
+## Troubleshooting
+
+Triple-tap the connection dot in the top-left corner (or append `?debug=1` to
+the address) to open the diagnostics panel: frame rate and longest frame gap,
+render time, sample rate, strokes started and strokes interrupted by the system,
+event intervals and disk write times.
+
+While diagnostics are open, stutter reports are also sent to the Mac's terminal;
+page errors are sent whether or not they are open. So when the iPad stutters,
+read the `[诊断]` lines in the Mac terminal:
+
+- long *最长帧*, short *事件间隔* → something is blocking the main thread;
+- normal *最长帧*, long *事件间隔* or a rising *中断* → a system gesture is
+  taking the events.
+
+A window in the background stops `requestAnimationFrame` entirely; those frame
+gaps are excluded from the reports.
+
+### Loupe on the iPad, or strokes disappearing
+
+Everything the page can do is done: selection and long-press menus are
+suppressed, touch events are cancelled in the capture phase (the same fix as
+[excalidraw#4705](https://github.com/excalidraw/excalidraw/pull/4705)), and the
+selection is cleared when a stroke starts.
+
+One source of interference is out of reach of any page: **Scribble**. It watches
+the Apple Pencil at the system level and takes the ink when it decides you are
+writing text, which looks like a stroke vanishing or a selection UI appearing —
+lifting and landing again quickly is the easiest way to trigger it.
+
+    Settings → Apple Pencil → Scribble → off
+
+After three consecutive interruptions the app raises a notice explaining this.
+**Settings → Accessibility → Zoom**, triggered by a three-finger double tap, has
+the same effect and is equally out of reach.
+
+## Development
 
 ```
 whiteboard/
-  server.py     aiohttp 路由 + WebSocket 协议
-  hub.py        操作日志、广播、自动保存
-  store.py      白板存盘 / 读取（zlib + 紧凑点编码）
-  codec.py      点数据的量化 / 增量 / varint 编码
-  models.py     数据模型与来自局域网的数据校验
-  profile.py    .mobileconfig 与图标生成（纯 Python 画 PNG）
-  netinfo.py    .local 主机名、局域网地址、mDNS 广播、给外壳的 Bonjour 注册
-  ipadshell.py  iPad 外壳的安装页、版本信息与 IPA 下载
-  runner.py     后台线程里跑服务端
-  app.py        pywebview 窗口与本地文件对话框
-  web/          前端（原生 ES Module，无构建步骤）
-    static/js/  stroke 几何、渲染、输入、网络、缓存、界面
-ipad/           iPad 外壳（Swift，XcodeGen 生成工程）
+  server.py     aiohttp routes and the WebSocket protocol
+  hub.py        operation log, broadcast, autosave
+  store.py      board persistence (zlib + compact point encoding)
+  codec.py      quantisation, delta coding and varint packing for points
+  models.py     data models and validation of anything from the network
+  profile.py    .mobileconfig and icon generation (PNG written in pure Python)
+  netinfo.py    .local host name, LAN addresses, mDNS, Bonjour for the shell
+  ipadshell.py  the shell's install page, version endpoint and IPA download
+  runner.py     runs the server in a background thread
+  app.py        pywebview window and native file dialogs
+  web/          front end (native ES modules, no build step)
+    static/js/  stroke geometry, rendering, input, networking, cache, interface
+ipad/           the iPad shell (Swift, project generated by XcodeGen)
 ```
 
-协议细节见 [docs/protocol.md](docs/protocol.md)，存档格式见 [docs/format.md](docs/format.md)，像素橡皮的参数怎么从原生量出来的见 [docs/eraser.md](docs/eraser.md)。
+Further reading (in Chinese): the wire protocol in
+[docs/protocol.md](docs/protocol.md), the file format in
+[docs/format.md](docs/format.md), how the pixel eraser's numbers were measured
+in [docs/eraser.md](docs/eraser.md), and the design of the native shell in
+[docs/ipad-shell.md](docs/ipad-shell.md).
 
-只有真笔能触发的问题（压感、倾角、一帧里的合并采样点、抬笔那一刻的时序）可以在 iPad 上录下来带回开发机回放：连点左上角状态圆点三下，左下角那一格「录制输入」，见 [docs/recording.md](docs/recording.md)。
+Problems that only a real Pencil can produce — pressure, tilt, coalesced samples
+within a frame, the timing around lift-off — can be recorded on the iPad and
+replayed on a development machine: triple-tap the connection dot and use
+**录制输入** in the bottom-left cell. See [docs/recording.md](docs/recording.md).
 
 ```bash
-python -m pytest tests -q                          # 全部测试
-python -m pytest tests --ignore=tests/test_browser.py -q   # 跳过浏览器端到端测试
+python -m pytest tests -q                                  # everything
+python -m pytest tests --ignore=tests/test_browser.py -q    # skip the browser tests
 ```
 
-端到端测试会真的开两个 Chromium 页面（Mac 端 + iPad 端）互相同步，覆盖书写同步、
-撤销、擦除、清屏、Pencil 独占、切换白板、断线重连补齐、导出 PNG。
-没装 Playwright 或找不到 Chromium 时会自动跳过。
+The end-to-end tests open two real Chromium pages (a Mac one and an iPad one)
+and sync between them, covering drawing, undo, erasing, clearing, Pencil
+exclusivity, switching boards, reconnecting with a backlog, folders and PNG
+export. They skip themselves if Playwright or Chromium is missing.
 
-## 不做的事
+## Non-goals
 
-- 不做账号密码：设计前提是家里 / 办公室的局域网，谁能连上网就能写。
-- 只面向两台设备点对点使用，三台以上不做保证（协议本身能跑，但没有针对性测试）。
-- 不模仿 iPad 的「选择工具」交互，那套复刻起来需要美术素材。
-- `http://xxx.local` 不是安全上下文，用不了 Service Worker，所以服务端没开时
-  iPad 打不开这个页面——这与「页面开着时服务端重启」是两回事，后者已经处理好。
+- **No accounts or passwords.** The premise is a home or office network: if you
+  can reach it, you can write on it.
+- **Two devices.** More than two works as far as the protocol is concerned, but
+  is not tested and not promised.
+- **No replica of the iPad selection tool**, which would need artwork.
+- `http://xxx.local` is not a secure context, so Service Workers are
+  unavailable and the iPad cannot open the page while the server is down. That
+  is separate from the server restarting while the page is open, which is
+  handled.
