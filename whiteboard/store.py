@@ -271,6 +271,15 @@ class BoardStore:
 
     def import_doc(self, data: bytes, filename: str, name: str = "") -> Dict[str, Any]:
         """由一份 PDF / 图片新建文档板；文件原样存进 docs/。"""
+        return self.register_doc(self.prepare_doc(data, filename), name)
+
+    def prepare_doc(self, data: bytes, filename: str) -> Dict[str, Any]:
+        """导入文档的前半段：把原件写进 docs/ 并读出页面信息。
+
+        只碰 docs/ 下面一个新文件，不碰索引和任何白板，所以可以放到工作线程里跑
+        （读大 PDF 要好一会儿）。后半段 :meth:`register_doc` 改索引，必须回到
+        事件循环线程上做。
+        """
         from . import docs  # 局部导入：没装 pypdf / pypdfium2 时其余功能照常
 
         suffix = Path(filename or "").suffix.lower()
@@ -288,14 +297,19 @@ class BoardStore:
             target.unlink(missing_ok=True)
             raise
         info["name"] = Path(filename).name  # 存的是改名后的副本，这里留原文件名
+        return {"id": board_id, "info": info, "filename": filename}
+
+    def register_doc(self, prepared: Dict[str, Any], name: str = "") -> Dict[str, Any]:
+        """导入文档的后半段：为 :meth:`prepare_doc` 准备好的原件建板。"""
+        filename = prepared["filename"]
         meta = self.create_board(
             name or Path(filename).stem,
-            id=board_id,
+            id=prepared["id"],
             kind="doc",
             background="blank",
-            doc=info,
+            doc=prepared["info"],
         )
-        log.info("新建文档板 %s：%s（%d 页）", board_id, filename, len(info["pages"]))
+        log.info("新建文档板 %s：%s（%d 页）", meta["id"], filename, len(prepared["info"]["pages"]))
         return meta
 
     @staticmethod

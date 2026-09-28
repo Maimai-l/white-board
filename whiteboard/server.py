@@ -321,7 +321,10 @@ async def handle_doc_upload(request: web.Request) -> web.Response:
     folder = models.sanitize_folder(request.query.get("folder"))
     body = await _read_body(request, MAX_DOC_BYTES)
     try:
-        meta = await asyncio.to_thread(hub.import_doc, body, filename)
+        # 读 PDF 可能要好一会儿，放到工作线程；建板要改索引和 hub 的状态，
+        # 必须回到事件循环上做，否则会和自动保存、别的连接同时改同一份数据
+        prepared = await asyncio.to_thread(hub.store.prepare_doc, body, filename)
+        meta = hub.add_doc(prepared)
     except docs.DocError as exc:
         log.warning("导入文档失败：%s", exc)
         raise web.HTTPBadRequest(text=str(exc)) from exc
