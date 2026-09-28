@@ -68,6 +68,13 @@ def setup_logging(debug: bool = False, to_file: bool | None = None) -> Path | No
     if not to_file:
         return None
     path = log_path()
+    # 打包运行时 run.py 和 app.run 各调一次；第二次再挂一个文件处理器，
+    # 每行日志就会写两遍
+    for existing in root.handlers:
+        if isinstance(existing, logging.handlers.RotatingFileHandler) and Path(
+            existing.baseFilename
+        ) == path.resolve():
+            return path
     handler = logging.handlers.RotatingFileHandler(
         path, maxBytes=512 * 1024, backupCount=2, encoding="utf-8"
     )
