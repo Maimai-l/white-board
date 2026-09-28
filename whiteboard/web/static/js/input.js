@@ -10,6 +10,7 @@
 
 import { clearStrokeCache, TOOLS, pressureForFactor } from "./stroke.js";
 import { clamp } from "./util.js";
+import { installShellFallback } from "./shell-fallback.js";
 
 const FINGER_FLAG = "whiteboard.fingerDraw";
 // Pencil 落笔期间以及抬笔后的这段时间里，手指 / 手掌一律不参与任何操作。
@@ -131,13 +132,6 @@ const SHELL_POINTER_BASE = 1e6;
 const SHELL_MATCH_MS = 25;
 // 同一次落笔里最多留这么多个采样用来比对坐标，够一笔两三秒。
 const SHELL_TRACE = 512;
-// Safari 的 pen 已经抬起，外壳那一笔过了这么久还没有 up：由网页替它收尾。
-// 不收尾的话这一笔一直开着，手掌屏蔽就一直生效，手指的平移缩放全部失灵——
-// 0.9.43 的录像 20260927-211825 就是这样。
-const SHELL_ORPHAN_MS = 150;
-// 外壳这一笔超过这么久没有新采样、Safari 的 pen 事件却还在来：外壳断流了，
-// 用 Safari 的事件把这一笔接着画完。外壳每帧至少送一批，正常间隔不到 20 ms。
-const SHELL_STALL_MS = 50;
 
 export function loadFingerDraw() {
   try {
@@ -738,108 +732,6 @@ export class InputController {
       return this.erase.pointerId - SHELL_POINTER_BASE;
     }
     return null;
-  }
-
-  /**
-   * Safari 报了抬笔：等一会儿，外壳要是一直没再送采样，就替它送一个 up。
-   *
-   * 替它送的这一批照样经过 receiveShell，所以录像里有它，回放时结果相同。
-   * 这一笔之后如果外壳又送来采样，按 ignored 丢掉。
-   */
-  watchShellStroke() {
-    const shell = this.shell;
-    if (this.replaying || this.openShellId() === null) return;
-    const liftedAt = performance.now();
-    clearTimeout(shell.watchdog);
-    shell.watchdog = setTimeout(() => {
-      shell.watchdog = 0;
-      if (shell.lastAt > liftedAt) return; // 外壳还在送，它自己会收尾
-      const id = this.openShellId();
-      const last = shell.lastSample;
-      if (id === null || !last || last.id !== id) return;
-      this.stats.shellOrphan += 1;
-      this.receiveShell({
-        bridge: SHELL_BRIDGE[1],
-        samples: [{ ...last, ph: "up", est: [], ui: null }],
-        pred: null,
-        updates: [],
-        orphan: true,
-      });
-    }, SHELL_ORPHAN_MS);
-  }
-
-  /**
-   * Safari 已经落笔一阵了，外壳却一个采样都没送：这一笔由网页用 Safari 的事件起笔。
-   */
-  shellMissing() {
-    const down = this.shell.safariDown;
-    if (this.replaying || !down || this.openShellId() !== null) return false;
-    if (this.shell.realAt >= down.at) return false; // 外壳在 Safari 落笔之后送过采样
-    return performance.now() - down.at > SHELL_STALL_MS;
-  }
-
-  /**
-   * 点一下就抬起、外壳这期间一个采样都没送：再等一会儿，还是没有的话，
-   * 用 Safari 的落笔和抬笔补出这一点。
-   */
-  watchShellTap(up) {
-    const shell = this.shell;
-    const down = shell.safariDown;
-    if (this.replaying || !down || shell.realAt >= down.at) return;
-    clearTimeout(shell.watchdog);
-    shell.watchdog = setTimeout(() => {
-      shell.watchdog = 0;
-      if (shell.realAt >= down.at || this.openShellId() !== null) return;
-      this.shellFallback(down.event, "down");
-      this.shellFallback(up, "up");
-    }, SHELL_ORPHAN_MS);
-  }
-
-  /** 外壳这一笔开着，却已经有一阵没送真实采样了。 */
-  shellStalled() {
-    if (this.replaying || this.openShellId() === null) return false;
-    return performance.now() - this.shell.realAt > SHELL_STALL_MS;
-  }
-
-  /**
-   * 外壳断流时，用 Safari 自己的 pen 事件把这一笔接着画完。
-   *
-   * 0.9.43 的外壳在网页 preventDefault 之后就收不到这一笔的触摸了（见
-   * docs/ipad-shell.md 12 节 Q2），每一笔只有开头约 30 ms。外壳要重新安装才能
-   * 修好，网页这边先兜住：精度退回 Safari 的水平，但笔画是完整的。
-   *
-   * 补的采样也走 receiveShell，录像里有它，回放时不再重新判断。
-   */
-  shellFallback(event, phase) {
-    const shell = this.shell;
-    if (phase === "down") shell.fallbackSeq += 1;
-    const id = phase === "down" ? -shell.fallbackSeq : this.openShellId();
-    if (id === null) return;
-    const last = shell.lastSample;
-    const t = last ? last.t + (performance.now() - shell.lastAt) / 1000 : 0;
-    this.stats.shellFallback += 1;
-    if (phase === "up") this.stats.shellOrphan += 1;
-    this.receiveShell({
-      bridge: SHELL_BRIDGE[1],
-      samples: [{
-        id,
-        ph: phase,
-        k: "safari",
-        t,
-        x: event.clientX,
-        y: event.clientY,
-        f: event.pressure || 0,
-        fmax: 1,
-        alt: penAltitude(event),
-        az: typeof event.azimuthAngle === "number" ? event.azimuthAngle : 0,
-        est: [],
-        ui: null,
-      }],
-      pred: null,
-      updates: [],
-      fallback: true,
-      orphan: phase === "up",
-    });
   }
 
   /** 这个视口坐标上是不是画布（而不是工具栏、面板之类的界面控件）。 */
@@ -1518,3 +1410,7 @@ export class InputController {
     this.hooks.onGestureEnd?.();  // 和松手一样，给一次吸附的机会
   }
 }
+
+// 0.9.43 外壳断流时的兜底（watchShellStroke / shellMissing / watchShellTap /
+// shellStalled / shellFallback）单独放在 shell-fallback.js 里，见那边的说明。
+installShellFallback(InputController.prototype, { SHELL_BRIDGE, penAltitude });
