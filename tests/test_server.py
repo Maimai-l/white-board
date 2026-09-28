@@ -164,7 +164,9 @@ def test_duplicate_stroke_is_acknowledged_but_not_duplicated(tmp_path):
     run(main())
 
 
-def test_ipad_cannot_manage_boards(tmp_path):
+def test_a_device_without_manage_cannot_switch_or_create_boards(tmp_path, remote):
+    """权限只看对端地址，不看握手里报的 role：没给权限的设备做不了管理操作。"""
+
     async def main():
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
@@ -180,6 +182,27 @@ def test_ipad_cannot_manage_boards(tmp_path):
             assert ack["t"] == "ack"
             assert hub.current_id == before
             assert hub.board().meta["background"] == "grid"
+            await ws.close()
+
+    run(main())
+
+
+def test_a_touch_device_with_manage_can_switch_boards(tmp_path, remote):
+    """触摸设备的右上角也有管理入口，Mac 放开权限之后点了就得真的切过去。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            app[CONFIG_KEY].set_remote_permission("manage", True)
+            other = hub.create_board()["id"]
+            hub.select_board(hub.store.list_metas()[-1]["id"])
+            ws = await client.ws_connect("/ws")
+            await hello(ws, "ipad", client_id="ipad-1")
+
+            await ws.send_json({"t": "sel", "board": other})
+            msg = await ws.receive_json()
+            assert msg["t"] == "switch" and msg["board"]["id"] == other
+            assert hub.current_id == other
             await ws.close()
 
     run(main())
@@ -310,7 +333,7 @@ def test_mac_reorders_boards_and_everyone_hears_it(tmp_path):
     run(main())
 
 
-def test_ipad_cannot_reorder_boards(tmp_path):
+def test_a_device_without_manage_cannot_reorder_boards(tmp_path, remote):
     async def main():
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
@@ -387,7 +410,7 @@ def test_a_board_made_inside_a_folder_lands_in_it(tmp_path):
     run(main())
 
 
-def test_ipad_cannot_make_or_delete_folders(tmp_path):
+def test_a_device_without_manage_cannot_make_or_delete_folders(tmp_path, remote):
     async def main():
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
@@ -406,7 +429,7 @@ def test_ipad_cannot_make_or_delete_folders(tmp_path):
     run(main())
 
 
-def test_ipad_cannot_move_a_board_into_a_folder(tmp_path):
+def test_a_device_without_manage_cannot_move_a_board_into_a_folder(tmp_path, remote):
     async def main():
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
@@ -422,7 +445,7 @@ def test_ipad_cannot_move_a_board_into_a_folder(tmp_path):
     run(main())
 
 
-def test_ipad_cannot_rename(tmp_path):
+def test_a_device_without_manage_cannot_rename(tmp_path, remote):
     async def main():
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]

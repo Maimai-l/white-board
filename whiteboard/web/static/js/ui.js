@@ -34,6 +34,15 @@ export const ERASER_MODES = [
 // 用一个自己的类型就不会互相干扰。
 const BOARD_DRAG_TYPE = "application/x-whiteboard-board";
 
+// 触摸设备上拖卡片的手感参数。长按时长和容差取的是 dnd-kit 触摸传感器的默认值
+// （250ms / 5px），SortableJS 建议的容差是 3～5px，这里取 6px：Pencil 比手指稳，
+// 但手按在玻璃上总会飘一两个像素，太小会把长按误判成滚动。
+const HOLD_MS = 250;
+const HOLD_SLOP = 6;
+// 拖到离上下边这么近就自动滚，每帧最多滚这么多像素
+const EDGE_ZONE = 72;
+const EDGE_SPEED = 16;
+
 const TOOL_KEY = "whiteboard.tool";
 const PICKER_KEY = "whiteboard.picker";
 
@@ -195,6 +204,23 @@ export class UI {
     this.fillToolbar();
 
     this.buildCorner();
+    this.watchOverlays();
+  }
+
+  /**
+   * 白板选择界面或者设置抽屉开着的时候，把笔具盘藏起来。
+   *
+   * 笔具盘自带 z-index 并且每帧都在画自己那层，盖在别的界面上就是一直闪。层级
+   * 已经排过（见 app.css），这里再断一刀：这两个界面开着的时候本来也不写字。
+   * 对话框不算——它是半透明的一小块，底下该看见什么就看见什么。
+   */
+  watchOverlays() {
+    const sync = () => {
+      const open = !!this.root.querySelector(".gallery, .sheet");
+      this.root.dataset.overlay = open ? "1" : "";
+    };
+    new MutationObserver(sync).observe(this.root, { childList: true, subtree: true });
+    sync();
   }
 
   /**
@@ -224,7 +250,8 @@ export class UI {
     if (buttons.length) {
       // 触摸设备上做成 iOS 那种蓝色图标控件：同一条磨砂底，图标用强调色
       const cls = this.touchDevice ? "pill tinted" : "pill";
-      this.root.append(el("div", { id: "topright", class: cls }, buttons));
+      this.corner = el("div", { id: "topright", class: cls }, buttons);
+      this.root.append(this.corner);
     }
     if (this.role !== "mac") return;
     this.root.append(
@@ -327,6 +354,7 @@ export class UI {
       this.pk = pk;
       pk.setHistory(this.undoEnabled, this.redoEnabled);
       this.toolbar.classList.add("hidden");
+      this.watchPickerClash();
     } catch (err) {
       this.picker = false;
       this.message("笔具盘没能载入", "close", 5000);
@@ -337,11 +365,57 @@ export class UI {
 
   unmountPicker() {
     if (!this.pk) return;
+    this.stopPickerClash();
     this.pk.destroy();
     this.pk = null;
     if (this.pkHost) this.pkHost.remove();
     this.pkHost = null;
     this.toolbar.classList.remove("hidden");
+  }
+
+  /**
+   * 笔具盘挪到右上角那一组底下时，让那一组先躲开。
+   *
+   * 两条都是浮在画布上的控件，叠在一起既对不齐也不像一套东西。笔具盘的位置由
+   * 用户拖着定，能停在四条边和四个角，所以只能按它当下的位置决定躲不躲：真的
+   * 压上来才淡出，挪开就回来。
+   *
+   * 位置是写在 .pk-picker 的行内 style 上的（left / top / width / height），
+   * 动画交给 CSS 过渡，所以：改 style 时量一次（拖动过程中每帧都改），过渡结束
+   * 再量一次（飞过去、展开这些是松手之后才走完的），窗口尺寸变了也量一次。
+   */
+  watchPickerClash() {
+    if (!this.corner || !this.pkHost || this.clashStop) return;
+    const picker = this.pkHost.querySelector(".pk-picker");
+    if (!picker) return;
+    const check = () => this.syncPickerClash(picker);
+    const observer = new MutationObserver(check);
+    observer.observe(picker, { attributes: true, attributeFilter: ["style", "data-state"] });
+    picker.addEventListener("transitionend", check);
+    addEventListener("resize", check);
+    this.clashStop = () => {
+      observer.disconnect();
+      picker.removeEventListener("transitionend", check);
+      removeEventListener("resize", check);
+      this.corner.classList.remove("shy");
+      this.clashStop = null;
+    };
+    check();
+  }
+
+  stopPickerClash() {
+    if (this.clashStop) this.clashStop();
+  }
+
+  /** 两个矩形挨上了就把右上角那一组让出去。留一点余量，贴着边也算挨上。 */
+  syncPickerClash(picker) {
+    if (!this.corner) return;
+    const gap = 8;
+    const a = picker.getBoundingClientRect();
+    const b = this.corner.getBoundingClientRect();
+    const hit =
+      a.left < b.right + gap && a.right > b.left - gap && a.top < b.bottom + gap && a.bottom > b.top - gap;
+    this.corner.classList.toggle("shy", hit);
   }
 
   /** 工具盘那边改了工具 / 颜色 / 粗细 / 手指书写，同步到白板。 */
@@ -876,12 +950,13 @@ export class UI {
   }
 
   setBoards(boards, currentId, folders) {
+    // 这里是列表变了（别处改了名、新建、归类），不是重新打开界面
     this.boards = boards;
     if (folders) this.folders = folders;
     // 正在看的文件夹被别处删掉了，就退回最外面那一层，否则会停在一个空壳里
     if (this.openFolder && !this.folders.includes(this.openFolder)) this.openFolder = "";
     this.currentBoardId = currentId;
-    if (this.gallery) this.renderBoards();
+    if (this.gallery) this.renderBoards({ opening: false });
   }
 
   closeGallery() {
@@ -902,7 +977,7 @@ export class UI {
   }
 
   /** Mac 端专门的白板选择界面：满屏缩略图，左上角标出延伸类型，下面是名字和日期。 */
-  renderBoards() {
+  renderBoards({ opening = true } = {}) {
     // 列表随时可能被广播刷新（别处改了名、新建、删除），重建之前记住焦点落在哪，
     // 建完再放回去，否则正在输入的搜索框或改名框会被抽走。
     const active = document.activeElement;
@@ -936,6 +1011,7 @@ export class UI {
     // 进了文件夹，搜索框前面多一个返回；搜索本身始终在全部白板里找
     if (this.openFolder) {
       const back = iconButton("back", "返回（把白板拖到这里就移出文件夹）", () => this.leaveFolder());
+      back.dataset.dropOut = "";
       this.makeDropTarget(back, "");
       head.append(back);
     }
@@ -949,7 +1025,7 @@ export class UI {
 
     this.boardGrid = el("div", { class: "gallery-grid" });
     this.bindGridSorting(this.boardGrid);
-    const gallery = el("div", { class: "gallery" }, [head]);
+    const gallery = el("div", { class: `gallery${opening ? " opening" : ""}` }, [head]);
     this.folderBarNode = this.openFolder ? this.folderBar(this.openFolder) : null;
     if (this.folderBarNode) gallery.append(this.folderBarNode);
     gallery.append(this.boardGrid);
@@ -1026,6 +1102,12 @@ export class UI {
    * 发这些事件，所以触摸设备上照旧用名字旁边那个文件夹按钮，两条路都留着。
    */
   makeDraggable(card, boardId) {
+    if (this.touchDevice) {
+      // 触摸设备上不挂 draggable：iOS Safari 不发 drag 事件，只会自己把卡片
+      // 「拎」起来做一个原生预览。这边改用指针事件自己做，见 holdToDrag。
+      card.addEventListener("pointerdown", (event) => this.holdToDrag(event, card, boardId));
+      return;
+    }
     card.setAttribute("draggable", "true");
     card.addEventListener("dragstart", (event) => {
       this.dragBoard = boardId;
@@ -1144,6 +1226,176 @@ export class UI {
     });
   }
 
+  /**
+   * 触摸设备：按住一会儿才开始拖。
+   *
+   * 手指放在卡片上更常见的意图是滚列表，所以先等 ``HOLD_MS``：这期间手指挪动
+   * 超过 ``HOLD_SLOP`` 就当是滚动，这一次不拖了。这套判定和 dnd-kit 的触摸传感器
+   * 一样（延时 + 容差），SortableJS 的 delayOnTouchOnly 也是这个思路。
+   */
+  holdToDrag(event, card, boardId) {
+    if (event.pointerType === "mouse" || event.isPrimary === false) return;
+    const item = card.closest(".board-item");
+    if (!item || this.dragBoard) return;
+    const at = { x: event.clientX, y: event.clientY };
+    let timer = 0;
+    const stop = () => {
+      clearTimeout(timer);
+      removeEventListener("pointermove", onMove);
+      removeEventListener("pointerup", stop);
+      removeEventListener("pointercancel", stop);
+    };
+    const onMove = (move) => {
+      if (Math.hypot(move.clientX - at.x, move.clientY - at.y) > HOLD_SLOP) stop();
+    };
+    addEventListener("pointermove", onMove);
+    addEventListener("pointerup", stop);
+    addEventListener("pointercancel", stop);
+    timer = setTimeout(() => {
+      stop();
+      this.touchDrag(item, card, boardId, at, event.pointerId);
+    }, HOLD_MS);
+  }
+
+  /**
+   * 拖动本身：手指底下跟着一张浮起来的副本，原来那一格留在列表里当占位，
+   * 走到哪就把占位挪到哪（和鼠标那条路同一套让位逻辑）。
+   *
+   * 跟手的是副本而不是卡片本身：卡片要留在格子里排队，位置每挪一次都变，
+   * 拿它跟手就得每帧重新算原点。副本是 ``position: fixed``，只动 transform，
+   * 交给合成器，不碰布局。
+   */
+  touchDrag(item, card, boardId, at, pointerId) {
+    const grid = this.boardGrid;
+    const gallery = this.gallery;
+    if (!grid || !gallery || !item.isConnected) return;
+
+    const box = card.getBoundingClientRect();
+    const ghost = card.cloneNode(true);
+    ghost.classList.add("ghost");
+    ghost.style.left = `${box.left}px`;
+    ghost.style.top = `${box.top}px`;
+    ghost.style.width = `${box.width}px`;
+    ghost.style.height = `${box.height}px`;
+    this.root.append(ghost);
+
+    this.dragBoard = boardId;
+    this.dragItem = item;
+    this.dragSorted = false;
+    this.dragFiled = false;
+    item.classList.add("dragging");
+
+    const pos = { x: at.x, y: at.y };
+    let target = null; // 停在文件夹或者「移出」上时是那个元素
+    let folder = null; // 对应的落点：文件夹名，或者空串表示移出
+    let raf = 0;
+
+    const follow = () => {
+      ghost.style.transform = `translate(${pos.x - at.x}px, ${pos.y - at.y}px) scale(1.04)`;
+    };
+    const light = (node, name) => {
+      if (target === node) return;
+      if (target) target.classList.remove("drop-target");
+      target = node;
+      folder = name;
+      if (target) target.classList.add("drop-target");
+    };
+    const hitTest = () => {
+      const under = document.elementFromPoint(pos.x, pos.y);
+      if (!under || !under.closest) return light(null, null);
+      const intoFolder = under.closest("[data-folder]");
+      if (intoFolder) return light(intoFolder, intoFolder.dataset.folder);
+      const out = under.closest("[data-drop-out]");
+      if (out) return light(out, "");
+      light(null, null);
+      const over = under.closest(".board-item[data-board]");
+      if (!over || over === item) return;
+      const rect = over.getBoundingClientRect();
+      const ref = pos.x > rect.left + rect.width / 2 ? over.nextSibling : over;
+      if (ref === item || item.nextSibling === ref) return;
+      this.flip(grid, () => grid.insertBefore(item, ref));
+      this.dragSorted = true;
+    };
+    // 拖到上下边上自动滚，不然够不到屏幕外的那几块
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const view = gallery.getBoundingClientRect();
+      let dy = 0;
+      if (pos.y < view.top + EDGE_ZONE) dy = -(view.top + EDGE_ZONE - pos.y);
+      else if (pos.y > view.bottom - EDGE_ZONE) dy = pos.y - (view.bottom - EDGE_ZONE);
+      if (!dy) return;
+      const step = Math.max(-EDGE_SPEED, Math.min(EDGE_SPEED, dy / 3));
+      const before = gallery.scrollTop;
+      gallery.scrollTop += step;
+      if (gallery.scrollTop !== before) hitTest();
+    };
+    raf = requestAnimationFrame(tick);
+
+    const onMove = (event) => {
+      if (event.pointerId !== pointerId) return;
+      event.preventDefault();
+      pos.x = event.clientX;
+      pos.y = event.clientY;
+      follow();
+      hitTest();
+    };
+    // Safari 只认非 passive 的 touchmove：不拦住它，列表会跟着手指一起滚
+    const block = (event) => event.preventDefault();
+    const done = (event) => {
+      if (event && event.pointerId !== undefined && event.pointerId !== pointerId) return;
+      removeEventListener("pointermove", onMove);
+      removeEventListener("pointerup", done);
+      removeEventListener("pointercancel", cancel);
+      removeEventListener("touchmove", block);
+      cancelAnimationFrame(raf);
+      if (target) target.classList.remove("drop-target");
+      this.settleGhost(ghost, target || item);
+      item.classList.remove("dragging");
+      this.dragBoard = "";
+      this.dragItem = null;
+      const board = this.boards.find((one) => one.id === boardId);
+      if (folder !== null && board && (board.folder || "") !== folder) {
+        this.actions.onMoveBoard(boardId, folder);
+      } else if (folder === null && this.dragSorted) {
+        this.actions.onReorderBoards(this.boardOrder());
+      }
+      this.dragSorted = false;
+      this.dragFiled = false;
+    };
+    const cancel = (event) => {
+      if (event && event.pointerId !== pointerId) return;
+      folder = null;
+      this.dragSorted = false;
+      done(event);
+      this.fillBoardGrid(); // 让过的位退回去
+    };
+    addEventListener("pointermove", onMove, { passive: false });
+    addEventListener("pointerup", done);
+    addEventListener("pointercancel", cancel);
+    addEventListener("touchmove", block, { passive: false });
+    follow();
+    hitTest();
+  }
+
+  /** 松手：副本从手指底下滑回它要去的那一格（或者那个文件夹），到了就撤掉。 */
+  settleGhost(ghost, landing) {
+    const from = ghost.getBoundingClientRect();
+    const to = landing && landing.isConnected ? landing.getBoundingClientRect() : from;
+    const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+    const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+    const scale = to.width ? Math.min(1, to.width / from.width) : 1;
+    const now = ghost.style.transform;
+    const drop = ghost.animate(
+      [
+        { transform: now, opacity: 1 },
+        { transform: `${now} translate(${dx}px, ${dy}px) scale(${scale})`, opacity: 0 },
+      ],
+      { duration: 200, easing: "ease-out" }
+    );
+    drop.onfinish = () => ghost.remove();
+    drop.oncancel = () => ghost.remove();
+  }
+
   /** 文件夹在格子里就是一块卡片：点开进去，名字可以直接改，也可以把白板拖进来。 */
   folderItem(name) {
     const count = this.boards.filter((board) => board.folder === name).length;
@@ -1151,6 +1403,7 @@ export class UI {
       "div",
       {
         class: "board-card folder",
+        "data-folder": name,
         title: `打开文件夹：${name}（也可以把白板拖进来）`,
         onclick: () => this.enterFolder(name),
       },
@@ -1202,7 +1455,7 @@ export class UI {
 
   /** 进了文件夹之后，搜索框下面那一行：名字、装了几块、删除。 */
   folderBar(name) {
-    const bar = el("div", { class: "folder-bar" }, [
+    const bar = el("div", { class: "folder-bar", "data-drop-out": "" }, [
       el("span", { class: "folder-bar-icon", html: icon("folder", 20) }),
       this.folderName(name),
       el("span", {

@@ -80,6 +80,9 @@
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+  /* 同样一刀切：iPadOS 上长按图标或者图片会把它「拎」起来，浮出一个预览，
+     手一松才落回去。下面白板卡片那一条再单独开回来。 */
+  -webkit-user-drag: none;
 }
 
 html, body {
@@ -203,6 +206,8 @@ html, body {
 
 /* PencilKit 那条工具盘盖在画布上：自己不吃事件，只有工具栏和弹层吃 */
 #toolbar.hidden { display: none; }
+/* #ui 里面这几层的上下关系：笔具盘 1，盖满屏幕的界面 2，对话框和抽屉 3，
+   提示条 4。笔具盘自己带 z-index，不排的话它会浮在白板选择界面上面。 */
 #pk-host {
   position: absolute;
   inset: 0;
@@ -213,6 +218,8 @@ html, body {
 }
 #pk-host .pk-picker,
 #pk-host .pk-pop { pointer-events: auto; }
+/* 白板选择界面或者设置抽屉开着：笔具盘整条收起来，见 ui.js 的 watchOverlays */
+#ui[data-overlay="1"] #pk-host { display: none; }
 /*
  * 工具盘的底色跟着白板的配色走，但**始终是实的**，不磨砂。
  *
@@ -384,6 +391,13 @@ html, body {
   top: calc(12px + env(safe-area-inset-top));
   right: calc(12px + env(safe-area-inset-right));
   flex-direction: row;
+  transition: opacity var(--motion), transform var(--motion);
+}
+/* 笔具盘挪到这一组底下了：让出去，挪开再回来（见 ui.js 的 watchPickerClash） */
+#topright.shy {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
 }
 /*
  * 触摸设备上这一组照 iOS 的做法：图标用强调色，按钮之间留开一点。
@@ -488,7 +502,7 @@ html, body {
  * 结果就是弹窗自己先黑一下，动画结束才回到正常颜色。
  */
 .scrim {
-  position: absolute; inset: 0; background: var(--scrim);
+  position: absolute; inset: 0; z-index: 3; background: var(--scrim);
   animation: scrim-in var(--motion);
 }
 @keyframes scrim-in { from { background-color: transparent; } }
@@ -547,11 +561,14 @@ html, body {
 .gallery {
   position: absolute;
   inset: 0;
+  z-index: 2;
   background: var(--surface-1);
   overflow-y: auto;
   padding: calc(12px + env(safe-area-inset-top)) 24px 32px;
-  animation: fade var(--motion);
 }
+/* 淡入只在打开和进出文件夹时放一次。列表被广播刷新时整个界面会重建，每次都放
+   一遍的话，别处一改名这边就闪一下。 */
+.gallery.opening { animation: fade var(--motion); }
 .gallery-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .search-box {
   flex: 0 1 320px;
@@ -681,8 +698,19 @@ html, body {
 }
 .board-name.folder { color: var(--primary); }
 /* 拖白板卡片：拖着的那块淡下去，能放手的地方亮起来 */
-.board-card[draggable="true"] { cursor: grab; }
+.board-card[draggable="true"] { cursor: grab; -webkit-user-drag: element; }
+.board-item.dragging .board-card,
 .board-card.dragging { opacity: .4; }
+/* 触摸设备上跟着手指走的那张副本：只动 transform，交给合成器 */
+.board-card.ghost {
+  position: fixed;
+  margin: 0;
+  z-index: 5;
+  pointer-events: none;
+  box-shadow: var(--shadow-3);
+  transform-origin: center;
+  will-change: transform;
+}
 .board-card.folder.drop-target {
   border-color: var(--primary);
   background: var(--primary-container);
@@ -917,6 +945,7 @@ body.dropping::after {
 
 .toast {
   position: absolute;
+  z-index: 4;
   left: 50%; bottom: calc(84px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   display: flex; align-items: center; gap: 8px;
@@ -934,6 +963,7 @@ body.dropping::after {
 /* 系统层面的干扰（随手写抢笔迹）只能提示用户去关，页面拦不住 */
 .notice {
   position: absolute;
+  z-index: 4;
   top: calc(12px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);

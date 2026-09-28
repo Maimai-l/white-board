@@ -1120,6 +1120,66 @@ def test_board_cards_show_names_and_dates(browser, server):
     ipad.close()
 
 
+def test_the_corner_group_gets_out_of_the_pickers_way(browser, server):
+    """笔具盘停到右上角那一组底下时，那一组让开；挪走再回来。"""
+    mac, ipad = open_pages(browser, server.port, picker=True)
+    ipad.wait_for_selector("#pk-host .pk-picker")
+    ipad.wait_for_selector("#topright")
+    assert ipad.evaluate("() => document.querySelector('#topright').classList.contains('shy')") is False
+
+    # 直接把笔具盘摆到右上角（拖动的手感由那份实现自己管，这里只看让位这件事）
+    ipad.evaluate(
+        """() => {
+          const pk = document.querySelector('#pk-host .pk-picker');
+          const box = document.querySelector('#topright').getBoundingClientRect();
+          pk.style.left = box.left + 'px';
+          pk.style.top = box.top + 'px';
+          pk.style.width = '80px';
+          pk.style.height = '80px';
+        }"""
+    )
+    ipad.wait_for_function("() => document.querySelector('#topright').classList.contains('shy')")
+
+    ipad.evaluate("() => { document.querySelector('#pk-host .pk-picker').style.top = '600px'; }")
+    ipad.wait_for_function("() => !document.querySelector('#topright').classList.contains('shy')")
+    mac.close()
+    ipad.close()
+
+
+def test_the_picker_does_not_float_over_the_board_chooser(browser, server):
+    """笔具盘自带 z-index，白板选择界面必须压在它上面，否则一进来它还浮着。"""
+    mac, ipad = open_pages(browser, server.port, picker=True)
+    ipad.wait_for_selector("#pk-host .pk-picker")
+    ipad.click('button[title="白板"]')
+    ipad.wait_for_selector(".gallery")
+
+    # 选择界面是不透明的，盖住就等于看不见：量的是同一个点上谁在上面
+    top = ipad.evaluate(
+        """() => {
+          const box = document.querySelector('#pk-host .pk-picker').getBoundingClientRect();
+          const node = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          return !!(node && node.closest('.gallery'));
+        }"""
+    )
+    assert top, "笔具盘还浮在白板选择界面上面"
+    # 而且整条收起来了：它每帧都在画自己那层，留在上面就是一直闪
+    assert ipad.evaluate("() => getComputedStyle(document.querySelector('#pk-host')).display") == "none"
+
+    # 列表被广播刷新时不重放淡入，否则别处一改名这边就闪一下
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title="新建文件夹"]')
+    ipad.wait_for_function("() => whiteboard.ui.folders.length === 1")
+    assert ipad.evaluate("() => !!document.querySelector('.gallery.opening')") is False
+
+    ipad.click('button[title="关闭"]')
+    ipad.wait_for_function(
+        "() => getComputedStyle(document.querySelector('#pk-host')).display !== 'none'"
+    )
+    mac.close()
+    ipad.close()
+
+
 def test_boards_can_be_filed_into_a_folder(browser, server):
     """文件夹是格子里的一块卡片：点进去只剩里面的白板，在里面新建的也留在里面。"""
     mac, ipad = open_pages(browser, server.port)
@@ -1214,6 +1274,85 @@ def test_boards_can_be_dragged_into_a_new_order(browser, server):
     mac.click('button[title="白板"]')
     mac.wait_for_selector(".board-item")
     assert mac.evaluate(order) == before[1:] + before[:1]
+    mac.close()
+    ipad.close()
+
+
+TOUCH_DRAG = """
+async ([fromSel, toSel, holdMs, steps]) => {
+  const from = document.querySelector(fromSel).getBoundingClientRect();
+  const to = document.querySelector(toSel).getBoundingClientRect();
+  const at = { x: from.left + from.width / 2, y: from.top + from.height / 2 };
+  const end = { x: to.left + to.width / 2, y: to.top + to.height / 2 };
+  const fire = (type, x, y, target) => target.dispatchEvent(new PointerEvent(type, {
+    clientX: x, clientY: y, pointerId: 11, pointerType: 'touch', isPrimary: true,
+    bubbles: true, cancelable: true,
+  }));
+  fire('pointerdown', at.x, at.y, document.querySelector(fromSel));
+  await new Promise((done) => setTimeout(done, holdMs));
+  for (let i = 1; i <= steps; i++) {
+    fire('pointermove', at.x + (end.x - at.x) * i / steps, at.y + (end.y - at.y) * i / steps, window);
+    await new Promise((done) => requestAnimationFrame(done));
+  }
+  fire('pointerup', end.x, end.y, window);
+}
+"""
+
+
+def test_a_finger_can_drag_a_board_on_a_touch_device(browser, server):
+    """iPad 上按住一会儿再拖：手指底下跟着一张副本，松手落在文件夹里。"""
+    mac, ipad = open_pages(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title="新建文件夹"]')
+    mac.wait_for_selector(".board-card.folder")
+
+    ipad.click('button[title="白板"]')
+    ipad.wait_for_selector(".board-card.folder")
+
+    # 手指一放就走：当成滚列表，不拖
+    ipad.evaluate(TOUCH_DRAG, [".board-item[data-board] .board-card", ".board-card.folder", 0, 6])
+    assert ipad.evaluate("() => whiteboard.ui.boards.every(b => !b.folder)")
+    assert ipad.evaluate("() => !document.querySelector('.board-card.ghost')")
+
+    # 按住 400ms 再拖：这次算数
+    ipad.evaluate(TOUCH_DRAG, [".board-item[data-board] .board-card", ".board-card.folder", 400, 6])
+    ipad.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
+    mac.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
+    # 副本是临时的，落位动画走完就撤掉
+    ipad.wait_for_function("() => !document.querySelector('.board-card.ghost')")
+    mac.close()
+    ipad.close()
+
+
+def test_a_finger_can_drag_a_board_into_a_new_order(browser, server):
+    """同一套长按拖动也能排序：松手之后顺序存到服务端。"""
+    mac, ipad = open_pages(browser, server.port)
+    for _ in range(2):
+        mac.click('button[title="白板"]')
+        mac.click(".board-card.add")
+        mac.click('.kind-tile[title^="笔记"]')
+        mac.wait_for_function("() => whiteboard.state.kind === 'note'")
+    ipad.click('button[title="白板"]')
+    ipad.wait_for_function("() => document.querySelectorAll('.board-item[data-board]').length === 3")
+
+    order = "() => whiteboard.ui.boards.map(b => b.id)"
+    before = ipad.evaluate(order)
+    cards = ".board-item[data-board] .board-card"
+    ipad.evaluate(
+        TOUCH_DRAG,
+        [f"{cards}", ".board-item[data-board]:nth-child(3) .board-card", 400, 8],
+    )
+    ipad.wait_for_function(
+        "(was) => JSON.stringify(whiteboard.ui.boards.map(b => b.id)) !== JSON.stringify(was)",
+        arg=before,
+    )
+    after = ipad.evaluate(order)
+    assert sorted(after) == sorted(before) and after != before
+    mac.wait_for_function(
+        "(now) => JSON.stringify(whiteboard.ui.boards.map(b => b.id)) === JSON.stringify(now)",
+        arg=after,
+    )
     mac.close()
     ipad.close()
 

@@ -51,7 +51,6 @@ def detect_role(user_agent: str, override: Optional[str] = None) -> str:
 
 
 # 这几项只有 Mac 那套界面里才有入口，iPad 端连按钮都没有。
-_MAC_ONLY = frozenset({"manage", "settings"})
 
 
 def permissions(request: web.Request) -> FrozenSet[str]:
@@ -459,13 +458,14 @@ class _Session:
         self.client_id = "-"
 
     def _may(self, permission: str) -> bool:
-        """能不能做这件事：这条连接拿到了这个权限，并且界面上确实有这个入口。
+        """能不能做这件事，只看这条连接拿到的权限。
 
-        白板管理只在 Mac 那套界面里做，所以多一道 role 判断；清屏两边都有按钮，
-        只看权限。
+        权限在连接建立时按 TCP 对端地址定死（见 ``permissions``），握手里报的
+        role 不参与判断——那个客户端想填什么填什么。以前这里对「管理白板」和
+        「设置白板」多一道 ``role == "mac"``，因为那两项当时只有 Mac 那套界面里
+        有入口；现在触摸设备的右上角也有这一组，再拦着就是 Mac 放开了权限、
+        iPad 上点了却没反应。
         """
-        if permission in _MAC_ONLY and self.client.role != "mac":
-            return False
         return permission in self.client.allowed
 
     async def dispatch(self, msg: Dict[str, Any]) -> None:

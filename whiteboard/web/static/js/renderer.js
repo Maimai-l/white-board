@@ -8,8 +8,15 @@ import { addMaskPath, drawStroke, maskBounds, strokeBBox } from "./stroke.js";
 import { TAU } from "./util.js";
 
 const PAPER = "#ffffff";
-const OUTSIDE = "#e6e8ee";
-const EDGE = "#d2d6e0";
+// 纸张之外那一片。原来是 #e6e8ee，偏蓝（蓝比红高 8），和界面上那套 iOS 系统灰
+// 不是一个色系；改成 systemGray5 #e5e5ea，和 app.css 里的 --surface（#f2f2f7，
+// 也就是 systemGray6）同族，只差明度。
+const OUTSIDE = "#e5e5ea";
+// 纸的边缘不描线，改成一层投影：线在高分屏上是一根硬边，纸看着像贴在底色上；
+// 投影才有纸浮在上面的意思。颜色用 iOS 分隔线那一套的基色 rgb(60,60,67)。
+const SHADOW = "rgba(60, 60, 67, .2)";
+const SHADOW_BLUR = 16;
+const SHADOW_LIFT = 3;
 const LINE = "#d7dbe6";
 const GRID_STEP = 40;
 const MIN_PATTERN_PX = 14;
@@ -191,6 +198,17 @@ export class Renderer {
   // ------------------------------------------------------------------ 背景
 
   /** 纸张（笔记页 / 文档页）在屏幕上的范围；大白板返回 null。 */
+  /** 铺一张纸，四周带投影。投影是屏幕像素单位的，不跟着缩放变。 */
+  paintPaper(ctx, left, top, width, height) {
+    ctx.save();
+    ctx.shadowColor = SHADOW;
+    ctx.shadowBlur = SHADOW_BLUR;
+    ctx.shadowOffsetY = SHADOW_LIFT;
+    ctx.fillStyle = PAPER;
+    ctx.fillRect(left, top, width, height);
+    ctx.restore();
+  }
+
   pageRect() {
     const limits = this.state.limits;
     if (!limits) return null;
@@ -205,6 +223,7 @@ export class Renderer {
         limits.y1 === undefined
           ? this.viewH - Math.min(top, 0) + 2
           : (limits.y1 - limits.y0) * scale,
+      open: limits.y1 === undefined,
     };
   }
 
@@ -240,8 +259,7 @@ export class Renderer {
       const top = y + box.y * scale;
       const width = box.w * scale;
       const height = box.h * scale;
-      ctx.fillStyle = PAPER;
-      ctx.fillRect(left, top, width, height);
+      this.paintPaper(ctx, left, top, width, height);
       const img = this.docPages.get(index);
       if (img) {
         try {
@@ -250,9 +268,6 @@ export class Renderer {
           /* 图还没解码好，下一帧再说 */
         }
       }
-      ctx.strokeStyle = EDGE;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(Math.round(left) + 0.5, Math.round(top) + 0.5, width - 1, height - 1);
     }
   }
 
@@ -275,26 +290,16 @@ export class Renderer {
     // 笔记：纸张之外是底色，页首上方也不画纸。
     ctx.fillStyle = OUTSIDE;
     ctx.fillRect(0, 0, this.viewW, this.viewH);
+    // 笔记只向下无限延伸，下边没有真正的纸边。pageRect 给的高度到屏幕底就截住了，
+    // 直接画的话投影会在屏幕底下压出一条暗边，所以往下多铺出一个模糊半径。
+    const tail = page.open ? SHADOW_BLUR * 2 : 0;
+    this.paintPaper(ctx, page.left, page.top, page.width, page.height + tail);
     ctx.save();
     ctx.beginPath();
     ctx.rect(page.left, page.top, page.width, page.height);
     ctx.clip();
-    ctx.fillStyle = PAPER;
-    ctx.fillRect(page.left, page.top, page.width, page.height);
     drawPattern(ctx, this.state.meta.background, scale, x, y, this.viewW, this.viewH);
     ctx.restore();
-    ctx.strokeStyle = EDGE;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(Math.round(page.left) + 0.5, page.top);
-    ctx.lineTo(Math.round(page.left) + 0.5, page.top + page.height);
-    ctx.moveTo(Math.round(page.left + page.width) - 0.5, page.top);
-    ctx.lineTo(Math.round(page.left + page.width) - 0.5, page.top + page.height);
-    if (page.top > 0) {
-      ctx.moveTo(page.left, Math.round(page.top) + 0.5);
-      ctx.lineTo(page.left + page.width, Math.round(page.top) + 0.5);
-    }
-    ctx.stroke();
   }
 
   // ------------------------------------------------------------------ 绘制
