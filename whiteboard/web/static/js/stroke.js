@@ -703,13 +703,3 @@ export function maskBounds(chains) {
   return box;
 }
 
-/** 把遮罩里和这一段点列不沾边的胶囊去掉：切笔画之后每一段只留自己用得上的。 */
-export function maskFor(chains, bbox) {
-  const kept = [];
-  for (const chain of chains) {
-    const b = chainBBox(chain);
-    if (b.x1 < bbox.x0 || b.x0 > bbox.x1 || b.y1 < bbox.y0 || b.y0 > bbox.y1) continue;
-    kept.push(chain.slice());
-  }
-  return kept;
-}

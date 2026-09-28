@@ -35,7 +35,6 @@ _CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
 
 # aiohttp 的类型安全键，避免字符串键的命名冲突。
 CONFIG_KEY: "web.AppKey[Config]" = web.AppKey("config")
-STORE_KEY: "web.AppKey[BoardStore]" = web.AppKey("store")
 HUB_KEY: "web.AppKey[Hub]" = web.AppKey("hub")
 RENDER_KEY: "web.AppKey[asyncio.Semaphore]" = web.AppKey("render_lock")
 
@@ -48,9 +47,6 @@ def detect_role(user_agent: str, override: Optional[str] = None) -> str:
     if "ipad" in ua or "iphone" in ua or "ipod" in ua:
         return "ipad"
     return "mac"
-
-
-# 这几项只有 Mac 那套界面里才有入口，iPad 端连按钮都没有。
 
 
 def permissions(request: web.Request) -> FrozenSet[str]:
@@ -738,7 +734,6 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
         client_max_size=MAX_THUMB_BYTES + 4096, middlewares=[revalidate_static]
     )
     app[CONFIG_KEY] = config
-    app[STORE_KEY] = store
     app[HUB_KEY] = Hub(store)
     app[RENDER_KEY] = asyncio.Semaphore(RENDER_LIMIT)
 

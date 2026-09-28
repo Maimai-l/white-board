@@ -443,11 +443,14 @@ class BoardStore:
         return self.edit_meta(board_id, name=name if isinstance(name, str) else "")
 
     def move_board(self, board_id: str, folder: str) -> bool:
-        """把白板放进某个文件夹；``folder`` 是空串就是移出来。
+        """把白板放进某个文件夹；``folder`` 是空串就是移出来。名字还不在名单里就登记进去。
 
-        文件夹只有一层，名字本身就是身份，没有单独的文件夹 id。所以「新建文件夹」
-        就是给某块白板填一个还没人用过的名字，「删除文件夹」就是把里面的白板都移
-        出来。这样不需要一套单独的文件夹存储，索引丢了也能从各块白板的 meta 重建。
+        文件夹只有一层，名字本身就是身份，没有单独的文件夹 id。名单另外存在索引里
+        （空文件夹只有那里有记录）；索引丢了，装着白板的文件夹能从各块白板的 meta
+        重建，空文件夹找不回来。
+
+        服务端走的是 ``Hub.move_board``（要顾及已经载入内存的白板），这个方法
+        只给不经过 Hub 的地方用。
         """
         clean = models.sanitize_folder(folder)
         if not self.edit_meta(board_id, folder=clean):

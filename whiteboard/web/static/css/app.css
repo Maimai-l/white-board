@@ -312,12 +312,6 @@ html, body {
 #pk-host .pk-cp-op-label,
 #pk-host .pk-cp-op { display: none; }
 
-/* 工具设置面板 */
-.pop-title {
-  font-size: 12.5px;
-  color: var(--on-surface-variant);
-  padding: 0 2px;
-}
 /* 二选一：橡皮的对象 / 像素，和笔具盘里那个长得一样 */
 .seg {
   display: flex;
@@ -952,13 +946,6 @@ body.dropping::after {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-}
-
-/* 设置面板里的小标题 */
-.row-label {
-  font-size: 12.5px;
-  color: var(--on-surface-variant);
-  min-width: 62px;
 }
 
 /* 检查更新的结果文字 */
