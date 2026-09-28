@@ -14,7 +14,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import tempfile
+import time
 import zlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,6 +27,10 @@ log = logging.getLogger(__name__)
 
 FILE_VERSION = 1
 BOARD_SUFFIX = ".wbz"
+
+
+class BoardFileError(ValueError):
+    """白板文件的内容不是预期的结构（能解压、能解析，但不是那个形状）。"""
 
 
 def _folder_list(raw: Any) -> List[str]:
@@ -95,9 +101,16 @@ class BoardStore:
         for path in self.boards_dir.glob(f"*{BOARD_SUFFIX}"):
             try:
                 payload = self._read_file(path)
-                boards.append(models.sanitize_meta(payload.get("meta", {"id": path.stem})))
+                meta = payload.get("meta")
+                meta = meta if isinstance(meta, dict) else {}
+                # 文件名就是 id；meta 里的 id 读不出来时以文件名为准，否则这块板
+                # 会换一个新 id 出现在列表里，却对应不到任何文件
+                boards.append(models.sanitize_meta({**meta, "id": path.stem}))
             except (OSError, ValueError, zlib.error) as exc:
-                log.warning("白板文件无法读取，已跳过 %s：%s", path.name, exc)
+                # 读不出来的文件也要留在列表里：打开时以只读方式显示并提示，
+                # 而不是让它从界面上消失、用户以为白板丢了
+                log.warning("白板文件无法读取 %s：%s", path.name, exc)
+                boards.append(models.sanitize_meta({"id": path.stem, "updated": 0}))
         boards.sort(key=lambda m: m.get("updated", 0), reverse=True)
         current = self._index.get("current") if self._index else None
         # 空文件夹只在索引里有记录，索引丢了就没了；至少把还装着白板的那些找回来。
@@ -288,37 +301,104 @@ class BoardStore:
     @staticmethod
     def _read_file(path: Path) -> Dict[str, Any]:
         blob = path.read_bytes()
-        return json.loads(zlib.decompress(blob).decode("utf-8"))
+        payload = json.loads(zlib.decompress(blob).decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise BoardFileError("文件内容不是预期的结构")
+        return payload
 
     def load_board(self, board_id: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-        """返回 ``(meta, strokes)``；文件缺失或损坏时返回空白板而不是抛错。"""
+        """返回 ``(meta, strokes)``；文件缺失或损坏时返回读得出来的部分而不是抛错。
+
+        要知道读得全不全，用 :meth:`open_board`。
+        """
+        meta, strokes, _problem = self.open_board(board_id)
+        return meta, strokes
+
+    def open_board(
+        self, board_id: str
+    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """读一块白板，返回 ``(meta, strokes, problem)``。
+
+        ``problem`` 为 None 表示文件完整读了出来；否则说明哪里不对，调用方据此
+        把这块板锁成只读（见 hub.BoardRuntime）：
+
+        * ``unreadable``：文件打不开（权限、外置盘没挂上……），可能只是暂时的；
+        * ``corrupt``：打开了，但解压或解析失败，一笔都读不出来；
+        * ``partial``：大部分读出来了，但有笔画解不开或者不合法；
+        * ``newer``：文件是更新版本的程序写的，这一版可能认不全里面的内容。
+
+        这些情况下原文件都不能被覆盖：写回去就只剩这一版读得出来的那部分。
+        """
         meta = self.get_meta(board_id) or models.new_board_meta()
         path = self._board_path(board_id)
         if not path.exists():
-            return meta, []
+            return meta, [], None
         try:
             payload = self._read_file(path)
-        except (OSError, ValueError, zlib.error) as exc:
+        except OSError as exc:
             log.error("白板 %s 读取失败：%s", board_id, exc)
-            return meta, []
+            return meta, [], {"reason": "unreadable", "detail": str(exc)}
+        except (ValueError, zlib.error) as exc:
+            log.error("白板 %s 文件损坏：%s", board_id, exc)
+            return meta, [], {"reason": "corrupt", "detail": str(exc)}
 
-        meta = models.sanitize_meta(payload.get("meta", meta))
+        problem: Optional[Dict[str, Any]] = None
+        version = payload.get("v", FILE_VERSION)
+        if not isinstance(version, int) or isinstance(version, bool) or version > FILE_VERSION:
+            log.warning("白板 %s 由更新的版本写入（v=%r，本版 %d）", board_id, version, FILE_VERSION)
+            problem = {"reason": "newer", "version": version}
+
+        if isinstance(payload.get("meta"), dict):
+            meta = models.sanitize_meta(payload["meta"])
+        raw_strokes = payload.get("strokes", [])
+        if not isinstance(raw_strokes, list):
+            raw_strokes = [raw_strokes]  # 让下面按「一条不合法的笔画」处理
         strokes: List[Dict[str, Any]] = []
-        for index, raw in enumerate(payload.get("strokes", [])):
-            packed = raw.get("p")
-            if isinstance(packed, str):
-                try:
-                    raw = dict(raw, p=codec.decode_points_b64(packed))
-                except (ValueError, TypeError) as exc:
-                    log.warning("笔画 %s 解码失败：%s", raw.get("id"), exc)
-                    continue
-            stroke = models.sanitize_stroke(raw)
+        dropped = 0
+        for index, raw in enumerate(raw_strokes):
+            stroke = self._decode_stroke(raw)
             if stroke is None:
+                dropped += 1
                 continue
             stroke.setdefault("n", index)
             strokes.append(stroke)
         strokes.sort(key=lambda s: s["n"])
-        return meta, strokes
+        if dropped and problem is None:
+            log.error("白板 %s 有 %d 笔读不出来", board_id, dropped)
+            problem = {"reason": "partial", "dropped": dropped}
+        return meta, strokes, problem
+
+    @staticmethod
+    def _decode_stroke(raw: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(raw, dict):
+            return None
+        packed = raw.get("p")
+        if isinstance(packed, str):
+            try:
+                raw = dict(raw, p=codec.decode_points_b64(packed))
+            except (ValueError, TypeError) as exc:
+                log.warning("笔画 %s 解码失败：%s", raw.get("id"), exc)
+                return None
+        return models.sanitize_stroke(raw)
+
+    def backup_board_file(self, board_id: str) -> Optional[Path]:
+        """把白板文件原样复制到 ``backups/locked/``，返回副本路径；没有文件时返回 None。
+
+        解锁一块读不全的白板之前调用：之后的存盘会用读得出来的内容覆盖原件。
+        """
+        path = self._board_path(board_id)
+        if not path.exists():
+            return None
+        target_dir = self.data_dir / "backups" / "locked"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        target = target_dir / f"{path.stem}-{stamp}{BOARD_SUFFIX}"
+        counter = 1
+        while target.exists():
+            target = target_dir / f"{path.stem}-{stamp}-{counter}{BOARD_SUFFIX}"
+            counter += 1
+        shutil.copy2(path, target)
+        return target
 
     def save_board(self, meta: Dict[str, Any], strokes: List[Dict[str, Any]]) -> None:
         meta = models.sanitize_meta(meta)
@@ -378,6 +458,7 @@ class BoardStore:
         path = self._board_path(board_id)
         if path.exists():
             try:
+                # 其余内容原样搬过去，更新版本写的文件里多出来的字段也保留
                 payload = self._read_file(path)
                 payload["meta"] = meta
                 blob = json.dumps(payload, ensure_ascii=False).encode("utf-8")

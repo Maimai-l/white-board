@@ -34,10 +34,23 @@ def _list(value: Any) -> List[Any]:
 
 
 class BoardRuntime:
-    """一块白板在内存中的状态。"""
+    """一块白板在内存中的状态。
 
-    def __init__(self, meta: Dict[str, Any], strokes: List[Dict[str, Any]]):
+    ``problem`` 不为空时这块白板是**锁住的**：磁盘上的文件没能完整读出来
+    （损坏、个别笔画解不开、或者是更新的版本写的）。锁住的白板照常显示读得出来
+    的内容，但不接受笔画上的任何修改，自动保存也不写它——写回就会用残缺的内容
+    盖掉原件。改名、归类只改文件里的 meta，其余内容原样搬过去（store.edit_meta）。
+    用户确认之后可以解锁（见 :meth:`Hub.unlock`），解锁前先备份原文件。
+    """
+
+    def __init__(
+        self,
+        meta: Dict[str, Any],
+        strokes: List[Dict[str, Any]],
+        problem: Optional[Dict[str, Any]] = None,
+    ):
         self.meta = meta
+        self.problem = problem
         # 每次把白板载入内存都换一个 epoch：服务端重启后序号从头开始，
         # 旧客户端拿着重启前的序号来续传会被识别出来，改发整块白板。
         self.epoch = models.new_id()
@@ -48,6 +61,10 @@ class BoardRuntime:
         self.ops: Deque[Dict[str, Any]] = deque(maxlen=OPS_HISTORY)
         self.next_n = max((s.get("n", 0) for s in strokes), default=-1) + 1
         self.dirty = False
+
+    @property
+    def locked(self) -> bool:
+        return self.problem is not None
 
     # ------------------------------------------------------------- 操作应用
 
@@ -70,7 +87,7 @@ class BoardRuntime:
 
     def apply(self, raw: Any) -> Optional[Dict[str, Any]]:
         """校验并应用一个操作，返回带 ``seq`` 的规范化操作；非法或空操作返回 None。"""
-        if not isinstance(raw, dict):
+        if not isinstance(raw, dict) or self.locked:
             return None
         kind = raw.get("op")
 
@@ -192,8 +209,8 @@ class Hub:
         board_id = board_id or self.current_id
         runtime = self._boards.get(board_id)
         if runtime is None:
-            meta, strokes = self.store.load_board(board_id)
-            runtime = BoardRuntime(meta, strokes)
+            meta, strokes, problem = self.store.open_board(board_id)
+            runtime = BoardRuntime(meta, strokes, problem)
             self._boards[board_id] = runtime
         return runtime
 
@@ -204,6 +221,7 @@ class Hub:
             "strokes": runtime.stroke_list(),
             "seq": runtime.seq,
             "epoch": runtime.epoch,
+            "locked": runtime.problem,
             "boards": self.store.list_metas(),
             "folders": self.store.folders(),
         }
@@ -212,8 +230,31 @@ class Hub:
         if not self.store.get_meta(board_id) or board_id == self.current_id:
             return False
         self.save_all()
+        # 上次没读全的那块再打开时重新读一遍：读不出来可能只是暂时的（外置盘
+        # 没挂上），锁住的白板内存里没有任何改动，丢掉重读不会丢东西
+        cached = self._boards.get(board_id)
+        if cached is not None and cached.locked:
+            del self._boards[board_id]
         self.current_id = board_id
         self.store.set_current(board_id)
+        return True
+
+    def unlock(self, board_id: Optional[str] = None) -> bool:
+        """用户确认之后解锁一块读不全的白板：先把原文件备份，之后照常编辑、存盘。
+
+        备份失败就不解锁——解锁之后的第一次存盘就会覆盖原件。
+        """
+        board_id = board_id or self.current_id
+        runtime = self.board(board_id)
+        if not runtime.locked:
+            return False
+        try:
+            backup = self.store.backup_board_file(board_id)
+        except OSError as exc:
+            log.error("白板 %s 解锁前备份失败，保持只读：%s", board_id, exc)
+            return False
+        log.warning("白板 %s 已解锁（%s），原文件备份在 %s", board_id, runtime.problem.get("reason"), backup)
+        runtime.problem = None
         return True
 
     def create_board(self, kind: str = "board") -> Dict[str, Any]:
@@ -250,6 +291,13 @@ class Hub:
         runtime = self._boards.get(board_id)
         if runtime is None:
             return self.store.edit_meta(board_id, **changes)
+        if runtime.locked:
+            # 锁住的白板自动保存不会写它，改名只能直接改文件里的 meta，
+            # 其余内容原样保留；文件读不出来就改不成
+            if not self.store.edit_meta(board_id, **changes):
+                return False
+            runtime.meta = self.store.get_meta(board_id) or runtime.meta
+            return True
         # 已经在内存里的那块不能直接写文件：自动保存会拿内存里的 meta 覆盖回去。
         merged = models.sanitize_meta(dict(runtime.meta, **changes))
         if merged == runtime.meta:
@@ -330,7 +378,7 @@ class Hub:
     def save_all(self) -> None:
         """把有改动的白板写盘。一块失败不影响别的，它留着脏标记，下一轮再试。"""
         for board_id, runtime in list(self._boards.items()):
-            if not runtime.dirty:
+            if not runtime.dirty or runtime.locked:
                 continue
             try:
                 self.store.save_board(runtime.meta, runtime.stroke_list())

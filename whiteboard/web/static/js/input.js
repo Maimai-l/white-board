@@ -280,6 +280,9 @@ export class InputController {
     this.renderer = options.renderer;
     this.getTool = options.getTool;
     this.getLimits = options.getLimits || (() => null);
+    // 只读：白板文件没能完整读出来（服务端锁住了它）。落笔一律改成拖动画布，
+    // 否则写上去的笔画服务端不收，重新打开就没了。
+    this.readOnly = false;
     this.hooks = options.hooks;
     this.strokePrefix = options.strokePrefix;
     this.device = options.device;
@@ -457,6 +460,7 @@ export class InputController {
   // --------------------------------------------------------------- 分派
 
   withinLimits(event) {
+    if (this.readOnly) return false;
     const limits = this.getLimits();
     if (!limits) return true;
     const [wx, wy] = this.toWorld(event);

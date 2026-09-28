@@ -1032,6 +1032,9 @@ body.dropping::after {
 .ask-icon { color: var(--error); display: flex; }
 .ask-text { margin: 0; font-size: 15px; color: var(--on-surface); }
 .ask-actions { display: flex; gap: 12px; }
+/* 只读提示：话比确认框长，限宽；补充说明用小一号的字 */
+.dialog.ask.locked { max-width: min(420px, calc(100vw - 48px)); }
+.ask-note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--on-surface-variant); }
 
 .dialog {
   position: absolute; left: 50%; top: 50%;

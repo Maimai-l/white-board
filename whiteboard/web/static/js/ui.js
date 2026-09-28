@@ -910,6 +910,58 @@ export class UI {
     this.root.append(scrim);
   }
 
+  /**
+   * 白板以只读方式打开时的提示。``locked.reason`` 见服务端 store.open_board。
+   * 有管理权限的设备多一个「仍然编辑」：是用户自己的选择，但要先说清楚后果。
+   */
+  showLocked(locked, onUnlock) {
+    const newer = locked.reason === "newer";
+    const text = newer
+      ? "这块白板是用更新版本的白板程序保存的，当前版本可能无法完整识别其中的内容。" +
+        "为避免损坏数据，现在以只读方式打开。"
+      : "这块白板的文件没能完整读出来（文件可能已损坏，或者存储位置暂时无法访问）。" +
+        "为避免覆盖原文件，现在以只读方式打开，能读出的内容照常显示。";
+    const risk = newer
+      ? "仍然编辑的话，保存时这一版不认识的内容可能丢失。"
+      : "仍然编辑的话，保存时会用现在读出来的内容覆盖原文件，读不出来的部分会丢失。";
+    const canUnlock = this.may("manage");
+    this.hideLocked();
+    const scrim = el("div", { class: "scrim" });
+    const close = () => {
+      scrim.remove();
+      if (this.lockedDialog === scrim) this.lockedDialog = null;
+    };
+    this.lockedDialog = scrim;
+    const actions = [iconButton("close", "保持只读", close)];
+    if (canUnlock) {
+      actions.push(
+        iconButton("check", "仍然编辑（先备份原文件）", () => {
+          close();
+          onUnlock();
+        }, "danger"),
+      );
+    }
+    const dialog = el("div", { class: "dialog ask locked" }, [
+      el("div", { class: "ask-icon", html: icon("info", 28) }),
+      el("p", { class: "ask-text", text }),
+      el("p", {
+        class: "ask-note",
+        text: canUnlock
+          ? `${risk}原文件会先备份到存储目录的 backups 文件夹。左边保持只读，右边仍然编辑。`
+          : "需要在 Mac 上决定是否继续编辑。",
+      }),
+      el("div", { class: "ask-actions" }, actions),
+    ]);
+    scrim.append(dialog);
+    dialog.addEventListener("click", (event) => event.stopPropagation());
+    this.root.append(scrim);
+  }
+
+  hideLocked() {
+    if (this.lockedDialog) this.lockedDialog.remove();
+    this.lockedDialog = null;
+  }
+
   confirmClear() {
     this.confirm("trash", "清空白板？", () => this.actions.onClear());
   }
