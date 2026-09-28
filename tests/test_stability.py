@@ -177,3 +177,15 @@ def test_one_board_failing_to_save_does_not_block_the_others(tmp_path, monkeypat
     hub.save_all()  # 不抛
     assert [s["id"] for s in store.load_board(second)[1]] == ["b"]
     assert hub.board(first).dirty  # 没存成的那块留着脏标记，下一轮再试
+
+
+# ------------------------------------------------------------ 索引与配置文件
+
+
+@pytest.mark.parametrize("content", ["[]", '"x"', '{"boards": {"a": 1}}', '{"boards": [1, "x", null]}'])
+def test_index_with_wrong_shape_is_rebuilt_instead_of_crashing(tmp_path, content):
+    store = BoardStore(tmp_path)
+    board_id = store.current_id
+    store.index_path.write_text(content, "utf-8")
+    again = BoardStore(tmp_path)
+    assert board_id in [m["id"] for m in again.list_metas()]
