@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import time
 from pathlib import Path
@@ -57,14 +58,22 @@ def chromium_path():
     return max(builds)[1]
 
 
+# 用哪个浏览器内核跑，默认 Chromium。CI 另外用 WebKit（iPad 上的 Safari 就是它）
+# 跑一组冒烟用例：WB_BROWSER=webkit。
+ENGINE = os.environ.get("WB_BROWSER", "chromium")
+
+
 @pytest.fixture(scope="module")
 def browser():
     with sync_playwright() as pw:
-        path = chromium_path()
         try:
-            instance = pw.chromium.launch(executable_path=path) if path else pw.chromium.launch()
+            if ENGINE == "chromium":
+                path = chromium_path()
+                instance = pw.chromium.launch(executable_path=path) if path else pw.chromium.launch()
+            else:
+                instance = getattr(pw, ENGINE).launch()
         except Exception as exc:  # pragma: no cover - 环境没有浏览器
-            pytest.skip(f"没有可用的 Chromium：{exc}")
+            pytest.skip(f"没有可用的 {ENGINE}：{exc}")
         yield instance
         instance.close()
 
