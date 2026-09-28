@@ -32,7 +32,6 @@ export const ERASER_MODES = [
 // 数值都在 input.js 的 ERASER_* 里。
 
 const TOOL_KEY = "whiteboard.tool";
-const PICKER_KEY = "whiteboard.picker";
 
 export const INK_TOOLS = ["pen", "marker", "highlighter"];
 export const ALL_TOOLS = [...INK_TOOLS, "eraser"];
@@ -122,17 +121,17 @@ function loadTool() {
 }
 
 /**
- * 笔具盘：PencilKit 那条工具盘，见 pkpicker.js。触摸设备上默认就用它，
- * 关掉之后记在本机；没有触摸的设备（Mac 窗口）一直是普通工具栏。
+ * 是不是 iPad。笔具盘（PencilKit 那条工具盘，见 pkpicker.js）只给 iPad：它照着
+ * iPadOS 做、配 Apple Pencil 用。别的设备——Mac 窗口、电脑上的浏览器、安卓平板、
+ * 带触屏的电脑——一律是普通工具栏。
+ *
+ * iPadOS 13 起 Safari 默认用桌面版 UA，报的是 Macintosh；Mac 本身没有触摸点，
+ * 所以「Macintosh 且有多个触摸点」就是 iPad。外壳只装在 iPad 上。
  */
-function loadPickerFlag(touchDevice) {
-  if (!touchDevice) return false;
-  try {
-    const saved = localStorage.getItem(PICKER_KEY);
-    return saved === null ? true : saved === "1";
-  } catch (err) {
-    return true;
-  }
+function isIPad() {
+  if (inShell()) return true;
+  const ua = navigator.userAgent || "";
+  return /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 }
 
 function iconButton(name, title, onClick, extraClass = "") {
@@ -163,7 +162,7 @@ export class UI {
     this.sheet = null;
     // 默认只认 Apple Pencil，手指负责平移缩放；没有 Pencil 的人在设置里打开手指书写。
     this.touchDevice = this.role === "ipad" || navigator.maxTouchPoints > 1;
-    this.picker = loadPickerFlag(this.touchDevice);
+    this.picker = isIPad();
     this.undoEnabled = false;
     this.redoEnabled = false;
     this.build();
@@ -327,7 +326,6 @@ export class UI {
       pk.onRedo = () => this.actions.onRedo();
       pk.allowClear = this.may("clear");
       pk.onClear = () => this.confirmClear();
-      pk.onLeave = () => this.setPicker(false);
       pk.applyState({
         tool: this.tool.tool,
         color: this.ink.color,
@@ -345,16 +343,6 @@ export class UI {
     } finally {
       this.pkLoading = false;
     }
-  }
-
-  unmountPicker() {
-    if (!this.pk) return;
-    this.stopPickerClash();
-    this.pk.destroy();
-    this.pk = null;
-    if (this.pkHost) this.pkHost.remove();
-    this.pkHost = null;
-    this.toolbar.classList.remove("hidden");
   }
 
   /**
@@ -385,10 +373,6 @@ export class UI {
       this.clashStop = null;
     };
     check();
-  }
-
-  stopPickerClash() {
-    if (this.clashStop) this.clashStop();
   }
 
   /** 两个矩形挨上了就把右上角那一组让出去。留一点余量，贴着边也算挨上。 */
@@ -423,19 +407,6 @@ export class UI {
   /** 落笔时通知工具盘（开了「自动最小化」就收起来）。 */
   strokeStarted() {
     if (this.pk) this.pk.strokeStarted();
-  }
-
-  /** 笔具盘开关。 */
-  setPicker(on) {
-    this.picker = !!on;
-    try {
-      localStorage.setItem(PICKER_KEY, this.picker ? "1" : "0");
-    } catch (err) {
-      /* 记不住就下次回到普通工具栏 */
-    }
-    this.closePopover();
-    if (this.picker) this.mountPicker();
-    else this.unmountPicker();
   }
 
   syncDockButton() {
@@ -683,18 +654,6 @@ export class UI {
     return row;
   }
 
-  /** 笔具盘的开关，放在颜色面板里；只有触摸设备才给（这条是给 iPad 的）。 */
-  pickerRow() {
-    if (!this.touchDevice) return null;
-    const input = el("input", { type: "checkbox" });
-    input.checked = this.picker;
-    input.addEventListener("change", () => this.setPicker(input.checked));
-    return el("label", { class: "beta-row" }, [
-      input,
-      el("span", { text: "笔具盘" }),
-    ]);
-  }
-
   togglePalette(anchor) {
     if (this.popover) {
       this.closePopover();
@@ -706,8 +665,6 @@ export class UI {
     } else {
       parts.push(this.colorSwatches(), this.widthOptions());
     }
-    const row = this.pickerRow();
-    if (row) parts.push(row);
     this.showPopover(anchor, parts);
   }
 
