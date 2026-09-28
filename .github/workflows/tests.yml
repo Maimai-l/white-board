@@ -20,3 +20,42 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: 跑测试
         run: python -m pytest tests -q
+
+  # 前端的纯计算（笔画几何、层叠顺序、空间索引），不开浏览器
+  js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: 跑测试
+        run: node --test tests/js/*.test.mjs
+
+  # iPad 上的 Safari 是 WebKit，Chromium 上全绿不代表那边也行。挑一组覆盖主要
+  # 流程的用例用 WebKit 再跑一遍。
+  webkit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install aiohttp zeroconf pytest playwright pypdf pypdfium2 pillow
+          python -m playwright install --with-deps webkit
+      - name: 跑冒烟用例
+        env:
+          WB_BROWSER: webkit
+        run: >-
+          python -m pytest tests/test_browser.py -q -k
+          "test_drawing_syncs_both_ways or test_undo_erase_and_clear
+          or test_touch_pans_by_default_and_only_pencil_draws
+          or test_strokes_survive_a_reload_without_id_collisions
+          or test_board_switch_and_settings_follow
+          or test_offline_drawing_is_flushed_after_server_restart
+          or test_picker_is_only_on_ipad or test_pencilkit_picker_drives_the_board
+          or test_undo_and_redo_round_trip or test_bite_syncs_and_undoes
+          or test_a_board_that_cannot_be_read_opens_read_only_until_unlocked"
