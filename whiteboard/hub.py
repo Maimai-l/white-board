@@ -328,13 +328,15 @@ class Hub:
     # ------------------------------------------------------------ 自动保存
 
     def save_all(self) -> None:
-        for board_id, runtime in self._boards.items():
-            if runtime.dirty:
-                try:
-                    self.store.save_board(runtime.meta, runtime.stroke_list())
-                    runtime.dirty = False
-                except OSError as exc:
-                    log.error("白板 %s 保存失败：%s", board_id, exc)
+        """把有改动的白板写盘。一块失败不影响别的，它留着脏标记，下一轮再试。"""
+        for board_id, runtime in list(self._boards.items()):
+            if not runtime.dirty:
+                continue
+            try:
+                self.store.save_board(runtime.meta, runtime.stroke_list())
+                runtime.dirty = False
+            except Exception:  # noqa: BLE001 - 任何一块出错都不能挡住其余几块
+                log.exception("白板 %s 保存失败", board_id)
 
     async def _autosave_loop(self) -> None:
         while True:
