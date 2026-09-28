@@ -45,8 +45,8 @@ The design notes under `docs/` are in Chinese.
 - **Apple Pencil first.** Pressure and tilt drive the pen width, the palm is
   ignored while the Pencil is down, and fingers pan and zoom unless finger
   drawing is switched on.
-- **Two erasers.** One deletes whole strokes; the other cuts a stroke into the
-  pieces that survive, still as vectors.
+- **Two erasers.** One deletes the stroke it touches; the other removes only the
+  area it sweeps, and the ink stays vector.
 - **Three kinds of board**, including annotating a PDF or an image and
   exporting it with the ink merged back in.
 - **Works while disconnected.** Strokes queue locally (and in IndexedDB) and are
@@ -252,25 +252,29 @@ The picker is the implementation from
 - Undo and redo are wired to the board's own history stack.
 - ⋯ holds auto-minimise, finger drawing and clear board.
 
-On touch devices the picker is the only toolbar; there is no way back to the
-plain one. The canvas, sync, zoom, notes and document boards are the
+On an iPad the picker is the only toolbar; there is no switch back to the plain
+one. Other devices, touch or not (an Android tablet, a touchscreen laptop, the
+Mac), use the plain toolbar. The canvas, sync, zoom, notes and document boards are the
 whiteboard's own — the vendor canvas, ruler and lasso are not connected, and
 opacity is not wired up (the stroke format has no field for it).
 
 ### Erasers
 
-Both erasers are selected in the eraser panel and share one setting between the
-toolbars. Neither has a manual width.
+Both erasers are selected in the eraser panel, and the choice is remembered on
+the device. Neither has a manual width, and both widths are in screen pixels, so
+zooming in erases more finely.
 
 | Eraser | Behaviour | Width |
 | --- | --- | --- |
-| Object (default) | Deletes each stroke it touches, whole | Fixed at the pen tip, diameter 6 |
-| Pixel | Cuts the swept section out, leaving both ends | Follows the angle of the barrel |
+| Object (default) | Deletes the stroke it touches. If the pixel eraser has already broken a stroke into separate pieces, only the piece touched goes | Fixed at the pen tip, diameter 6 |
+| Pixel | Removes the swept area from the ink and leaves the rest | Follows the angle of the barrel, decided when the Pencil lands |
 
-The pixel eraser is at its tip above 25°, at its widest (diameter 45) below 15°,
-and interpolated in between (23° → 10, 21° → 20, 19° → 31, 17° → 41). A normal
-writing grip is well above 25°, so it stays at the tip until you deliberately
-lay the Pencil down. A mouse or finger has no tilt and gets the middle step.
+The pixel eraser's width was measured from native PencilKit (`ERASER_CURVE` in
+`static/js/input-erase.js`): diameter 6 with the Pencil upright, about 16.5
+between 68° and 37° (a normal writing grip is around 50°), rising steeply below
+37° to its widest, 81, at 25° and below. The width is fixed when the Pencil
+lands and does not follow the barrel during the drag. A mouse or finger has no
+tilt and gets the 50° width.
 
 The angle is read from `tiltX`/`tiltY` (Pointer Events Level 2) and converted
 with the formula in the specification's appendix; `altitudeAngle` is consulted
@@ -278,11 +282,13 @@ only when both are zero. Reading `altitudeAngle` alone does not work: the
 specification requires π/2 — perfectly upright — when a device cannot report
 tilt, so browsers without support look like a pen that never tilts.
 
-Cut strokes stay vectors: a stroke is replaced by the pieces that survive, so
-sync, undo and PDF export need no format change, and the pieces keep the
-original stacking order. One drag is one undo step. A stroke wider than the
-eraser is cut through rather than nibbled — the whole cross-section goes at
-once. Measurements and the reasoning are in [docs/eraser.md](docs/eraser.md).
+The pixel eraser records what it swept as a mask on the stroke (`m` in the file
+format); the stroke itself is unchanged, and rendering and PDF export cut the
+mask out of the outline, so the result stays vector. Only when one stroke's mask
+grows past a limit, even after thinning, is it turned into real cuts: the
+stroke is replaced by the pieces that survive, keeping its stacking order. One
+drag is one undo step. Measurements and the reasoning are in
+[docs/eraser.md](docs/eraser.md) and [docs/format.md](docs/format.md).
 
 Erasing costs depend on the area swept, not on how many strokes the board
 holds: strokes are indexed on a 256-unit grid, only dirty rectangles are
@@ -292,11 +298,10 @@ On a 3000-stroke board one sweep measured 438 ms → 4.4 ms (object) and
 
 ### Mac
 
-The Mac uses the plain toolbar: pen, marker, highlighter, eraser, the finger
-drawing switch, the toolbar position, colour and width, undo, redo and clear
-board. It docks to the top or the bottom edge, and the choice is remembered on
-the device (the bottom edge is out of reach when you hold an iPad to write, so
-that button moves the bar up). Around it are the top-right group (boards, board
+The Mac, like every device other than an iPad, uses the plain toolbar: pen,
+marker, highlighter, eraser, the toolbar position, colour and width, undo, redo
+and clear board (touch devices also get the finger drawing switch). It docks to
+the top or the bottom edge, and the choice is remembered on the device. Around it are the top-right group (boards, board
 settings, export PNG, iPad) and the bottom-right group (zoom in, fit, zoom out).
 
 The interface follows the system controls: frosted glass, the system blue
@@ -522,18 +527,35 @@ the same effect and is equally out of reach.
 ```
 whiteboard/
   server.py     aiohttp routes and the WebSocket protocol
-  hub.py        operation log, broadcast, autosave
+  hub.py        operation log, broadcast, autosave, read-only boards
   store.py      board persistence (zlib + compact point encoding)
   codec.py      quantisation, delta coding and varint packing for points
   models.py     data models and validation of anything from the network
+  config.py     settings file; command-line values that apply to one run only
+  backup.py     copies the boards before a new version first touches them
+  docs.py       document boards: reading, rendering and exporting PDFs / images
+  inkpdf.py     ink as PDF vector paths
+  freehand.py   Python port of perfect-freehand, for export
   profile.py    .mobileconfig and icon generation (PNG written in pure Python)
   netinfo.py    .local host name, LAN addresses, mDNS, Bonjour for the shell
   ipadshell.py  the shell's install page, version endpoint and IPA download
+  updater.py    update check, download, verification and replacement
+  resources.py  paths and logging for source and packaged runs
   runner.py     runs the server in a background thread
   app.py        pywebview window and native file dialogs
   web/          front end (native ES modules, no build step)
-    static/js/  stroke geometry, rendering, input, networking, cache, interface
+    static/js/
+      app.js, app-eraser.js         wiring; what erasing does to the board
+      input.js, input-erase.js,     pointer routing and drawing; the eraser;
+        input-gesture.js,           pan / zoom / momentum; fallback for the
+        shell-fallback.js           0.9.43 shell
+      ui.js, ui-*.js                toolbar and picker; board chooser, dialogs,
+                                    settings
+      stroke.js, boardstate.js,     geometry, ordering and spatial index,
+        renderer.js, net.js, ...    rendering, sync, cache, export
 ipad/           the iPad shell (Swift, project generated by XcodeGen)
+tools/          check_boards.py (check your boards before upgrading) and
+                research scripts
 ```
 
 Further reading (in Chinese): the wire protocol in
@@ -550,12 +572,21 @@ replayed on a development machine: triple-tap the connection dot and use
 ```bash
 python -m pytest tests -q                                  # everything
 python -m pytest tests --ignore=tests/test_browser.py -q    # skip the browser tests
+node --test tests/js/*.test.mjs                             # front-end pure functions
+WB_BROWSER=webkit python -m pytest tests/test_browser.py    # end-to-end on WebKit
 ```
 
-The end-to-end tests open two real Chromium pages (a Mac one and an iPad one)
-and sync between them, covering drawing, undo, erasing, clearing, Pencil
-exclusivity, switching boards, reconnecting with a backlog, folders and PNG
-export. They skip themselves if Playwright or Chromium is missing.
+The end-to-end tests open two real browser pages (a Mac one and a touch
+device) and sync between them, covering drawing, undo, erasing, clearing, Pencil
+exclusivity, switching boards, reconnecting with a backlog, folders, read-only
+boards and PNG export. They skip themselves if Playwright or the browser is
+missing. `tests/test_compat.py` checks that board files written before the
+stable-release clean-up still read back identically; the fixture in
+`tests/fixtures/compat/` must not be regenerated with newer code.
+
+CI runs the Python tests with Chromium, the front-end unit tests with Node, and
+a smoke subset on WebKit. The macOS app is built on tags, and on pull requests
+that touch the app or its packaging.
 
 ## Non-goals
 
