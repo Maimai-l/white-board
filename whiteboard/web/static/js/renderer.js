@@ -311,7 +311,7 @@ export class Renderer {
     const view = this.viewport.visibleRect(this.viewW, this.viewH);
     const visible = this.state.strokes.filter((stroke) => {
       const bbox = strokeBBox(stroke);
-      return !(bbox.x1 < view.x0 || bbox.x0 > view.x1 || bbox.y1 < view.y0 || bbox.y0 > view.y1);
+      return overlaps(bbox, view);
     });
     paintStrokes(ctx, visible, (target) => this.drawBackground(target));
     if (clipped) ctx.restore();
@@ -344,7 +344,7 @@ export class Renderer {
     this._applyTransform(ctx);
     const inside = this.state.near(box.x0, box.y0, box.x1, box.y1, 0).filter((stroke) => {
       const bbox = strokeBBox(stroke);
-      return !(bbox.x1 < box.x0 || bbox.x0 > box.x1 || bbox.y1 < box.y0 || bbox.y0 > box.y1);
+      return overlaps(bbox, box);
     });
     paintStrokes(ctx, inside, (target) => this.drawBackground(target));
     if (clipped) ctx.restore();
