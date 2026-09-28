@@ -83,8 +83,9 @@ class ServerThread:
         await self._runner.setup()
 
         last_error: Optional[OSError] = None
+        wanted = self.config.requested_port
         for offset in range(PORT_ATTEMPTS):
-            port = self.config.port + offset
+            port = wanted + offset
             site = web.TCPSite(self._runner, host="0.0.0.0", port=port, reuse_address=True)
             try:
                 await site.start()
@@ -94,9 +95,10 @@ class ServerThread:
                 last_error = exc
                 continue
             self.port = port
-            if port != self.config.port:
-                log.warning("端口 %s 被占用，改用 %s", self.config.port, port)
-                self.config.port = port
+            if port != wanted:
+                log.warning("端口 %s 被占用，这次改用 %s（不写进配置，下次仍从 %s 开始）", wanted, port, wanted)
+            # 页面上给 iPad 的地址、描述文件都读 config.port，要是实际的端口
+            self.config.set_bound_port(port)
             break
         else:
             raise last_error or OSError("没有可用端口")

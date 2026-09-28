@@ -10,8 +10,10 @@ import json
 import logging
 import os
 import sys
+import tempfile
+import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +54,10 @@ class Config:
             # 别的设备本来就够不着，给个开关反而是骗人。
             "remote_permissions": {},
         }
+        # 只在这一次运行里有效、不写进配置文件的值：命令行给的端口和存储目录，
+        # 以及端口被占用时实际顺延到的那个端口。以前这些都直接写进配置，
+        # 顺延一次（8848 → 8849）之后就永远是 8849，iPad 上记的地址就失效了。
+        self._runtime: Dict[str, Any] = {}
         self.load()
 
     def load(self) -> None:
@@ -61,31 +67,73 @@ class Config:
             raw = json.loads(self.path.read_text("utf-8"))
         except (OSError, ValueError) as exc:
             log.warning("配置读取失败，使用默认值：%s", exc)
+            self._keep_aside()
             return
         if not isinstance(raw, dict):
+            log.warning("配置文件不是预期的结构，使用默认值")
+            self._keep_aside()
             return
         self.values.update({k: v for k, v in raw.items() if k in self.values})
         # 旧版本只有一个总开关，开着就等于三项全开。
         if raw.get("allow_remote_control") and not self.values["remote_permissions"]:
             self.values["remote_permissions"] = {name: True for name in REMOTE_PERMISSIONS}
 
+    def _keep_aside(self) -> None:
+        """读不出来的配置文件先挪到一边再用默认值：里面记着白板存在哪个目录，
+        直接被默认值覆盖掉，用户会以为白板全没了。"""
+        target = self.path.with_name(f"{self.path.name}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}")
+        try:
+            os.replace(self.path, target)
+            log.warning("原配置文件已挪到 %s", target)
+        except OSError as exc:
+            log.warning("原配置文件挪不走：%s", exc)
+
     def save(self) -> None:
+        """先写临时文件再替换，写到一半断电也不会留下半截配置。"""
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(self.values, ensure_ascii=False, indent=2), "utf-8")
+            data = json.dumps(self.values, ensure_ascii=False, indent=2).encode("utf-8")
+            fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".tmp-")
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(data)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(tmp, self.path)
+            except BaseException:
+                Path(tmp).unlink(missing_ok=True)
+                raise
         except OSError as exc:
             log.warning("配置写入失败：%s", exc)
 
+    def set_runtime(self, port: Optional[int] = None, data_dir: Optional[os.PathLike | str] = None) -> None:
+        """这一次运行用的端口 / 存储目录（命令行参数），不写进配置文件。"""
+        if port is not None:
+            self._runtime["port"] = int(port)
+        if data_dir is not None:
+            self._runtime["data_dir"] = str(Path(data_dir).expanduser())
+
     @property
-    def port(self) -> int:
+    def requested_port(self) -> int:
+        """想要监听的端口：命令行给的，否则是配置里存的。被占用时从这里往后顺延。"""
         try:
-            return int(self.values.get("port", DEFAULT_PORT))
+            return int(self._runtime.get("port", self.values.get("port", DEFAULT_PORT)))
         except (TypeError, ValueError):
             return DEFAULT_PORT
+
+    @property
+    def port(self) -> int:
+        """实际在用的端口：顺延过就是顺延之后的那个，页面上显示的地址用它。"""
+        return int(self._runtime.get("bound_port", self.requested_port))
 
     @port.setter
     def port(self, value: int) -> None:
         self.values["port"] = int(value)
+
+    def set_bound_port(self, value: int) -> None:
+        """服务端实际绑定到的端口。只在这一次运行里有效。"""
+        self._runtime["bound_port"] = int(value)
+
 
     @property
     def auto_update(self) -> bool:
@@ -121,8 +169,11 @@ class Config:
 
     @property
     def data_dir(self) -> Path:
-        return Path(str(self.values.get("data_dir", default_data_dir()))).expanduser()
+        raw = self._runtime.get("data_dir", self.values.get("data_dir", default_data_dir()))
+        return Path(str(raw)).expanduser()
 
     @data_dir.setter
     def data_dir(self, value: os.PathLike | str) -> None:
+        """在界面上选的存储目录：用户的决定，要记住，并且盖过命令行那一次。"""
         self.values["data_dir"] = str(Path(value).expanduser())
+        self._runtime.pop("data_dir", None)

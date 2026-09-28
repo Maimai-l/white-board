@@ -353,6 +353,74 @@ def test_board_file_with_wrong_shape_does_not_crash_startup(tmp_path):
     assert Hub(again).board("weird").locked
 
 
+def test_config_save_is_atomic(tmp_path, monkeypatch):
+    config = Config(path=tmp_path / "config.json")
+    config.data_dir = tmp_path / "boards"
+    config.save()
+    before = config.path.read_text("utf-8")
+
+    def broken(*args, **kwargs):
+        raise OSError("磁盘满了")
+
+    monkeypatch.setattr("os.replace", broken)
+    config.data_dir = tmp_path / "elsewhere"
+    config.save()  # 写失败只记日志
+    assert config.path.read_text("utf-8") == before
+    assert not list(tmp_path.glob(".tmp-*"))
+
+
+def test_unreadable_config_is_kept_aside_before_defaults_are_written(tmp_path):
+    """配置读不出来时用默认值，但原文件先挪开：里面记着白板存在哪。"""
+    path = tmp_path / "config.json"
+    path.write_text('{"data_dir": "/Volumes/x", ', "utf-8")
+    config = Config(path=path)
+    config.save()
+    kept = list(tmp_path.glob("config.json.corrupt-*"))
+    assert len(kept) == 1 and kept[0].read_text("utf-8") == '{"data_dir": "/Volumes/x", '
+
+
+def test_runtime_overrides_are_not_saved(tmp_path):
+    config = Config(path=tmp_path / "config.json")
+    config.set_runtime(port=9100, data_dir=tmp_path / "cli")
+    assert config.port == 9100 and config.data_dir == tmp_path / "cli"
+    config.save()
+    saved = json.loads(config.path.read_text("utf-8"))
+    assert saved["port"] == 8848
+    assert saved["data_dir"] != str(tmp_path / "cli")
+
+    # 界面上换存储目录是用户的决定，要记住，并且盖过命令行那一次
+    config.data_dir = tmp_path / "chosen"
+    assert config.data_dir == tmp_path / "chosen"
+    config.save()
+    assert json.loads(config.path.read_text("utf-8"))["data_dir"] == str(tmp_path / "chosen")
+
+
+def test_port_fallback_is_used_but_not_saved(tmp_path):
+    import socket
+
+    from whiteboard.runner import ServerThread
+
+    blocker = socket.socket()
+    blocker.bind(("0.0.0.0", 0))
+    blocker.listen()
+    busy = blocker.getsockname()[1]
+    try:
+        config = Config(path=tmp_path / "config.json")
+        config.data_dir = tmp_path / "data"
+        config.set_runtime(port=busy)
+        server = ServerThread(config, advertise=False, bonjour=False)
+        port = server.start()
+        try:
+            assert port != busy
+            assert config.port == port  # 页面上显示的地址用实际端口
+            config.save()
+            assert json.loads(config.path.read_text("utf-8"))["port"] == 8848
+        finally:
+            server.stop()
+    finally:
+        blocker.close()
+
+
 # ------------------------------------------------------------ 线程
 
 
