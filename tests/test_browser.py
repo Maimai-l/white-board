@@ -1089,6 +1089,31 @@ def test_board_switch_and_settings_follow(browser, server):
     ipad.close()
 
 
+def test_the_version_survives_switching_boards(browser, server):
+    """「关于」里的版本号来自服务端。以前是本地接口给的，被 switch 里那份信息冲掉。"""
+    mac, ipad = open_pages(browser, server.port)
+    mac.wait_for_function("() => whiteboard.ui.info && whiteboard.ui.info.version")
+    version = mac.evaluate("() => whiteboard.ui.info.version")
+    assert version
+
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title^="笔记"]')
+    mac.wait_for_function("() => whiteboard.state.kind === 'note'")
+    assert mac.evaluate("() => whiteboard.ui.info.version") == version
+
+    # 「关于」里能看到版本；从源码跑时再多一行「构建」，写的是分支和提交。
+    # 那个按钮只在 pywebview 窗口里有（this.native），浏览器里直接把面板叫出来。
+    mac.evaluate("() => whiteboard.ui.openAbout()")
+    mac.wait_for_selector(".dialog.about")
+    rows = mac.evaluate("() => [...document.querySelectorAll('.about-key')].map(n => n.textContent)")
+    values = mac.evaluate("() => [...document.querySelectorAll('.about-val')].map(n => n.textContent)")
+    assert rows[0] == "版本" and values[0] == version
+    assert "构建" in rows
+    mac.close()
+    ipad.close()
+
+
 def test_board_cards_show_names_and_dates(browser, server):
     """卡片下面有名字和日期；没起名的显示默认叫法，改名之后两端都跟着变。"""
     mac, ipad = open_pages(browser, server.port)

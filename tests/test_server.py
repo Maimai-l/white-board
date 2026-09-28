@@ -187,6 +187,21 @@ def test_a_device_without_manage_cannot_switch_or_create_boards(tmp_path, remote
     run(main())
 
 
+def test_every_client_is_told_the_version(tmp_path):
+    """版本号跟着 init 一起发。以前只有 pywebview 那条本地接口有，切一次白板就没了。"""
+    from whiteboard import __version__
+
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            ws = await client.ws_connect("/ws")
+            await ws.send_json({"t": "hello", "client": "mac-1", "role": "mac"})
+            init = await ws.receive_json()
+            assert init["info"]["version"] == __version__
+            await ws.close()
+
+    run(main())
+
+
 def test_a_touch_device_with_manage_can_switch_boards(tmp_path, remote):
     """触摸设备的右上角也有管理入口，Mac 放开权限之后点了就得真的切过去。"""
 

@@ -522,6 +522,9 @@ class _Session:
             "role": role,
             "client": client_id,
             "info": {
+                # 版本号由服务端给，不靠 pywebview 那条本地接口：那边取到的只在
+                # Mac 窗口里有，而且每来一条 switch / sync 都要重新取一次。
+                "version": __version__,
                 "hostname": netinfo.local_hostname(),
                 "port": config.port,
                 "urls": netinfo.candidate_urls(config.port),

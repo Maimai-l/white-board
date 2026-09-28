@@ -471,6 +471,10 @@ export class UI {
     this.closeSheet();
     const info = this.info || {};
     const rows = [["版本", info.version || "—"]];
+    // 从源码跑的时候，页面上那份 data-build 是「分支@提交」，和版本号不是一回事，
+    // 两个都给才说得清手上这一份到底是什么。打包版两者相同，就不重复显示了。
+    const build = document.documentElement.dataset.build || "";
+    if (build && build !== info.version) rows.push(["构建", build]);
     if (info.hostname) rows.push(["地址", `${info.hostname}:${info.port || ""}`]);
 
     const link = (text, onclick) => el("button", { class: "link", text, onclick });
@@ -1843,7 +1847,15 @@ export class UI {
     if (this.sheet && this.sheet.dataset.kind === "settings") this.openSettings();
   }
 
+  /**
+   * 合并而不是整个换掉。
+   *
+   * 这份信息有两个来源：服务端在 init / sync / switch 里给的（主机名、端口、
+   * 地址、存储目录、版本号），以及 pywebview 那条只有 Mac 窗口才有的本地接口
+   * （是不是打包版、日志路径、别的设备的权限）。整个换掉的话，切一次白板就会
+   * 把本地接口那几项冲掉，「关于」里的版本号也就没了。
+   */
   setInfo(info) {
-    this.info = info;
+    this.info = { ...(this.info || {}), ...(info || {}) };
   }
 }
