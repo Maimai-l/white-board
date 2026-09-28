@@ -61,9 +61,16 @@ class BoardStore:
         if self.index_path.exists():
             try:
                 raw = json.loads(self.index_path.read_text("utf-8"))
-                boards = [models.sanitize_meta(m) for m in raw.get("boards", [])]
+                if not isinstance(raw, dict) or not isinstance(raw.get("boards", []), list):
+                    raise ValueError("索引不是预期的结构")
+                boards = [models.sanitize_meta(m) for m in raw.get("boards", []) if isinstance(m, dict)]
                 folders = _folder_list(raw.get("folders", []))
-                self._index = {"boards": boards, "folders": folders, "current": raw.get("current")}
+                current = raw.get("current")
+                self._index = {
+                    "boards": boards,
+                    "folders": folders,
+                    "current": current if isinstance(current, str) else None,
+                }
             except (OSError, ValueError) as exc:
                 log.warning("索引损坏，将重建：%s", exc)
                 self._rebuild_index()
