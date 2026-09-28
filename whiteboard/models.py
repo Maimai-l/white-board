@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import time
 import uuid
@@ -59,6 +60,12 @@ def new_id() -> str:
 
 def clamp(value: float, low: float, high: float) -> float:
     return low if value < low else (high if value > high else value)
+
+
+def is_number(value: Any) -> bool:
+    """有限的数。布尔值在 Python 里是 int 的子类，要单独排除；NaN 和无穷大
+    存盘编码时会出错（codec 要把它们转成整数），发给浏览器时 JSON.parse 也读不了。"""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def new_board_meta(name: str = "", **overrides: Any) -> Dict[str, Any]:
@@ -188,7 +195,7 @@ def sanitize_stroke(raw: Any) -> Optional[Dict[str, Any]]:
         return None
     points: List[float] = []
     for value in points_raw:
-        if not isinstance(value, (int, float)) or value != value:  # NaN 检查
+        if not is_number(value):
             return None
         points.append(float(value))
 
@@ -199,9 +206,12 @@ def sanitize_stroke(raw: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(color, str) or not _COLOR_RE.match(color):
         color = "#1b1b1f"
     try:
-        width = clamp(float(raw.get("w", 3.0)), MIN_WIDTH, MAX_WIDTH)
+        width = float(raw.get("w", 3.0))
     except (TypeError, ValueError):
         width = 3.0
+    if math.isnan(width):
+        width = 3.0  # NaN 比较全是 False，clamp 会原样放行
+    width = clamp(width, MIN_WIDTH, MAX_WIDTH)
     device = raw.get("dev", "")
     if not isinstance(device, str):
         device = ""
@@ -222,7 +232,7 @@ def sanitize_stroke(raw: Any) -> Optional[Dict[str, Any]]:
     if isinstance(cut, int) and not isinstance(cut, bool) and 1 <= cut <= 3:
         stroke["cut"] = cut
     n = raw.get("n")
-    if isinstance(n, int) and 0 <= n < 1 << 40:
+    if isinstance(n, int) and not isinstance(n, bool) and 0 <= n < 1 << 40:
         stroke["n"] = n
     return stroke
 
@@ -245,9 +255,7 @@ def sanitize_mask(raw: Any) -> List[List[float]]:
         # 一条链 [r, x0, y0, x1, y1, ...]：点数是 (len-1)/2，段数比点数少一个
         values: List[float] = []
         for value in chain[: budget * 2 + 3]:
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                break
-            if value != value or value in (float("inf"), float("-inf")):
+            if not is_number(value):
                 break
             values.append(float(value))
         else:
