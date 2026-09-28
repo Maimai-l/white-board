@@ -10,7 +10,7 @@ from typing import Optional
 
 from aiohttp import web
 
-from . import __version__
+from . import __version__, backup
 from .config import Config
 from .netinfo import BonjourService, MDNSAdvertiser, bonjour_default
 from .server import HUB_KEY, create_app
@@ -77,6 +77,8 @@ class ServerThread:
                 loop.close()
 
     async def _serve(self) -> None:
+        # 换了版本先备份一次白板，再让新代码碰任何文件
+        backup.backup_if_upgraded(self.config, __version__)
         self.app = create_app(self.config, self.store)
         # 兜底：万一还有连接没断干净，也不要让关闭卡在默认的 60 秒上
         self._runner = web.AppRunner(self.app, shutdown_timeout=2.0)

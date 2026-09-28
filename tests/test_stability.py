@@ -457,3 +457,37 @@ def test_importing_a_document_touches_hub_state_only_on_the_event_loop(tmp_path,
 
     run(main())
     assert threads == {"save_all": {True}, "create_board": {True}}
+
+
+# ------------------------------------------------------------ 升级前备份
+
+
+def test_boards_are_backed_up_once_per_version_change(tmp_path):
+    from whiteboard import backup
+
+    config = Config(path=tmp_path / "config.json")
+    config.data_dir = tmp_path / "data"
+    store = BoardStore(config.data_dir)
+    board_id = store.current_id
+
+    first = backup.backup_if_upgraded(config, "1.0.0")
+    assert first is not None
+    assert (first / "boards" / f"{board_id}.wbz").exists()
+    assert (first / "index.json").exists()
+    assert backup.backup_if_upgraded(config, "1.0.0") is None  # 同一个版本只备份一次
+
+    assert backup.backup_if_upgraded(config, "1.0.1") is not None
+    assert json.loads(config.path.read_text("utf-8"))["last_version"] == "1.0.1"
+
+
+def test_only_the_latest_backups_are_kept(tmp_path):
+    from whiteboard import backup
+
+    config = Config(path=tmp_path / "config.json")
+    config.data_dir = tmp_path / "data"
+    BoardStore(config.data_dir)
+    for i in range(backup.KEEP + 3):
+        assert backup.backup_if_upgraded(config, f"1.0.{i}") is not None
+    kept = sorted(p.name for p in (config.data_dir / "backups" / "upgrade").iterdir())
+    assert len(kept) == backup.KEEP
+    assert kept[-1].endswith(f"1.0.{backup.KEEP + 2}")

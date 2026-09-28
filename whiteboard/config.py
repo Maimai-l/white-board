@@ -53,6 +53,8 @@ class Config:
             # 检查更新、选存储目录不在这里：它们走 pywebview 的本地接口，
             # 别的设备本来就够不着，给个开关反而是骗人。
             "remote_permissions": {},
+            # 上一次运行的版本号。换了版本（升级或降级）时先备份白板，见 backup.py
+            "last_version": "",
         }
         # 只在这一次运行里有效、不写进配置文件的值：命令行给的端口和存储目录，
         # 以及端口被占用时实际顺延到的那个端口。以前这些都直接写进配置，
@@ -134,6 +136,14 @@ class Config:
         """服务端实际绑定到的端口。只在这一次运行里有效。"""
         self._runtime["bound_port"] = int(value)
 
+    @property
+    def last_version(self) -> str:
+        value = self.values.get("last_version", "")
+        return value if isinstance(value, str) else ""
+
+    @last_version.setter
+    def last_version(self, value: str) -> None:
+        self.values["last_version"] = str(value or "")
 
     @property
     def auto_update(self) -> bool:
