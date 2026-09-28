@@ -15,6 +15,12 @@
   这里的拖动逻辑和 ui.js 里那套是同一份写法（holdToDrag / touchDrag / flip /
   settleGhost），只是把白板换成了色块，并且鼠标也走指针事件（正式版鼠标走浏览器
   自带的拖放）。改完之后能一句一句对着搬回去。
+
+  右侧面板顶部有几组预设。「启动台」等预设拖动的是条目本身（SOLID=1），
+  「原版」「访达」拖动的是副本（SOLID=0）。「原版」与改动前的行为一致；其余几组改用弹簧曲线
+  （参数与 SwiftUI 的 Spring(duration:bounce:) 同义），并加入按压缩小、拎起放大、
+  文件夹放大、落位后再显示原位等动作。弹簧曲线由 spring() 算出，写成 CSS linear()，
+  需要 Safari 17.2 及以上；更早的版本会退回 cubic-bezier，面板日志里会提示。
 -->
 <style>
   :root {
@@ -90,7 +96,16 @@
   .board-name.folder { color: var(--primary); }
   .board-date { flex: none; font-size: 12px; color: var(--on-surface-variant); }
 
-  .board-item.dragging .board-card { opacity: .4; }
+  .board-item.dragging .board-card { opacity: var(--slot-opacity, .4); }
+  /* 实体模式：被拖动的条目脱离格子，跟随指针；格子里留一个同尺寸的不可见空位 */
+  .board-item.lifted {
+    position: fixed;
+    margin: 0;
+    z-index: 5;
+    pointer-events: none;
+    will-change: transform;
+  }
+  .board-item.slot { visibility: hidden; }
   .board-card.ghost {
     position: fixed;
     margin: 0;
@@ -103,8 +118,13 @@
   .board-card.folder.drop-target {
     border-color: var(--primary);
     background: var(--primary-container);
-    transform: translateY(-3px);
     box-shadow: var(--shadow-2);
+  }
+  /* 原版：文件夹上移 3px，无过渡 */
+  body:not(.spring) .board-card.folder.drop-target { transform: translateY(-3px); }
+  /* 弹簧模式：文件夹的放大由脚本控制，颜色和阴影用短过渡 */
+  body.spring .board-card.folder {
+    transition: background-color .15s ease, border-color .15s ease, box-shadow .2s ease;
   }
   .folder-bar {
     display: flex;
@@ -135,6 +155,19 @@
     overflow-y: auto;
   }
   .panel h2 { margin: 0 0 12px; font-size: 15px; }
+  .panel h3 { margin: 16px 0 8px; font-size: 12px; font-weight: 600; color: var(--on-surface-variant); }
+  .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .panel .preset {
+    margin: 0;
+    padding: 7px 6px;
+    border: .5px solid var(--outline);
+    background: var(--surface-1);
+    color: var(--on-surface);
+    font-weight: 500;
+    font-size: 13px;
+  }
+  .panel .preset.on { background: var(--primary); border-color: transparent; color: #fff; }
+  .preset-note { margin: 8px 0 4px; min-height: 3.2em; font-size: 12px; color: var(--on-surface-variant); }
   .knob { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
   .knob label { font-size: 13px; color: var(--on-surface-variant); }
   .knob input {
@@ -197,6 +230,8 @@
 
 <div class="panel">
   <h2>手感参数</h2>
+  <div class="presets" id="presets"></div>
+  <div class="preset-note" id="presetNote"></div>
   <div id="knobs"></div>
   <button id="dump">导出参数</button>
   <textarea id="out" readonly placeholder="点「导出参数」，把这里的文字发回来"></textarea>
@@ -208,19 +243,143 @@
 //
 // 默认值的来历：长按时长和容差取自 dnd-kit 触摸传感器（250ms / 5px），容差改成 6
 // 是因为手指按在玻璃上总会飘一两个像素；SortableJS 建议 3～5。其余是看着定的。
-const T = {
-  HOLD_MS: 250,       // 按住多久才算开始拖（鼠标不等）
-  HOLD_SLOP: 6,       // 等待期间手指挪过这个距离就当是在滚列表
-  MOUSE_SLOP: 4,      // 鼠标按下之后挪过这个距离才算拖
-  LIFT: 1.04,         // 拎起来之后放大到几倍
-  FLIP_MS: 180,       // 别的卡片让位的时长
-  SETTLE_MS: 200,     // 松手之后副本滑到落点的时长
-  EDGE_ZONE: 72,      // 离上下边多近开始自动滚
-  EDGE_SPEED: 16,     // 自动滚每帧最多多少像素
+//
+// USE_SPRING = 0 时走原版逻辑（FLIP_MS / SETTLE_MS + ease-out）；
+// USE_SPRING = 1 时走弹簧曲线，时长由 *_RESPONSE 和 *_BOUNCE 算出，FLIP_MS / SETTLE_MS 不再使用。
+// *_RESPONSE 对应 SwiftUI Spring(duration:) 的 duration（毫秒），*_BOUNCE 对应 bounce：
+// 0 表示无回弹，0.15 左右略有回弹，0.3 左右回弹明显。
+//
+// SOLID = 1 时拖动的是卡片条目本身（卡片连同名称），格子里留一个不可见的空位；
+// SOLID = 0 时拖动的是卡片的副本，原件留在格子里（原版做法）。
+// REORDER_DELAY：指针在同一个插入位置停留多久才让其他卡片让位，0 表示立即让位。
+// FOLDER_HIT：文件夹卡片中央多大比例的区域算作“放进文件夹”，1 表示整张卡片。
+const PRESETS = {
+  "启动台": {
+    note: "拖动条目本身，卡片和名称一起移动，原位变成空位。指针停留 180ms 后其他卡片才让位，只有指到文件夹中央 60% 的区域才算放进文件夹。",
+    SOLID: 1, REORDER_DELAY: 180, FOLDER_HIT: 0.6,
+    HOLD_MS: 400, HOLD_SLOP: 10, MOUSE_SLOP: 4,
+    PRESS_SCALE: 0.96, LIFT: 1.12, GHOST_OPACITY: 1, SLOT_OPACITY: 0, FOLDER_SCALE: 1.18,
+    USE_SPRING: 1,
+    LIFT_RESPONSE: 300, LIFT_BOUNCE: 0.2,
+    FLIP_RESPONSE: 400, FLIP_BOUNCE: 0.15,
+    SETTLE_RESPONSE: 450, SETTLE_BOUNCE: 0.2,
+    FLIP_MS: 180, SETTLE_MS: 200,
+    EDGE_ZONE: 72, EDGE_SPEED: 16,
+  },
+  "原版": {
+    note: "改动前的参数和行为，拖动副本，用于对照。",
+    SOLID: 0, REORDER_DELAY: 0, FOLDER_HIT: 1,
+    HOLD_MS: 250, HOLD_SLOP: 6, MOUSE_SLOP: 4,
+    PRESS_SCALE: 1, LIFT: 1.04, GHOST_OPACITY: 1, SLOT_OPACITY: 0.4, FOLDER_SCALE: 1,
+    USE_SPRING: 0,
+    LIFT_RESPONSE: 300, LIFT_BOUNCE: 0,
+    FLIP_RESPONSE: 350, FLIP_BOUNCE: 0,
+    SETTLE_RESPONSE: 400, SETTLE_BOUNCE: 0,
+    FLIP_MS: 180, SETTLE_MS: 200,
+    EDGE_ZONE: 72, EDGE_SPEED: 16,
+  },
+  "平稳": {
+    note: "对应 SwiftUI .smooth：全部无回弹，动作偏慢。按住时缩到 0.97，拎起放大到 1.05。拖动条目本身。",
+    SOLID: 1, REORDER_DELAY: 100, FOLDER_HIT: 0.7,
+    HOLD_MS: 300, HOLD_SLOP: 8, MOUSE_SLOP: 4,
+    PRESS_SCALE: 0.97, LIFT: 1.05, GHOST_OPACITY: 1, SLOT_OPACITY: 0, FOLDER_SCALE: 1.08,
+    USE_SPRING: 1,
+    LIFT_RESPONSE: 350, LIFT_BOUNCE: 0,
+    FLIP_RESPONSE: 400, FLIP_BOUNCE: 0,
+    SETTLE_RESPONSE: 450, SETTLE_BOUNCE: 0,
+    FLIP_MS: 180, SETTLE_MS: 200,
+    EDGE_ZONE: 72, EDGE_SPEED: 16,
+  },
+  "利落": {
+    note: "对应 SwiftUI .snappy：bounce 0.15，时长较短。动作比「平稳」快。拖动条目本身。",
+    SOLID: 1, REORDER_DELAY: 80, FOLDER_HIT: 0.7,
+    HOLD_MS: 220, HOLD_SLOP: 8, MOUSE_SLOP: 4,
+    PRESS_SCALE: 0.98, LIFT: 1.06, GHOST_OPACITY: 1, SLOT_OPACITY: 0, FOLDER_SCALE: 1.1,
+    USE_SPRING: 1,
+    LIFT_RESPONSE: 250, LIFT_BOUNCE: 0.15,
+    FLIP_RESPONSE: 300, FLIP_BOUNCE: 0.15,
+    SETTLE_RESPONSE: 350, SETTLE_BOUNCE: 0.15,
+    FLIP_MS: 180, SETTLE_MS: 200,
+    EDGE_ZONE: 72, EDGE_SPEED: 18,
+  },
+  "弹性": {
+    note: "对应 SwiftUI .bouncy：bounce 0.25～0.3。长按时间长，拎起幅度和文件夹放大幅度都较大，接近 iPhone 主屏幕整理图标。拖动条目本身。",
+    SOLID: 1, REORDER_DELAY: 150, FOLDER_HIT: 0.6,
+    HOLD_MS: 450, HOLD_SLOP: 10, MOUSE_SLOP: 4,
+    PRESS_SCALE: 0.95, LIFT: 1.1, GHOST_OPACITY: 1, SLOT_OPACITY: 0, FOLDER_SCALE: 1.15,
+    USE_SPRING: 1,
+    LIFT_RESPONSE: 350, LIFT_BOUNCE: 0.3,
+    FLIP_RESPONSE: 450, FLIP_BOUNCE: 0.25,
+    SETTLE_RESPONSE: 500, SETTLE_BOUNCE: 0.3,
+    FLIP_MS: 180, SETTLE_MS: 200,
+    EDGE_ZONE: 72, EDGE_SPEED: 16,
+  },
+  "访达": {
+    note: "面向鼠标和触控板，拖动副本：不放大，拖动副本半透明，原位保留半透明，文件夹只变色不放大，全部无回弹。",
+    SOLID: 0, REORDER_DELAY: 0, FOLDER_HIT: 1,
+    HOLD_MS: 250, HOLD_SLOP: 6, MOUSE_SLOP: 3,
+    PRESS_SCALE: 1, LIFT: 1, GHOST_OPACITY: 0.8, SLOT_OPACITY: 0.5, FOLDER_SCALE: 1,
+    USE_SPRING: 1,
+    LIFT_RESPONSE: 200, LIFT_BOUNCE: 0,
+    FLIP_RESPONSE: 250, FLIP_BOUNCE: 0,
+    SETTLE_RESPONSE: 250, SETTLE_BOUNCE: 0,
+    FLIP_MS: 180, SETTLE_MS: 200,
+    EDGE_ZONE: 72, EDGE_SPEED: 16,
+  },
 };
 
-const FLIP_EASE = "ease-out";
-const SETTLE_EASE = "ease-out";
+const T = {};
+let presetName = "原版";
+
+const SHADOW_REST = "0 1px 3px rgba(0, 0, 0, .1)";
+const SHADOW_LIFT = "0 18px 40px rgba(0, 0, 0, .2)";
+const INTO_SCALE = 0.3; // 落进文件夹时副本缩到原尺寸的几分之一
+
+// ------------------------------------------------------------------ 弹簧曲线
+//
+// 按阻尼谐振子的解析解算出 0→1 的位移曲线，采样后写成 CSS linear()。
+// responseMs 与 bounce 的含义同 SwiftUI Spring(duration:bounce:)：
+// 固有周期 = responseMs，阻尼比 = 1 - bounce（bounce < 0 时阻尼比 = 1 / (1 + bounce)）。
+// 返回的 ms 是位移与终点相差不到 0.1% 的时刻，即动画实际需要的时长。
+const LINEAR_OK = !!(window.CSS && CSS.supports &&
+  CSS.supports("transition-timing-function", "linear(0, 1)"));
+
+function spring(responseMs, bounce) {
+  const period = Math.max(responseMs, 16) / 1000;
+  const b = Math.max(-0.95, Math.min(0.95, bounce || 0));
+  const w = 2 * Math.PI / period;
+  const z = b >= 0 ? 1 - b : 1 / (1 + b);
+  let x;
+  if (Math.abs(z - 1) < 1e-6) {
+    x = (t) => 1 - Math.exp(-w * t) * (1 + w * t);
+  } else if (z < 1) {
+    const wd = w * Math.sqrt(1 - z * z);
+    x = (t) => 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t));
+  } else {
+    const r1 = -w * (z - Math.sqrt(z * z - 1));
+    const r2 = -w * (z + Math.sqrt(z * z - 1));
+    x = (t) => 1 - (r2 * Math.exp(r1 * t) - r1 * Math.exp(r2 * t)) / (r2 - r1);
+  }
+  let end = 0;
+  for (let t = 0; t <= 4; t += 0.002) if (Math.abs(1 - x(t)) > 0.001) end = t;
+  end += 0.002;
+  const ms = Math.round(end * 1000);
+  if (!LINEAR_OK) {
+    return { ms: Math.round(ms * 0.8), easing: b > 0 ? "cubic-bezier(.3, 1.3, .5, 1)" : "cubic-bezier(.2, .8, .2, 1)" };
+  }
+  const n = Math.max(24, Math.min(120, Math.round(end * 90)));
+  const pts = [];
+  for (let i = 0; i < n; i++) pts.push(+x(end * i / n).toFixed(4));
+  pts.push(1);
+  return { ms, easing: `linear(${pts.join(", ")})` };
+}
+
+function currentScale(el) {
+  const value = getComputedStyle(el).scale;
+  if (!value || value === "none") return 1;
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : 1;
+}
 
 // ------------------------------------------------------------------ 假数据
 const boards = [];
@@ -307,92 +466,215 @@ back.dataset.dropOut = "";
 // ------------------------------------------------------------------ 拖动
 let dragging = "";
 
-/** 按住一会儿才开始拖；鼠标不等，挪够距离就算。 */
+/**
+ * 按住一会儿才开始拖；鼠标不等，挪够距离就算。
+ * 弹簧模式下，按住期间逐渐缩到 PRESS_SCALE：实体模式缩整个条目，副本模式只缩卡片。
+ */
 function holdToDrag(event, card, boardId) {
   if (event.isPrimary === false || dragging) return;
   const item = card.closest(".board-item");
   if (!item) return;
   const at = { x: event.clientX, y: event.clientY };
   const mouse = event.pointerType === "mouse";
+  const pressed = T.SOLID ? item : card;
   let timer = 0;
-  const stop = () => {
+  let press = null;
+  const detach = () => {
     clearTimeout(timer);
     removeEventListener("pointermove", onMove);
-    removeEventListener("pointerup", stop);
-    removeEventListener("pointercancel", stop);
+    removeEventListener("pointerup", giveUp);
+    removeEventListener("pointercancel", giveUp);
+  };
+  // 没有拖起来：从当前缩放弹回 1
+  const release = () => {
+    if (!press) return;
+    const now = currentScale(pressed);
+    press.cancel();
+    press = null;
+    if (Math.abs(now - 1) < 0.001) return;
+    const s = spring(T.LIFT_RESPONSE, T.LIFT_BOUNCE);
+    pressed.animate([{ scale: String(now) }, { scale: "1" }], { duration: s.ms, easing: s.easing });
+  };
+  const giveUp = () => {
+    detach();
+    release();
   };
   const onMove = (move) => {
     const far = Math.hypot(move.clientX - at.x, move.clientY - at.y);
     if (mouse) {
       if (far > T.MOUSE_SLOP) {
-        stop();
+        detach();
         log("鼠标：挪够 " + Math.round(far) + "px，开始拖");
-        touchDrag(item, card, boardId, { x: move.clientX, y: move.clientY }, event.pointerId);
+        startDrag(item, card, boardId, { x: move.clientX, y: move.clientY }, event.pointerId, 1);
       }
       return;
     }
     if (far > T.HOLD_SLOP) {
-      stop();
+      giveUp();
       log("手指挪了 " + Math.round(far) + "px（超过 " + T.HOLD_SLOP + "），当成滚列表");
     }
   };
   addEventListener("pointermove", onMove);
-  addEventListener("pointerup", stop);
-  addEventListener("pointercancel", stop);
+  addEventListener("pointerup", giveUp);
+  addEventListener("pointercancel", giveUp);
   if (mouse) return;
+  if (T.USE_SPRING && T.PRESS_SCALE !== 1) {
+    pressed.style.transformOrigin = originFor(item, card, pressed);
+    press = pressed.animate(
+      [{ scale: "1" }, { scale: String(T.PRESS_SCALE) }],
+      { duration: T.HOLD_MS, easing: "cubic-bezier(.4, 0, .6, 1)", fill: "forwards" }
+    );
+  }
   timer = setTimeout(() => {
-    stop();
+    detach();
+    const startScale = press ? currentScale(pressed) : 1;
+    if (press) press.cancel();
+    press = null;
     log("按住 " + T.HOLD_MS + "ms，开始拖");
-    touchDrag(item, card, boardId, at, event.pointerId);
+    startDrag(item, card, boardId, at, event.pointerId, startScale);
   }, T.HOLD_MS);
 }
 
-/** 跟手的是卡片的一份副本，原件留在格子里当占位。 */
-function touchDrag(item, card, boardId, at, pointerId) {
+/** 条目的缩放中心放在卡片中心，这样名称在卡片下方随卡片一起缩放，卡片本身不偏移。 */
+function originFor(item, card, node) {
+  if (node !== item) return "50% 50%";
+  return `50% ${card.offsetTop + card.offsetHeight / 2}px`;
+}
+
+/**
+ * 开始拖动。两种做法共用同一套命中、让位、自动滚动和落位逻辑：
+ *   实体（SOLID=1）：移动的是条目本身（carrier = item），格子里换成一个不可见的空位（slot）。
+ *   副本（SOLID=0）：移动的是卡片副本（carrier = ghost），条目本身留在格子里当占位（slot = item）。
+ */
+function startDrag(item, card, boardId, at, pointerId, startScale) {
   if (!item.isConnected) return;
-  const box = card.getBoundingClientRect();
-  const ghost = card.cloneNode(true);
-  ghost.classList.add("ghost");
-  ghost.style.left = box.left + "px";
-  ghost.style.top = box.top + "px";
-  ghost.style.width = box.width + "px";
-  ghost.style.height = box.height + "px";
-  document.body.append(ghost);
+  const solid = !!T.SOLID;
+  const itemBox = item.getBoundingClientRect();
+  const cardBox = card.getBoundingClientRect();
+  let carrier, slot, face;
+
+  if (solid) {
+    slot = item.cloneNode(true);
+    slot.classList.add("slot");
+    delete slot.dataset.board;
+    grid.insertBefore(slot, item);
+    carrier = item;
+    face = card;
+    document.body.append(item);
+    item.classList.add("lifted");
+    item.style.left = itemBox.left + "px";
+    item.style.top = itemBox.top + "px";
+    item.style.width = itemBox.width + "px";
+    item.style.transformOrigin = originFor(item, card, item);
+  } else {
+    carrier = card.cloneNode(true);
+    carrier.classList.add("ghost");
+    carrier.style.left = cardBox.left + "px";
+    carrier.style.top = cardBox.top + "px";
+    carrier.style.width = cardBox.width + "px";
+    carrier.style.height = cardBox.height + "px";
+    document.body.append(carrier);
+    slot = item;
+    face = carrier;
+    item.classList.add("dragging");
+  }
+  carrier.style.translate = "0px 0px";
+  carrier.style.opacity = String(T.GHOST_OPACITY);
+  // 载体上与卡片中心重合的点（未平移时的视口坐标），落位时让这个点对准目标
+  const anchor = { x: cardBox.left + cardBox.width / 2, y: cardBox.top + cardBox.height / 2 };
+
+  // 拎起：弹簧模式下缩放和卡片阴影一起过渡；原版直接放大
+  if (T.USE_SPRING) {
+    const s = spring(T.LIFT_RESPONSE, T.LIFT_BOUNCE);
+    carrier._lift = carrier.animate(
+      [{ scale: String(startScale) }, { scale: String(T.LIFT) }],
+      { duration: s.ms, easing: s.easing, fill: "forwards" }
+    );
+    face._shadow = face.animate(
+      [{ boxShadow: SHADOW_REST }, { boxShadow: SHADOW_LIFT }],
+      { duration: s.ms, easing: s.easing, fill: "forwards" }
+    );
+  } else {
+    carrier.style.scale = String(T.LIFT);
+    face.style.boxShadow = SHADOW_LIFT;
+  }
 
   dragging = boardId;
-  item.classList.add("dragging");
   let sorted = false;
   let target = null;
   let folder = null;
   let raf = 0;
+  let pendingRef;
+  let pendingTimer = 0;
   const pos = { x: at.x, y: at.y };
 
   const follow = () => {
-    ghost.style.transform =
-      `translate(${pos.x - at.x}px, ${pos.y - at.y}px) scale(${T.LIFT})`;
+    carrier.style.translate = `${pos.x - at.x}px ${pos.y - at.y}px`;
   };
   const light = (node, name) => {
     if (target === node) return;
-    if (target) target.classList.remove("drop-target");
+    if (target) {
+      target.classList.remove("drop-target");
+      pop(target, 1);
+    }
     target = node;
     folder = name;
-    if (target) target.classList.add("drop-target");
+    if (target) {
+      target.classList.add("drop-target");
+      pop(target, T.FOLDER_SCALE);
+    }
+  };
+  const clearPending = () => {
+    clearTimeout(pendingTimer);
+    pendingRef = undefined;
+  };
+  const moveSlot = (ref) => {
+    if (!slot.isConnected || (ref && !ref.isConnected)) return;
+    if (ref === slot || slot.nextSibling === ref) return;
+    flip(() => grid.insertBefore(slot, ref));
+    sorted = true;
+  };
+  // 指针在同一个插入位置停留 REORDER_DELAY 之后才让位；中途换了位置就重新计时
+  const queueMove = (ref) => {
+    if (ref === slot || slot.nextSibling === ref) return clearPending();
+    if (T.REORDER_DELAY <= 0) return moveSlot(ref);
+    if (ref === pendingRef) return;
+    clearTimeout(pendingTimer);
+    pendingRef = ref;
+    pendingTimer = setTimeout(() => {
+      pendingRef = undefined;
+      moveSlot(ref);
+    }, T.REORDER_DELAY);
+  };
+  const inCenter = (node) => {
+    const r = node.getBoundingClientRect();
+    const hx = r.width * T.FOLDER_HIT / 2;
+    const hy = r.height * T.FOLDER_HIT / 2;
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    return Math.abs(pos.x - cx) <= hx && Math.abs(pos.y - cy) <= hy;
   };
   const hitTest = () => {
     const under = document.elementFromPoint(pos.x, pos.y);
-    if (!under || !under.closest) return light(null, null);
+    if (!under || !under.closest) {
+      clearPending();
+      return light(null, null);
+    }
     const into = under.closest("[data-folder]");
-    if (into) return light(into, into.dataset.folder);
+    if (into) {
+      clearPending();
+      return light(inCenter(into) ? into : null, inCenter(into) ? into.dataset.folder : null);
+    }
     const out = under.closest("[data-drop-out]");
-    if (out) return light(out, "");
+    if (out) {
+      clearPending();
+      return light(out, "");
+    }
     light(null, null);
     const over = under.closest(".board-item[data-board]");
-    if (!over || over === item) return;
+    if (!over || over === slot) return clearPending();
     const rect = over.getBoundingClientRect();
-    const ref = pos.x > rect.left + rect.width / 2 ? over.nextSibling : over;
-    if (ref === item || item.nextSibling === ref) return;
-    flip(() => grid.insertBefore(item, ref));
-    sorted = true;
+    queueMove(pos.x > rect.left + rect.width / 2 ? over.nextSibling : over);
   };
   const tick = () => {
     raf = requestAnimationFrame(tick);
@@ -417,6 +699,19 @@ function touchDrag(item, card, boardId, at, pointerId) {
     hitTest();
   };
   const block = (event) => event.preventDefault();
+
+  // 实体模式落位结束：条目回到空位所在的位置，清掉拖动时加的样式
+  const restore = () => {
+    for (const anim of carrier.getAnimations()) anim.cancel();
+    for (const anim of face.getAnimations()) anim.cancel();
+    item.classList.remove("lifted");
+    for (const prop of ["left", "top", "width", "translate", "scale", "opacity", "transformOrigin"]) item.style[prop] = "";
+    face.style.boxShadow = "";
+    if (slot.isConnected) grid.insertBefore(item, slot);
+    else item.remove();
+    slot.remove();
+  };
+
   const done = (event) => {
     if (event && event.pointerId !== undefined && event.pointerId !== pointerId) return;
     removeEventListener("pointermove", onMove);
@@ -424,19 +719,53 @@ function touchDrag(item, card, boardId, at, pointerId) {
     removeEventListener("pointercancel", cancel);
     removeEventListener("touchmove", block);
     cancelAnimationFrame(raf);
-    if (target) target.classList.remove("drop-target");
-    settleGhost(ghost, target || item);
-    item.classList.remove("dragging");
-    dragging = "";
+    clearPending();
     const board = boards.find((one) => one.id === boardId);
-    if (folder !== null && board && (board.folder || "") !== folder) {
+    const moved = folder !== null && board && (board.folder || "") !== folder;
+    const dropOn = target;
+    if (target) {
+      target.classList.remove("drop-target");
+      pop(target, 1);
+    }
+    dragging = "";
+    // 空位可能还在让位动画中，先结束它的动画，才能量到最终位置
+    for (const anim of slot.getAnimations()) anim.finish();
+
+    let point;
+    if (moved) {
+      const r = dropOn.getBoundingClientRect();
+      point = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    } else if (slot.isConnected) {
+      const slotCard = solid ? slot.querySelector(".board-card") : card;
+      const r = slotCard.getBoundingClientRect();
+      point = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }
+    if (!solid && !T.USE_SPRING) item.classList.remove("dragging");
+    settle(carrier, face, anchor, point, moved ? "into" : "slot", solid, () => {
+      if (solid) {
+        restore();
+      } else {
+        carrier.remove();
+        item.classList.remove("dragging");
+      }
+      if (moved) render();
+    });
+
+    if (moved) {
       board.folder = folder;
       log(folder ? "归到「" + folder + "」" : "移出文件夹");
-      setTimeout(render, T.SETTLE_MS);
     } else if (folder === null && sorted) {
-      const order = [...grid.children].map((n) => n.dataset.board).filter(Boolean);
-      order.forEach((id, index) => {
-        boards[index] = boards.find((b) => b.id === id) || boards[index];
+      const order = [...grid.children]
+        .map((n) => (n === slot ? boardId : n.dataset.board))
+        .filter(Boolean);
+      // 只重排当前视图里的白板，其他白板（在别的文件夹里）保持原位置
+      const byId = new Map(boards.map((b) => [b.id, b]));
+      const slots = [];
+      boards.forEach((b, index) => {
+        if ((b.folder || "") === openFolder) slots.push(index);
+      });
+      order.forEach((id, k) => {
+        if (slots[k] !== undefined && byId.has(id)) boards[slots[k]] = byId.get(id);
       });
       log("新顺序：" + order.join(" "));
     }
@@ -457,11 +786,32 @@ function touchDrag(item, card, boardId, at, pointerId) {
   hitTest();
 }
 
+/** 文件夹卡片悬停时放大，离开时缩回。只作用于文件夹卡片，只在弹簧模式下生效。 */
+function pop(node, value) {
+  if (!node || node.dataset.folder === undefined) return;
+  if (value !== 1 && (!T.USE_SPRING || T.FOLDER_SCALE === 1)) return;
+  if (value === 1 && !node._pop) return;
+  const from = currentScale(node);
+  if (node._pop) node._pop.cancel();
+  const s = spring(T.LIFT_RESPONSE, T.LIFT_BOUNCE);
+  const anim = node.animate(
+    [{ scale: String(from) }, { scale: String(value) }],
+    { duration: s.ms, easing: s.easing, fill: "forwards" }
+  );
+  if (value === 1) {
+    node._pop = null;
+    anim.onfinish = () => anim.cancel();
+  } else {
+    node._pop = anim;
+  }
+}
+
 /** FLIP：记住动之前的位置，改完 DOM 让每块卡片从原位滑过来。 */
 function flip(mutate) {
   const before = new Map();
   for (const node of grid.children) before.set(node, node.getBoundingClientRect());
   mutate();
+  const s = T.USE_SPRING ? spring(T.FLIP_RESPONSE, T.FLIP_BOUNCE) : { ms: T.FLIP_MS, easing: "ease-out" };
   for (const node of grid.children) {
     const first = before.get(node);
     if (!first) continue;
@@ -471,64 +821,181 @@ function flip(mutate) {
     if (!dx && !dy) continue;
     node.animate(
       [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
-      { duration: T.FLIP_MS, easing: FLIP_EASE }
+      { duration: s.ms, easing: s.easing }
     );
   }
 }
 
-/** 松手：副本滑到它要去的那一格，到了就撤掉。 */
-function settleGhost(ghost, landing) {
-  const from = ghost.getBoundingClientRect();
-  const to = landing && landing.isConnected ? landing.getBoundingClientRect() : from;
-  const dx = to.left + to.width / 2 - (from.left + from.width / 2);
-  const dy = to.top + to.height / 2 - (from.top + from.height / 2);
-  const scale = to.width ? Math.min(1, to.width / from.width) : 1;
-  const now = ghost.style.transform;
-  const drop = ghost.animate(
+/**
+ * 松手：载体移到落点，结束后调用 onDone。
+ *   anchor：载体上与卡片中心重合的点（未平移时的视口坐标）。
+ *   point：目标点（空位卡片的中心，或文件夹的中心）；为空时原地结束。
+ *   kind = "slot"：回到空位。实体模式和弹簧模式下保持不透明，到位后由调用方换回条目。
+ *   kind = "into"：落进文件夹或移出文件夹，缩小并淡出。
+ *   原版（副本 + 非弹簧）：边移动边淡出。
+ */
+function settle(carrier, face, anchor, point, kind, solid, onDone) {
+  const fromScale = currentScale(carrier);
+  const fromOpacity = getComputedStyle(carrier).opacity;
+  const fromShadow = getComputedStyle(face).boxShadow;
+  const fromTranslate = carrier.style.translate || "0px 0px";
+  if (carrier._lift) {
+    carrier._lift.cancel();
+    carrier._lift = null;
+  }
+  if (face._shadow) {
+    face._shadow.cancel();
+    face._shadow = null;
+  }
+  let tx, ty;
+  if (point) {
+    tx = point.x - anchor.x;
+    ty = point.y - anchor.y;
+  } else {
+    const parts = fromTranslate.split(" ").map(parseFloat);
+    tx = parts[0] || 0;
+    ty = parts[1] || 0;
+  }
+  const into = kind === "into";
+  const s = T.USE_SPRING
+    ? spring(T.SETTLE_RESPONSE, into ? 0 : T.SETTLE_BOUNCE)
+    : { ms: T.SETTLE_MS, easing: "ease-out" };
+  const endScale = into ? (T.USE_SPRING ? INTO_SCALE : 1) : 1;
+  const endOpacity = into ? 0 : (T.USE_SPRING || solid ? 1 : 0);
+  const anim = carrier.animate(
     [
-      { transform: now, opacity: 1 },
-      { transform: `${now} translate(${dx}px, ${dy}px) scale(${scale})`, opacity: 0 },
+      { translate: fromTranslate, scale: String(fromScale), opacity: fromOpacity },
+      { translate: `${tx}px ${ty}px`, scale: String(endScale), opacity: String(endOpacity) },
     ],
-    { duration: T.SETTLE_MS, easing: SETTLE_EASE }
+    { duration: s.ms, easing: s.easing, fill: "forwards" }
   );
-  drop.onfinish = () => ghost.remove();
-  drop.oncancel = () => ghost.remove();
+  face.animate(
+    [{ boxShadow: fromShadow }, { boxShadow: SHADOW_REST }],
+    { duration: s.ms, easing: s.easing, fill: "forwards" }
+  );
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    onDone();
+  };
+  anim.onfinish = finish;
+  anim.oncancel = finish;
 }
 
 // ------------------------------------------------------------------ 调参面板
 const NOTES = {
-  HOLD_MS: "按住多久开始拖",
+  SOLID: "拖动条目本身 0/1",
+  REORDER_DELAY: "停留多久才让位 ms",
+  FOLDER_HIT: "文件夹命中区比例",
+  HOLD_MS: "按住多久开始拖 ms",
   HOLD_SLOP: "等待期间的容差 px",
   MOUSE_SLOP: "鼠标起拖距离 px",
+  PRESS_SCALE: "按住时缩到",
   LIFT: "拎起来放大到",
-  FLIP_MS: "让位时长 ms",
-  SETTLE_MS: "落位时长 ms",
+  GHOST_OPACITY: "拖动中不透明度",
+  SLOT_OPACITY: "原位不透明度（副本）",
+  FOLDER_SCALE: "文件夹悬停放大到",
+  USE_SPRING: "弹簧模式 0/1",
+  LIFT_RESPONSE: "拎起 响应 ms",
+  LIFT_BOUNCE: "拎起 回弹",
+  FLIP_RESPONSE: "让位 响应 ms",
+  FLIP_BOUNCE: "让位 回弹",
+  SETTLE_RESPONSE: "落位 响应 ms",
+  SETTLE_BOUNCE: "落位 回弹",
+  FLIP_MS: "原版让位时长 ms",
+  SETTLE_MS: "原版落位时长 ms",
   EDGE_ZONE: "自动滚触发区 px",
   EDGE_SPEED: "自动滚每帧 px",
 };
+const GROUPS = [
+  ["方式", ["SOLID", "REORDER_DELAY", "FOLDER_HIT"]],
+  ["起拖", ["HOLD_MS", "HOLD_SLOP", "MOUSE_SLOP"]],
+  ["外观", ["PRESS_SCALE", "LIFT", "GHOST_OPACITY", "SLOT_OPACITY", "FOLDER_SCALE"]],
+  ["弹簧", ["USE_SPRING", "LIFT_RESPONSE", "LIFT_BOUNCE", "FLIP_RESPONSE", "FLIP_BOUNCE", "SETTLE_RESPONSE", "SETTLE_BOUNCE"]],
+  ["原版曲线", ["FLIP_MS", "SETTLE_MS"]],
+  ["自动滚动", ["EDGE_ZONE", "EDGE_SPEED"]],
+];
+const STEPS = {
+  FOLDER_HIT: "0.05",
+  PRESS_SCALE: "0.01", LIFT: "0.01", GHOST_OPACITY: "0.05", SLOT_OPACITY: "0.05",
+  FOLDER_SCALE: "0.01", LIFT_BOUNCE: "0.05", FLIP_BOUNCE: "0.05", SETTLE_BOUNCE: "0.05",
+};
+
 const knobs = document.getElementById("knobs");
-for (const key of Object.keys(T)) {
-  const row = document.createElement("div");
-  row.className = "knob";
-  const label = document.createElement("label");
-  label.textContent = NOTES[key] || key;
-  const input = document.createElement("input");
-  input.type = "number";
-  input.step = key === "LIFT" ? "0.01" : "1";
-  input.value = T[key];
-  input.addEventListener("change", () => {
-    const value = Number(input.value);
-    if (Number.isFinite(value)) T[key] = value;
-  });
-  row.append(label, input);
-  knobs.append(row);
+const inputs = {};
+for (const [heading, keys] of GROUPS) {
+  const h = document.createElement("h3");
+  h.textContent = heading;
+  knobs.append(h);
+  for (const key of keys) {
+    const row = document.createElement("div");
+    row.className = "knob";
+    const label = document.createElement("label");
+    label.textContent = NOTES[key] || key;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = STEPS[key] || "1";
+    input.addEventListener("change", () => {
+      const value = Number(input.value);
+      if (Number.isFinite(value)) T[key] = value;
+      syncMode();
+    });
+    inputs[key] = input;
+    row.append(label, input);
+    knobs.append(row);
+  }
 }
+
+function syncMode() {
+  document.body.classList.toggle("spring", !!T.USE_SPRING);
+  document.documentElement.style.setProperty("--slot-opacity", String(T.SLOT_OPACITY));
+}
+
+const presetBox = document.getElementById("presets");
+const presetNote = document.getElementById("presetNote");
+function applyPreset(name) {
+  presetName = name;
+  const p = PRESETS[name];
+  for (const key of Object.keys(NOTES)) {
+    T[key] = p[key];
+    inputs[key].value = p[key];
+  }
+  for (const button of presetBox.children) button.classList.toggle("on", button.dataset.name === name);
+  presetNote.textContent = p.note;
+  syncMode();
+  render();
+  log("切换到预设「" + name + "」");
+}
+for (const name of Object.keys(PRESETS)) {
+  const button = document.createElement("button");
+  button.className = "preset";
+  button.dataset.name = name;
+  button.textContent = name;
+  button.addEventListener("click", () => applyPreset(name));
+  presetBox.append(button);
+}
+
 document.getElementById("dump").addEventListener("click", () => {
-  const text = Object.entries(T).map(([key, value]) => `${key} = ${value}`).join("\n");
-  document.getElementById("out").value = text;
+  const text = ["preset = " + presetName]
+    .concat(Object.keys(NOTES).map((key) => `${key} = ${T[key]}`));
+  if (T.USE_SPRING) {
+    text.push("", "// 由 spring() 算出的实际时长与曲线");
+    for (const [label, r, b] of [
+      ["LIFT", T.LIFT_RESPONSE, T.LIFT_BOUNCE],
+      ["FLIP", T.FLIP_RESPONSE, T.FLIP_BOUNCE],
+      ["SETTLE", T.SETTLE_RESPONSE, T.SETTLE_BOUNCE],
+      ["INTO", T.SETTLE_RESPONSE, 0],
+    ]) {
+      const s = spring(r, b);
+      text.push(`// ${label} ${s.ms}ms ${s.easing}`);
+    }
+  }
+  document.getElementById("out").value = text.join("\n");
 });
 
-render();
+applyPreset("启动台");
+if (!LINEAR_OK) log("当前浏览器不支持 CSS linear()，弹簧曲线已退回 cubic-bezier，手感与真机不同");
 log("按住一块卡片再拖。松手落在文件夹上是归类，落在别的卡片之间是排序。");
 </script>
 </body>

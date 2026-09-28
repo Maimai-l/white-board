@@ -1250,7 +1250,7 @@ def test_a_board_can_be_dragged_into_a_folder_and_back_out(browser, server):
     mac.wait_for_selector(".board-card.folder")
 
     # 拖进去：松手之后这块白板收进文件夹，最外面那层只剩文件夹卡片和「新建」
-    mac.drag_and_drop(".board-card:not(.folder):not(.add)", ".board-card.folder")
+    mouse_drag(mac, ".board-card:not(.folder):not(.add)", ".board-card.folder", dwell=120)
     mac.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
     ipad.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
     mac.wait_for_function("() => document.querySelectorAll('.board-item').length === 2")
@@ -1258,7 +1258,7 @@ def test_a_board_can_be_dragged_into_a_folder_and_back_out(browser, server):
     # 拖出来：进文件夹，把卡片拖到搜索框左边那个返回按钮上
     mac.click(".board-card.folder")
     mac.wait_for_selector(".folder-bar")
-    mac.drag_and_drop(".board-card:not(.folder):not(.add)", 'button[title^="返回"]')
+    mouse_drag(mac, ".board-card:not(.folder):not(.add)", 'button[title^="返回"]', dwell=120)
     mac.wait_for_function("() => whiteboard.ui.boards.every(b => !b.folder)")
     assert mac.evaluate("() => whiteboard.ui.folders.length") == 1  # 文件夹还在，只是空了
     mac.close()
@@ -1276,13 +1276,14 @@ def test_boards_can_be_dragged_into_a_new_order(browser, server):
     mac.click('button[title="白板"]')
     mac.wait_for_function("() => document.querySelectorAll('.board-item').length === 4")
 
-    order = "() => [...document.querySelectorAll('.board-item[data-board]')].map(n => n.dataset.board)"
+    # 只数格子里的：正在拖的那一格挪到了界面根节点上，落位动画没走完之前它还在
+    order = "() => [...document.querySelectorAll('.gallery-grid .board-item[data-board]')].map(n => n.dataset.board)"
     before = mac.evaluate(order)
     assert len(before) == 3
 
     # 把第一块拖到第三块的右半边，它就排到最后（落点在左半边是插到前面）
     items = ".board-item[data-board] .board-card"
-    mac.drag_and_drop(f"{items} >> nth=0", f"{items} >> nth=2", target_position={"x": 200, "y": 60})
+    mouse_drag(mac, f"{items} >> nth=0", f"{items} >> nth=2", at=(0.85, 0.5))
     mac.wait_for_function(
         f"() => JSON.stringify(whiteboard.ui.boards.map(b => b.id)) === "
         f"JSON.stringify({before[1:] + before[:1]})"
@@ -1291,6 +1292,7 @@ def test_boards_can_be_dragged_into_a_new_order(browser, server):
         f"() => JSON.stringify(whiteboard.ui.boards.map(b => b.id)) === "
         f"JSON.stringify({before[1:] + before[:1]})"
     )
+    mac.wait_for_function("() => !document.querySelector('.board-item.lifted')")
     assert mac.evaluate(order) == before[1:] + before[:1]
 
     # 刷新之后还是这个顺序：顺序存在服务端的索引里，不是本机记的
@@ -1303,8 +1305,24 @@ def test_boards_can_be_dragged_into_a_new_order(browser, server):
     ipad.close()
 
 
+def mouse_drag(page, from_sel, to_sel, dwell=320, steps=12, at=(0.5, 0.5)):
+    """鼠标拖一张卡片。
+
+    ``dwell`` 是停在落点上多久再松手：让位要在同一个插入位置停够 REORDER_DELAY
+    （见 dragsort.js）。``at`` 是落点在目标元素上的相对位置。
+    """
+    a = page.locator(from_sel).bounding_box()
+    b = page.locator(to_sel).bounding_box()
+    page.mouse.move(a["x"] + a["width"] / 2, a["y"] + a["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(a["x"] + a["width"] / 2 + 12, a["y"] + a["height"] / 2, steps=3)
+    page.mouse.move(b["x"] + b["width"] * at[0], b["y"] + b["height"] * at[1], steps=steps)
+    page.wait_for_timeout(dwell)
+    page.mouse.up()
+
+
 TOUCH_DRAG = """
-async ([fromSel, toSel, holdMs, steps]) => {
+async ([fromSel, toSel, holdMs, steps, dwellMs]) => {
   const from = document.querySelector(fromSel).getBoundingClientRect();
   const to = document.querySelector(toSel).getBoundingClientRect();
   const at = { x: from.left + from.width / 2, y: from.top + from.height / 2 };
@@ -1319,6 +1337,7 @@ async ([fromSel, toSel, holdMs, steps]) => {
     fire('pointermove', at.x + (end.x - at.x) * i / steps, at.y + (end.y - at.y) * i / steps, window);
     await new Promise((done) => requestAnimationFrame(done));
   }
+  await new Promise((done) => setTimeout(done, dwellMs));
   fire('pointerup', end.x, end.y, window);
 }
 """
@@ -1336,12 +1355,12 @@ def test_a_finger_can_drag_a_board_on_a_touch_device(browser, server):
     ipad.wait_for_selector(".board-card.folder")
 
     # 手指一放就走：当成滚列表，不拖
-    ipad.evaluate(TOUCH_DRAG, [".board-item[data-board] .board-card", ".board-card.folder", 0, 6])
+    ipad.evaluate(TOUCH_DRAG, [".board-item[data-board] .board-card", ".board-card.folder", 0, 6, 0])
     assert ipad.evaluate("() => whiteboard.ui.boards.every(b => !b.folder)")
     assert ipad.evaluate("() => !document.querySelector('.board-card.ghost')")
 
     # 按住 400ms 再拖：这次算数
-    ipad.evaluate(TOUCH_DRAG, [".board-item[data-board] .board-card", ".board-card.folder", 400, 6])
+    ipad.evaluate(TOUCH_DRAG, [".board-item[data-board] .board-card", ".board-card.folder", 500, 6, 200])
     ipad.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
     mac.wait_for_function("() => whiteboard.ui.boards.every(b => b.folder === '未命名文件夹')")
     # 副本是临时的，落位动画走完就撤掉
@@ -1366,7 +1385,7 @@ def test_a_finger_can_drag_a_board_into_a_new_order(browser, server):
     cards = ".board-item[data-board] .board-card"
     ipad.evaluate(
         TOUCH_DRAG,
-        [f"{cards}", ".board-item[data-board]:nth-child(3) .board-card", 400, 8],
+        [f"{cards}", ".board-item[data-board]:nth-child(3) .board-card", 500, 8, 320],
     )
     ipad.wait_for_function(
         "(was) => JSON.stringify(whiteboard.ui.boards.map(b => b.id)) !== JSON.stringify(was)",

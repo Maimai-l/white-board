@@ -350,19 +350,27 @@ or folder.
 - Any board can be renamed without switching to it; only the list is broadcast,
   not the board itself.
 
-**Dragging** (with a mouse or trackpad; see the note below for touch):
+**Dragging** works the same with a finger, a Pencil, a mouse or a trackpad. A
+finger or Pencil has to hold the card for 400 ms first, so that a swipe still
+scrolls the list; a mouse starts as soon as it moves a few pixels. The card
+lifts out of the grid and follows the pointer, leaving a gap where it will land.
 
-- Drag a board onto a folder card to file it there.
-- Inside a folder, drag a board onto the back button or the folder bar to move
-  it back out.
-- Drag a board between two other boards to reorder them. The other cards move
-  aside while you drag, exactly where the card will land, and the order is saved
-  when you release. Escape puts everything back.
+- Drop a board on a folder card to file it there. Only the middle of the folder
+  counts, so passing over one on the way somewhere else does not catch it.
+- Inside a folder, drop a board on the back button or the folder bar to move it
+  back out.
+- Drop a board between two others to reorder them. The rest move aside once the
+  pointer has rested in one place for a moment, rather than shuffling
+  continuously as it travels. Dragging near the top or bottom edge scrolls.
 - The order lives in `index.json` on the Mac, so it is the same on every device
   and survives a restart. Folders stay sorted by name.
 
-This uses the browser's own drag-and-drop, which iOS Safari does not implement,
-so on a touch device use the folder icon next to a board's name instead.
+The interface does not use the browser's own drag-and-drop: iOS Safari does not
+implement it, and the drag image and animation would be the browser's rather
+than ours. Everything is built on pointer events in
+`static/js/dragsort.js`, with the timings and spring curves listed at the top of
+that file. `static/lab/drag.html` is a standalone copy of it that can be opened
+on an iPad to adjust those numbers by feel.
 
 **Folders** are one level deep and appear as cards in the same grid; opening one
 shows only the boards inside it.

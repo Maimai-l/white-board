@@ -697,24 +697,25 @@ html, body {
   text-align: center;
 }
 .board-name.folder { color: var(--primary); }
-/* 拖白板卡片：拖着的那块淡下去，能放手的地方亮起来 */
-.board-card[draggable="true"] { cursor: grab; -webkit-user-drag: element; }
-.board-item.dragging .board-card,
-.board-card.dragging { opacity: .4; }
-/* 触摸设备上跟着手指走的那张副本：只动 transform，交给合成器 */
-.board-card.ghost {
+/* 拖白板卡片（见 js/dragsort.js）。拖的是整个条目：它挪到界面根节点上跟着指针
+   走，格子里留一个同尺寸的隐形空位，松手再放回空位那里。 */
+.board-card { cursor: grab; }
+/* 选择器要带上 #ui：上面 `#ui > *` 那条给了 pointer-events: auto，权重比
+   `.board-item.lifted` 高；被拎起来这一格必须不吃事件，否则它挡在指针底下，
+   落点判定看到的永远是它自己。 */
+#ui > .board-item.lifted {
   position: fixed;
   margin: 0;
   z-index: 5;
   pointer-events: none;
-  box-shadow: var(--shadow-3);
-  transform-origin: center;
   will-change: transform;
 }
+.board-item.slot { visibility: hidden; }
+/* 指到文件夹上：放大由脚本按弹簧曲线控制，颜色和阴影用短过渡 */
+.board-card.folder { transition: background-color .15s ease, border-color .15s ease, box-shadow .2s ease; }
 .board-card.folder.drop-target {
   border-color: var(--primary);
   background: var(--primary-container);
-  transform: translateY(-3px);
   box-shadow: var(--shadow-2);
 }
 .folder-bar.drop-target,
