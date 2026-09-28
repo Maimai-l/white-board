@@ -1,0 +1,169 @@
+name: 打包 macOS 应用
+
+# 打 tag（v1.2.3）就构建并发布 Release；也可以手动跑一次只出构建产物。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 版本号（手动构建用，不会发布 Release）
+        default: 0.0.0-dev
+
+permissions:
+  contents: write
+
+jobs:
+  # iPad 外壳（docs/ipad-shell.md 8.1 节）：不签名编译，ldid 伪签名，打成 IPA，
+  # 通过 TrollStore 安装。版本号与 Mac 端相同，由同一个 tag 决定。
+  ipad:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 确定版本号
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            value="${GITHUB_REF_NAME#v}"
+          else
+            value="${{ github.event.inputs.version || '0.0.0-dev' }}"
+          fi
+          # CFBundleShortVersionString 只收数字和点：0.0.0-dev 写成 0.0.0
+          marketing="$(echo "$value" | sed -E 's/[^0-9.].*$//')"
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+          echo "marketing=${marketing:-0.0.0}" >> "$GITHUB_OUTPUT"
+
+      - name: 安装 XcodeGen 和 ldid
+        run: brew install xcodegen ldid
+
+      - name: 生成图标和工程
+        run: |
+          python3 ipad/make_icon.py
+          cd ipad && xcodegen generate
+
+      - name: 编译
+        run: |
+          xcodebuild \
+            -project ipad/WhiteboardShell.xcodeproj \
+            -target Whiteboard \
+            -configuration Release \
+            -sdk iphoneos \
+            SYMROOT="$PWD/ipad/build" \
+            MARKETING_VERSION="${{ steps.version.outputs.marketing }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: 伪签名并打包 IPA
+        run: |
+          app=ipad/build/Release-iphoneos/Whiteboard.app
+          ldid -S "$app/Whiteboard"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Info.plist"
+          mkdir -p ipa/Payload
+          cp -R "$app" ipa/Payload/
+          (cd ipa && zip -qry "../Whiteboard-${{ steps.version.outputs.value }}-ipad.ipa" Payload)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Whiteboard-ipad
+          path: Whiteboard-*-ipad.ipa
+          if-no-files-found: error
+
+  build:
+    needs: ipad
+    # 只出 Apple 芯片的包；要 Intel 版的话加一条 macos-13 / x86_64 的矩阵项即可
+    runs-on: macos-14
+    env:
+      ARCH: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 确定版本号
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            value="${GITHUB_REF_NAME#v}"
+          else
+            value="${{ github.event.inputs.version || '0.0.0-dev' }}"
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+          python packaging/set_version.py "$value"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: 生成图标
+        run: python packaging/make_icns.py packaging/whiteboard.icns
+
+      # 每个版本的 Mac 应用都自带同版本的外壳，iPad 从这台 Mac 上安装和更新
+      - uses: actions/download-artifact@v4
+        with:
+          name: Whiteboard-ipad
+          path: packaging/ipad
+
+      - name: 放好 IPA
+        run: mv packaging/ipad/Whiteboard-*-ipad.ipa packaging/ipad/Whiteboard.ipa
+
+      - name: 打包
+        env:
+          WHITEBOARD_VERSION: ${{ steps.version.outputs.value }}
+        run: pyinstaller --noconfirm --clean packaging/whiteboard.spec
+
+      - name: 临时签名
+        # 没有开发者证书，用 ad-hoc 签名；不签的话 Apple 芯片上会直接被拒绝运行
+        run: codesign --force --deep --sign - dist/Whiteboard.app
+
+      - name: 冒烟测试
+        run: |
+          dist/Whiteboard.app/Contents/MacOS/Whiteboard --headless --no-mdns --port 8877 &
+          pid=$!
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8877/api/info > /dev/null; then ok=1; break; fi
+            sleep 1
+          done
+          if [ "${ok:-0}" = "1" ]; then
+            python packaging/smoke_doc.py http://127.0.0.1:8877 || doc_ok=0
+            python packaging/smoke_ipad.py http://127.0.0.1:8877 packaging/ipad/Whiteboard.ipa || ipad_ok=0
+          fi
+          kill $pid || true
+          test "${ok:-0}" = "1" || { echo "打出来的应用起不来"; exit 1; }
+          test "${doc_ok:-1}" = "1" || { echo "打包后的文档板不可用"; exit 1; }
+          test "${ipad_ok:-1}" = "1" || { echo "打包后的应用没带上 iPad 外壳"; exit 1; }
+
+      - name: 压缩
+        run: |
+          ditto -c -k --keepParent dist/Whiteboard.app \
+            "Whiteboard-${{ steps.version.outputs.value }}-macos-${{ env.ARCH }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Whiteboard-macos-${{ env.ARCH }}
+          path: Whiteboard-*.zip
+          if-no-files-found: error
+
+  release:
+    needs: [ipad, build]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 发布 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # IPA 也单独发布，用于首次安装
+          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.ipa \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

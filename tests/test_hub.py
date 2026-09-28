@@ -1,0 +1,166 @@
+from whiteboard.hub import BoardRuntime, Hub
+from whiteboard.models import new_board_meta
+from whiteboard.store import BoardStore
+
+
+def stroke(stroke_id, n=None):
+    data = {"id": stroke_id, "tool": "pen", "color": "#000000", "w": 2, "p": [0, 0, 0.5, 1, 1, 0.5]}
+    if n is not None:
+        data["n"] = n
+    return data
+
+
+def make_runtime():
+    return BoardRuntime(new_board_meta(), [])
+
+
+def test_add_assigns_increasing_order():
+    runtime = make_runtime()
+    op = runtime.apply({"op": "add", "strokes": [stroke("a"), stroke("b")]})
+    assert op["seq"] == 1
+    assert [s["n"] for s in op["strokes"]] == [0, 1]
+
+
+def test_duplicate_id_is_ignored():
+    runtime = make_runtime()
+    runtime.apply({"op": "add", "strokes": [stroke("a")]})
+    assert runtime.apply({"op": "add", "strokes": [stroke("a")]}) is None
+    assert len(runtime.strokes) == 1
+
+
+def test_remove_and_restore_keeps_z_order():
+    runtime = make_runtime()
+    runtime.apply({"op": "add", "strokes": [stroke("a"), stroke("b"), stroke("c")]})
+    runtime.apply({"op": "remove", "ids": ["b"]})
+    assert [s["id"] for s in runtime.stroke_list()] == ["a", "c"]
+    runtime.apply({"op": "restore", "strokes": [stroke("b", n=1)]})
+    assert [s["id"] for s in runtime.stroke_list()] == ["a", "b", "c"]
+
+
+def test_noop_operations_return_none():
+    runtime = make_runtime()
+    assert runtime.apply({"op": "clear"}) is None
+    assert runtime.apply({"op": "remove", "ids": ["ghost"]}) is None
+    assert runtime.apply({"op": "nonsense"}) is None
+    assert runtime.apply("not a dict") is None
+
+
+def test_clear_empties_board():
+    runtime = make_runtime()
+    runtime.apply({"op": "add", "strokes": [stroke("a")]})
+    assert runtime.apply({"op": "clear"})["op"] == "clear"
+    assert runtime.stroke_list() == []
+
+
+def test_meta_op_is_sanitized_and_deduplicated():
+    runtime = make_runtime()
+    op = runtime.apply({"op": "meta", "meta": {"background": "lines", "name": "笔记"}})
+    assert op["meta"]["background"] == "lines"
+    assert op["meta"]["name"] == "笔记"
+    # 非法取值回落到默认背景，而不是被忽略
+    assert runtime.apply({"op": "meta", "meta": {"background": "nope"}})["meta"]["background"] == "grid"
+    assert runtime.apply({"op": "meta", "meta": {"background": "grid"}}) is None
+
+
+def test_ops_since_returns_delta_or_none():
+    runtime = make_runtime()
+    for i in range(5):
+        runtime.apply({"op": "add", "strokes": [stroke(f"s{i}")]})
+    assert runtime.ops_since(5) == []
+    assert [op["seq"] for op in runtime.ops_since(3)] == [4, 5]
+    runtime.ops.clear()  # 模拟历史窗口滑走
+    assert runtime.ops_since(1) is None
+
+
+def test_invalid_stroke_does_not_break_the_batch():
+    runtime = make_runtime()
+    op = runtime.apply({"op": "add", "strokes": [{"id": "bad id"}, stroke("ok")]})
+    assert [s["id"] for s in op["strokes"]] == ["ok"]
+
+
+def test_hub_board_switching(tmp_path):
+    hub = Hub(BoardStore(tmp_path))
+    first = hub.current_id
+    created = hub.create_board()
+    assert hub.current_id == created["id"]
+    assert hub.select_board(first) is True
+    assert hub.select_board(first) is False  # 已经是当前白板
+    assert hub.select_board("ghost") is False
+
+
+def test_hub_saves_dirty_boards(tmp_path):
+    store = BoardStore(tmp_path)
+    hub = Hub(store)
+    hub.board().apply({"op": "add", "strokes": [stroke("a")]})
+    hub.save_all()
+    _, strokes = BoardStore(tmp_path).load_board(hub.current_id)
+    assert [s["id"] for s in strokes] == ["a"]
+
+
+def test_hub_delete_falls_back_to_another_board(tmp_path):
+    hub = Hub(BoardStore(tmp_path))
+    first = hub.current_id
+    hub.create_board()
+    assert hub.delete_board(first)
+    assert hub.current_id != first
+    assert hub.store.get_meta(first) is None
+
+
+def test_rename_loaded_board_survives_autosave(tmp_path):
+    """已经在内存里的白板改名不能直接写文件：自动保存会拿内存里那份覆盖回去。"""
+    store = BoardStore(tmp_path)
+    hub = Hub(store)
+    board_id = hub.current_id
+    runtime = hub.board(board_id)  # 载入内存
+    runtime.apply({"op": "add", "strokes": [stroke("a")]})
+
+    assert hub.rename_board(board_id, "线性代数") is True
+    assert store.get_meta(board_id)["name"] == "线性代数"  # 索引立刻就对
+    hub.save_all()
+    assert BoardStore(tmp_path).load_board(board_id)[0]["name"] == "线性代数"
+
+
+def test_deleting_or_renaming_a_folder_reaches_loaded_boards(tmp_path):
+    """改文件夹要把内存里那几块也改到，否则自动保存会把文件夹写回去。"""
+    store = BoardStore(tmp_path)
+    hub = Hub(store)
+    board_id = hub.current_id
+    hub.board(board_id).apply({"op": "add", "strokes": [stroke("a")]})  # 载入内存
+    hub.move_board(board_id, "数学")
+
+    assert hub.rename_folder("数学", "线性代数") is True
+    assert hub.rename_folder("线性代数", "线性代数") is False
+    hub.save_all()
+    assert BoardStore(tmp_path).load_board(board_id)[0]["folder"] == "线性代数"
+
+    assert hub.delete_folder("线性代数") is True
+    assert hub.store.folders() == []
+    hub.save_all()
+    assert "folder" not in BoardStore(tmp_path).load_board(board_id)[0]
+
+
+def test_moving_a_loaded_board_into_a_folder_survives_autosave(tmp_path):
+    """和改名一样：内存里那块不能直接写文件，否则自动保存会把文件夹覆盖掉。"""
+    store = BoardStore(tmp_path)
+    hub = Hub(store)
+    board_id = hub.current_id
+    hub.board(board_id).apply({"op": "add", "strokes": [stroke("a")]})
+
+    assert hub.move_board(board_id, "数学") is True
+    assert store.get_meta(board_id)["folder"] == "数学"  # 索引立刻就对
+    hub.save_all()
+    assert BoardStore(tmp_path).load_board(board_id)[0]["folder"] == "数学"
+
+    assert hub.move_board(board_id, "") is True
+    hub.save_all()
+    assert "folder" not in BoardStore(tmp_path).load_board(board_id)[0]
+
+
+def test_rename_board_that_is_not_loaded(tmp_path):
+    store = BoardStore(tmp_path)
+    hub = Hub(store)
+    other = store.create_board()
+    assert other["id"] not in hub._boards
+    assert hub.rename_board(other["id"], "第二块") is True
+    assert BoardStore(tmp_path).get_meta(other["id"])["name"] == "第二块"
+    assert hub.rename_board(other["id"], "第二块") is False

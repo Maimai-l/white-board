@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+build/
+dist/
+*.egg-info/
+data/
+ipad/Whiteboard/Assets.xcassets/AppIcon.appiconset/icon.png
+ipad/*.xcodeproj/
+ipad/build/
+packaging/ipad/
