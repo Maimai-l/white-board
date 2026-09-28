@@ -11,3 +11,5 @@ ipad/Whiteboard/Assets.xcassets/AppIcon.appiconset/icon.png
 ipad/*.xcodeproj/
 ipad/build/
 packaging/ipad/
+# 兼容性夹具里的存储目录要进仓库
+!tests/fixtures/compat/data/
