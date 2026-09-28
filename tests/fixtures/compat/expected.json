@@ -1,0 +1,533 @@
+{
+ "boards": {
+  "compatboard01": {
+   "file": {
+    "meta": {
+     "background": "grid",
+     "created": 1700000000.0,
+     "id": "compatboard01",
+     "kind": "board",
+     "name": "大白板",
+     "updated": 1700000100.0
+    },
+    "strokes": [
+     {
+      "color": "#1b1b1f",
+      "dev": "ipad",
+      "id": "s-pen",
+      "n": 0,
+      "p": "AwAAgKQBN56kAYQB/w==",
+      "tool": "pen",
+      "w": 3.0
+     },
+     {
+      "color": "#ff3b30",
+      "dev": "ipad",
+      "id": "s-marker",
+      "n": 1,
+      "p": "A8c+gBkAyAKiAQDAAr4CAA==",
+      "tool": "marker",
+      "w": 8.0
+     },
+     {
+      "color": "#ffcc00",
+      "dev": "mac",
+      "id": "s-hl",
+      "n": 2,
+      "p": "A8AMwAxMgBkATIAZAEw=",
+      "tool": "highlighter",
+      "w": 24.0
+     },
+     {
+      "color": "#1b1b1f",
+      "dev": "ipad",
+      "id": "s-mask",
+      "m": [
+       [
+        6.0,
+        40.0,
+        50.0,
+        60.0,
+        50.0
+       ],
+       [
+        4.5,
+        90.0,
+        45.0,
+        95.0,
+        55.0,
+        100.0,
+        60.0
+       ]
+      ],
+      "n": 3,
+      "p": "BACgBmagBgBmoAYAZqAGAGY=",
+      "tool": "pen",
+      "w": 3.0
+     },
+     {
+      "color": "#1b1b1f",
+      "cut": 1,
+      "dev": "ipad",
+      "id": "s-cut",
+      "n": 4,
+      "p": "AwCACmbgAwBm4AMAZg==",
+      "tool": "pen",
+      "w": 3.0
+     },
+     {
+      "color": "#1b1b1f",
+      "dev": "ipad",
+      "id": "s-big",
+      "n": 5,
+      "p": "A4DUYf/TYQMICPwICIA=",
+      "tool": "pen",
+      "w": 3.0
+     },
+     {
+      "color": "#1b1b1f",
+      "dev": "ipad",
+      "id": "s-order2",
+      "n": 7,
+      "p": "A0BAgBAQgBAQgA==",
+      "tool": "pen",
+      "w": 3.0
+     },
+     {
+      "color": "#1b1b1f",
+      "dev": "ipad",
+      "id": "s-order",
+      "n": 9,
+      "p": "AxAQgBAQgBAQgA==",
+      "tool": "pen",
+      "w": 3.0
+     }
+    ],
+    "v": 1
+   },
+   "meta": {
+    "background": "grid",
+    "created": 1700000000.0,
+    "id": "compatboard01",
+    "kind": "board",
+    "name": "大白板",
+    "updated": 1700000100.0
+   },
+   "strokes": [
+    {
+     "color": "#1b1b1f",
+     "dev": "ipad",
+     "id": "s-pen",
+     "n": 0,
+     "p": [
+      0.0,
+      0.0,
+      0.5019607843137255,
+      10.25,
+      -3.5,
+      0.6196078431372549,
+      20.5,
+      4.75,
+      1.0
+     ],
+     "tool": "pen",
+     "w": 3.0
+    },
+    {
+     "color": "#ff3b30",
+     "dev": "ipad",
+     "id": "s-marker",
+     "n": 1,
+     "p": [
+      -500.5,
+      200.0,
+      0.0,
+      -480.0,
+      210.125,
+      0.0,
+      -460.0,
+      230.0,
+      0.0
+     ],
+     "tool": "marker",
+     "w": 8.0
+    },
+    {
+     "color": "#ffcc00",
+     "dev": "mac",
+     "id": "s-hl",
+     "n": 2,
+     "p": [
+      100.0,
+      100.0,
+      0.2980392156862745,
+      300.0,
+      100.0,
+      0.2980392156862745,
+      500.0,
+      100.0,
+      0.2980392156862745
+     ],
+     "tool": "highlighter",
+     "w": 24.0
+    },
+    {
+     "color": "#1b1b1f",
+     "dev": "ipad",
+     "id": "s-mask",
+     "m": [
+      [
+       6.0,
+       40.0,
+       50.0,
+       60.0,
+       50.0
+      ],
+      [
+       4.5,
+       90.0,
+       45.0,
+       95.0,
+       55.0,
+       100.0,
+       60.0
+      ]
+     ],
+     "n": 3,
+     "p": [
+      0.0,
+      50.0,
+      0.4,
+      50.0,
+      50.0,
+      0.4,
+      100.0,
+      50.0,
+      0.4,
+      150.0,
+      50.0,
+      0.4
+     ],
+     "tool": "pen",
+     "w": 3.0
+    },
+    {
+     "color": "#1b1b1f",
+     "cut": 1,
+     "dev": "ipad",
+     "id": "s-cut",
+     "n": 4,
+     "p": [
+      0.0,
+      80.0,
+      0.4,
+      30.0,
+      80.0,
+      0.4,
+      60.0,
+      80.0,
+      0.4
+     ],
+     "tool": "pen",
+     "w": 3.0
+    },
+    {
+     "color": "#1b1b1f",
+     "dev": "ipad",
+     "id": "s-big",
+     "n": 5,
+     "p": [
+      100000.0,
+      -100000.0,
+      0.011764705882352941,
+      100000.5,
+      -99999.5,
+      0.9882352941176471,
+      100001.0,
+      -99999.0,
+      0.5019607843137255
+     ],
+     "tool": "pen",
+     "w": 3.0
+    },
+    {
+     "color": "#1b1b1f",
+     "dev": "ipad",
+     "id": "s-order2",
+     "n": 7,
+     "p": [
+      4.0,
+      4.0,
+      0.5019607843137255,
+      5.0,
+      5.0,
+      0.5019607843137255,
+      6.0,
+      6.0,
+      0.5019607843137255
+     ],
+     "tool": "pen",
+     "w": 3.0
+    },
+    {
+     "color": "#1b1b1f",
+     "dev": "ipad",
+     "id": "s-order",
+     "n": 9,
+     "p": [
+      1.0,
+      1.0,
+      0.5019607843137255,
+      2.0,
+      2.0,
+      0.5019607843137255,
+      3.0,
+      3.0,
+      0.5019607843137255
+     ],
+     "tool": "pen",
+     "w": 3.0
+    }
+   ]
+  },
+  "compatdoc001": {
+   "file": {
+    "meta": {
+     "background": "blank",
+     "created": 1700000400.0,
+     "doc": {
+      "ext": ".pdf",
+      "name": "讲义.pdf",
+      "pages": [
+       [
+        595.28,
+        841.89
+       ],
+       [
+        595.28,
+        841.89
+       ]
+      ],
+      "type": "pdf"
+     },
+     "folder": "课程",
+     "id": "compatdoc001",
+     "kind": "doc",
+     "name": "讲义",
+     "updated": 1700000500.0
+    },
+    "strokes": [
+     {
+      "color": "#1b1b1f",
+      "dev": "ipad",
+      "id": "d-1",
+      "m": [
+       [
+        3.0,
+        110.0,
+        905.0,
+        130.0,
+        915.0
+       ]
+      ],
+      "n": 0,
+      "p": "A8AMwHCAwAKgAYDAAqABgA==",
+      "tool": "pen",
+      "w": 3.0
+     }
+    ],
+    "v": 1
+   },
+   "meta": {
+    "background": "blank",
+    "created": 1700000400.0,
+    "doc": {
+     "ext": ".pdf",
+     "name": "讲义.pdf",
+     "pages": [
+      [
+       595.28,
+       841.89
+      ],
+      [
+       595.28,
+       841.89
+      ]
+     ],
+     "type": "pdf"
+    },
+    "folder": "课程",
+    "id": "compatdoc001",
+    "kind": "doc",
+    "name": "讲义",
+    "updated": 1700000500.0
+   },
+   "strokes": [
+    {
+     "color": "#1b1b1f",
+     "dev": "ipad",
+     "id": "d-1",
+     "m": [
+      [
+       3.0,
+       110.0,
+       905.0,
+       130.0,
+       915.0
+      ]
+     ],
+     "n": 0,
+     "p": [
+      100.0,
+      900.0,
+      0.5019607843137255,
+      120.0,
+      910.0,
+      0.5019607843137255,
+      140.0,
+      920.0,
+      0.5019607843137255
+     ],
+     "tool": "pen",
+     "w": 3.0
+    }
+   ]
+  },
+  "compatempty1": {
+   "file": {
+    "meta": {
+     "background": "grid",
+     "created": 1700000600.0,
+     "id": "compatempty1",
+     "kind": "board",
+     "name": "空的",
+     "updated": 1700000600.0
+    },
+    "strokes": [],
+    "v": 1
+   },
+   "meta": {
+    "background": "grid",
+    "created": 1700000600.0,
+    "id": "compatempty1",
+    "kind": "board",
+    "name": "空的",
+    "updated": 1700000600.0
+   },
+   "strokes": []
+  },
+  "compatnote01": {
+   "file": {
+    "meta": {
+     "background": "lines",
+     "created": 1700000200.0,
+     "folder": "课程",
+     "id": "compatnote01",
+     "kind": "note",
+     "name": "",
+     "updated": 1700000300.0
+    },
+    "strokes": [
+     {
+      "color": "#1b1b1f",
+      "dev": "ipad",
+      "id": "n-1",
+      "n": 0,
+      "p": "A6ABoAGAoAGgAYCgAaABgA==",
+      "tool": "pen",
+      "w": 3.0
+     }
+    ],
+    "v": 1
+   },
+   "meta": {
+    "background": "lines",
+    "created": 1700000200.0,
+    "folder": "课程",
+    "id": "compatnote01",
+    "kind": "note",
+    "name": "",
+    "updated": 1700000300.0
+   },
+   "strokes": [
+    {
+     "color": "#1b1b1f",
+     "dev": "ipad",
+     "id": "n-1",
+     "n": 0,
+     "p": [
+      10.0,
+      10.0,
+      0.5019607843137255,
+      20.0,
+      20.0,
+      0.5019607843137255,
+      30.0,
+      30.0,
+      0.5019607843137255
+     ],
+     "tool": "pen",
+     "w": 3.0
+    }
+   ]
+  }
+ },
+ "index": {
+  "boards": [
+   {
+    "background": "grid",
+    "created": 1700000600.0,
+    "id": "compatempty1",
+    "kind": "board",
+    "name": "空的",
+    "updated": 1700000600.0
+   },
+   {
+    "background": "blank",
+    "created": 1700000400.0,
+    "doc": {
+     "ext": ".pdf",
+     "name": "讲义.pdf",
+     "pages": [
+      [
+       595.28,
+       841.89
+      ],
+      [
+       595.28,
+       841.89
+      ]
+     ],
+     "type": "pdf"
+    },
+    "folder": "课程",
+    "id": "compatdoc001",
+    "kind": "doc",
+    "name": "讲义",
+    "updated": 1700000500.0
+   },
+   {
+    "background": "lines",
+    "created": 1700000200.0,
+    "folder": "课程",
+    "id": "compatnote01",
+    "kind": "note",
+    "name": "",
+    "updated": 1700000300.0
+   },
+   {
+    "background": "grid",
+    "created": 1700000000.0,
+    "id": "compatboard01",
+    "kind": "board",
+    "name": "大白板",
+    "updated": 1700000100.0
+   }
+  ],
+  "current": "compatboard01",
+  "folders": [
+   "空文件夹",
+   "课程"
+  ]
+ }
+}
