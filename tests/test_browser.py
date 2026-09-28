@@ -1171,6 +1171,40 @@ def test_the_corner_group_gets_out_of_the_pickers_way(browser, server):
     ipad.close()
 
 
+def test_touch_devices_get_no_hover_styling(browser, server):
+    """iPadOS 上点过的元素会一直挂着 :hover，看着像被按住。所有 hover 都关在
+    `@media (hover: hover)` 里，触摸设备不给这套反馈。"""
+    _mac, ipad = open_pages(browser, server.port)
+    ipad.wait_for_selector("#topright")
+    rules = ipad.evaluate(
+        """() => {
+          const bare = [];
+          for (const sheet of document.styleSheets) {
+            let list;
+            try { list = sheet.cssRules; } catch (err) { continue; }
+            for (const rule of list) {
+              if (rule.selectorText && rule.selectorText.includes(':hover')) bare.push(rule.selectorText);
+            }
+          }
+          return bare;
+        }"""
+    )
+    assert rules == [], f"这些 :hover 没有关在 hover 媒体查询里：{rules}"
+
+    # 触摸设备上删除按钮一直显示：没有「划过」这回事，否则删不掉
+    ipad.click('button[title="白板"]')
+    ipad.wait_for_selector(".board-item")
+    ipad.click(".board-card.add")
+    ipad.click('.kind-tile[title^="笔记"]')
+    ipad.wait_for_function("() => whiteboard.state.kind === 'note'")
+    ipad.click('button[title="白板"]')
+    ipad.wait_for_selector(".board-card .del")
+    assert ipad.evaluate(
+        "() => getComputedStyle(document.querySelector('.board-card .del')).display"
+    ) == "flex"
+    ipad.close()
+
+
 def test_the_picker_does_not_float_over_the_board_chooser(browser, server):
     """笔具盘自带 z-index，白板选择界面必须压在它上面，否则一进来它还浮着。"""
     mac, ipad = open_pages(browser, server.port, picker=True)

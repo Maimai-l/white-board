@@ -143,7 +143,16 @@ html, body {
   opacity: 0;
   transition: opacity var(--motion);
 }
-.icon-btn:hover::before { opacity: .07; }
+/*
+ * 所有 :hover 都关在 `@media (hover: hover)` 里。
+ *
+ * iPadOS 上点一下之后，:hover 会赖在刚点过的那个元素上，直到点别的地方才消。
+ * 表现出来就是：关掉设置抽屉，抽屉底下那个导出按钮自己亮着，像是被按住了。
+ * 有鼠标的设备才需要 hover 这套反馈，触摸设备一概不给。
+ */
+@media (hover: hover) {
+  .icon-btn:hover::before { opacity: .07; }
+}
 .icon-btn:active::before { opacity: .14; }
 .icon-btn.active { background: var(--primary-container); color: var(--on-primary-container); }
 .icon-btn.danger { color: var(--error); }
@@ -479,7 +488,9 @@ html, body {
   border: 2px solid transparent; cursor: pointer; padding: 0;
   transition: transform var(--motion), border-color var(--motion);
 }
-.swatch:hover { transform: scale(1.08); }
+@media (hover: hover) {
+  .swatch:hover { transform: scale(1.08); }
+}
 .swatch.active { border-color: var(--primary); transform: scale(1.1); }
 
 .widths { display: flex; align-items: center; gap: 6px; }
@@ -489,7 +500,9 @@ html, body {
   display: flex; align-items: center; justify-content: center;
   transition: background var(--motion);
 }
-.width-opt:hover { background: var(--fill); }
+@media (hover: hover) {
+  .width-opt:hover { background: var(--fill); }
+}
 .width-opt.active { background: var(--primary-container); }
 .width-opt i { display: block; border-radius: 50%; background: var(--on-surface); }
 
@@ -626,7 +639,9 @@ html, body {
   cursor: text;
 }
 .board-name::placeholder { color: var(--on-surface-variant); }
-.board-name:hover { background: var(--fill); }
+@media (hover: hover) {
+  .board-name:hover { background: var(--fill); }
+}
 .board-name:focus {
   background: var(--surface-1);
   box-shadow: 0 0 0 2px var(--primary);
@@ -645,7 +660,9 @@ html, body {
   padding: 0;
   transition: border-color var(--motion), transform var(--motion), box-shadow var(--motion);
 }
-.board-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-2); }
+@media (hover: hover) {
+  .board-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-2); }
+}
 .board-card.active { border-color: var(--primary); }
 .board-card .kind {
   position: absolute;
@@ -667,7 +684,14 @@ html, body {
   background: var(--surface-2); color: var(--on-surface-variant);
   display: none; align-items: center; justify-content: center; cursor: pointer;
 }
-.board-card:hover .del { display: flex; }
+/* 鼠标那边是划过卡片才露出来的。触摸设备没有「划过」这回事，一直显示，
+   否则那块白板没有别的办法删。 */
+@media (hover: hover) {
+  .board-card:hover .del { display: flex; }
+}
+@media (hover: none) {
+  .board-card .del { display: flex; }
+}
 .board-card.add {
   display: flex; align-items: center; justify-content: center;
   background: var(--surface-3); color: var(--on-surface-variant);
@@ -748,7 +772,9 @@ html, body {
   color: var(--on-surface-variant);
   cursor: pointer;
 }
-.board-folder:hover { background: var(--fill); }
+@media (hover: hover) {
+  .board-folder:hover { background: var(--fill); }
+}
 .board-folder.on { color: var(--primary); }
 
 /* 归入文件夹：现成的文件夹一行一个，最下面一行输入新名字 */
@@ -774,7 +800,9 @@ html, body {
   text-align: left;
   cursor: pointer;
 }
-.folder-row:hover { background: var(--fill); }
+@media (hover: hover) {
+  .folder-row:hover { background: var(--fill); }
+}
 .folder-row.active { color: var(--primary); background: var(--primary-container); }
 .folder-row-icon { flex: none; display: flex; color: var(--on-surface-variant); }
 .folder-row.active .folder-row-icon { color: var(--primary); }
@@ -816,10 +844,12 @@ html, body {
   cursor: pointer;
   transition: border-color var(--motion), transform var(--motion), color var(--motion);
 }
-.kind-tile:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-  transform: translateY(-3px);
+@media (hover: hover) {
+  .kind-tile:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    transform: translateY(-3px);
+  }
 }
 
 /* 把 PDF / 图片拖进窗口 */
@@ -841,7 +871,9 @@ body.dropping::after {
   cursor: pointer; padding: 0; overflow: hidden;
   transition: border-color var(--motion), transform var(--motion);
 }
-.bg-opt:hover { transform: translateY(-2px); }
+@media (hover: hover) {
+  .bg-opt:hover { transform: translateY(-2px); }
+}
 .bg-opt.active { border-color: var(--primary); }
 .bg-opt svg { width: 100%; height: 100%; display: block; color: var(--paper-line); }
 
@@ -912,7 +944,9 @@ body.dropping::after {
   font: 500 12.5px/1.3 inherit;
   cursor: pointer;
 }
-.link:hover { text-decoration: underline; }
+@media (hover: hover) {
+  .link:hover { text-decoration: underline; }
+}
 .about-update {
   margin-top: 16px;
   flex-direction: column;
@@ -1064,7 +1098,9 @@ body.dropping::after {
   font: 500 11.5px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .update-notes a { color: var(--primary); text-decoration: none; }
-.update-notes a:hover { text-decoration: underline; }
+@media (hover: hover) {
+  .update-notes a:hover { text-decoration: underline; }
+}
 
 .update-progress {
   height: 4px;
@@ -1100,7 +1136,9 @@ body.dropping::after {
   cursor: pointer;
   transition: background var(--motion), transform var(--motion), opacity var(--motion);
 }
-.btn:hover { background: color-mix(in srgb, var(--fill) 70%, var(--on-surface) 6%); }
+@media (hover: hover) {
+  .btn:hover { background: color-mix(in srgb, var(--fill) 70%, var(--on-surface) 6%); }
+}
 .btn:active { transform: scale(.98); }
 .btn[disabled] { opacity: .5; pointer-events: none; }
 .btn.primary {
@@ -1108,7 +1146,9 @@ body.dropping::after {
   background: var(--primary);
   color: var(--on-primary);
 }
-.btn.primary:hover { filter: brightness(1.06); }
+@media (hover: hover) {
+  .btn.primary:hover { filter: brightness(1.06); }
+}
 
 /* 录制输入：跟着诊断面板一起显示。放左下角——诊断面板占着左上，两条工具栏都在
    下方居中，Mac 的白板列表在右上、缩放在右下，只有这个角是空的 */
