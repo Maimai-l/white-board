@@ -339,19 +339,7 @@ html, body {
   box-shadow: var(--shadow-1);
 }
 
-.beta-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--on-surface-variant);
-  padding: 4px 2px 0;
-  border-top: 1px solid var(--outline);
-  margin-top: 2px;
-  cursor: pointer;
-}
 /* iOS 那种绿色小开关 */
-.beta-row input[type="checkbox"],
 .perm-row input[type="checkbox"],
 .update-auto input[type="checkbox"] {
   appearance: none;
@@ -367,7 +355,6 @@ html, body {
   cursor: pointer;
   transition: background var(--motion);
 }
-.beta-row input[type="checkbox"]::after,
 .perm-row input[type="checkbox"]::after,
 .update-auto input[type="checkbox"]::after {
   content: "";
@@ -381,10 +368,8 @@ html, body {
   box-shadow: 0 2px 5px rgba(0, 0, 0, .22);
   transition: transform var(--motion);
 }
-.beta-row input[type="checkbox"]:checked,
 .perm-row input[type="checkbox"]:checked,
 .update-auto input[type="checkbox"]:checked { background: #34c759; }
-.beta-row input[type="checkbox"]:checked::after,
 .perm-row input[type="checkbox"]:checked::after,
 .update-auto input[type="checkbox"]:checked::after { transform: translateX(18px); }
 

@@ -22,6 +22,11 @@ IPAD_UA = (
     "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
     "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 )
+# 别的触摸设备（安卓平板）：书写、手势和 iPad 一样，工具栏是普通那条
+TABLET_UA = (
+    "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
 
 # 在页面里合成指针事件，可以指定 pointerType，用来验证 Pencil 相关行为。
 FIRE = """
@@ -76,15 +81,19 @@ def server(tmp_path):
 
 
 def open_pages(browser, port, picker=False):
-    """开两个页面。iPad 上笔具盘是默认的，这里默认关掉，让用例明说自己要哪一条。"""
+    """开两个页面：Mac 窗口和一台触摸设备。
+
+    笔具盘只有 iPad 上有。``picker=True`` 时触摸设备是 iPad（工具栏是笔具盘）；
+    默认是一台安卓平板，书写和手势照 iPad 那一套，工具栏是普通那条——大部分用例
+    测的是普通工具栏，要明说自己要哪一条。
+    """
     mac = browser.new_page(viewport={"width": 1200, "height": 800})
     mac.goto(f"http://127.0.0.1:{port}/?role=mac")
     ipad = browser.new_context(
-        viewport={"width": 1180, "height": 820}, user_agent=IPAD_UA, has_touch=True
+        viewport={"width": 1180, "height": 820},
+        user_agent=IPAD_UA if picker else TABLET_UA,
+        has_touch=True,
     ).new_page()
-    ipad.add_init_script(
-        "try { localStorage.setItem('whiteboard.picker', '%s'); } catch (e) {}" % ("1" if picker else "0")
-    )
     ipad.goto(f"http://127.0.0.1:{port}/?role=ipad")
     for page in (mac, ipad):
         page.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
@@ -1777,38 +1786,54 @@ def fling(page, x0, y0, x1, y1, steps=5):
     page.mouse.up()
 
 
-def test_picker_is_the_default_on_touch_devices(browser, server):
-    """笔具盘现在是触摸设备上的默认工具栏；关掉之后记在本机，Mac 一直是普通那条。"""
-    ctx = browser.new_context(
-        viewport={"width": 1180, "height": 820}, user_agent=IPAD_UA, has_touch=True
+def test_picker_is_only_on_ipad(browser, server):
+    """笔具盘只给 iPad；别的设备（Mac 窗口、安卓平板）一律是普通工具栏，两条之间没有开关。"""
+    desktop_ipad_ua = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+        "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
     )
-    ipad = ctx.new_page()
-    ipad.goto(f"http://127.0.0.1:{server.port}/?role=ipad")  # 本机什么都没存过
-    ipad.wait_for_selector("#pk-host .pk-picker", timeout=20000)
-    assert ipad.is_hidden("#toolbar")
+    pages = []
 
-    # 界面上没有换回普通工具栏的入口了；早先关掉过的机器要能回到普通工具栏，
-    # 所以这个开关本身还在，关掉之后的选择要记住
-    ipad.click("#pk-host button[data-act='more']")
-    assert ipad.query_selector("#pk-host .pk-pop [data-wb='leave']") is None
-    ipad.keyboard.press("Escape")
-    ipad.evaluate("() => whiteboard.ui.setPicker(false)")
-    ipad.wait_for_selector("#toolbar", state="visible")
-    ipad.reload()
-    ipad.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
-    ipad.wait_for_selector("#toolbar", state="visible")
-    assert ipad.query_selector("#pk-host") is None
+    def open_as(user_agent, touch, role, legacy_off=False):
+        ctx = browser.new_context(
+            viewport={"width": 1180, "height": 820}, user_agent=user_agent, has_touch=touch
+        )
+        page = ctx.new_page()
+        if legacy_off:
+            # 早先版本里关掉过笔具盘的机器，本机还留着这个记录
+            page.add_init_script("try { localStorage.setItem('whiteboard.picker', '0'); } catch (e) {}")
+        page.goto(f"http://127.0.0.1:{server.port}/?role={role}")
+        page.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+        pages.append(ctx)
+        return page
 
-    # Mac 窗口没有触摸，一直是普通工具栏，连那个开关都不给
-    mac = browser.new_page(viewport={"width": 1200, "height": 800})
-    mac.goto(f"http://127.0.0.1:{server.port}/?role=mac")
-    mac.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
-    assert mac.evaluate("() => whiteboard.ui.picker") is False
-    mac.click('button[title="颜色与粗细"]')
-    assert mac.locator(".popover .beta-row").count() == 0
-    mac.close()
-    ipad.close()
-    ctx.close()
+    # iPad：默认就是笔具盘，以前关掉过的记录不再起作用
+    for ipad in (open_as(IPAD_UA, True, "ipad"), open_as(IPAD_UA, True, "ipad", legacy_off=True)):
+        ipad.wait_for_selector("#pk-host .pk-picker", timeout=20000)
+        assert ipad.is_hidden("#toolbar")
+        ipad.click("#pk-host button[data-act='more']")
+        assert ipad.query_selector("#pk-host .pk-pop [data-wb='leave']") is None
+
+    # iPadOS 的 Safari 默认报桌面版 UA（Macintosh），靠有触摸点认出来
+    desktop_mode = browser.new_context(
+        viewport={"width": 1180, "height": 820}, user_agent=desktop_ipad_ua, has_touch=True
+    )
+    pages.append(desktop_mode)
+    page = desktop_mode.new_page()
+    page.add_init_script("Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5 })")
+    page.goto(f"http://127.0.0.1:{server.port}/?role=ipad")
+    page.wait_for_selector("#pk-host .pk-picker", timeout=20000)
+
+    # 安卓平板和 Mac 窗口：普通工具栏，颜色面板里也没有切换的开关
+    for page in (open_as(TABLET_UA, True, "ipad"), open_as(desktop_ipad_ua, False, "mac")):
+        page.wait_for_selector("#toolbar", state="visible")
+        assert page.evaluate("() => whiteboard.ui.picker") is False
+        assert page.query_selector("#pk-host") is None
+        page.click('button[title="颜色与粗细"]')
+        assert page.locator(".popover input[type=checkbox]").count() == 0
+
+    for ctx in pages:
+        ctx.close()
 
 
 def test_pen_altitude_reads_both_tilt_apis(browser, server):
@@ -2211,7 +2236,7 @@ def test_erase_sends_one_batch_per_frame(browser, server):
 
 
 def test_picker_switches_eraser_mode(browser, server):
-    """笔具盘里橡皮那个面板的「对象 / 像素」二选一，两边是同一个设置。"""
+    """笔具盘里橡皮那个面板的「对象 / 像素」二选一：选了就生效，记在本机。"""
     mac, ipad = open_pages(browser, server.port, picker=True)
     ipad.wait_for_selector("#pk-host .pk-picker")
     ipad.click('#pk-host [data-tool="eraser"]')
@@ -2222,13 +2247,10 @@ def test_picker_switches_eraser_mode(browser, server):
     ipad.click('#pk-host [data-emode="pixel"]')
     ipad.wait_for_function("() => whiteboard.tool.eraserMode === 'pixel'")
 
-    # 换回普通工具栏，那边的二选一要跟着
-    ipad.evaluate("() => whiteboard.ui.setPicker(false)")
-    ipad.wait_for_selector("#toolbar", state="visible")
-    ipad.click('button[title="颜色与粗细"]')
-    assert ipad.evaluate(
-        "() => document.querySelector('.popover .seg button.is-on').textContent"
-    ) == "像素橡皮擦"
+    # 重新打开页面，选择还在
+    ipad.reload()
+    ipad.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    assert ipad.evaluate("() => whiteboard.tool.eraserMode") == "pixel"
     mac.close()
     ipad.close()
 
@@ -2246,9 +2268,7 @@ def test_classic_toolbar_still_shares_one_colour(browser, server):
 
 
 def enable_pk_picker(page):
-    """从颜色面板里打开笔具盘（beta），等 PencilKit 那条工具盘装好。"""
-    page.click('button[title="颜色与粗细"]')
-    page.click(".beta-row input")
+    """等 iPad 上的笔具盘装好（页面要用 open_pages(..., picker=True) 打开）。"""
     page.wait_for_selector("#pk-host .pk-picker", timeout=20000)
     page.wait_for_selector('#pk-host [data-tool="pen"]')
 
@@ -2259,7 +2279,7 @@ def pk_state(page):
 
 def test_pencilkit_picker_drives_the_board(browser, server):
     """笔具盘（beta）：选工具、选颜色、改粗细都落到白板上，画布照常能写。"""
-    mac, ipad = open_pages(browser, server.port)
+    mac, ipad = open_pages(browser, server.port, picker=True)
     enable_pk_picker(ipad)
 
     assert ipad.is_hidden("#toolbar")  # 原来那条收起来了
@@ -2294,7 +2314,7 @@ def test_pencilkit_picker_drives_the_board(browser, server):
 
 def test_pencilkit_picker_undo_and_clear(browser, server):
     """撤销按钮跟着白板的撤销栈亮灭，清屏在更多菜单里。"""
-    mac, ipad = open_pages(browser, server.port)
+    mac, ipad = open_pages(browser, server.port, picker=True)
     enable_pk_picker(ipad)
     undo = "#pk-host button[data-act='undo']"
     assert ipad.is_disabled(undo)
@@ -2322,7 +2342,7 @@ def test_pencilkit_picker_undo_and_clear(browser, server):
 
 def test_pencilkit_picker_docks_and_minimizes(browser, server):
     """拖握把换边，丢进角落缩成圆，点圆展开；位置本身由那份实现自己管。"""
-    _mac, ipad = open_pages(browser, server.port)
+    _mac, ipad = open_pages(browser, server.port, picker=True)
     enable_pk_picker(ipad)
 
     def grip():
@@ -2428,7 +2448,7 @@ def test_keyboard_redo(browser, server):
 
 def test_picker_docks_to_the_top(browser, server):
     """原实现只有下 / 左 / 右，顶部停靠是加的：笔要转过来，面板要往下开。"""
-    _mac, ipad = open_pages(browser, server.port)
+    _mac, ipad = open_pages(browser, server.port, picker=True)
     enable_pk_picker(ipad)
 
     def settle():
@@ -2484,7 +2504,7 @@ def pk_form(page):
 
 def test_picker_expands_while_dragging_to_an_edge(browser, server):
     """在触发区里停够 DOCK_DWELL_MS 就当场展开成那条边的样子，不用等松手；出了触发区立刻变回圆。"""
-    _mac, ipad = open_pages(browser, server.port)
+    _mac, ipad = open_pages(browser, server.port, picker=True)
     enable_pk_picker(ipad)
     ipad.wait_for_timeout(500)
 
@@ -2527,7 +2547,7 @@ def test_picker_expands_while_dragging_to_an_edge(browser, server):
 
 def test_picker_takes_a_tap_right_after_a_drag(browser, server):
     """拖完立刻点就得生效（vendor 是松手后 400ms 内一律吞掉），但轻轻一蹭不能误选工具。"""
-    _mac, ipad = open_pages(browser, server.port)
+    _mac, ipad = open_pages(browser, server.port, picker=True)
     enable_pk_picker(ipad)
     ipad.wait_for_timeout(500)
 
@@ -2585,7 +2605,7 @@ def test_picker_takes_a_tap_right_after_a_drag(browser, server):
 
 def test_picker_fling_carries_past_the_release_point(browser, server):
     """甩出去有惯性：同一个松手点，慢放落到最近的底边，甩出去要按推算的停点落到顶边。"""
-    _mac, ipad = open_pages(browser, server.port)
+    _mac, ipad = open_pages(browser, server.port, picker=True)
     enable_pk_picker(ipad)
     ipad.wait_for_timeout(500)
 
@@ -2617,7 +2637,7 @@ def test_picker_fling_carries_past_the_release_point(browser, server):
 
 def test_picker_only_snaps_to_the_edge_after_release(browser, server):
     """松手才真的贴到边上，拖的过程里它一直跟着手。"""
-    _mac, ipad = open_pages(browser, server.port)
+    _mac, ipad = open_pages(browser, server.port, picker=True)
     enable_pk_picker(ipad)
     ipad.wait_for_timeout(500)
     grip = ipad.evaluate(
@@ -2644,7 +2664,7 @@ def test_picker_only_snaps_to_the_edge_after_release(browser, server):
 
 def test_picker_expands_when_the_pointer_comes_close(browser, server):
     """收进角落之后，指针靠近就展开，不用非得点中那个圆。"""
-    _mac, ipad = open_pages(browser, server.port)
+    _mac, ipad = open_pages(browser, server.port, picker=True)
     enable_pk_picker(ipad)
     ipad.evaluate("() => { const pk = whiteboard.ui.pk; pk.minCorner = 'br';"
                   " pk._setState('minimized'); pk._apply(pk._geom()); }")
