@@ -1377,6 +1377,78 @@ async ([fromSel, toSel, holdMs, steps, dwellMs]) => {
 """
 
 
+SWIPE = """
+async ([sel, dx, dy, steps]) => {
+  const card = document.querySelector(sel);
+  const box = card.getBoundingClientRect();
+  const at = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+  const fire = (type, x, y, node) => node.dispatchEvent(new PointerEvent(type, {
+    clientX: x, clientY: y, pointerId: 12, pointerType: 'touch', isPrimary: true,
+    bubbles: true, cancelable: true,
+  }));
+  fire('pointerdown', at.x, at.y, card);
+  for (let i = 1; i <= steps; i++) {
+    fire('pointermove', at.x + dx * i / steps, at.y + dy * i / steps, window);
+    await new Promise((done) => requestAnimationFrame(done));
+  }
+  await new Promise((done) => setTimeout(done, 60));
+  const lifted = !!document.querySelector('.board-item.lifted');
+  fire('pointerup', at.x + dx, at.y + dy, window);
+  return lifted;
+}
+"""
+
+
+def test_a_sideways_swipe_starts_the_drag_without_waiting(browser, server):
+    """列表竖着滚，所以横着走的手势只可能是想拖：不用按住，立刻起拖。
+    竖着划还是滚列表。"""
+    mac, ipad = open_pages(browser, server.port)
+    ipad.click('button[title="白板"]')
+    ipad.wait_for_selector(".board-card")
+    card = ".board-item[data-board] .board-card"
+
+    # 横着划 120px，全程不到 100ms，远不够按住时长
+    assert ipad.evaluate(SWIPE, [card, 120, 0, 6]) is True
+    ipad.wait_for_function("() => !document.querySelector('.board-item.lifted')")
+
+    # 竖着划同样的距离：这是在滚列表，不能起拖
+    assert ipad.evaluate(SWIPE, [card, 0, 120, 6]) is False
+    mac.close()
+    ipad.close()
+
+
+def test_a_slow_tap_does_not_open_the_board(browser, server):
+    """按住超过起拖时长再松手，卡片只是浮起来又落回去，不能顺手切过去。"""
+    mac, ipad = open_pages(browser, server.port)
+    ipad.click('button[title="白板"]')
+    ipad.wait_for_selector(".board-card")
+    before = ipad.evaluate("() => whiteboard.state.id")
+
+    ipad.evaluate(
+        """async (sel) => {
+          const card = document.querySelector(sel);
+          const box = card.getBoundingClientRect();
+          const x = box.left + box.width / 2;
+          const y = box.top + box.height / 2;
+          const fire = (type, node) => node.dispatchEvent(new PointerEvent(type, {
+            clientX: x, clientY: y, pointerId: 13, pointerType: 'touch', isPrimary: true,
+            bubbles: true, cancelable: true,
+          }));
+          fire('pointerdown', card);
+          await new Promise((done) => setTimeout(done, 400));
+          fire('pointerup', window);
+          // 浏览器补的那一下 click
+          card.dispatchEvent(new MouseEvent('click', { clientX: x, clientY: y, bubbles: true, cancelable: true }));
+        }""",
+        ".board-item[data-board] .board-card",
+    )
+    ipad.wait_for_timeout(300)
+    assert ipad.evaluate("() => whiteboard.state.id") == before
+    assert ipad.query_selector(".gallery") is not None  # 界面也没被关掉
+    mac.close()
+    ipad.close()
+
+
 def test_a_finger_can_drag_a_board_on_a_touch_device(browser, server):
     """iPad 上按住一会儿再拖：手指底下跟着一张副本，松手落在文件夹里。"""
     mac, ipad = open_pages(browser, server.port)

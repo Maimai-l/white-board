@@ -20,8 +20,10 @@
 
 /** 手感参数。改这里之前先在 static/lab/drag.html 上按真机调，调完把数值搬过来。 */
 export const TUNING = {
-  HOLD_MS: 400, // 手指按住多久才开始拖
-  HOLD_SLOP: 10, // 按住期间挪过这个距离就当是在滚列表
+  HOLD_MS: 220, // 手指按住多久就算起拖（手指没怎么动的情况下）
+  HOLD_SLOP: 10, // 按住期间竖着挪过这个距离，当成在滚列表，这一次不拖
+  START_SLOP: 6, // 小于这个距离都算没动，手按在玻璃上总会飘一两个像素
+  SIDEWAYS: 1.2, // 横向位移比纵向大这么多倍就立刻起拖，不用等（见 startCardDrag）
   MOUSE_SLOP: 4, // 鼠标按下之后挪过这个距离就算起拖
   PRESS_SCALE: 0.96, // 按住期间缩到
   LIFT: 1.12, // 拎起来之后放大到
@@ -239,15 +241,30 @@ export function startCardDrag(event, ctx) {
     const s = spring(TUNING.LIFT_RESPONSE, TUNING.LIFT_BOUNCE);
     item.animate([{ scale: String(now) }, { scale: "1" }], { duration: s.ms, easing: s.easing });
   };
+  // 起拖：从手指当下的位置接上，卡片不会跳一下
+  const begin = (from) => {
+    detach();
+    const scale = press ? currentScale(item) : 1;
+    if (press) press.cancel();
+    press = null;
+    drag(ctx, from, event.pointerId, scale);
+  };
   function onMove(move) {
-    const far = Math.hypot(move.clientX - at.x, move.clientY - at.y);
+    const dx = move.clientX - at.x;
+    const dy = move.clientY - at.y;
+    const far = Math.hypot(dx, dy);
     if (mouse) {
-      if (far <= TUNING.MOUSE_SLOP) return;
-      detach();
-      drag(ctx, { x: move.clientX, y: move.clientY }, event.pointerId, 1);
+      if (far > TUNING.MOUSE_SLOP) begin({ x: move.clientX, y: move.clientY });
       return;
     }
-    if (far > TUNING.HOLD_SLOP) giveUp(); // 手指在滚列表，这一次不拖
+    if (far <= TUNING.START_SLOP) return;
+    // 列表是竖着滚的，所以横着走的手势只可能是想拖，不用等按够时间。竖着走的
+    // 交给滚动。两条合起来：横拖立刻走，竖拖按住一下再走，划一下仍然是滚列表。
+    if (Math.abs(dx) > Math.abs(dy) * TUNING.SIDEWAYS) {
+      begin({ x: move.clientX, y: move.clientY });
+    } else if (far > TUNING.HOLD_SLOP) {
+      giveUp();
+    }
   }
   addEventListener("pointermove", onMove);
   addEventListener("pointerup", giveUp);
@@ -260,13 +277,28 @@ export function startCardDrag(event, ctx) {
     easing: "cubic-bezier(.4, 0, .6, 1)",
     fill: "forwards",
   });
-  timer = setTimeout(() => {
-    detach();
-    const from = press ? currentScale(item) : 1;
-    if (press) press.cancel();
-    press = null;
-    drag(ctx, at, event.pointerId, from);
-  }, TUNING.HOLD_MS);
+  timer = setTimeout(() => begin(at), TUNING.HOLD_MS);
+}
+
+/**
+ * 吞掉紧接着这一下的 click。
+ *
+ * 拖完松手，浏览器还会补一个 click。落点和起点在同一张卡片上时（按住没怎么动，
+ * 或者拖出去又拖回来），这个 click 会打在卡片上，于是「拖了一下」变成「切过去了」。
+ * 只吞紧挨着的那一个，400ms 之内没等到就撤掉，免得吃掉后面正常的点击。
+ */
+function swallowNextClick() {
+  const eat = (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    clear();
+  };
+  const clear = () => {
+    clearTimeout(timer);
+    removeEventListener("click", eat, true);
+  };
+  const timer = setTimeout(clear, 400);
+  addEventListener("click", eat, true);
 }
 
 /** 真正开始拖。条目挪到 body 上跟着指针走，格子里留一个隐形空位。 */
@@ -453,6 +485,7 @@ function drag(ctx, at, pointerId, startScale) {
     }
     settle(item, card, anchor, point, moved, restore);
 
+    swallowNextClick();
     if (moved) ctx.onFile(id, folder);
     else if (folder === null && sorted) ctx.onReorder(orderOf(grid, slot, id));
   };

@@ -351,9 +351,11 @@ or folder.
   not the board itself.
 
 **Dragging** works the same with a finger, a Pencil, a mouse or a trackpad. A
-finger or Pencil has to hold the card for 400 ms first, so that a swipe still
-scrolls the list; a mouse starts as soon as it moves a few pixels. The card
-lifts out of the grid and follows the pointer, leaving a gap where it will land.
+mouse starts as soon as it moves a few pixels. A finger or Pencil starts either
+by moving sideways — the list only scrolls vertically, so a sideways move can
+only mean a drag — or by holding the card still for 220 ms; a vertical swipe
+still scrolls. The card lifts out of the grid and follows the pointer, leaving
+a gap where it will land.
 
 - Drop a board on a folder card to file it there. Only the middle of the folder
   counts, so passing over one on the way somewhere else does not catch it.

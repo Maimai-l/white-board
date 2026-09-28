@@ -257,7 +257,7 @@ const PRESETS = {
   "启动台": {
     note: "拖动条目本身，卡片和名称一起移动，原位变成空位。指针停留 180ms 后其他卡片才让位，只有指到文件夹中央 60% 的区域才算放进文件夹。",
     SOLID: 1, REORDER_DELAY: 180, FOLDER_HIT: 0.6,
-    HOLD_MS: 400, HOLD_SLOP: 10, MOUSE_SLOP: 4,
+    HOLD_MS: 220, HOLD_SLOP: 10, START_SLOP: 6, SIDEWAYS: 1.2, MOUSE_SLOP: 4,
     PRESS_SCALE: 0.96, LIFT: 1.12, GHOST_OPACITY: 1, SLOT_OPACITY: 0, FOLDER_SCALE: 1.18,
     USE_SPRING: 1,
     LIFT_RESPONSE: 300, LIFT_BOUNCE: 0.2,
@@ -327,6 +327,9 @@ const PRESETS = {
     EDGE_ZONE: 72, EDGE_SPEED: 16,
   },
 };
+
+// 预设里没写的参数用这里的值。START_SLOP / SIDEWAYS 是后加的，老预设里没有。
+const FALLBACK = { START_SLOP: 6, SIDEWAYS: 1.2 };
 
 const T = {};
 let presetName = "原版";
@@ -499,19 +502,33 @@ function holdToDrag(event, card, boardId) {
     detach();
     release();
   };
+  const begin = (from, why) => {
+    detach();
+    const startScale = press ? currentScale(pressed) : 1;
+    if (press) press.cancel();
+    press = null;
+    log(why);
+    startDrag(item, card, boardId, from, event.pointerId, startScale);
+  };
   const onMove = (move) => {
-    const far = Math.hypot(move.clientX - at.x, move.clientY - at.y);
+    const dx = move.clientX - at.x;
+    const dy = move.clientY - at.y;
+    const far = Math.hypot(dx, dy);
     if (mouse) {
       if (far > T.MOUSE_SLOP) {
-        detach();
-        log("鼠标：挪够 " + Math.round(far) + "px，开始拖");
-        startDrag(item, card, boardId, { x: move.clientX, y: move.clientY }, event.pointerId, 1);
+        begin({ x: move.clientX, y: move.clientY }, "鼠标：挪够 " + Math.round(far) + "px，开始拖");
       }
+      return;
+    }
+    if (far <= T.START_SLOP) return;
+    // 列表竖着滚，所以横着走只可能是想拖，不用等按够时间
+    if (Math.abs(dx) > Math.abs(dy) * T.SIDEWAYS) {
+      begin({ x: move.clientX, y: move.clientY }, "横着走，立刻起拖");
       return;
     }
     if (far > T.HOLD_SLOP) {
       giveUp();
-      log("手指挪了 " + Math.round(far) + "px（超过 " + T.HOLD_SLOP + "），当成滚列表");
+      log("竖着挪了 " + Math.round(far) + "px（超过 " + T.HOLD_SLOP + "），当成滚列表");
     }
   };
   addEventListener("pointermove", onMove);
@@ -525,14 +542,7 @@ function holdToDrag(event, card, boardId) {
       { duration: T.HOLD_MS, easing: "cubic-bezier(.4, 0, .6, 1)", fill: "forwards" }
     );
   }
-  timer = setTimeout(() => {
-    detach();
-    const startScale = press ? currentScale(pressed) : 1;
-    if (press) press.cancel();
-    press = null;
-    log("按住 " + T.HOLD_MS + "ms，开始拖");
-    startDrag(item, card, boardId, at, event.pointerId, startScale);
-  }, T.HOLD_MS);
+  timer = setTimeout(() => begin(at, "按住 " + T.HOLD_MS + "ms，开始拖"), T.HOLD_MS);
 }
 
 /** 条目的缩放中心放在卡片中心，这样名称在卡片下方随卡片一起缩放，卡片本身不偏移。 */
@@ -728,6 +738,7 @@ function startDrag(item, card, boardId, at, pointerId, startScale) {
       pop(target, 1);
     }
     dragging = "";
+    swallowNextClick();
     // 空位可能还在让位动画中，先结束它的动画，才能量到最终位置
     for (const anim of slot.getAnimations()) anim.finish();
 
@@ -784,6 +795,21 @@ function startDrag(item, card, boardId, at, pointerId, startScale) {
   addEventListener("touchmove", block, { passive: false });
   follow();
   hitTest();
+}
+
+/** 拖完松手浏览器还会补一个 click，落点和起点在同一张卡片上时会被当成点击，吞掉它。 */
+function swallowNextClick() {
+  const eat = (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    clear();
+  };
+  const clear = () => {
+    clearTimeout(timer);
+    removeEventListener("click", eat, true);
+  };
+  const timer = setTimeout(clear, 400);
+  addEventListener("click", eat, true);
 }
 
 /** 文件夹卡片悬停时放大，离开时缩回。只作用于文件夹卡片，只在弹簧模式下生效。 */
@@ -890,6 +916,8 @@ const NOTES = {
   FOLDER_HIT: "文件夹命中区比例",
   HOLD_MS: "按住多久开始拖 ms",
   HOLD_SLOP: "等待期间的容差 px",
+  START_SLOP: "起步忽略抖动 px",
+  SIDEWAYS: "横向优势倍数",
   MOUSE_SLOP: "鼠标起拖距离 px",
   PRESS_SCALE: "按住时缩到",
   LIFT: "拎起来放大到",
@@ -910,14 +938,14 @@ const NOTES = {
 };
 const GROUPS = [
   ["方式", ["SOLID", "REORDER_DELAY", "FOLDER_HIT"]],
-  ["起拖", ["HOLD_MS", "HOLD_SLOP", "MOUSE_SLOP"]],
+  ["起拖", ["HOLD_MS", "HOLD_SLOP", "START_SLOP", "SIDEWAYS", "MOUSE_SLOP"]],
   ["外观", ["PRESS_SCALE", "LIFT", "GHOST_OPACITY", "SLOT_OPACITY", "FOLDER_SCALE"]],
   ["弹簧", ["USE_SPRING", "LIFT_RESPONSE", "LIFT_BOUNCE", "FLIP_RESPONSE", "FLIP_BOUNCE", "SETTLE_RESPONSE", "SETTLE_BOUNCE"]],
   ["原版曲线", ["FLIP_MS", "SETTLE_MS"]],
   ["自动滚动", ["EDGE_ZONE", "EDGE_SPEED"]],
 ];
 const STEPS = {
-  FOLDER_HIT: "0.05",
+  FOLDER_HIT: "0.05", SIDEWAYS: "0.1",
   PRESS_SCALE: "0.01", LIFT: "0.01", GHOST_OPACITY: "0.05", SLOT_OPACITY: "0.05",
   FOLDER_SCALE: "0.01", LIFT_BOUNCE: "0.05", FLIP_BOUNCE: "0.05", SETTLE_BOUNCE: "0.05",
 };
@@ -958,8 +986,9 @@ function applyPreset(name) {
   presetName = name;
   const p = PRESETS[name];
   for (const key of Object.keys(NOTES)) {
-    T[key] = p[key];
-    inputs[key].value = p[key];
+    const value = p[key] !== undefined ? p[key] : FALLBACK[key];
+    T[key] = value;
+    inputs[key].value = value;
   }
   for (const button of presetBox.children) button.classList.toggle("on", button.dataset.name === name);
   presetNote.textContent = p.note;
