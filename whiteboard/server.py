@@ -432,7 +432,7 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
             except ValueError:
                 continue
             if isinstance(payload, dict):
-                await session.dispatch(payload)
+                await session.safe_dispatch(payload)
     except asyncio.CancelledError:
         raise
     finally:
@@ -467,6 +467,24 @@ class _Session:
         iPad 上点了却没反应。
         """
         return permission in self.client.allowed
+
+    async def safe_dispatch(self, msg: Dict[str, Any]) -> None:
+        """处理一条消息；出了任何没想到的错只记日志，连接不断。
+
+        op 出错时照样回执：客户端的待发队列存在 IndexedDB 里，收不到回执就会在
+        重连后原样重发。要是这条消息每次都让连接断开，客户端就会一直断、一直重发，
+        刷新页面也出不来。
+        """
+        try:
+            await self.dispatch(msg)
+        except Exception:  # noqa: BLE001 - 一条坏消息不能断开连接
+            log.exception("处理消息出错（%s）：%.200s", self.client_id, json.dumps(msg, default=str))
+            if msg.get("t") == "op" and self.client is not None:
+                try:
+                    seq = self.hub.board().seq
+                except Exception:  # noqa: BLE001 - 出错的可能正是读白板这一步
+                    seq = 0
+                await self.client.send({"t": "ack", "cid": msg.get("cid"), "seq": seq})
 
     async def dispatch(self, msg: Dict[str, Any]) -> None:
         kind = msg.get("t")

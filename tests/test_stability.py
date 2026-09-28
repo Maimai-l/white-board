@@ -110,3 +110,45 @@ def test_infinite_point_does_not_stop_the_board_from_saving(tmp_path):
 def test_malformed_op_is_ignored_without_raising(tmp_path, op):
     hub = Hub(BoardStore(tmp_path))
     assert hub.board().apply(op) is None
+
+
+def test_malformed_message_is_acknowledged_and_keeps_the_connection(tmp_path):
+    """旧代码：分派时抛异常，连接断开、回执没发。客户端的待发队列存在 IndexedDB 里，
+    重连后原样重发，服务端再断——刷新页面也出不来。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            ws = await client.ws_connect("/ws")
+            await hello(ws)
+            await ws.send_json({"t": "op", "cid": "bad", "op": {"op": "add", "strokes": {"id": "x"}}})
+            ack = await ws.receive_json(timeout=5)
+            assert ack == {"t": "ack", "cid": "bad", "seq": app[HUB_KEY].board().seq}
+            # 连接还活着，下一条照常处理
+            await ws.send_json({"t": "op", "cid": "ok", "op": {"op": "add", "strokes": [stroke()]}})
+            ack = await ws.receive_json(timeout=5)
+            assert ack["cid"] == "ok" and ack["op"]["strokes"][0]["id"] == "s1"
+            await ws.close()
+
+    run(main())
+
+
+def test_unexpected_error_in_a_handler_still_acknowledges(tmp_path, monkeypatch):
+    """不管哪一步出了没想到的错，op 都要回执，连接都不能断。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            ws = await client.ws_connect("/ws")
+            await hello(ws)
+
+            def boom(raw):
+                raise RuntimeError("意外")
+
+            monkeypatch.setattr(app[HUB_KEY].board(), "apply", boom)
+            await ws.send_json({"t": "op", "cid": "c1", "op": {"op": "add", "strokes": [stroke()]}})
+            ack = await ws.receive_json(timeout=5)
+            assert ack["t"] == "ack" and ack["cid"] == "c1"
+            await ws.send_json({"t": "ping", "ts": 1})
+            assert (await ws.receive_json(timeout=5))["t"] == "pong"
+            await ws.close()
+
+    run(main())
