@@ -28,6 +28,11 @@ OPS_HISTORY = 4000
 AUTOSAVE_INTERVAL = 3.0
 
 
+def _list(value: Any) -> List[Any]:
+    """线上数据里本该是列表的字段：不是列表就当空的，不能让切片或遍历抛错。"""
+    return value if isinstance(value, list) else []
+
+
 class BoardRuntime:
     """一块白板在内存中的状态。"""
 
@@ -72,7 +77,7 @@ class BoardRuntime:
         if kind in ("add", "restore"):
             keep_order = kind == "restore"
             accepted: List[Dict[str, Any]] = []
-            for item in raw.get("strokes", [])[:2000]:
+            for item in _list(raw.get("strokes"))[:2000]:
                 stroke = models.sanitize_stroke(item)
                 if stroke is None or stroke["id"] in self.strokes:
                     continue  # 重复 id 直接忽略，重连重发时不会画两遍
@@ -93,10 +98,10 @@ class BoardRuntime:
             # 遮罩发的是全量而不是增量：遮罩本来就小，全量在断线重连、乱序到达
             # 的情况下都不会错，不用管顺序。
             changed: List[Dict[str, Any]] = []
-            for item in raw.get("masks", [])[:2000]:
-                if not isinstance(item, dict):
+            for item in _list(raw.get("masks"))[:2000]:
+                if not isinstance(item, dict) or not isinstance(item.get("id"), str):
                     continue
-                stroke = self.strokes.get(item.get("id"))
+                stroke = self.strokes.get(item["id"])
                 if stroke is None:
                     continue
                 mask = models.sanitize_mask(item.get("m"))
