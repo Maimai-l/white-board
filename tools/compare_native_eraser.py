@@ -13,7 +13,7 @@
 2. 原生的 mask 只是个裁剪区域，它在墨迹之外长什么样对 PencilKit 没有影响，
    所以洞可以伸到墨迹外面。直接拿洞比会把墨迹外那部分也算成「原生擦掉了」，
    实测能占到四成。两边都要先和真实墨迹求交。
-3. 墨迹区域只能从 interpolatedPoints 加逐点宽度重建，不能用 mask 的外轮廓
+3. 墨迹区域只能从 points 加逐点宽度重建，不能用 mask 的外轮廓
    代替。重建出来比导出的透明底图瘦约 13%，这个偏差两边同样承受。
 4. 那 13% 不是均匀铺开的，是堆在笔画调头的地方。marker 的落笔是个 50×100 的
    扁头，这里按半径 50 的圆去铺，笔画原地掉头时就会在外侧多出一块半圆，而真实
@@ -22,7 +22,7 @@
    里：走廊外面两边都不可能擦到，那里的差异只能是重建误差。
 
 原生的洞 = PencilKit 像素橡皮实际擦掉的形状。
-我们的印记 = 按 input.json 的原始触摸重放一遍，用 input.js 的 ERASER_CURVE 算半径、
+我们的印记 = 按 input.json 的原始触摸重放一遍，用 input-erase.js 的 ERASER_CURVE 算半径、
 沿采样点扫出胶囊链。两边都画到 renderRect 上，scale 相同。
 """
 import json, math, os, re, sys
@@ -30,11 +30,11 @@ from PIL import Image, ImageChops, ImageDraw
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "sessions"
 JS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                  "..", "whiteboard", "web", "static", "js", "input.js")
+                  "..", "whiteboard", "web", "static", "js", "input-erase.js")
 
 
 def our_curve():
-    """直接从 input.js 里读 ERASER_CURVE，免得分析脚本和线上实现悄悄跑偏。"""
+    """直接从 input-erase.js 里读 ERASER_CURVE，免得分析脚本和线上实现悄悄跑偏。"""
     src = open(JS).read()
     body = re.search(r"const ERASER_CURVE = \[(.*?)\n\];", src, re.S).group(1)
     pts = [(float(a), float(b)) for a, b in re.findall(r"\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]", body)]
@@ -158,7 +158,7 @@ def render_corridor(sequences, rect, scale, k=CORRIDOR):
 
 
 def render_ink_region(strokes, rect, scale):
-    """原生墨迹本身占的区域，从 interpolatedPoints 加逐点宽度画出来。
+    """原生墨迹本身占的区域，从 points 加逐点宽度画出来。
 
     不能用 mask 的外轮廓代替：mask 只是个裁剪区域，它在墨迹之外长什么样对
     PencilKit 没有影响，所以洞可以伸到墨迹外面去。拿原始的洞去比，等于把墨迹外
