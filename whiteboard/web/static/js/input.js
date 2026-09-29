@@ -9,7 +9,7 @@
 // 所有笔迹先落在本地画布上，再通过网络发出去，本地书写不等待任何回包。
 
 import { clearStrokeCache, TOOLS, pressureForFactor } from "./stroke.js";
-import { clamp } from "./util.js";
+import { clamp, isTextField } from "./util.js";
 import { installShellFallback } from "./shell-fallback.js";
 import { installErase } from "./input-erase.js";
 import { installGesture } from "./input-gesture.js";
@@ -334,7 +334,8 @@ export class InputController {
     addEventListener("scroll", invalidate, true);
     if (window.visualViewport) visualViewport.addEventListener("resize", invalidate);
     addEventListener("keydown", (e) => {
-      if (e.code === "Space") this.spaceHeld = true;
+      // 在输入框里打的空格是字，不是「按住空格拖动画布」
+      if (e.code === "Space" && !isTextField(e.target)) this.spaceHeld = true;
     });
     addEventListener("keyup", (e) => {
       if (e.code === "Space") this.spaceHeld = false;
