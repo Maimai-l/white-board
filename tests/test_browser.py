@@ -4443,6 +4443,8 @@ def test_picker_redo_and_the_more_menu_switches(browser, server):
     ipad.click("#pk-host button[data-act='more']")
     ipad.click("#pk-host .pk-pop [data-toggle='fingerDraws']")
     ipad.wait_for_function("() => whiteboard.input.fingerDraw === true")
+    # 抬笔后 0.5 秒内手指一律当手掌不理（手掌屏蔽），等这个窗口过去再用手指写
+    ipad.wait_for_function("() => !whiteboard.input.penActive()")
     draw(ipad, [(300, 520), (380, 560), (460, 520)], pointer_type="touch", pointer_id=5)
     wait_strokes(mac, 2)
 
