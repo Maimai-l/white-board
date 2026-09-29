@@ -59,4 +59,8 @@ jobs:
           or test_picker_is_only_on_ipad or test_pencilkit_picker_drives_the_board
           or test_undo_and_redo_round_trip or test_bite_syncs_and_undoes
           or test_a_board_that_cannot_be_read_opens_read_only_until_unlocked
-          or test_text_fields_can_take_typing_on_the_ipad"
+          or test_text_fields_can_take_typing_on_the_ipad
+          or test_tapping_a_card_opens_that_board
+          or test_a_board_can_be_renamed_by_typing_on_the_ipad
+          or test_a_board_can_be_filed_and_unfiled_from_the_folder_dialog_on_the_ipad
+          or test_shortcuts_do_not_reach_the_board_while_typing"

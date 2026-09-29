@@ -4227,3 +4227,328 @@ def test_enter_that_picks_an_ime_candidate_does_not_commit_the_name(browser, ser
     assert mac.evaluate(COMPOSING_ENTER, ".folder-new") is True
     assert mac.query_selector(".dialog.folders") is not None
     assert mac.evaluate("() => whiteboard.ui.folders") == []
+
+
+# ---------------------------------------- 白板选择界面：在 iPad 上照用户的做法操作
+#
+# 这一组在 iPad 页面上用 tap（真的触摸事件，要经过 input.js 的触摸拦截）和键盘输入，
+# 不用鼠标 click，也不用 fill() 直接塞值。
+
+
+def ipad_with_two_boards(browser, server):
+    """Mac 上新建一块笔记，于是一共两块白板；iPad 打开白板选择界面。"""
+    mac, ipad = open_pages(browser, server.port, picker=True)
+    first = mac.evaluate("() => whiteboard.state.id")
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title^="笔记"]')
+    mac.wait_for_function("() => whiteboard.state.kind === 'note'")
+    second = mac.evaluate("() => whiteboard.state.id")
+    ipad.wait_for_function(f"() => whiteboard.state.id === '{second}'")
+    ipad.wait_for_selector("#pk-host .pk-picker", timeout=20000)
+    ipad.tap('button[title="白板"]')
+    ipad.wait_for_selector(f'.board-item[data-board="{first}"]')
+    return mac, ipad, first, second
+
+
+def test_tapping_a_card_opens_that_board(browser, server):
+    mac, ipad, first, _second = ipad_with_two_boards(browser, server)
+    ipad.tap(f'.board-item[data-board="{first}"] .board-card')
+    for page in (ipad, mac):
+        page.wait_for_function(f"() => whiteboard.state.id === '{first}'")
+    assert ipad.query_selector(".gallery") is None
+
+
+def test_a_board_can_be_renamed_by_typing_on_the_ipad(browser, server):
+    mac, ipad, first, _second = ipad_with_two_boards(browser, server)
+    field = f'.board-name[data-focus-key="name:{first}"]'
+    ipad.tap(field)
+    ipad.keyboard.type("线性代数")
+    ipad.keyboard.press("Enter")
+    for page in (ipad, mac):
+        page.wait_for_function(f"() => whiteboard.ui.boards.find(b => b.id === '{first}').name === '线性代数'")
+
+
+def test_a_board_can_be_filed_and_unfiled_from_the_folder_dialog_on_the_ipad(browser, server):
+    """点名字旁边的文件夹按钮，在「新文件夹」里打字新建并归进去；再选「不归类」移出来。"""
+    mac, ipad, first, _second = ipad_with_two_boards(browser, server)
+    ipad.tap(f'.board-item[data-board="{first}"] .board-folder')
+    ipad.wait_for_selector(".folder-new")
+    style = ipad.evaluate("() => { const s = getComputedStyle(document.querySelector('.folder-new')); return s.webkitUserSelect || s.userSelect; }")
+    assert style != "none", "iPad 上这个输入框会打不了字"
+    ipad.tap(".folder-new")
+    ipad.keyboard.type("数学")
+    ipad.keyboard.press("Enter")
+    for page in (ipad, mac):
+        page.wait_for_function(f"() => whiteboard.ui.boards.find(b => b.id === '{first}').folder === '数学'")
+
+    # 归进去之后白板在文件夹里：进文件夹，再从同一个对话框里移出来
+    ipad.wait_for_selector(".board-card.folder")
+    ipad.tap(".board-card.folder")
+    ipad.wait_for_selector(f'.board-item[data-board="{first}"] .board-folder')
+    ipad.tap(f'.board-item[data-board="{first}"] .board-folder')
+    ipad.tap('.folder-row:has-text("不归类")')
+    for page in (ipad, mac):
+        page.wait_for_function(f"() => !whiteboard.ui.boards.find(b => b.id === '{first}').folder")
+
+
+def test_a_folder_can_be_renamed_by_typing_on_the_ipad(browser, server):
+    mac, ipad, first, _second = ipad_with_two_boards(browser, server)
+    ipad.tap(f'.board-item[data-board="{first}"] .board-folder')
+    ipad.tap(".folder-new")
+    ipad.keyboard.type("数学")
+    ipad.keyboard.press("Enter")
+    ipad.wait_for_selector('.board-name.folder[data-focus-key="folder:数学"]')
+    ipad.tap('.board-name.folder[data-focus-key="folder:数学"]')
+    ipad.keyboard.press("Control+a")
+    ipad.keyboard.type("线性代数")
+    ipad.keyboard.press("Enter")
+    for page in (ipad, mac):
+        page.wait_for_function("() => whiteboard.ui.folders.includes('线性代数') && !whiteboard.ui.folders.includes('数学')")
+        page.wait_for_function(f"() => whiteboard.ui.boards.find(b => b.id === '{first}').folder === '线性代数'")
+
+
+def test_a_board_can_be_deleted_from_the_ipad(browser, server):
+    """点卡片上的删除，确认之后两边都没有这块白板了，当前白板仍然有效。"""
+    mac, ipad, first, second = ipad_with_two_boards(browser, server)
+    ipad.tap(f'.board-item[data-board="{first}"] .del')
+    ipad.wait_for_selector(".dialog.ask")
+    ipad.tap('.dialog.ask button[title="确定"]')
+    for page in (ipad, mac):
+        page.wait_for_function(f"() => !whiteboard.ui.boards.some(b => b.id === '{first}')")
+        page.wait_for_function(f"() => whiteboard.state.id === '{second}'")
+    assert thread_boards(server) == [second]
+
+
+def thread_boards(server):
+    return [meta["id"] for meta in server.hub.store.list_metas()]
+
+
+# ------------------------------------------------ 工具栏、设置、导出、缩放、平移
+
+
+def test_classic_toolbar_width_changes_the_pen(browser, server):
+    _mac, ipad = open_pages(browser, server.port)
+    before = ipad.evaluate("() => whiteboard.tool.width")
+    ipad.click('button[title="颜色与粗细"]')
+    options = ipad.query_selector_all(".popover .width-opt")
+    assert len(options) >= 2
+    target = next(o for o in options if "active" not in (o.get_attribute("class") or ""))
+    target.click()
+    after = ipad.evaluate("() => whiteboard.tool.width")
+    assert after != before
+    draw(ipad, [(300, 300), (380, 340), (460, 300)])
+    wait_strokes(ipad, 1)
+    assert ipad.evaluate("() => whiteboard.state.strokes[0].w") > 0
+
+
+def test_background_can_be_changed_from_the_ipad(browser, server):
+    mac, ipad = open_pages(browser, server.port, picker=True)
+    ipad.wait_for_selector("#pk-host .pk-picker", timeout=20000)
+    ipad.tap('button[title="白板设置"]')
+    ipad.tap('.bg-opt[title="dots"]')
+    for page in (ipad, mac):
+        page.wait_for_function("() => whiteboard.state.meta.background === 'dots'")
+
+
+def test_the_export_button_downloads_a_png(browser, server):
+    mac, _ipad = open_pages(browser, server.port)
+    draw(mac, [(200, 200), (300, 260)], pointer_type="mouse")
+    wait_strokes(mac, 1)
+    with mac.expect_download() as info:
+        mac.click('button[title="导出 PNG"]')
+    download = info.value
+    assert download.suggested_filename.endswith(".png")
+    with open(download.path(), "rb") as handle:
+        assert handle.read(8) == b"\x89PNG\r\n\x1a\n"
+
+
+def test_zoom_buttons_and_shortcuts(browser, server):
+    mac, _ipad = open_pages(browser, server.port)
+    draw(mac, [(200, 200), (300, 260)], pointer_type="mouse")
+    wait_strokes(mac, 1)
+    scale = "() => whiteboard.viewport.scale"
+    start = mac.evaluate(scale)
+    mac.click('button[title="放大"]')
+    bigger = mac.evaluate(scale)
+    assert bigger > start
+    mac.click('button[title="缩小"]')
+    assert mac.evaluate(scale) < bigger
+    before_key = mac.evaluate(scale)
+    mac.keyboard.press("Control+=")
+    zoomed = mac.evaluate(scale)
+    assert zoomed > before_key
+    mac.keyboard.press("Control+-")
+    assert mac.evaluate(scale) < zoomed
+    mac.keyboard.press("Control+=")
+    mac.keyboard.press("Control+=")
+    mac.keyboard.press("Control+0")  # 适应内容：回到把笔迹放进窗口的那个比例
+    fitted = mac.evaluate(scale)
+    mac.click('button[title="放大"]')
+    mac.click('button[title="回到内容"]')
+    assert abs(mac.evaluate(scale) - fitted) < 1e-6
+
+    # ⌘Y 重做
+    mac.keyboard.press("Control+z")
+    wait_strokes(mac, 0)
+    mac.keyboard.press("Control+y")
+    wait_strokes(mac, 1)
+
+
+def test_mac_pans_with_the_middle_button_space_and_the_wheel(browser, server):
+    mac, _ipad = open_pages(browser, server.port)
+    where = "() => [whiteboard.viewport.x, whiteboard.viewport.y]"
+
+    def drag(button="left"):
+        mac.mouse.move(400, 400)
+        mac.mouse.down(button=button)
+        for i in range(1, 6):
+            mac.mouse.move(400 + i * 20, 400 + i * 10)
+        mac.mouse.up(button=button)
+
+    before = mac.evaluate(where)
+    drag("middle")
+    after_middle = mac.evaluate(where)
+    assert after_middle != before
+
+    mac.keyboard.down(" ")
+    drag("left")
+    mac.keyboard.up(" ")
+    after_space = mac.evaluate(where)
+    assert after_space != after_middle
+
+    mac.mouse.move(500, 500)
+    mac.mouse.wheel(0, 120)
+    mac.wait_for_function(f"(was) => JSON.stringify(({where})()) !== JSON.stringify(was)", arg=after_space)
+    assert stroke_count(mac) == 0  # 上面这些都只是平移，一笔都没画
+
+
+def test_picker_redo_and_the_more_menu_switches(browser, server):
+    """笔具盘：撤销之后重做；「更多」里的用手指绘图和自动最小化都真的起作用。"""
+    mac, ipad = open_pages(browser, server.port, picker=True)
+    enable_pk_picker(ipad)
+    undo = "#pk-host button[data-act='undo']"
+    redo = "#pk-host button[data-act='redo']"
+    draw(ipad, [(320, 320), (400, 360), (480, 320)])
+    wait_strokes(mac, 1)
+    ipad.wait_for_function(f"() => !document.querySelector(\"{undo}\").disabled")
+    ipad.click(undo)
+    wait_strokes(mac, 0)
+    ipad.wait_for_function(f"() => !document.querySelector(\"{redo}\").disabled")
+    ipad.click(redo)
+    wait_strokes(mac, 1)
+
+    # 用手指绘图：打开之后手指落笔就是画线
+    assert ipad.evaluate("() => whiteboard.input.fingerDraw") is False
+    ipad.click("#pk-host button[data-act='more']")
+    ipad.click("#pk-host .pk-pop [data-toggle='fingerDraws']")
+    ipad.wait_for_function("() => whiteboard.input.fingerDraw === true")
+    draw(ipad, [(300, 520), (380, 560), (460, 520)], pointer_type="touch", pointer_id=5)
+    wait_strokes(mac, 2)
+
+    # 自动最小化：打开之后一落笔工具盘就收起来
+    ipad.keyboard.press("Escape")
+    ipad.wait_for_timeout(500)  # vendor 会吞掉紧接着的点击
+    ipad.click("#pk-host button[data-act='more']")
+    ipad.click("#pk-host .pk-pop [data-toggle='autoMin']")
+    ipad.keyboard.press("Escape")
+    draw(ipad, [(300, 620), (380, 660)])
+    ipad.wait_for_function("() => whiteboard.ui.pk.state === 'minimized'")
+
+
+# ------------------------------------------------------ 只读白板的几种情况
+
+
+def serve_locked(tmp_path, content):
+    """起一个服务端，当前那块白板的文件换成 content 的内容。"""
+    from whiteboard.store import BoardStore
+
+    config = Config(path=tmp_path / "config.json")
+    config.data_dir = tmp_path / "data"
+    config.port = free_port()
+    store = BoardStore(config.data_dir)
+    path = store.boards_dir / f"{store.current_id}.wbz"
+    path.write_bytes(content(path))
+    thread = ServerThread(config, advertise=False)
+    thread.start()
+    return thread, path
+
+
+def newer_version(path):
+    import json
+    import zlib
+
+    payload = json.loads(zlib.decompress(path.read_bytes()))
+    payload["v"] = 99
+    return zlib.compress(json.dumps(payload).encode("utf-8"))
+
+
+def test_keep_read_only_really_keeps_it_read_only(browser, tmp_path):
+    thread, path = serve_locked(tmp_path, lambda _p: b"damaged")
+    try:
+        mac, _ipad = open_pages(browser, thread.port)
+        mac.wait_for_selector(".dialog.locked")
+        mac.click('.dialog.locked button[title="保持只读"]')
+        assert mac.query_selector(".dialog.locked") is None
+        draw(mac, [(300, 300), (380, 340)], pointer_type="mouse")
+        assert stroke_count(mac) == 0
+        assert thread.hub.board().locked
+        assert path.read_bytes() == b"damaged"
+    finally:
+        thread.stop()
+
+
+def test_a_board_from_a_newer_version_says_so(browser, tmp_path):
+    thread, path = serve_locked(tmp_path, newer_version)
+    try:
+        mac, _ipad = open_pages(browser, thread.port)
+        mac.wait_for_selector(".dialog.locked")
+        text = mac.inner_text(".dialog.locked")
+        assert "更新版本" in text
+        assert mac.evaluate("() => whiteboard.locked.reason") == "newer"
+    finally:
+        thread.stop()
+
+
+def test_a_device_without_manage_cannot_unlock(browser, tmp_path):
+    """没有「管理白板」权限的设备只看得到说明，没有「仍然编辑」。"""
+    thread, _path = serve_locked(tmp_path, lambda _p: b"damaged")
+    try:
+        _mac, ipad = open_pages(browser, thread.port)
+        serve_with_perms(ipad, "clear export settings")
+        ipad.wait_for_selector(".dialog.locked")
+        assert ipad.query_selector(".dialog.locked button.danger") is None
+        assert "需要在 Mac 上决定" in ipad.inner_text(".dialog.locked")
+    finally:
+        thread.stop()
+
+
+def test_two_fingers_pinch_and_pan_on_a_touch_device(browser, server):
+    """两根手指分开是放大、一起挪是平移，都不留笔迹。"""
+    _mac, ipad = open_pages(browser, server.port)
+    scale = "() => whiteboard.viewport.scale"
+    where = "() => [whiteboard.viewport.x, whiteboard.viewport.y]"
+    start = ipad.evaluate(scale)
+
+    def fingers(steps):
+        (a0, b0) = steps[0]
+        ipad.evaluate(FIRE, ["pointerdown", *a0, "touch", 21, 0.5])
+        ipad.evaluate(FIRE, ["pointerdown", *b0, "touch", 22, 0.5])
+        for a, b in steps[1:]:
+            ipad.evaluate(FIRE, ["pointermove", *a, "touch", 21, 0.5])
+            ipad.evaluate(FIRE, ["pointermove", *b, "touch", 22, 0.5])
+        a, b = steps[-1]
+        ipad.evaluate(FIRE, ["pointerup", *a, "touch", 21, 0])
+        ipad.evaluate(FIRE, ["pointerup", *b, "touch", 22, 0])
+
+    # 分开：放大
+    fingers([((500 - d, 400), (600 + d, 400)) for d in range(0, 121, 20)])
+    zoomed = ipad.evaluate(scale)
+    assert zoomed > start * 1.3
+
+    # 一起往右下挪：平移，比例不变
+    before = ipad.evaluate(where)
+    fingers([((400 + d, 400 + d), (500 + d, 400 + d)) for d in range(0, 101, 20)])
+    assert ipad.evaluate(where) != before
+    assert abs(ipad.evaluate(scale) - zoomed) < zoomed * 0.05
+    assert stroke_count(ipad) == 0
