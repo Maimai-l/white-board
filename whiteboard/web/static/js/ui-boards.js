@@ -44,6 +44,8 @@ const methods = {
   },
 
   closeGallery() {
+    // 正在起名的新文件夹，关界面就按当前输入的名字建好（和点别处一样）
+    if (!this.rerendering && this.folderDraft && this.folderDraft.commit) this.folderDraft.commit();
     if (this.gallery) {
       this.gallery.remove();
       this.gallery = null;
@@ -69,8 +71,11 @@ const methods = {
     const focusKey = inside ? active.dataset.focusKey : null;
     const caret = focusKey && active.setSelectionRange ? [active.selectionStart, active.selectionEnd] : null;
 
+    // 重建会把正在编辑的新文件夹名字框从页面上拿掉；这不是「改完了」，别让 blur 提交
+    this.rerendering = true;
     this.closeGallery();
     this.closeSheet();
+    this.rerendering = false;
 
     const search = el("input", {
       class: "board-search",
@@ -123,6 +128,16 @@ const methods = {
     if (caret && back.setSelectionRange) back.setSelectionRange(caret[0], caret[1]);
   },
 
+  /**
+   * 拖进窗口的 PDF / 图片落在哪个文件夹：选择界面开着就是正在看的那一层，
+   * 关着就是当前白板所在的文件夹（下次打开选择界面停的也是那一层）。
+   */
+  dropFolder(currentId) {
+    if (this.gallery) return this.openFolder;
+    const current = this.boards.find((board) => board.id === currentId);
+    return (current && current.folder) || "";
+  },
+
   /** 现有的文件夹名，按名字排序。空文件夹也在里面，所以名单是服务端给的。 */
   folderNames() {
     return [...this.folders].sort((a, b) => a.localeCompare(b, "zh"));
@@ -160,6 +175,7 @@ const methods = {
       return;
     }
     if (!this.openFolder) {
+      if (this.folderDraft) grid.append(this.folderDraftItem());
       for (const name of this.folderNames()) grid.append(this.folderItem(name));
     }
     for (const board of this.boards) {
@@ -220,6 +236,73 @@ const methods = {
       ]
     );
     return el("div", { class: "board-item" }, [card, el("div", { class: "board-meta" }, [this.folderName(name)])]);
+  },
+
+  /**
+   * 新建文件夹：先在格子最前面放一块还没建的文件夹，名字框直接进入编辑、全选默认名，
+   * 和访达一样。按回车、点别处或关掉界面时才真正建；按 Esc 用默认名建。
+   * 必须在点按的那一刻同步聚焦，iPad 才会弹出键盘。
+   */
+  startFolderDraft() {
+    this.boardQuery = "";
+    this.folderDraft = { value: this.freeFolderName() };
+    this.fillBoardGrid();
+    const input = this.boardGrid && this.boardGrid.querySelector('[data-focus-key="folder-draft"]');
+    if (!input) return;
+    input.focus();
+    input.select();
+  },
+
+  folderDraftItem() {
+    const draft = this.folderDraft;
+    const fallback = this.freeFolderName();
+    const commit = ({ keepEditing = false } = {}) => {
+      if (this.rerendering || this.folderDraft !== draft) return true;
+      let name = input.value.trim() || fallback;
+      if (this.folders.includes(name)) {
+        this.message("已经有同名的文件夹了", "close", 4000);
+        if (keepEditing) {
+          input.select();
+          return false;
+        }
+        name = fallback;
+      }
+      this.folderDraft = null;
+      input.readOnly = true; // 等服务端广播新名单后，这一块会换成正式的文件夹
+      this.actions.onNewFolder(name);
+      return true;
+    };
+    const input = el("input", {
+      class: "board-name folder",
+      type: "text",
+      value: draft.value,
+      title: "文件夹名称",
+      spellcheck: "false",
+      maxlength: "64",
+      "data-focus-key": "folder-draft",
+      oninput: () => {
+        draft.value = input.value;
+      },
+      onkeydown: (event) => {
+        if (isComposing(event)) return; // 输入法选词的回车不是「改完了」
+        if (event.key === "Enter") {
+          event.preventDefault();
+          if (commit({ keepEditing: true })) input.blur();
+        } else if (event.key === "Escape") {
+          event.stopPropagation();
+          input.value = fallback;
+          commit();
+          input.blur();
+        }
+      },
+      onblur: () => commit(),
+    });
+    draft.commit = commit;
+    const card = el("div", { class: "board-card folder" }, [
+      el("span", { class: "folder-card-icon", html: icon("folder", 56) }),
+      el("span", { class: "folder-card-count", text: "0" }),
+    ]);
+    return el("div", { class: "board-item" }, [card, el("div", { class: "board-meta" }, [input])]);
   },
 
   /** 文件夹的名字就是它的身份，改名等于把里面每块白板上记的名字一起改掉。 */
@@ -496,7 +579,7 @@ const methods = {
           title: "新建文件夹",
           onclick: () => {
             scrim.remove();
-            this.actions.onNewFolder(this.freeFolderName());
+            this.startFolderDraft();
           },
         })
       );
