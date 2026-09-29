@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""从 CHANGELOG.md 里取出某个版本的那一节，写到 stdout（发 Release 时用）。
+"""从 CHANGELOG.zh-CN.md 里取出某个版本的那一节，写到 stdout（发 Release 时用）。
+
+应用界面是中文，更新对话框显示的是 Release 说明，所以取中文版。
 
     python packaging/release_notes.py 1.0.0-rc.1
 
@@ -13,7 +15,7 @@ import re
 import sys
 from pathlib import Path
 
-CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
+CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.zh-CN.md"
 
 
 def section(text: str, version: str) -> str | None:
@@ -37,7 +39,7 @@ def main(argv: list[str]) -> int:
     text = CHANGELOG.read_text("utf-8") if CHANGELOG.exists() else ""
     notes = section(text, version) or section(text, version.split("-", 1)[0])
     if not notes or not notes.strip():
-        print(f"CHANGELOG.md 里没有 {version} 这一节", file=sys.stderr)
+        print(f"{CHANGELOG.name} 里没有 {version} 这一节", file=sys.stderr)
         return 1
     sys.stdout.write(notes)
     return 0

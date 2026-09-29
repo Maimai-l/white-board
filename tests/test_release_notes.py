@@ -1,4 +1,4 @@
-"""发 Release 时从 CHANGELOG.md 取更新说明。"""
+"""发 Release 时从 CHANGELOG.zh-CN.md 取更新说明。"""
 
 import importlib.util
 from pathlib import Path
@@ -38,14 +38,15 @@ def test_a_prerelease_uses_its_release_section(capsys, monkeypatch, tmp_path):
 
 
 def test_every_bullet_in_the_changelog_is_one_line():
-    """更新对话框按行显示，续行会变成另起一段。"""
-    for line in (ROOT / "CHANGELOG.md").read_text("utf-8").splitlines():
-        if line.startswith("  ") and line.strip():
-            raise AssertionError(f"续行：{line!r}")
+    """更新对话框按行显示，续行会变成另起一段。中英两版都守这条，内容才对得齐。"""
+    for name in ("CHANGELOG.zh-CN.md", "CHANGELOG.md"):
+        for line in (ROOT / name).read_text("utf-8").splitlines():
+            if line.startswith("  ") and line.strip():
+                raise AssertionError(f"{name} 续行：{line!r}")
 
 
 def test_the_current_version_has_notes():
     from whiteboard import __version__
 
-    text = (ROOT / "CHANGELOG.md").read_text("utf-8")
+    text = (ROOT / "CHANGELOG.zh-CN.md").read_text("utf-8")
     assert release_notes.section(text, __version__.split("-", 1)[0])
