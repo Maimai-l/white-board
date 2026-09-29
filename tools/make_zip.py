@@ -20,6 +20,7 @@ INCLUDE_FILES = [
     "README.md",
     "README.zh-CN.md",
     "GETTING-STARTED.txt",
+    "GETTING-STARTED.zh-CN.txt",
     "start-whiteboard.command",
     "browser-mode.command",
     "update.command",
