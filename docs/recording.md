@@ -1,131 +1,224 @@
-# 输入录制
+English | [简体中文](recording.zh-CN.md)
 
-有些问题只有真笔能触发：压感沿笔画变化、倾角一直在动、系统把同一个位置投递两遍、
-抬笔那一刻的时序。这些在开发机上拿鼠标敲不出来，靠人反复手动复现又太慢。录一次
-带回来，剩下的都在开发机上跑。
+# Input Recording
 
-## 怎么录
+Input recording captures raw Apple Pencil input on the iPad, together with the board state, and replays it on a development machine. Use it for problems that only a real pen produces: pressure that changes along a stroke, a constantly changing tilt, the same position delivered twice, and the timing of the pen lift.
 
-连点左上角那个连接状态的小圆点三下，诊断面板出来的同时，左下角会多出一格
-「录制输入」。点它开始，把出问题的操作做一遍，再点「停止录制」。
+## Record input
 
-诊断面板第一行写着当前跑的是哪一份代码：打包之后的 app 显示版本号，源码运行时
-显示「分支@短 commit」。截图的时候把它带上，不然对着一张图讨论，两边说的可能
-根本不是同一个版本。
+Recording is available whenever the diagnostics panel is open.
 
-录像直接 POST 到 Mac 上，存在数据目录的 `recordings/` 里，文件名是时间戳，
-那一格上会显示存到了哪。服务端存不下（比如页面是从别处打开的）就退回浏览器下载。
+1. Tap the connection status dot in the top-left corner three times, with no more than 1.2 s between taps. The diagnostics panel opens, and a “录制输入” (Record input) cell appears in the bottom-left corner.
+2. Tap “录制输入”. The cell shows the number of recorded events (“N 条”).
+3. Perform the actions that show the problem.
+4. Tap “停止录制” (Stop recording). The cell shows “已存到 <path>” (Saved to) or “已下载” (Downloaded).
 
-入口和卡顿诊断共用一个开关，是因为 iPad 上白板是靠配置描述文件装的 Web Clip
-打开的，没有地址栏，改不了查询参数，所以入口只能是屏幕上点得到的东西；而这个
-开关本来就在用。在 Mac 的浏览器里也可以直接用 `?debug=1`。
+In a desktop browser, add `?debug=1` to the URL to open the diagnostics panel.
 
-录着的时候再连点三下把诊断关掉，会先把录像停下来存好，不会白录。
+> **Note**
+> Closing the diagnostics panel while recording stops the recording and saves it.
 
-## 录的是什么
+> **Note**
+> The first line of the diagnostics panel shows the running build: the version number for the packaged app, or `branch@short-commit` when running from source. Include this line in screenshots and bug reports.
 
-录的是**原始指针事件**，不是笔画。笔画是输入走完整条链路之后的结果，拿结果
-回放就只能复现渲染，复现不了判定、平滑、合并采样和抬笔那一刻的时序。
+The entry point is on screen because the iPad opens the board as a Web Clip installed by a configuration profile, which has no address bar for query parameters.
 
-每条事件记下 `pointerdown` / `pointermove` / `pointerup` / `pointercancel`、
-相对录制开始的时间、指针 id 和类型、`clientX/Y`、压力、`tiltX/tiltY`、
-`altitudeAngle`、`azimuthAngle`、`twist`，以及 `getCoalescedEvents()` 里那一帧的
-全部采样点。落笔那一条还带当时的工具和视口。
+## Saved files
 
-一律记原值，不做四舍五入。用途是逐字复现，回放出来的笔画要和录制时一模一样才能
-当基准；坐标少留三位小数，笔画就对不上了，差异是真是假分不清。
+The recording is sent to the Mac and saved in the storage directory. If the upload fails, for example when the page was opened from another origin, the browser downloads the file instead.
 
-除了事件，还记下录制开始时板上的全部笔画（`before`）、结束时的全部笔画
-（`after`）、视口、设备像素比、画布位置和尺寸、是否开了手指书写，以及新笔画 id
-的前缀和计数器起点（`ids`）——回放时从同一个起点数，录像里新写的笔画才能和
-`after` 逐字对上。
+| Destination | Path |
+| --- | --- |
+| Server | `<storage directory>/recordings/<YYYYMMDD-HHMMSS>[-<name>].json` |
+| Browser download (fallback) | `recording-<milliseconds since epoch>.json` |
 
-### 在 iPad 外壳里录
+The timestamp is the Mac's local time. `<name>` is the recording's `name` field reduced to letters, digits, `-` and `_`, at most 40 characters; recordings started from the panel have no name.
 
-顶层的 `source` 是 `browser` 或 `shell`，`shell` 时同时记下外壳版本和接口版本
-（`shell: {version, bridge}`）。外壳送来的每一批采样原样记成一条
-`{"type": "shell", "t": ..., "batch": {...}}`，`batch` 就是
-[ipad-shell.md](ipad-shell.md) 5.1 节的那个对象，字段和数值都不动。这一批里有
-落笔时和指针事件一样带上当时的工具和视口。
+### `POST /api/recording`
 
-同一段时间里 Safari 自己的 pen 事件照样会录下来：回放外壳来源的录像时，输入
-来源先切到外壳，这些事件和真机上一样不参与书写，回放结束后恢复原来的来源。
-`tests/test_shell_input.py::test_shell_recording_replays_exactly` 验证回放结果与
-`after` 完全一致。
+The endpoint stores one recording as a file.
 
-## 怎么回放
+| Item | Value |
+| --- | --- |
+| Request body | JSON object with an `events` array |
+| Maximum size | 32 MiB (`MAX_RECORDING_BYTES`) |
+| Permission | None required |
+| Response | `{"ok": true, "path": "<file path>", "events": <event count>}` |
+| Errors | `400` if the body is not a JSON object with an `events` array; `413` if it exceeds the size limit |
+| Server log | `[录制] <path>，<N> 条事件` |
+
+The body is written to disk unchanged.
+
+## Replay a recording
+
+`whiteboard.recorder.replay(data, options)` restores the board to its state at the start of the recording and feeds the recorded events back to the input controller.
 
 ```js
-await whiteboard.recorder.replay(data)          // 按原速
-await whiteboard.recorder.replay(data, { wait: false })  // 不等时间，一口气喂完
+await whiteboard.recorder.replay(data)                   // original timing
+await whiteboard.recorder.replay(data, { wait: false })  // no delays
+await whiteboard.recorder.replay(data, { speed: 4 })     // four times faster
 ```
 
-回放会先把板恢复成 `before` 的样子、视口摆回录制时的位置，再按记录的时间把事件
-喂回去。喂的是普通对象而不是合成 `PointerEvent`——后者的构造函数不收
-`altitudeAngle` / `azimuthAngle`，也造不出 `getCoalescedEvents`，而这两样恰好是
-橡皮粗细和笔宽最依赖的。直接调 `InputController` 的处理函数，读到的字段一模一样。
+| Option | Default | Effect |
+| --- | --- | --- |
+| `wait` | `true` | Waits between events according to their `t` values. |
+| `speed` | `1` | Divides the waiting time. Ignored when `wait` is `false`. |
 
-回放的返回值是板上剩下的笔画，和录像里的 `after` 比就知道复现得对不对。
+Replay performs these steps:
 
-**回放复现不了网络那一段。** `replay` 是直接把 `before` 写进本地状态的，服务器
-根本不认识那些笔画，于是擦除发出去的 `mask` 操作被服务端当成「找不到这条笔画」
-丢掉，回执也就从不返回。真机上回执是回来的，而且会走一遍 `applyOp`。这一类
-问题——回执盖掉本地新状态、自己擦掉的点又回来——回放永远是干净的，只有走完整
-条网络路径的端到端用例才看得见。
+1. Resets the board to `meta` and `before`, and sets the viewport to `viewport`.
+2. Sets finger drawing to `fingerDraw`.
+3. Switches the input source to the iPad shell when `source` is `shell`, and to the browser otherwise.
+4. Sets the stroke id prefix and counter to `ids`, so that new strokes receive the same ids as in the recording.
+5. Feeds each event: applies its `tool` and `viewport` if present, re-reads the canvas position, then calls the input controller (`onDown`, `onMove`, `onUp`, or `receiveShell` for shell batches).
+6. Restores the original input source and id prefix. The id counter does not move backward.
 
-判断方法：把回放的结果和录像里的 `after` 对一下。一致说明问题在输入到遮罩这
-一段，回放就能查；**不一致就说明差别在回放模型不到的地方**，别再拿回放当准。
-真实踩过一次：同一份录像，真机擦出 32 条胶囊链、237 个点，回放是 7 条链、
-298 个点——真机少了 61 个点，就是回执盖回来盖掉的。
-`tests/test_browser.py::test_recorder_replays_an_erase_exactly` 就是这么验的。
+The return value is the list of strokes on the board. Compare it with `after` to check that the replay reproduces the recording.
 
-在开发机上跑一份录像：
+Events are passed as plain objects rather than synthetic `PointerEvent`s, because the `PointerEvent` constructor does not accept `altitudeAngle` or `azimuthAngle` and cannot provide `getCoalescedEvents()`.
+
+### Replay on a development machine
+
+The following Playwright snippet replays a saved file in a page that has the board open.
 
 ```python
+import json
+
 data = json.load(open("recordings/20260924-203011.json"))
-page.evaluate("async ([d]) => whiteboard.recorder.replay(d, { wait: false })", [data])
+result = page.evaluate(
+    "async ([d]) => whiteboard.recorder.replay(d, { wait: false })", [data]
+)
+assert result == data["after"]
 ```
 
-## 笔的采样率（先看这个）
+Tests that use replay:
 
-诊断面板上有两行要一起看：
+| Test | Checks |
+| --- | --- |
+| `tests/test_browser.py::test_recorder_replays_an_erase_exactly` | A recorded pixel erase replays to exactly `after`. |
+| `tests/test_browser.py::test_recorder_panel_rides_the_diagnostics_toggle` | The recording cell appears with the diagnostics panel. |
+| `tests/test_shell_input.py::test_shell_recording_replays_exactly` | A recording made in the iPad shell replays to exactly `after`. |
+
+### Limits of replay
+
+Replay reproduces the path from input to strokes and masks; it does not reproduce the network.
+
+> **Warning**
+> Replay writes `before` directly into local state, so the server does not know those strokes. It discards the `mask` operations sent during replay, and no acknowledgements return. Problems caused by acknowledgements, such as an echoed mask overwriting newer local state, do not appear in replay.
+
+If the replay result equals `after`, the problem lies between input and mask, and replay can be used to investigate it. If it differs, the difference comes from a part that replay does not model, such as the network path. For example, one recording erased 32 capsule chains with 237 points on the device, while replay produced 7 chains with 298 points; the 61 missing points were overwritten by acknowledgements. See [eraser.md](eraser.md#synchronization).
+
+Replaying the same recording repeatedly produces byte-identical results, except for the random ids of new strokes.
+
+## File format
+
+A recording is a JSON object. Pointer event fields are stored with their original values and are not rounded, so that replayed strokes match `after` exactly.
+
+### Top-level fields
+
+| Field | Type | Content |
+| --- | --- | --- |
+| `schema` | number | Format version, currently `1` |
+| `name` | string | Recording name; empty when started from the panel |
+| `at` | string | Start time, ISO 8601 |
+| `agent` | string | `navigator.userAgent` |
+| `build` | string | Running build, as on the first line of the diagnostics panel |
+| `role` | string | Client role |
+| `dpr` | number | `devicePixelRatio` |
+| `stage` | array | Canvas `[left, top, width, height]` in CSS px, rounded to 0.01 |
+| `viewport` | object | `{scale, x, y}` at the start |
+| `fingerDraw` | boolean | Whether finger drawing is on |
+| `source` | string | `browser` or `shell` |
+| `shell` | object or null | `{version, bridge}` when `source` is `shell` |
+| `ids` | object | `{prefix, counter}` for new stroke ids |
+| `before` | array | All strokes on the board at the start |
+| `meta` | object | Board metadata at the start |
+| `events` | array | Recorded events, see below |
+| `after` | array | All strokes on the board at the end |
+| `viewportAtEnd` | object | `{scale, x, y}` at the end |
+
+### Pointer events
+
+Pointer events are captured on the board stage (`#stage`) in the capture phase, before the input controller receives them. The recorded types are `pointerdown`, `pointermove`, `pointerup` and `pointercancel`.
+
+| Field | Source | Present |
+| --- | --- | --- |
+| `type` | Event type | Always |
+| `t` | Milliseconds since the start, rounded to 0.01 | Always |
+| `id` | `pointerId` | Always |
+| `pt` | `pointerType` | Always |
+| `btn` | `button` | Always |
+| `btns` | `buttons` | Always |
+| `x`, `y` | `clientX`, `clientY` | Always |
+| `p` | `pressure` | Always |
+| `tx`, `ty` | `tiltX`, `tiltY` | When non-zero |
+| `alt` | `altitudeAngle` (radians) | When provided |
+| `az` | `azimuthAngle` (radians) | When provided |
+| `tw` | `twist` | When non-zero |
+| `primary` | `false` for a non-primary pointer | When not primary |
+| `tool` | Current tool settings | On `pointerdown` |
+| `viewport` | `{scale, x, y}` | When the viewport changed since the previous event |
+| `c` | Samples from `getCoalescedEvents()`, each with `x`, `y`, `p`, `tx`, `ty`, `alt`, `az`, `tw` | On `pointermove`, when there is more than one sample |
+
+The viewport is recorded on every change, not only at pen-down, so that strokes after a pan or zoom replay at the correct world position.
+
+### Shell batches
+
+In the iPad shell, Apple Pencil input arrives from the shell instead of from pointer events. Each batch is recorded unchanged.
+
+```json
+{"type": "shell", "t": 1234.56, "batch": { ... }}
+```
+
+| Field | Content | Present |
+| --- | --- | --- |
+| `type` | `"shell"` | Always |
+| `t` | Milliseconds since the start, rounded to 0.01 | Always |
+| `batch` | The object defined in [ipad-shell.md](ipad-shell.md) section 5.1, with all fields and values unchanged | Always |
+| `tool` | Current tool settings | When the batch contains a sample with `ph` = `down` |
+| `viewport` | `{scale, x, y}` | When the viewport changed |
+
+Safari's own pen events are also recorded during this time. When a shell recording is replayed, the input source is switched to the shell, so these events do not draw, as on the device.
+
+## Pen sample rate
+
+The diagnostics panel shows the pen sample rate; read it before tuning input processing.
 
 ```
 帧 60fps  最长 18ms
 笔事件 122/s  新位置 64/s  合并 1
 ```
 
-**要看的是第二个数。** 事件来了 122 条，其中只有 64 条带来了新坐标；另外那一半和
-前一条**完全一样**——坐标、压感、倾角全同（八份录像里这个比例是 80%～100%，最新
-那份是 100%）。所以它们不带任何信息，笔迹的上限是「新位置」那个数。
+| Value | Meaning |
+| --- | --- |
+| `帧` (Frames) | Frame rate and longest frame interval |
+| `笔事件` (Pen events) | Pen pointer events per second |
+| `新位置` (New positions) | Pen events per second whose position differs from the previous event |
+| `合并` (Coalesced) | Number of samples returned by `getCoalescedEvents()` for the latest drawing move event |
 
-`合并` 恒等于 1 说明 `getCoalescedEvents()` 没有返回过帧内的采样点。
+The effective rate is the number of new positions. The remaining events repeat the previous position, and most of them also repeat its pressure and tilt, so they carry no new information.
 
-量出来的结果（八份真机录像 + 面板实测）：
+Measured on iPad (eight recordings and panel readings):
 
-* 一笔之内笔事件约 120～125/s，其中新位置约 64/s，基本就是一帧一个。板上 1 条
-  笔画和 692 条笔画量出来一样，不是主线程忙不过来。
-* **坐标全是整数**：八份录像里 100% 的 `clientX`/`clientY` 都是整数，没有小数。
-  也就是说位置的分辨率是一个 CSS 像素，和采样率是两回事，都得认。
-* `getCoalescedEvents()` 一次都没有返回过多于一个采样点（录像里没有一条事件带
-  `c` 字段）。MDN 把这个 API 标为 limited availability；Apple 开发者论坛上的讨论
-  （最后一帖 2023 年 11 月）说 Mobile Safari 没有实现它。`pointerrawupdate` 按
-  caniuse 的表在任何版本的 Safari 上都不支持。
+| Measurement | Result |
+| --- | --- |
+| Pen events during a stroke | About 120–125 per second |
+| New positions | About 64 per second, about one per frame |
+| Repeated events identical in every field | 80%–100% of the events without a new position also have the same pressure and tilt (100% in the latest recording) |
+| Effect of board size | None: 1 stroke and 692 strokes give the same rate |
+| Coordinate resolution | 100% of `clientX` / `clientY` values are integers (1 CSS px) |
+| `getCoalescedEvents()` | Never returned more than one sample; no recorded event has a `c` field |
+| `pointerrawupdate` | Not supported by Safari |
 
-后果：写字速度 1.6 px/ms 时，相邻两个新位置隔开 26 个屏幕像素，而笔本身只有
-13 像素宽。中间那一段没有任何数据，任何平滑算法都只能猜。所以**平滑参数按 60 Hz
-来调**，而不是指望更多采样点——`perfect-freehand` 的 `streamline` 就是干这个的，
-输入层因此不再自己预平滑笔的位置（两层叠起来只是多一份延迟、把转角多削一道）。
+- MDN lists `getCoalescedEvents()` as limited availability, and discussion on the Apple Developer Forums (last post November 2023) states that Mobile Safari does not implement it.
+- At a writing speed of 1.6 px/ms, consecutive new positions are 26 screen px apart, while the pen line is 13 px wide.
+- Smoothing is therefore tuned for 60 Hz input. The `streamline` option of `perfect-freehand` smooths pen positions when the outline is built, so the input layer stores pen positions without additional smoothing.
 
-试过但没用的（留个记录，别再试第二遍）：
+The following settings do not change the number of new positions (about 64 per second):
 
-1. 实时层的 canvas 加 `{ desynchronized: true }`。采样率一点没变，而且写字时会闪
-   ——`drawLive` 每帧先 `clearRect` 再重画整条实时笔画，绕开合成器同步之后，清和画
-   之间的中间状态会被显示出来。已经改回去了。
-2. 设置 → Apple Pencil → 关掉「随手写」。
-3. 设置 → 应用 → Safari → 高级 → 功能开关 → 关掉「Prefer Page Rendering Updates
-   near 60fps」，强制退出重开。白板是配置文件装的 Web Clip，不是 Safari，这个开关
-   对它生不生效没查到依据；实测面板上的数没有变。
-4. 关掉低电量模式。
-
-以上都试过之后，面板上的「新位置」仍然是 64 左右。
+| Setting | Result |
+| --- | --- |
+| `{ desynchronized: true }` on the live canvas | No change in rate; causes flicker while writing, because `drawLive` clears and redraws the live stroke each frame. Not used. |
+| Settings → Apple Pencil → Scribble off | No change |
+| Settings → Apps → Safari → Advanced → Feature Flags → “Prefer Page Rendering Updates near 60fps” off, then force-quit and reopen | No change. The board runs as a Web Clip, and it is not documented whether this Safari flag applies to it. |
+| Low Power Mode off | No change |
