@@ -310,7 +310,7 @@ class App {
       event.preventDefault();
       document.body.classList.remove("dropping");
       const file = event.dataTransfer.files && event.dataTransfer.files[0];
-      if (file) this.importDoc(file);
+      if (file) this.importDoc(file, this.ui.dropFolder(this.state.id));
     });
   }
 

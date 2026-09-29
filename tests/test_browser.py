@@ -1264,7 +1264,7 @@ def test_the_picker_does_not_float_over_the_board_chooser(browser, server):
     # 列表被广播刷新时不重放淡入，否则别处一改名这边就闪一下
     mac.click('button[title="白板"]')
     mac.click(".board-card.add")
-    mac.click('.kind-tile[title="新建文件夹"]')
+    new_folder(mac)
     ipad.wait_for_function("() => whiteboard.ui.folders.length === 1")
     assert ipad.evaluate("() => !!document.querySelector('.gallery.opening')") is False
 
@@ -1281,7 +1281,7 @@ def test_boards_can_be_filed_into_a_folder(browser, server):
     mac, ipad = open_pages(browser, server.port)
     mac.click('button[title="白板"]')
     mac.click(".board-card.add")
-    mac.click('.kind-tile[title="新建文件夹"]')
+    new_folder(mac)
     mac.wait_for_selector(".board-card.folder")
     assert mac.evaluate("() => document.querySelector('.board-name.folder').value") == "未命名文件夹"
 
@@ -1317,7 +1317,7 @@ def test_a_board_can_be_dragged_into_a_folder_and_back_out(browser, server):
     mac, ipad = open_pages(browser, server.port)
     mac.click('button[title="白板"]')
     mac.click(".board-card.add")
-    mac.click('.kind-tile[title="新建文件夹"]')
+    new_folder(mac)
     mac.wait_for_selector(".board-card.folder")
 
     # 拖进去：松手之后这块白板收进文件夹，最外面那层只剩文件夹卡片和「新建」
@@ -1491,7 +1491,7 @@ def test_a_finger_can_drag_a_board_on_a_touch_device(browser, server):
     mac, ipad = open_pages(browser, server.port)
     mac.click('button[title="白板"]')
     mac.click(".board-card.add")
-    mac.click('.kind-tile[title="新建文件夹"]')
+    new_folder(mac)
     mac.wait_for_selector(".board-card.folder")
 
     ipad.click('button[title="白板"]')
@@ -1553,7 +1553,7 @@ def test_deleting_a_folder_keeps_the_boards(browser, server):
     mac, ipad = open_pages(browser, server.port)
     mac.click('button[title="白板"]')
     mac.click(".board-card.add")
-    mac.click('.kind-tile[title="新建文件夹"]')
+    new_folder(mac)
     mac.wait_for_selector(".board-card.folder")
     mac.click(".board-folder")
     mac.click('.folder-row:has-text("未命名文件夹")')
@@ -1575,7 +1575,7 @@ def test_a_folder_can_be_renamed_from_its_card(browser, server):
     mac, ipad = open_pages(browser, server.port)
     mac.click('button[title="白板"]')
     mac.click(".board-card.add")
-    mac.click('.kind-tile[title="新建文件夹"]')
+    new_folder(mac)
     mac.wait_for_selector(".board-card.folder")
     mac.click(".board-folder")
     mac.click('.folder-row:has-text("未命名文件夹")')
@@ -1588,6 +1588,123 @@ def test_a_folder_can_be_renamed_from_its_card(browser, server):
     mac.wait_for_function("() => whiteboard.ui.folders.includes('数学')")
     assert mac.evaluate("() => whiteboard.ui.boards.every(b => b.folder === '数学')")
     ipad.wait_for_function("() => whiteboard.ui.folders.join() === '数学'")
+    mac.close()
+    ipad.close()
+
+
+def new_folder(page, name=None):
+    """点「新建文件夹」：名字框直接进入编辑、默认名全选；输入名字（或保留默认名）后回车。"""
+    page.click('.kind-tile[title="新建文件夹"]')
+    field = page.wait_for_selector('.board-name[data-focus-key="folder-draft"]')
+    assert page.evaluate("() => document.activeElement.dataset.focusKey") == "folder-draft"
+    if name is not None:
+        page.keyboard.type(name)
+    page.keyboard.press("Enter")
+    target = name if name is not None else field.get_attribute("value")
+    page.wait_for_function("name => whiteboard.ui.folders.includes(name)", arg=target)
+    return target
+
+
+def test_a_new_folder_is_named_right_away_like_finder(browser, server):
+    """新建文件夹后名字框直接可编辑、默认名全选：直接打字就是新名字，回车后建好。"""
+    mac, ipad = open_pages(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title="新建文件夹"]')
+    mac.wait_for_selector('.board-name[data-focus-key="folder-draft"]')
+    selected = mac.evaluate(
+        "() => { const i = document.activeElement; return [i.dataset.focusKey, i.selectionStart, i.selectionEnd, i.value.length]; }"
+    )
+    assert selected[0] == "folder-draft" and selected[1] == 0 and selected[2] == selected[3] > 0
+    assert mac.evaluate("() => whiteboard.ui.folders.length") == 0  # 回车之前还没建
+    mac.keyboard.type("数学")
+    mac.keyboard.press("Enter")
+    for page in (mac, ipad):
+        page.wait_for_function("() => whiteboard.ui.folders.join() === '数学'")
+    mac.wait_for_selector('.board-name.folder[data-focus-key="folder:数学"]')
+
+    # Esc：按默认名建，和访达一样不会撤销新建
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title="新建文件夹"]')
+    mac.wait_for_selector('.board-name[data-focus-key="folder-draft"]')
+    mac.keyboard.type("物理")
+    mac.keyboard.press("Escape")
+    mac.wait_for_function("() => whiteboard.ui.folders.includes('未命名文件夹')")
+    assert mac.query_selector(".gallery") is not None, "Esc 只结束起名，不关界面"
+
+    # 重名：提示并留在编辑状态
+    mac.click(".board-card.add")
+    mac.click('.kind-tile[title="新建文件夹"]')
+    mac.wait_for_selector('.board-name[data-focus-key="folder-draft"]')
+    mac.keyboard.type("数学")
+    mac.keyboard.press("Enter")
+    assert mac.evaluate("() => document.activeElement.dataset.focusKey") == "folder-draft"
+    mac.keyboard.type("化学")
+    mac.keyboard.press("Enter")
+    mac.wait_for_function("() => whiteboard.ui.folders.includes('化学')")
+    assert sorted(mac.evaluate("() => whiteboard.ui.folders")) == sorted(["数学", "未命名文件夹", "化学"])
+    mac.close()
+    ipad.close()
+
+
+def test_a_new_folder_can_be_named_on_the_ipad(browser, server):
+    """iPad 上点「新建文件夹」同样直接进入起名，键盘输入就是名字。"""
+    mac, ipad = open_pages(browser, server.port)
+    ipad.click('button[title="白板"]')
+    ipad.tap(".board-card.add")
+    ipad.tap('.kind-tile[title="新建文件夹"]')
+    ipad.wait_for_selector('.board-name[data-focus-key="folder-draft"]')
+    assert ipad.evaluate("() => document.activeElement.dataset.focusKey") == "folder-draft"
+    ipad.keyboard.type("英语")
+    ipad.keyboard.press("Enter")
+    for page in (ipad, mac):
+        page.wait_for_function("() => whiteboard.ui.folders.join() === '英语'")
+    mac.close()
+    ipad.close()
+
+
+DROP_FILE = """([name, type, base64]) => {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const data = new DataTransfer();
+  data.items.add(new File([bytes], name, { type }));
+  for (const kind of ["dragover", "drop"]) {
+    window.dispatchEvent(new DragEvent(kind, { dataTransfer: data, bubbles: true, cancelable: true }));
+  }
+}"""
+
+
+def _png_base64():
+    import base64, io
+    from PIL import Image as _Image
+
+    buffer = io.BytesIO()
+    _Image.new("RGB", (64, 48), (240, 240, 240)).save(buffer, "PNG")
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
+def test_a_file_dropped_inside_a_folder_lands_in_that_folder(browser, server):
+    """选择界面停在文件夹里时把图片拖进窗口，新文档板留在这个文件夹里。"""
+    pytest.importorskip("PIL")
+    mac, ipad = open_pages(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    new_folder(mac, "课件")
+    mac.click(".board-card.folder")
+    mac.wait_for_selector(".folder-bar")
+    before = mac.evaluate("() => whiteboard.ui.boards.length")
+    mac.evaluate(DROP_FILE, ["讲义.png", "image/png", _png_base64()])
+    mac.wait_for_function("n => whiteboard.ui.boards.length === n + 1", arg=before)
+    doc = mac.evaluate("() => whiteboard.ui.boards.find(b => b.kind === 'doc')")
+    assert doc["folder"] == "课件"
+
+    # 选择界面关着：落在当前白板所在的文件夹（现在当前白板就是刚建的文档板）
+    mac.wait_for_function(f"() => whiteboard.state.id === '{doc['id']}'")
+    if mac.query_selector(".gallery"):
+        mac.click('button[title="关闭"]')
+    mac.evaluate(DROP_FILE, ["讲义2.png", "image/png", _png_base64()])
+    mac.wait_for_function("n => whiteboard.ui.boards.length === n + 2", arg=before)
+    folders = mac.evaluate("() => whiteboard.ui.boards.filter(b => b.kind === 'doc').map(b => b.folder)")
+    assert folders == ["课件", "课件"]
     mac.close()
     ipad.close()
 
