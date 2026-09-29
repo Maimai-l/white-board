@@ -171,7 +171,7 @@ jobs:
           path: dist
           merge-multiple: true
 
-      # 应用里的更新对话框显示的就是 Release 的说明，所以从 CHANGELOG.md 取这个
+      # 应用里的更新对话框显示的就是 Release 的说明，所以从 CHANGELOG.zh-CN.md 取这个
       # 版本的那一节；没写的话退回 GitHub 自动生成的说明
       - name: 取更新说明
         id: notes
