@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import subprocess
@@ -365,6 +366,91 @@ class NativeApi:
         return webbrowser.open(url)
 
 
+class FileOpener:
+    """Finder 交给应用的文件（「打开方式」、双击、拖到程序坞图标上）。
+
+    应用由打开文件启动时，文件往往先于网页加载完到达，所以先排队，等网页加载完
+    再按顺序打开。每个文件都放进网页当前所在的文件夹，和拖进窗口相同。
+    """
+
+    def __init__(self, server: ServerThread):
+        self.server = server
+        self.window = None
+        self._pending: list = []
+        self._ready = False
+        self._lock = threading.Lock()
+
+    def open(self, paths) -> None:
+        with self._lock:
+            self._pending.extend(str(path) for path in paths)
+            ready = self._ready
+        if ready:
+            threading.Thread(target=self._flush, name="open-files", daemon=True).start()
+
+    def on_loaded(self) -> None:
+        with self._lock:
+            self._ready = True
+        threading.Thread(target=self._flush, name="open-files", daemon=True).start()
+
+    def _flush(self) -> None:
+        from .server import OpenFileError  # noqa: WPS433
+
+        while True:
+            with self._lock:
+                if not self._pending:
+                    return
+                path = self._pending.pop(0)
+            log.info("打开文件：%s", path)
+            try:
+                self.server.open_file(path, self._folder())
+            except OpenFileError as exc:
+                self._message(f"打不开 {Path(path).name}：{exc}")
+            except Exception:  # noqa: BLE001 - 一个文件出错不该挡住后面的
+                log.exception("打开文件出错：%s", path)
+                self._message(f"打不开 {Path(path).name}")
+
+    def _folder(self) -> str:
+        try:
+            folder = self.window.evaluate_js("whiteboard.ui.dropFolder(whiteboard.state.id)")
+        except Exception:  # noqa: BLE001 - 网页没准备好就放在最外层
+            return ""
+        return folder if isinstance(folder, str) else ""
+
+    def _message(self, text: str) -> None:
+        try:
+            self.window.evaluate_js(f"whiteboard.ui.message({json.dumps(text, ensure_ascii=False)}, 'close', 6000)")
+        except Exception:  # noqa: BLE001
+            log.warning("%s", text)
+
+
+def install_open_files_handler(callback) -> bool:
+    """让 macOS 把「打开文件」事件交给 ``callback(paths)``。
+
+    pywebview 没有这项功能：这里给它的应用代理类补上 ``application:openFiles:``。
+    NSApplication 收到打开文件的 Apple Event 时会调用代理的这个方法。
+    """
+    if sys.platform != "darwin":
+        return False
+    try:
+        import objc  # noqa: WPS433
+        from webview.platforms.cocoa import BrowserView  # noqa: WPS433
+    except Exception:  # noqa: BLE001 - 版本不对就只是少了这项功能
+        log.exception("无法接管打开文件事件")
+        return False
+
+    def application_openFiles_(self, app, filenames):  # noqa: N802 - Objective-C 方法名
+        try:
+            callback([str(name) for name in filenames])
+        finally:
+            app.replyToOpenOrPrint_(0)  # NSApplicationDelegateReplySuccess
+
+    objc.classAddMethods(
+        BrowserView.AppDelegate,
+        [objc.selector(application_openFiles_, selector=b"application:openFiles:", signature=b"v@:@@")],
+    )
+    return True
+
+
 def _decode_data_url(data_url: str) -> Optional[bytes]:
     if not isinstance(data_url, str) or "," not in data_url:
         return None
@@ -393,6 +479,8 @@ def run(
     server = ServerThread(config, advertise=advertise, bonjour=bonjour)
     server.start()
     config.save()
+    opener = FileOpener(server)
+    install_open_files_handler(opener.open)
 
     api = NativeApi(config, server)
     window = webview.create_window(
@@ -406,6 +494,8 @@ def run(
         text_select=False,
     )
     api.window = window
+    opener.window = window
+    window.events.loaded += opener.on_loaded
     api.start_update_check()
 
     def _on_closing() -> None:

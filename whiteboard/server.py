@@ -308,8 +308,6 @@ async def handle_thumb_post(request: web.Request) -> web.Response:
 
 async def handle_doc_upload(request: web.Request) -> web.Response:
     """上传一份 PDF / 图片，新建文档板并切过去。"""
-    from . import docs
-
     require(request, "manage")  # 建板算管理操作
     hub: Hub = request.app[HUB_KEY]
     filename = request.query.get("name") or request.headers.get("X-Filename") or ""
@@ -317,21 +315,78 @@ async def handle_doc_upload(request: web.Request) -> web.Response:
     folder = models.sanitize_folder(request.query.get("folder"))
     body = await _read_body(request, MAX_DOC_BYTES)
     try:
+        meta = await _create_doc(hub, body, filename, folder)
+    except OpenFileError as exc:
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+    return web.json_response({"board": meta})
+
+
+class OpenFileError(Exception):
+    """文件打不开或不能建板；消息直接给用户看。"""
+
+
+async def _create_doc(hub: Hub, body: bytes, filename: str, folder: str) -> Dict[str, Any]:
+    """由一份 PDF / 图片新建文档板，放进 ``folder``（存在的话），并让所有设备切过去。"""
+    from . import docs
+
+    try:
         # 读 PDF 可能要好一会儿，放到工作线程；建板要改索引和 hub 的状态，
         # 必须回到事件循环上做，否则会和自动保存、别的连接同时改同一份数据
         prepared = await asyncio.to_thread(hub.store.prepare_doc, body, filename)
         meta = hub.add_doc(prepared)
     except docs.DocError as exc:
         log.warning("导入文档失败：%s", exc)
-        raise web.HTTPBadRequest(text=str(exc)) from exc
+        raise OpenFileError(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - 坏文件不该把服务端带崩
         log.exception("导入文档出错")
-        raise web.HTTPBadRequest(text="文件读不出来") from exc
+        raise OpenFileError("文件读不出来") from exc
+    return await _file_and_switch(hub, meta, folder)
+
+
+async def _file_and_switch(hub: Hub, meta: Dict[str, Any], folder: str) -> Dict[str, Any]:
     if folder and folder in hub.store.folders():
         hub.move_board(meta["id"], folder)
         meta = hub.store.get_meta(meta["id"]) or meta
     await hub.broadcast({"t": "switch", **hub.snapshot()})
-    return web.json_response({"board": meta})
+    return meta
+
+
+async def open_local_file(hub: Hub, path: Path, folder: str = "") -> Dict[str, Any]:
+    """Mac 上用「打开方式」或双击打开的本地文件。
+
+    * PDF / 图片：新建文档板，和拖进窗口相同；
+    * 本存储目录里的 ``.wbz``：切到那块白板；
+    * 其他 ``.wbz``（例如备份）：复制成一块新白板。
+
+    新建的白板放进 ``folder``。出错时抛 :class:`OpenFileError`。
+    """
+    from . import docs
+
+    folder = models.sanitize_folder(folder)
+    suffix = path.suffix.lower()
+    if suffix in docs.SUFFIXES:
+        try:
+            size = path.stat().st_size
+            if size > MAX_DOC_BYTES:
+                raise OpenFileError(f"文件太大（上限 {MAX_DOC_BYTES // (1024 * 1024)} MB）")
+            body = await asyncio.to_thread(path.read_bytes)
+        except OSError as exc:
+            raise OpenFileError(f"文件打不开：{exc.strerror or exc}") from exc
+        return await _create_doc(hub, body, path.name, folder)
+    if suffix == ".wbz":
+        own = hub.store.board_id_of(path)
+        if own is not None:
+            hub.select_board(own)
+            await hub.broadcast({"t": "switch", **hub.snapshot()})
+            return hub.store.get_meta(own) or {}
+        try:
+            # 要改索引和 hub 的状态，留在事件循环线程上；文件通常只有几百 KB
+            meta = hub.import_board_file(path)
+        except ValueError as exc:  # BoardFileError
+            log.warning("导入白板文件失败：%s", exc)
+            raise OpenFileError(str(exc)) from exc
+        return await _file_and_switch(hub, meta, folder)
+    raise OpenFileError(f"不支持的文件类型：{suffix or '无扩展名'}")
 
 
 async def handle_doc_page(request: web.Request) -> web.StreamResponse:

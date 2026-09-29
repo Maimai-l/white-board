@@ -312,6 +312,62 @@ class BoardStore:
         log.info("新建文档板 %s：%s（%d 页）", meta["id"], filename, len(prepared["info"]["pages"]))
         return meta
 
+    def board_id_of(self, path: Path) -> Optional[str]:
+        """``path`` 是本存储目录里某块白板自己的文件时返回它的 id，否则返回 None。"""
+        try:
+            if path.resolve().parent != self.boards_dir.resolve() or path.suffix != BOARD_SUFFIX:
+                return None
+        except OSError:
+            return None
+        return path.stem if self.get_meta(path.stem) else None
+
+    def import_board_file(self, path: Path) -> Dict[str, Any]:
+        """把存储目录之外的一个 ``.wbz``（例如备份里的）复制成一块新白板。
+
+        文件内容原样保留，只换成新的 id 并去掉文件夹（归到哪里由调用方决定），
+        所以读不全或由更新版本写入的文件导入后同样以只读白板打开，不会丢内容。
+        文档板还需要原件：在文件旁边的 ``docs/`` 或上一级的 ``docs/`` 里按原 id 查找。
+        """
+        try:
+            payload = self._read_file(path)
+        except OSError as exc:
+            raise BoardFileError(f"文件打不开：{exc}") from exc
+        except (ValueError, zlib.error) as exc:
+            raise BoardFileError("文件已损坏，读不出来") from exc
+        raw_meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+        old_id = raw_meta.get("id") if isinstance(raw_meta.get("id"), str) else path.stem
+        board_id = models.new_id()
+        raw_meta = dict(raw_meta, id=board_id)
+        raw_meta.pop("folder", None)
+        meta = models.sanitize_meta(raw_meta)
+
+        original: Optional[Path] = None
+        if meta["kind"] == "doc":
+            from . import docs  # noqa: WPS433
+
+            safe = "".join(ch for ch in old_id if ch.isalnum() or ch in "-_")
+            for folder in (path.parent / "docs", path.parent.parent / "docs"):
+                found = [
+                    item for item in sorted(folder.glob(f"{safe}.*"))
+                    if item.is_file() and item.suffix.lower() in docs.SUFFIXES
+                ] if safe and folder.is_dir() else []
+                if found:
+                    original = found[0]
+                    break
+            if original is None:
+                raise BoardFileError("这是文档板，但找不到它的原件（应在同一存储目录的 docs/ 里）")
+
+        payload["meta"] = raw_meta
+        if original is not None:
+            shutil.copy2(original, self.docs_dir / f"{board_id}{original.suffix.lower()}")
+        blob = zlib.compress(json.dumps(payload, ensure_ascii=False).encode("utf-8"), 6)
+        _atomic_write(self._board_path(board_id), blob)
+        self._index["boards"].insert(0, meta)
+        self._index["current"] = board_id
+        self._write_index()
+        log.info("导入白板文件 %s 为 %s", path, board_id)
+        return dict(meta)
+
     @staticmethod
     def _read_file(path: Path) -> Dict[str, Any]:
         blob = path.read_bytes()

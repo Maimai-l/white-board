@@ -297,14 +297,23 @@ The first icon in the top-right group (白板) opens the board chooser: full-scr
 
 **Folders** are one level deep and appear as cards in the same grid. Opening a folder shows only its boards.
 
+- To create a folder, choose the folder tile in the new-board dialog (top level only). The new folder's name field is selected for editing, as in Finder: type a name and press Return, or click elsewhere. Esc keeps the default name 「未命名文件夹」 (Untitled folder); a name already in use shows a message and stays in edit mode.
 - To file a board, drag it onto the folder, or use the folder icon next to its name and pick a folder or type a new name, which creates the folder.
 - A folder's name is its identity. Renaming a folder renames it on every board inside; a name already in use is rejected.
-- Boards created inside a folder, including dropped PDFs and images, stay in that folder.
+- Boards created inside a folder stay in that folder. A PDF or image dropped onto the window, or opened from Finder, goes into the folder the board chooser shows; with the chooser closed, it goes into the current board's folder.
 - Deleting a folder does not delete its boards; they move out of it.
 
 ### Documents (PDF and images)
 
-Drop a PDF or an image onto the Mac window, or choose the document tile in the new-board dialog, to create a document board (beta). The pages are laid out on the canvas, and connected devices switch to the new board.
+Drop a PDF or an image onto the Mac window, choose the document tile in the new-board dialog, or open the file with the app from Finder, to create a document board (beta). The pages are laid out on the canvas, and connected devices switch to the new board.
+
+**Opening files from Finder.** The packaged app is listed under “打开方式” (Open With) for PDF, png, jpeg, gif, bmp, webp and tiff files as an alternative app, so it does not replace the default app. `.wbz` files belong to the app and open with a double-click.
+
+| File | Result |
+| --- | --- |
+| PDF or image | A new document board, as when the file is dropped onto the window. |
+| `.wbz` in the current storage directory | Switches to that board. |
+| Other `.wbz` (for example from `backups/`) | Imported as a new board; the original file is not changed. A board that cannot be read completely opens read-only. A document board also needs its original in the `docs/` folder of the same storage directory. |
 
 | Item | Detail |
 | --- | --- |
