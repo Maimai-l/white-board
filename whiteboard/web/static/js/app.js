@@ -22,7 +22,7 @@ import {
   strokeHit,
   strokeRadius,
 } from "./stroke.js";
-import { debounce, plainStroke, uid } from "./util.js";
+import { debounce, isTextField, plainStroke, uid } from "./util.js";
 import { contentBounds, downloadDataURL, downloadURL, exportDataURL, uploadThumb } from "./exporter.js";
 import { installEraser } from "./app-eraser.js";
 
@@ -257,6 +257,8 @@ class App {
     if (window.visualViewport) visualViewport.addEventListener("resize", onResize);
 
     addEventListener("keydown", (event) => {
+      // 在输入框里打字时这些键归输入框：⌘Z 撤销的是打的字，⌘+ ⌘- 也不该缩放白板
+      if (isTextField(event.target)) return;
       const meta = event.metaKey || event.ctrlKey;
       if (meta && event.key.toLowerCase() === "z") {
         event.preventDefault();

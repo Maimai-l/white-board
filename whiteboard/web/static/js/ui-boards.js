@@ -6,7 +6,7 @@
 import { icon } from "./icons.js";
 import { startCardDrag } from "./dragsort.js";
 import { boardLabel, iconButton } from "./ui-common.js";
-import { el } from "./util.js";
+import { el, isComposing } from "./util.js";
 
 /** 卡片下方那行时间：今天只给时刻，今年不给年份，其余给全。 */
 function boardDate(seconds) {
@@ -84,6 +84,7 @@ const methods = {
         this.fillBoardGrid();
       },
       onkeydown: (event) => {
+        if (isComposing(event)) return; // 输入法组字时的 Esc 是取消组字
         if (event.key !== "Escape" || !search.value) return;
         event.stopPropagation(); // 别让 Esc 顺手把整个界面关掉
         search.value = this.boardQuery = "";
@@ -233,6 +234,7 @@ const methods = {
       "data-focus-key": `folder:${name}`,
       onclick: (event) => event.stopPropagation(),
       onkeydown: (event) => {
+        if (isComposing(event)) return; // 输入法选词的回车不是「改完了」
         if (event.key === "Enter") {
           event.preventDefault();
           input.blur();
@@ -324,6 +326,7 @@ const methods = {
       maxlength: "64",
       "data-focus-key": `name:${board.id}`,
       onkeydown: (event) => {
+        if (isComposing(event)) return; // 输入法选词的回车不是「改完了」
         if (event.key === "Enter") {
           event.preventDefault();
           name.blur();
@@ -399,6 +402,7 @@ const methods = {
       spellcheck: "false",
       maxlength: "64",
       onkeydown: (event) => {
+        if (isComposing(event)) return; // 输入法选词的回车不是「建好了」
         if (event.key === "Escape") {
           event.stopPropagation();
           scrim.remove();
