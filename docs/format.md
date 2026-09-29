@@ -494,6 +494,6 @@ Image export draws the ink onto the original at full resolution.
 | Rasterization | Each stroke is drawn only within its bounding box at 3× supersampling (`SUPERSAMPLE`), then downsampled. If the supersampled tile exceeds 64,000,000 pixels, the stroke is drawn without supersampling. |
 | JPEG output | Reuses the original quantization tables and chroma subsampling. Without tables, quality 90. |
 | Other formats | `.png` stays PNG. `.gif`, `.bmp`, `.webp`, `.tif`, `.tiff` export as PNG. |
-| `cut` and masks | Not applied. |
+| `cut` and masks | Applied as in PDF export: `cut` ends are flat, and each stroke's mask capsules are removed from that stroke only. |
 
 The export file name is `<original name without extension>-批注<ext>`.

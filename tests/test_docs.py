@@ -247,6 +247,35 @@ def test_export_image_without_strokes_matches_source(tmp_path):
         assert a.convert("RGB").tobytes() == b.convert("RGB").tobytes()
 
 
+def _line(x0, x1, y, width=10.0, **extra):
+    stroke = {"id": "l", "tool": "marker", "color": "#000000", "w": width,
+              "p": [x0, y, 0.5, (x0 + x1) / 2, y, 0.5, x1, y, 0.5]}
+    stroke.update(extra)
+    return stroke
+
+
+def test_export_image_leaves_erased_areas_empty(tmp_path):
+    src = make_image(tmp_path / "a.png", (400, 300), (255, 255, 255))
+    out = tmp_path / "out.png"
+    docs.export_image(src, [_line(50, 350, 150, m=[[20.0, 150.0, 150.0, 250.0, 150.0]])], out)
+    with Image.open(out) as image:
+        gray = image.convert("L")
+        assert gray.getpixel((100, 150)) < 64  # 没擦的部分还在
+        assert gray.getpixel((300, 150)) < 64
+        for x in (140, 200, 260):
+            assert gray.getpixel((x, 150)) > 250  # 擦过的部分导出后是空的
+
+
+def test_export_image_keeps_cut_ends_flat(tmp_path):
+    src = make_image(tmp_path / "a.png", (400, 300), (255, 255, 255))
+    round_out, cut_out = tmp_path / "round.png", tmp_path / "cut.png"
+    docs.export_image(src, [_line(50, 350, 150, width=20.0)], round_out)
+    docs.export_image(src, [_line(50, 350, 150, width=20.0, cut=3)], cut_out)
+    with Image.open(round_out) as a, Image.open(cut_out) as b:
+        # 平口的笔画在两端没有圆头，导出结果必须和圆头的不同
+        assert a.convert("L").tobytes() != b.convert("L").tobytes()
+
+
 def test_export_dispatches_by_type(tmp_path):
     pdf = make_pdf(tmp_path / "a.pdf", sizes=((300, 400),))
     png = make_image(tmp_path / "a.png", (100, 100))
