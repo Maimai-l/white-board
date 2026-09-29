@@ -343,7 +343,8 @@ def export_image(src: str | Path, strokes: Sequence[Dict[str, Any]], out: str | 
         alpha = inkpdf.ALPHA.get(tool, 1.0)
         width = float(stroke.get("w", 3.0))
         points = inkpdf.simplify(points, inkpdf.epsilon(width))
-        polygon = inkpdf.flatten(inkpdf.outline_path(points, tool, width))
+        cut = int(stroke.get("cut") or 0)
+        polygon = inkpdf.flatten(inkpdf.outline_path(points, tool, width, cut))
         xs = [p[0] for p in polygon]
         ys = [p[1] for p in polygon]
         x0, y0 = math.floor(min(xs)) - 1, math.floor(min(ys)) - 1
@@ -362,6 +363,8 @@ def export_image(src: str | Path, strokes: Sequence[Dict[str, Any]], out: str | 
                 [((x - x0) * SUPERSAMPLE, (y - y0) * SUPERSAMPLE) for x, y in polygon], fill=255
             )
             tile = tile.resize((x1 - x0, y1 - y0), Image.LANCZOS)
+        if stroke.get("m"):
+            tile = _erase_mask(tile, stroke["m"], x0, y0)
         if alpha < 1.0:
             tile = tile.point(lambda v: int(v * alpha))
         color = inkpdf.rgb(stroke.get("color", "#1b1b1f"))
@@ -383,6 +386,31 @@ def export_image(src: str | Path, strokes: Sequence[Dict[str, Any]], out: str | 
     else:
         canvas.save(out, "PNG", optimize=True)
     return out
+
+
+def _erase_mask(tile, chains: Sequence[Sequence[float]], x0: int, y0: int):
+    """从一笔的覆盖图里减去像素橡皮擦过的胶囊链（笔画的 ``m``），与 PDF 导出的裁剪一致。"""
+    Image = _pil()
+    from PIL import ImageChops, ImageDraw  # noqa: WPS433
+
+    s = SUPERSAMPLE
+    hole = Image.new("L", (tile.width * s, tile.height * s), 0)
+    draw = ImageDraw.Draw(hole)
+    for chain in chains:
+        r = chain[0] * s
+        pts = [((chain[i] - x0) * s, (chain[i + 1] - y0) * s) for i in range(1, len(chain) - 1, 2)]
+        for x, y in pts:
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=255)
+        for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+            length = math.hypot(bx - ax, by - ay)
+            if length < 1e-9:
+                continue
+            nx, ny = -(by - ay) / length * r, (bx - ax) / length * r
+            draw.polygon(
+                [(ax + nx, ay + ny), (bx + nx, by + ny), (bx - nx, by - ny), (ax - nx, ay - ny)], fill=255
+            )
+    hole = hole.resize(tile.size, Image.LANCZOS)
+    return ImageChops.subtract(tile, hole)
 
 
 def export(src: str | Path, strokes: Sequence[Dict[str, Any]], out: str | Path) -> Path:
