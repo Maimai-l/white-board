@@ -97,7 +97,14 @@ def probe(path: str | Path) -> Dict[str, Any]:
                     raise DocError("PDF 里没有页面")
                 pages = []
                 for index in range(min(count, MAX_PAGES)):
-                    width, height = pdf[index].get_size()
+                    # 每一页用完当场关掉，不留给垃圾回收：pypdfium2 关文档时要遍历它
+                    # 名下的页面，回收要是恰好在遍历中途把某一页收走，就会抛
+                    # 「Set changed size during iteration」，导入随机失败
+                    page = pdf[index]
+                    try:
+                        width, height = page.get_size()
+                    finally:
+                        page.close()
                     pages.append([round(float(width), 2), round(float(height), 2)])
             finally:
                 pdf.close()
@@ -157,9 +164,16 @@ def render_page(path: str | Path, index: int, width: int) -> Tuple[bytes, str]:
                 if index < 0 or index >= len(pdf):
                     raise DocError("页码超出范围")
                 page = pdf[index]
-                scale = width / max(1.0, float(page.get_size()[0]))
-                # to_pil() 和 pdfium 的位图共享内存，必须复制一份再放掉文档
-                image = page.render(scale=scale).to_pil().convert("RGB").copy()
+                try:
+                    scale = width / max(1.0, float(page.get_size()[0]))
+                    bitmap = page.render(scale=scale)
+                    try:
+                        # to_pil() 和 pdfium 的位图共享内存，必须复制一份再放掉位图
+                        image = bitmap.to_pil().convert("RGB").copy()
+                    finally:
+                        bitmap.close()
+                finally:
+                    page.close()  # 同上：页面和位图都当场关，不留给垃圾回收
             finally:
                 pdf.close()
         return _encode(image, "jpeg")
