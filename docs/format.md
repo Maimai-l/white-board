@@ -1,221 +1,417 @@
-# 白板文件格式（.wbz）
+English | [简体中文](format.zh-CN.md)
 
-`.wbz` 不是什么通用格式，就是这个项目自己的存档：**一段 zlib 压缩的 JSON**，
-里面的笔画点列再单独做了一层紧凑编码。目的是把手写内容按矢量存下来，
-既不存图片，也不至于让 JSON 里堆满浮点数。
+# Board File Format (.wbz)
 
-存储目录（默认 `~/Library/Application Support/Whiteboard/boards-data`）长这样：
+A `.wbz` file stores one board as zlib-compressed UTF-8 JSON, with each stroke's point list packed into a compact binary encoding.
+
+Board content is always vector data. Thumbnails and exported images are separate files and are never read back as content.
+
+## Storage directory
+
+The storage directory holds every board file, the board index, document originals and backups.
 
 ```
-boards/<白板 id>.wbz     每块白板一个文件
-thumbs/<白板 id>.png     Mac 端选择界面用的缩略图（只是配图，不是内容）
-docs/<白板 id>.<扩展名>  文档板的原件副本（PDF / 图片），只读不改
-index.json               白板列表和文件夹名单，未压缩；删掉能从 .wbz 重建
-                         （所以改名、归类都要两边都写）
+<storage directory>/
+├── index.json                 board list, folder list, current board (uncompressed)
+├── boards/<board id>.wbz      one file per board
+├── thumbs/<board id>.png      board chooser thumbnail (not content)
+├── docs/<board id>.<ext>      document board original (PDF or image), never modified
+├── backups/upgrade/<...>/     copy of boards/ and index.json taken after a version change
+├── backups/locked/<id>-<time>.wbz   copy of a read-only board file taken before unlocking
+└── recordings/<time>[-<name>].json  input recordings, see recording.md
 ```
 
-## 顺序
+| Platform | Default storage directory |
+| --- | --- |
+| macOS | `~/Library/Application Support/Whiteboard/boards-data` |
+| Windows | `%APPDATA%\Whiteboard\boards-data` |
+| Linux | `$XDG_DATA_HOME/whiteboard/boards-data` (default `~/.local/share/whiteboard/boards-data`) |
 
-`index.json` 里 `boards` 数组的先后就是界面上的先后，用户拖动卡片改的就是它。
-顺序只存在索引里：索引丢了重建时按 `updated` 倒序排，手动排过的顺序找不回来。
+The storage directory can be changed on the Mac in “白板设置” (Board settings), or for one run with `run.py --data-dir`.
 
-## 文件夹
+All writes to `index.json` and `.wbz` files are atomic: the data goes to a temporary file in the same directory, is flushed with `fsync`, and then replaces the target.
 
-只有一层，没有嵌套。**文件夹的名字就是它的身份**，没有单独的文件夹 id：白板的
-`meta.folder` 写的就是这个名字，改名等于把这一层里每块白板上记的名字一起改掉。
+## Board index (`index.json`)
 
-名字另外在 `index.json` 里存一份名单（`folders`），因为空文件夹没有白板可依附，
-只靠白板的 `meta` 推不出来。两份的关系是：
+`index.json` lists board metadata so the board chooser does not have to decompress every `.wbz` file.
 
-- 名单里有、白板里没有 → 空文件夹，照样显示。
-- 白板里有、名单里没有 → 载入索引时自动补进名单（见 `BoardStore._sync_folders`），
-  否则那块白板会从界面上消失。
-- 索引丢了重建：空文件夹找不回来，装着白板的那些能从各块白板的 `meta` 里重新收齐。
+```json
+{
+  "boards": [
+    {"id": "49b773c7c7c2", "name": "", "kind": "board", "background": "grid",
+     "folder": "数学", "created": 1758000000.0, "updated": 1758000123.4}
+  ],
+  "folders": ["数学"],
+  "current": "49b773c7c7c2"
+}
+```
 
-删除文件夹只是把名字从名单里去掉，里面的白板移到没归类，一块都不删。
+| Field | Type | Description |
+| --- | --- | --- |
+| `boards` | array of `meta` | Board metadata, same shape as [`meta`](#meta-fields). The array order is the display order. |
+| `folders` | array of string | Folder names, including empty folders. |
+| `current` | string | ID of the board currently open. |
 
-## 解开之后的结构
+The index is rebuilt from the `.wbz` files when it is missing, cannot be parsed, or lists a different set of board IDs than `boards/` contains.
+
+| Data | After a rebuild |
+| --- | --- |
+| Board metadata | Read from each `.wbz` file. The file name is the board ID. |
+| Unreadable board files | Kept in the list with default metadata and `updated` = 0. |
+| Board order | Sorted by `updated`, newest first. Manual order is lost. |
+| Folders containing boards | Recovered from `meta.folder`. |
+| Empty folders | Lost. |
+
+Renaming a board or moving it to a folder writes both the index and the `meta` inside the `.wbz` file, because the file is the source for a rebuild.
+
+### Board order
+
+The order of the `boards` array is the order shown in the board chooser. Dragging a card rewrites this array; the order exists only in the index.
+
+### Folders
+
+Folders have one level and no nesting. A folder is identified by its name only; there is no separate folder ID.
+
+- A board records its folder name in `meta.folder`. A board without a folder has no `folder` field.
+- `index.json` stores the folder list in `folders`, because an empty folder has no board to record it.
+- A name that appears in a board's `meta.folder` but not in `folders` is added to `folders` when the index loads (`BoardStore._sync_folders`).
+- Renaming a folder rewrites `meta.folder` on every board in it.
+- Deleting a folder removes the name from `folders` and moves its boards out of the folder. No board is deleted.
+- Folder names are trimmed and limited to 64 characters.
+
+## File structure
+
+A `.wbz` file is `zlib.compress(json_utf8, 6)` of the object below.
 
 ```jsonc
 {
   "v": 1,
   "meta": {
     "id": "49b773c7c7c2",
-    "name": "",             // 空串表示没起名，界面上按 kind 给默认叫法
-    "kind": "board",        // board 四向无限 / note 宽度固定只向下 / doc 文档板
-    "background": "grid",   // blank / grid / lines / dots
-    "folder": "数学",       // 可选，归到哪个文件夹；没归类的不带这个字段
+    "name": "",
+    "kind": "board",
+    "background": "grid",
+    "folder": "数学",
     "created": 1758000000.0,
     "updated": 1758000123.4
   },
   "strokes": [
     {
-      "id": "c3f1a2-7k-1f",  // 客户端生成，全局唯一
-      "tool": "pen",         // pen / marker / highlighter
+      "id": "c3f1a2-7k-1f",
+      "tool": "pen",
       "color": "#1b1b1f",
-      "w": 3.0,              // 线宽（世界坐标）
-      "n": 42,               // 层叠序号，按它升序绘制
+      "w": 3.0,
+      "n": 42,
       "dev": "ipad",
-      "cut": 2,              // 可选，见下；没被橡皮切过的笔画不带这个字段
-      "m": [[5, 120, 40, 180, 40]],  // 可选，橡皮啃掉的缺口，见下
-      "p": "A6ABwAKABAiZ1QG2ev8="   // base64，见下
+      "cut": 2,
+      "m": [[5, 120, 40, 180, 40]],
+      "p": "A6ABwAKABAiZ1QG2ev8="
     }
   ]
 }
 ```
 
-## 笔画轮廓
-
-轮廓由 **perfect-freehand** 生成。屏幕那边直接用原版
-（`whiteboard/web/static/js/vendor/perfect-freehand.js`，dist 的 ESM 原样收进仓库，
-这个项目没有打包步骤，第三方模块只能当静态文件用原生 ES module 引入）；导出那边
-是它的 Python 移植（`whiteboard/freehand.py`），因为 `/api/export/{board_id}` 在
-服务端跑，碰不到浏览器。
-
-两份必须给出**完全一样**的点列，`tests/test_browser.py` 的
-`test_python_outline_matches_perfect_freehand` 拿真机录的笔画逐点比对，容差 1e-9。
-升级 vendor 里那个文件之后第一个要跑的就是它。
-
-参数：
-
-| 参数 | 值 | 说明 |
+| Field | Type | Description |
 | --- | --- | --- |
-| `size` | 笔宽 | |
-| `thinning` | 1 | 配合下面那条，把粗细完全交给我们自己的压感曲线 |
-| `smoothing` | 0.5 | 轮廓点之间的最小间距是 `(size × smoothing)²` |
-| `streamline` | 0.5 | 对输入位置的平滑，转弯处把路径往内侧拉 |
-| `simulatePressure` | false | 鼠标和手指的速度已经在输入层折算进压感通道了 |
-| `start.cap` / `end.cap` | 看 `cut` | 切口不画圆帽，留直边 |
-| 起笔阈值 | 1（世界单位） | 见下，**没有**沿用原版的默认值 |
+| `v` | integer | File format version. See [File version and incomplete reads](#file-version-and-incomplete-reads). |
+| `meta` | object | Board metadata. See [meta fields](#meta-fields). |
+| `strokes` | array | Strokes. See [Stroke fields](#stroke-fields). |
 
-**坐标先放大十倍再送进去。** perfect-freehand 里有一个写死的绝对常数
-`END_NOISE_THRESHOLD = 3`：末端三个单位之内的轮廓点一律跳过，用来掐掉抬笔前的噪声。
-在它自己的坐标系里 3 很小，在我们的世界坐标里 3 差不多是 13 宽的笔的半个半径——
-笔画末尾那一小段就没有轮廓点了，二次贝塞尔直接从更靠前的地方拐进末端的圆帽，
-于是先细一下再鼓个球。真机录像里量到末尾五个点的墨迹宽度从应有的 96% 一路掉到
-66%。放大十倍之后那个常数相当于 0.3 个世界单位，看不出影响；其他参数都是长度，
-跟着一起放大，形状不变。
+### meta fields
 
-**另一半在输入层。** 抬笔之前笔通常已经停住了，事件却还在来，坐标在相邻整数之间
-游走，末尾常有四五个点挤在一两个世界单位之内、而且偏出笔画走向。末端的圆帽扣在
-最后一个点上，就被这一撮点顶到轴线外面。所以输入层做两件事：采样点之间至少要隔开
-1.2 个屏幕像素**并且**不少于笔半宽的 12%（`input.js` 的 `MIN_STEP_PX` /
-`MIN_STEP_RATIO`），抬笔时再把「离终点不到笔半宽 30%」的那一撮点砍掉
-（`trimSettledTail`）。
+`meta` describes the board; the server normalizes it with `models.sanitize_meta` on every read and write.
 
-**起笔阈值单独给。** 不用 `getStroke` 那个一把梭的入口，而是分两步调
-`getStrokePoints` 和 `getStrokeOutlinePoints`：原版把同一个 `size` 同时当成「起笔处
-先丢掉多长一段」和「笔有多粗」，而这两件事没关系。那一段是用来挡落笔抖动的，落笔
-抖动的幅度是一两个像素，不是一个笔宽。按笔宽算的话，13 宽的笔要走满 13 个单位
-才开始留点——一条总长 24 个单位的小笔画（写小字时一笔就这么长）会被丢掉前 4 个
-采样点，墨迹从第 6 个单位才开始，手上的感觉是笔动了墨没跟上。现在这个阈值是 1。
+| Field | Type | Values and limits |
+| --- | --- | --- |
+| `id` | string | `^[A-Za-z0-9_.:-]{1,64}$`. New boards use 12 hex characters. The file name is `<id>.wbz`. |
+| `name` | string | Trimmed, at most 64 characters. An empty string means “unnamed”; the interface shows a default name for the `kind`. |
+| `kind` | string | `board` (infinite board, extends in four directions), `note` (note board, fixed width, extends downward), `doc` (document board). Set at creation and cannot change. Invalid values become `board`. |
+| `background` | string | `blank`, `grid`, `lines`, `dots`. Invalid values become `grid`. |
+| `folder` | string | Optional. Folder name, at most 64 characters. Omitted when the board has no folder. |
+| `created` | number | Creation time, Unix seconds. |
+| `updated` | number | Time of the last accepted operation, Unix seconds. Renaming and moving to a folder do not change it. |
+| `doc` | object | Only when `kind` is `doc`. See [Document boards](#document-boards). |
 
-**粗细仍然是我们自己的曲线。** perfect-freehand 的半径公式是
-`size * easing(0.5 - thinning * (0.5 - p))`；取 `thinning = 1` 之后它塌成 `size * p`，
-所以只要把传进去的「压感」设成 `strokeRadius(...) / 笔宽`，算出来的半径就正好是
-`strokeRadius` 给的那个数。它自带的 thinning 是按「设备把 0～1 用满」写的，而 iPad
-只报 0.003～0.13（见下面「压感与粗细」），直接用等于没有压感。
+The obsolete fields `cols`, `rows` and `unit` from older files are dropped on read. A `doc` board without a valid `doc` object is read as `kind` = `board`.
 
-**画法。** `getStroke` 返回一串轮廓点，按它 README 里那条 `Q` + 一串 `T` 画成闭合
-回路：二次贝塞尔穿过相邻两点的中点，顶点当控制点（`T` 的控制点是上一个控制点关于
-端点的反射，推一遍会发现第 i 段的控制点正好是第 i 个轮廓点，所以 `stroke.js` 里直接
-调 `quadraticCurveTo`，不拼字符串）。PDF 没有二次贝塞尔，按
-`C1 = P0 + 2/3(Q-P0)`、`C2 = P2 + 2/3(Q-P2)` 精确升成三次。整条笔画是**一次 fill**
-——荧光笔是半透明的，分段画会在重叠处出现更深的色块。
+### Stroke fields
 
-**为什么不自己写。** 自己写过两版，都废弃了：
+A stroke is one continuous pen, marker or highlighter line; memory, WebSocket and disk use the same field names.
 
-1. 两侧各算一条斜接偏移线接成一条闭合回路。斜接偏移量是 `r / cos(转角/2)`，
-   采样比笔粗密的时候内侧偏移点折回去自交，自交出来的小环绕向和主体相反，
-   nonzero 下算 0，笔画里破白洞。
-2. 相邻两点画「两圆的凸包」逐段求并。白洞没有了，但中心线仍然是采样点连成的折线，
-   笔走得快时一眼能看出是直线拼出来的；后来又加了一层向心 Catmull-Rom 补曲线，
-   问题变成粗细在相邻采样点之间跳（真机上相邻两点的半径最多差 12%），线看着一疙瘩
-   一疙瘩。
+| Field | Type | Values and limits |
+| --- | --- | --- |
+| `id` | string | Generated by the client, globally unique. `^[A-Za-z0-9_.:-]{1,64}$`. |
+| `tool` | string | `pen`, `marker`, `highlighter`. Invalid values become `pen`. |
+| `color` | string | `#rrggbb`. Invalid values become `#1b1b1f`. |
+| `w` | number | Width in world units, clamped to 0.5–96. Default 3. |
+| `n` | integer | Stacking order, 0 ≤ `n` < 2^40. Strokes are drawn in ascending `n`. Assigned by the server. If missing in a file, the stroke's array index is used. |
+| `dev` | string | Device that drew the stroke, at most 16 characters. |
+| `cut` | integer | Optional. Cut ends, 1–3. Omitted when 0. See [Cut ends](#cut-ends-cut). |
+| `m` | array | Optional. Eraser mask. Omitted when empty. See [Masks](#masks-m). |
+| `p` | string | Points. In the file: base64 of the [point encoding](#point-encoding-p). In memory and on the WebSocket: flat array `[x, y, pressure, ...]`. |
 
-换过去之后实测（真机录的一板，693 笔两万个点）：整板重建路径 31 ms → 15.7 ms，
-实时那一笔每帧重建 9.7 ms → 1.5 ms；导出每笔的路径指令从约 965 条降到约 252 条。
-
-## 切口端（`cut` 字段）
-
-像素橡皮擦把一条笔画切成几段，切出来的那一头不该补半圆笔尖——橡皮扫过去留下的
-是胶囊的直边，补个圆头会把缺口填回去一大半，笔宽接近橡皮直径时甚至等于没擦掉。
-`cut` 的两位标出哪一头是切口：`1` 是起点，`2` 是终点，`3` 是两头都是。
-
-屏幕（`stroke.js` 的 `buildPath`）和导出（`inkpdf.py` 的 `outline_path`）都认这个
-字段，两边画出来一样。旧文件没有这个字段，默认两头都是圆笔尖。
-
-## 啃掉的缺口（`m` 字段）
-
-切笔画只能整个截面一起断，所以橡皮比笔细的时候它表达不了「沿荧光笔上沿削一道」
-「正中啃一个坑」这一类。这时改成给笔画挂一个遮罩：记下橡皮扫过的胶囊，
-渲染时从轮廓里裁掉，笔画本身不动。
-
-格式是 `[[半径, x0, y0, x1, y1, ...], ...]`，每一条是一次拖动扫过的折线。
-同一次拖动里连续的几段接成一条链；新胶囊整个盖住的旧胶囊直接丢掉。
-
-像素橡皮只有这一种处理方式：扫过哪里就记进遮罩，不管橡皮比笔粗还是细。曾经按
-「橡皮半径是否不小于笔画半宽」分成切断和啃两种走法，但压感沿笔画变化，同一次拖动
-走到一半判定就会跨过阈值，前半截切出平口、后半截变成啃，所以去掉了（见 stroke.js
-的 `eraseKind`）。原生也是只记遮罩：笔画断开是遮罩把它截断的结果，不是另一种模式。
-
-渲染时不是「从墨迹里减掉胶囊」——减去一组互相重叠的胶囊做不到，even-odd 会让
-重叠处互相抵消。屏幕上改成在胶囊的并集里把背景重新画一遍，PDF 里把胶囊分成
-互不重叠的几组、依次 `W* n` 求交。两条路都见 `docs/eraser.md`，缺口在导出里
-仍然是真矢量，不会退化成栅格图。
-
-**遮罩的段数要有上限。** 裁剪的开销随一条笔画的胶囊段数增长（实测一条笔画挂
-400 段整屏重画 2.9 ms、1000 段 15 ms、2000 段 57 ms）。所以一条笔画的遮罩超过
-`MASK_LIMIT`（400 段，stroke.js）时先抽稀——相邻几段几乎重合，抽掉之后形状看不出
-变化；抽完还超，才把遮罩落实成切分、清空（app-eraser.js 的 `bakeMask`）。切分
-表达不了削半边，所以这一步会把贴边的细条一起清掉，但涂到这个次数本来就是在使劲擦。
-服务端的上限 `models.MAX_MASK_SEGMENTS`（1024）放在前端之上，留出版本差的余量。
-
-同步用 `{"op":"mask","masks":[{id, m}]}`，发的是整条笔画当前的遮罩而不是增量——
-遮罩本来就小，全量在断线重连、乱序到达的情况下都不会错，不用管顺序。
-
-## 点列的编码（`p` 字段）
-
-内存和网络上点列是扁平数组 `[x, y, 压感, x, y, 压感, ...]`，落盘时换成字节流：
-
-1. 坐标量化到 1/8 像素（`QUANT = 8`），取整；
-2. 相邻点存**增量**，不存绝对值；
-3. 增量用 zigzag varint（小的负数也只占一个字节）；
-4. 压感量化成 1 字节；
-5. 整串 base64 塞进 JSON，最后整个 JSON 再 zlib 压缩。
-
-一条 500 个点的笔画通常不到 2 KB。代码在 `whiteboard/codec.py`，
-`encode_points` / `decode_points` 是一对逆运算，有往返测试。
-
-## 版本与读不全的文件
-
-`v` 是文件格式的版本号，现在是 1（`store.FILE_VERSION`）。只有格式本身变了才改它，
-程序版本升级不改。读文件时（`store.open_board`）以下几种情况都算「没能完整读出来」：
-
-| `reason` | 情况 |
+| `p` limit | Value |
 | --- | --- |
-| `unreadable` | 文件打不开（权限、外置盘没挂上……），可能只是暂时的 |
-| `corrupt` | 打开了，但解压或解析失败，一笔都读不出来 |
-| `partial` | 大部分读出来了，但有笔画解不开或者不合法 |
-| `newer` | `v` 比本版的大：更新版本的程序写的，这一版可能认不全 |
+| Values per point | 3 (`x`, `y`, pressure) |
+| Minimum points | 1 |
+| Maximum points | 20000 (`models.MAX_POINTS_PER_STROKE`) |
+| Allowed values | Finite numbers only (no NaN, no infinity, no booleans) |
 
-这几种情况下白板**以只读方式打开**：读得出来的内容照常显示，但自动保存不写它，
-否则就会用读出来的那部分覆盖原件。再次切到这块白板时会重新读一遍。
-改名、归类只改文件里的 `meta`，其余内容原样保留。
-用户在提示里选「仍然编辑」之后，原文件先复制到 `backups/locked/<id>-<时间>.wbz`，
-之后照常编辑和保存（保存时读不出来的部分和这一版不认识的字段会丢失）。
+A stroke that violates a `p` limit is discarded as a whole; it is not truncated.
 
-索引里记着、但文件读不出来的白板仍然出现在列表里，打开时同样以只读方式显示；
-不会因为读不出来就从界面上消失。
+## Stroke outline
 
-## 备份
+Each stroke is rendered as one filled closed outline generated by perfect-freehand from the stroke's points, width and pressure.
 
-- `backups/upgrade/`：换版本（升级或降级）后第一次启动时，在碰任何白板之前把
-  `boards/` 和 `index.json` 复制一份，只留最近 5 份。`docs/` 里的原件程序从不改写，
-  不备份。
-- `backups/locked/`：解锁一块只读白板之前，原文件的副本。
+| Target | Implementation |
+| --- | --- |
+| Screen | `whiteboard/web/static/js/vendor/perfect-freehand.js` (perfect-freehand 1.2.3, unmodified ESM build), called from `stroke.js` |
+| Export | `whiteboard/freehand.py`, a Python port used by `/api/export/{board_id}` on the server |
 
-## 自己读一个文件
+Both implementations must produce identical outline points. `tests/test_browser.py::test_python_outline_matches_perfect_freehand` compares them point by point with tolerance 1e-9 on recorded strokes.
+
+> **Warning**
+> Run `test_python_outline_matches_perfect_freehand` after any change to the vendored perfect-freehand file or to `freehand.py`.
+
+### Tool properties
+
+| Tool | Opacity | Width multiplier | Width follows pressure |
+| --- | --- | --- | --- |
+| `pen` | 1 | 1 | Yes |
+| `marker` | 1 | 2.6 | No |
+| `highlighter` | 0.3 | 6 | No |
+
+The width multiplier is applied when the stroke starts; the stored `w` already includes it.
+
+### Pressure and width
+
+The radius at each point comes from the project's own pressure curve, not from perfect-freehand's `thinning`.
+
+```text
+half   = max(0.3, w / 2)
+force  = p · (1 + KNEE) / (p + KNEE)                        p clamped to 0–1
+radius = half · (FLOOR + (1 − FLOOR) · force^GAMMA)          pen
+radius = half                                                marker, highlighter
+```
+
+| Constant | Value | Defined in |
+| --- | --- | --- |
+| `PEN_KNEE` | 0.05 | `stroke.js`, `inkpdf.py` |
+| `PEN_FLOOR` | 0.2 | `stroke.js`, `inkpdf.py` |
+| `PEN_GAMMA` | 1.2 | `stroke.js`, `inkpdf.py` |
+
+The curve is shaped for iPad Safari, which reports pressure in roughly 0.003–0.13 rather than the full 0–1 range. Mouse and finger input have no pressure reading; the input layer converts speed into a pressure value (`input.js` `pressureFor`, `stroke.js` `pressureForFactor`).
+
+### Outline parameters
+
+| Parameter | Value | Description |
+| --- | --- | --- |
+| `size` | `max(w, 0.6)` | Stroke width |
+| pressure passed in | `radius / w` | With `thinning` = 1 the perfect-freehand radius reduces to `size × pressure`, which equals `radius`. |
+| `thinning` | 1 | Hands width control to the pressure curve above. |
+| `smoothing` | 0.5 | Minimum spacing between outline points is `(size × smoothing)²`. |
+| `streamline` | 0.5 | Smoothing of input positions. |
+| `simulatePressure` | false | Speed is already folded into the pressure value. |
+| `start.cap` / `end.cap` | from `cut` | A cut end has no round cap. See [Cut ends](#cut-ends-cut). |
+| start noise (`START_NOISE`) | 1 world unit | Length discarded at the start of the stroke. |
+| coordinate scale (`INK_SCALE`) | 10 | Coordinates and lengths are multiplied by 10 before the call and divided by 10 afterwards. |
+
+`getStrokePoints` and `getStrokeOutlinePoints` are called separately instead of `getStroke`, so the start-noise length (1 world unit) is independent of the stroke width.
+
+`INK_SCALE` reduces the effect of perfect-freehand's fixed `END_NOISE_THRESHOLD = 3` to 0.3 world units, so the end of a stroke keeps its outline points and does not narrow before the end cap.
+
+> **Note**
+> `START_NOISE`, `INK_SCALE`, `OUTLINE_SMOOTHING` and `OUTLINE_STREAMLINE` must have the same values in `stroke.js` and `inkpdf.py`.
+
+### Input filtering
+
+The input layer drops samples that would distort the stroke end before the points reach the outline.
+
+| Rule | Value | Code |
+| --- | --- | --- |
+| Minimum distance between samples | 1.2 screen pixels **and** 12 % of the stroke half-width | `input.js` `MIN_STEP_PX`, `MIN_STEP_RATIO` |
+| Trailing samples removed at pen lift | Samples within 30 % of the half-width from the last point | `input.js` `TAIL_SETTLE`, `trimSettledTail` |
+
+### Path construction
+
+The outline points form one closed path of quadratic Bézier curves through the midpoints of adjacent points, with each point as the control point.
+
+This is the `Q` + `T` path from the perfect-freehand README; segment *i* uses outline point *i* as its control point, so `stroke.js` calls `quadraticCurveTo` directly (`quadPath`).
+
+PDF has no quadratic curves. `inkpdf.py` converts each one to an exact cubic:
+
+```text
+C1 = P0 + 2/3 · (Q − P0)
+C2 = P2 + 2/3 · (Q − P2)
+```
+
+Each stroke is filled once with the nonzero rule. A single fill keeps overlapping parts of a semi-transparent highlighter stroke at uniform opacity.
+
+## Cut ends (`cut`)
+
+`cut` marks which ends of a stroke were produced by cutting, so those ends are drawn flat instead of with a round cap.
+
+| `cut` | Start | End |
+| --- | --- | --- |
+| absent / 0 | round | round |
+| 1 | flat | round |
+| 2 | round | flat |
+| 3 | flat | flat |
+
+A round cap at a cut end would refill part of the erased gap.
+
+| Renderer | Honors `cut` |
+| --- | --- |
+| Screen (`stroke.js` `strokeOutline`) | Yes |
+| PDF export (`inkpdf.py` `outline_path`) | Yes |
+| Image export (`docs.py` `export_image`) | No, always round caps |
+
+Strokes split by `splitLongStroke` (see [protocol.md](protocol.md#operation-rules)) do not set `cut`.
+
+## Masks (`m`)
+
+A mask records the capsules swept by the pixel eraser over a stroke; renderers clip them out of the outline and the stroke's points stay unchanged.
+
+### Mask format
+
+```jsonc
+"m": [
+  [r, x0, y0, x1, y1, ...],   // one chain: radius, then two or more points
+  ...
+]
+```
+
+| Element | Description |
+| --- | --- |
+| chain | One eraser sweep: a polyline of capsules with radius `r`. |
+| `r` | Capsule radius in world units, > 0. |
+| `x0, y0, x1, y1, ...` | Polyline points, at least 2. |
+| segments in a chain | `max(1, (len − 3) / 2)` |
+
+Validation (`models.sanitize_mask`):
+
+- A chain must be an array of odd length ≥ 5 with `r` > 0.
+- A chain with a non-number value is dropped.
+- Chains past the segment limit are dropped, and the chain that crosses the limit is truncated.
+
+### Recording sweeps
+
+The pixel eraser always adds to the mask; it never cuts strokes directly (`stroke.js` `eraseKind` returns only `"bite"` or `null`).
+
+- Consecutive segments of one drag are appended to the same chain when the radius matches within 1 % and the new segment starts at the chain's last point (`addMask`).
+- A chain that lies entirely inside the new capsule is removed.
+- A stroke appears broken when the mask covers its full width; the data is still one stroke with one ID.
+
+### Mask rendering
+
+Renderers do not subtract capsules from the ink, because even-odd subtraction of overlapping capsules cancels in the overlap.
+
+| Target | Method |
+| --- | --- |
+| Screen | Redraws the background inside the union of the capsules. |
+| PDF | Splits the capsules into groups with no overlap inside a group, then applies one `W* n` clip per group. The masked gap stays vector. |
+
+Details: [eraser.md](eraser.md).
+
+### Mask size limit
+
+The number of capsule segments per stroke is limited because clipping cost grows with it.
+
+| Limit | Value | Where | Action when exceeded |
+| --- | --- | --- | --- |
+| `MASK_LIMIT` | 400 segments | `stroke.js` | Simplify the mask (RDP, tolerance `r / 6`). If still over the limit, convert the mask into cuts (`app-eraser.js` `bakeMask`). |
+| `MAX_MASK_SEGMENTS` | 1024 segments | `models.py` | Server drops or truncates chains past the limit. |
+
+Measured full-screen redraw time for one stroke: 2.9 ms with 400 segments, 15 ms with 1000, 57 ms with 2000.
+
+`bakeMask` replaces the stroke with the pieces left after cutting along every capsule, clears the mask and sends a `remove` plus a `restore`. The pieces keep the original `n`. Cuts cannot represent a partly removed edge, so thin slivers along the edge are removed in this step.
+
+> **Warning**
+> `MAX_MASK_SEGMENTS` must be at least `MASK_LIMIT`, and both count total segments per stroke. If the server truncates a mask the client considers valid, erased ink reappears on other devices. `tests/test_models.py` checks this.
+
+### Mask synchronization
+
+The `mask` operation carries each stroke's complete current mask, not a delta. A full mask is correct regardless of reconnection or delivery order. See [protocol.md](protocol.md#operations).
+
+## Point encoding (`p`)
+
+On disk, the flat point array `[x, y, pressure, ...]` is encoded as bytes and stored as a base64 string.
+
+| Step | Rule |
+| --- | --- |
+| 1. Quantize coordinates | `round(value × 8)` (1/8 world unit, `QUANT = 8`) |
+| 2. Delta | Each point stores `x − prev_x` and `y − prev_y`. The first point's previous value is (0, 0). |
+| 3. Zigzag varint | Each delta is zigzag-mapped `(v << 1) ^ (v >> 63)` and written as an unsigned LEB128 varint (7 bits per byte, high bit = continuation). |
+| 4. Pressure | Clamped to 0–1, stored as one byte `round(p × 255)`. |
+| 5. base64 | The byte string is base64-encoded into the JSON `p` field. |
+| 6. zlib | The whole JSON document is zlib-compressed (level 6). |
+
+Byte layout:
+
+```text
+uvarint  count
+repeat count times:
+  svarint  dx      (quantized)
+  svarint  dy      (quantized)
+  uint8    pressure
+```
+
+Decoding reverses the steps: `x = Σdx / 8`, `y = Σdy / 8`, `pressure = byte / 255`. A varint longer than 63 bits, a read past the end, or a missing pressure byte is an error.
+
+A stroke of 500 points is usually under 2 KB. The code is in `whiteboard/codec.py`; `encode_points` / `decode_points` (and the `_b64` variants) are inverse functions covered by round-trip tests.
+
+## File version and incomplete reads
+
+`v` is the file format version, currently 1 (`store.FILE_VERSION`). It changes only when the file format changes, not when the application version changes. A file without `v` is read as version 1.
+
+`store.open_board` reports a board as not fully readable in the following cases:
+
+| `reason` | Condition | Extra field |
+| --- | --- | --- |
+| `unreadable` | The file cannot be opened (permissions, external disk not mounted). May be temporary. | `detail`: error text |
+| `corrupt` | The file opens, but decompression or JSON parsing fails, or the top level is not an object. No stroke is read. | `detail`: error text |
+| `partial` | Most of the file is read, but some strokes cannot be decoded or are invalid. | `dropped`: number of strokes |
+| `newer` | `v` is greater than `FILE_VERSION` or is not an integer. The file was written by a newer version. | `version`: the value of `v` |
+
+When `newer` applies, `partial` is not reported. A missing `.wbz` file is not an error; the board opens empty.
+
+### Read-only boards
+
+A board that is not fully readable opens as a read-only board.
+
+- Readable content is shown.
+- The server rejects all operations on it, including `meta` (see [protocol.md](protocol.md#read-only-boards)).
+- Autosave does not write the file, so the partial content never overwrites the original.
+- Renaming and moving to a folder rewrite only `meta` in the file; the rest of the file, including fields this version does not recognize, is kept. If the file cannot be read, the change fails.
+- Selecting the board again reads the file again.
+- A board in the index whose file cannot be read stays in the board list and opens read-only.
+
+### Unlocking
+
+A device with the “管理白板” (Manage boards) permission can choose to edit a read-only board anyway.
+
+1. The server copies the file to `backups/locked/<id>-<YYYYmmdd-HHMMSS>.wbz` (with `-1`, `-2`, … appended if that name exists).
+2. If the copy fails, the board stays read-only.
+3. Otherwise the board becomes editable and is saved normally. Strokes that could not be read and fields this version does not recognize are lost at the next save.
+
+## Backups
+
+The application writes two kinds of backups inside the storage directory.
+
+| Directory | When | Content | Retention |
+| --- | --- | --- | --- |
+| `backups/upgrade/<time>.<ns>_<old>_to_<new>/` | First start after a version change (upgrade or downgrade), before any board is opened | `boards/` and `index.json` | Latest 5 |
+| `backups/locked/` | Before a read-only board is unlocked | The original `.wbz` file | Not pruned |
+
+- `docs/` is not backed up: the application never modifies the originals.
+- `thumbs/` is not backed up: thumbnails are regenerated.
+- No upgrade backup is taken when `boards/` is empty.
+- An upgrade backup is first written to `.partial-<name>` and renamed when complete.
+- If the upgrade backup fails, startup continues and the backup is retried at the next start.
+
+## Reading a file
+
+A `.wbz` file can be read with the Python standard library and `whiteboard.codec`.
 
 ```python
 import json, zlib
@@ -223,49 +419,81 @@ from whiteboard.codec import decode_points_b64
 
 payload = json.loads(zlib.decompress(open("boards/xxx.wbz", "rb").read()))
 for stroke in payload["strokes"]:
-    points = decode_points_b64(stroke["p"])   # [x, y, 压感, ...]
-    print(stroke["tool"], stroke["color"], len(points) // 3, "个点")
+    points = decode_points_b64(stroke["p"])   # [x, y, pressure, ...]
+    print(stroke["tool"], stroke["color"], len(points) // 3, "points")
 ```
 
-导出 PNG 走的是另一条路（界面上的导出按钮），`.wbz` 里永远只有矢量数据。
+PNG export of ordinary boards happens in the browser (export button in the interface). A `.wbz` file contains only vector data.
 
-## 文档板（beta）
+## Document boards
 
-`kind` 是 `doc` 的白板多一段 `meta.doc`，记着原件是什么、每页多大：
+A document board (`kind` = `doc`, beta) is created from a PDF or image; the ink is stored in the `.wbz` file and the original is kept unchanged in `docs/`.
+
+### meta.doc fields
 
 ```jsonc
 "doc": {
-  "type": "pdf",            // pdf / image
-  "name": "讲义.pdf",        // 原始文件名，只用来起导出文件名
+  "type": "pdf",
+  "name": "讲义.pdf",
   "ext": ".pdf",
-  "pages": [[595.28, 841.89], [595.28, 841.89]]   // 每页的显示尺寸
+  "pages": [[595.28, 841.89], [595.28, 841.89]]
 }
 ```
 
-页面在世界坐标里自上而下排列，页宽按最宽的一页居中，页间距 24 单位
-（`whiteboard/docs.py` 的 `PAGE_GAP`，前端 `boardstate.js` 里有一份同样的值，
-两边对不上导出时笔迹就会落到别的页上）。PDF 的尺寸用 pt，图片用像素；
-两者都已经算进 `/Rotate`，所以世界坐标和屏幕上看到的排版是一一对应的。
+| Field | Type | Values and limits |
+| --- | --- | --- |
+| `type` | string | `pdf` or `image` |
+| `name` | string | Original file name, at most 128 characters. Used only for the export file name. |
+| `ext` | string | Original extension, lowercase, `^\.[a-z0-9]{1,7}$`. |
+| `pages` | array | `[width, height]` per page, rounded to 0.01. Each value 0 < v < 10^6. At most 400 pages. PDF in pt, images in pixels. Sizes already include `/Rotate`. |
 
-原件本身不进 `.wbz`，而是原样复制到 `docs/` 下，导出时才和笔迹合到一起：
+| Supported original | Extensions |
+| --- | --- |
+| PDF | `.pdf` |
+| Image | `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.webp`, `.tif`, `.tiff` |
 
-- **PDF**：笔迹编成一段新的内容流，以 `/Contents` 数组的形式追加在原页面后面，
-  原有的内容流对象一个字节都不重写。笔迹先做 RDP 抽稀（阈值取笔宽的 5%，夹在
-  0.35～1.5 pt 之间：细笔差半点就看得出来，马克笔差一点半也看不出来），坐标按
-  1/4 pt 取整后靠 `cm` 缩放回去（整数比小数好压）。每一笔都是**一次填充闭合轮廓**，
-  和屏幕上的画法逐段对应（见下面「笔画轮廓」）；半透明由 `/ExtGState` 的 `ca`
-  负责，一次填充顺带保证重叠处不变深。
-  最后整段 zlib 压缩，实测每一笔 300～450 字节。代码在 `whiteboard/inkpdf.py`。
+A new document board uses the file name without extension as `name`, `background` = `blank`, and stores the original as `docs/<board id><ext>`.
 
-  每次导出都是**从原件重新写一遍**（pypdf 的 `PdfWriter(clone_from=...)` 只带走
-  还能被引用到的对象），所以：原件里堆了多少次「增量保存」的死版本都会被甩掉；
-  同一块白板导出多少次都一样大——原件只读、笔迹另存在 `.wbz` 里，不存在
-  「保存一次多一份副本」这回事。
+### Page layout
 
-  早先为了省体积做过「按线宽分桶描成折线」：线宽一变就断一段，每段两头各带一个
-  圆头，笔一粗就变成一串大小不一的圆饼，和屏幕上完全不是一个形状，已经废弃。
-- **图片**：笔迹按原分辨率栅格化叠上去，每一笔只在自己的包围盒里做 3 倍超采样；
-  JPEG 复用原来的量化表和色度采样重编码，不画笔迹时体积与原件一致。
+Pages are placed top to bottom in world coordinates, each centered on the widest page, with a gap of 24 world units.
 
-`/Rotate` 的处理见 `inkpdf.page_matrix`：它给出「显示坐标（左上原点、y 向下）
-→ PDF 用户坐标」的 `cm` 矩阵，四个角度各一套，顺带把 CropBox 的偏移算进去。
+| Constant | Value | Code |
+| --- | --- | --- |
+| `PAGE_GAP` | 24 | `whiteboard/docs.py`, `whiteboard/web/static/js/boardstate.js` |
+
+> **Warning**
+> The two `PAGE_GAP` values must match. If they differ, exported ink lands on the wrong page.
+
+### PDF export
+
+PDF export appends the ink to each page as a new content stream and leaves the original content stream objects unchanged.
+
+| Step | Rule |
+| --- | --- |
+| Page assignment | By the center of the stroke's bounding box. Strokes in the gap between pages go to the nearest page. |
+| Simplification | Ramer–Douglas–Peucker, tolerance `w × 0.05` clamped to 0.35–1.5 pt. |
+| Outline | Same outline as the screen, with `cut` and masks. One fill per stroke. |
+| Coordinates | Rounded to 1/4 pt integers and scaled back with `cm`. |
+| Opacity | `/ExtGState` entries `/WBa<percent>` with `ca` and `CA`. |
+| Page contents | `/Contents` becomes an array: `q`, original streams, `Q`, ink stream. |
+| Compression | Ink stream compressed with Flate (zlib level 9). |
+| Rewrite | Each export writes a new file from the original with `PdfWriter(clone_from=...)`, which keeps only reachable objects. |
+
+Measured size: 300–450 bytes per stroke. Exporting the same board repeatedly gives the same size, because the original is never modified. Code: `whiteboard/inkpdf.py`, `whiteboard/docs.py`.
+
+`inkpdf.page_matrix` returns the `cm` matrix from display coordinates (top-left origin, y down) to PDF user space for each `/Rotate` value (0, 90, 180, 270), including the CropBox offset; `page_geometry` reads the inherited `/Rotate` and page box.
+
+### Image export
+
+Image export draws the ink onto the original at full resolution.
+
+| Rule | Value |
+| --- | --- |
+| Simplification | Same as PDF export. |
+| Rasterization | Each stroke is drawn only within its bounding box at 3× supersampling (`SUPERSAMPLE`), then downsampled. If the supersampled tile exceeds 64,000,000 pixels, the stroke is drawn without supersampling. |
+| JPEG output | Reuses the original quantization tables and chroma subsampling. Without tables, quality 90. |
+| Other formats | `.png` stays PNG. `.gif`, `.bmp`, `.webp`, `.tif`, `.tiff` export as PNG. |
+| `cut` and masks | Not applied. |
+
+The export file name is `<original name without extension>-批注<ext>`.
