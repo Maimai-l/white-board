@@ -31,7 +31,7 @@ export const ERASER_MODES = [
   { key: "pixel", title: "像素橡皮擦" },
 ];
 // 橡皮的粗细不用手动调：对象橡皮擦一直是笔尖，像素橡皮擦跟着笔身角度走，
-// 数值都在 input.js 的 ERASER_* 里。
+// 数值都在 input-erase.js 的 ERASER_* 里。
 
 const TOOL_KEY = "whiteboard.tool";
 
@@ -502,7 +502,7 @@ export class UI {
     return swatches;
   }
 
-  /** 粗细。橡皮没有这一档：它的粗细不用手动调，见 input.js 的 eraserRadius。 */
+  /** 粗细。橡皮没有这一档：它的粗细不用手动调，见 input-erase.js 的 eraserRadius。 */
   widthOptions() {
     const widths = el("div", { class: "widths" });
     WIDTHS.forEach((width, index) => {

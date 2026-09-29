@@ -4,8 +4,8 @@
 另一条路：``/api/export/{board_id}`` 在服务端从存下来的白板生成 PDF，用不上浏览器，
 所以这一份是照着它的 ``getStrokePoints`` / ``getStrokeOutlinePoints`` 一行一行搬过来的。
 
-两份实现必须给出**完全一样**的点列，``tests/test_docs.py`` 里有用例拿真机录的笔画
-逐点比对，差一个点就会红。所以这里刻意保持和原版一样的写法：同样的常数、同样的
+两份实现必须给出**完全一样**的点列，``tests/test_browser.py`` 的
+``test_python_outline_matches_perfect_freehand`` 拿真机录的笔画逐点比对，差一个点就会红。所以这里刻意保持和原版一样的写法：同样的常数、同样的
 循环累加方式（浮点累加的次数要一模一样，不能改写成整数循环）、同样的跳过条件。
 读起来不像 Python 的地方基本都是这个原因，改之前先看那条用例。
 
