@@ -1,55 +1,96 @@
-# 发版前的真机检查
+English | [简体中文](release-checklist.zh-CN.md)
 
-CI 只能在 Linux 上的 Chromium / WebKit 里跑，真正的 Apple Pencil、iPadOS Safari、
-外壳和打包好的 .app 只能在真机上看。每次把预发布版转成正式版之前，按这份清单走一遍。
+# Release Checklist
 
-## 0. 升级之前
+Run this checklist on real devices before turning a prerelease into a release.
 
-- [ ] 在 Mac 上跑 `python tools/check_boards.py`，确认输出最后一行是「全部白板都能完整读出」。
-      有白板会以只读方式打开的话，先把输出发给开发者，不要升级。
+CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, the iPad shell, and the packaged `.app` can be verified only on real devices.
+
+## 0. Before upgrading
+
+- [ ] On the Mac, run `python tools/check_boards.py`. The last line of the output must be “全部白板都能完整读出。” (All boards can be read completely.)
+
+> **Warning**
+> If any board would open as a read-only board, do not upgrade. Send the output to the developer first.
 
 ## 1. Mac
 
-- [ ] 装上预发布版，第一次打开。存储目录下出现 `backups/upgrade/<时间>_<旧版本>_to_<新版本>/`，
-      里面有 `boards/` 和 `index.json`。
-- [ ] 「关于」里显示的是新版本号（带 -rc 后缀）。
-- [ ] 原有的白板都在，内容、文件夹、顺序都和升级前一样；随便打开几块，没有只读提示。
-- [ ] 鼠标写字、撤销、重做、清空（会先问一句）。
-- [ ] 两种橡皮各擦一下；撤销能把擦掉的恢复。
-- [ ] 新建白板、笔记、拖进一份 PDF 建文档板，在 PDF 上写字并导出。
-- [ ] 白板选择界面：改名、归入文件夹、拖动排序、搜索。
-- [ ] 设置里换一次存储目录，再换回来，白板都在。
-- [ ] 关掉窗口再打开，刚写的内容都在。
-- [ ] 日志文件 `~/Library/Logs/Whiteboard.log` 里每行只出现一次。
+### Upgrade
 
-## 2. iPad（外壳与主屏图标各一遍）
+- [ ] Install the prerelease and open it for the first time. The storage directory contains `backups/upgrade/<time>_<old version>_to_<new version>/` with `boards/` and `index.json` inside.
+- [ ] “关于” (About) shows the new version number, including the `-rc` suffix.
+- [ ] All existing boards are present, with the same content, folders, and order as before the upgrade. Opening several of them shows no read-only notice.
 
-- [ ] 外壳：打开后没有反复弹「有新版本」。需要更新外壳时，装的是同一版本号的外壳。
-- [ ] 工具栏是笔具盘；以前关掉过笔具盘的 iPad 现在也是笔具盘。
-- [ ] 白板选择界面：搜索框能打字（中文、英文都试）并筛出结果；点白板名字能改名；
-      新建文件夹、给文件夹改名的输入框都能打字。CI 里的浏览器不会重现 iPadOS 上
-      「输入框打不了字」这一类问题，只能在真机上看。
-- [ ] 在 iPad 上给白板改名打到一半时，在 Mac 上给另一块白板改名：iPad 的键盘不应该收起，
-      已经打的字不应该丢。
-- [ ] 改名时 iOS 不会自动改写或把首字母变成大写。
-- [ ] 新建文件夹对话框里的输入框没有被键盘挡住；键盘收起之后界面和笔具盘位置正常。
-- [ ] 从主屏图标打开时导出 PNG 能存下来；导入文档时从「照片」选一张图片（包括 HEIC）
-      的结果符合预期（不支持的格式要有提示）。
-- [ ] Apple Pencil 书写：压感、倾斜、快写不断笔、末尾不鼓包；手掌搭在屏幕上不留痕。
-- [ ] 手指平移、双指缩放；打开手指书写之后单指能写。
-- [ ] 像素橡皮：笔立着是细的，压平变粗，一次拖动里粗细不变。
-- [ ] 两边同时开着：iPad 写的 Mac 上马上出现，Mac 上写的 iPad 上马上出现。
-- [ ] 断开 Wi-Fi 写几笔，再连上，这几笔同步过去，没有重复。
-- [ ] Mac 上退出再打开应用，iPad 自动重连，内容不丢。
+### Drawing and editing
 
-## 3. 只读白板（可选，确认提示本身）
+- [ ] Drawing with the mouse, undo, and redo work. “清空白板” (Clear board) asks for confirmation before clearing.
+- [ ] The object eraser and the pixel eraser both erase. Undo restores the erased strokes.
+- [ ] Create an infinite board and a note board. Drag a PDF into the window to create a document board, write on the PDF, and export it.
 
-- [ ] 复制一块白板的 `.wbz` 做备份，然后用文本编辑器随便改坏原文件的几个字节。
-- [ ] 打开这块白板：两边都弹出只读提示，落笔变成拖动画布。
-- [ ] 在 Mac 上选「仍然编辑」：`backups/locked/` 里出现原文件的副本，两边都能继续写。
-- [ ] 用做的备份把文件恢复回去。
+### Board chooser and settings
 
-## 4. 转成正式版
+- [ ] In the board chooser, renaming, moving a board into a folder, drag-to-reorder, and search work.
+- [ ] Change the storage directory in settings, then change it back. All boards are present.
+- [ ] Close and reopen the window. Recently written content is present.
+- [ ] Each line in the log file `~/Library/Logs/Whiteboard.log` appears only once.
 
-都没问题的话，在 `main`（或发版用的分支）上打不带后缀的 tag（`v1.0.0`）。
-CI 会构建并发布正式 Release，应用内的更新检查从这时起才会提示现有用户。
+## 2. iPad
+
+Run this section twice: once in the iPad shell and once from the Home Screen icon.
+
+### Shell and toolbar
+
+- [ ] Shell: after launch, the “有新版本” (New version available) prompt does not reappear repeatedly. When the shell needs an update, the installed shell has the same version number as the Mac app.
+- [ ] The toolbar is the tool picker, including on an iPad where the tool picker was previously turned off.
+
+### Text input
+
+CI browsers do not reproduce iPadOS problems where a text field does not accept typing. Check these items only on a real device.
+
+- [ ] Board chooser: the search field accepts typing in Chinese and English and filters the results. Tapping a board name starts renaming. The text fields for creating and renaming a folder accept typing.
+- [ ] While a board rename is in progress on the iPad, rename another board on the Mac. The iPad keyboard stays open and the typed text is kept.
+- [ ] iOS does not autocorrect or capitalize the first letter while renaming.
+- [ ] In the new-folder dialog, the keyboard does not cover the text field. After the keyboard closes, the layout and the tool picker position are correct.
+
+### Home Screen icon
+
+- [ ] When opened from the Home Screen icon, PNG export saves the file.
+- [ ] When importing a document, choosing an image from “照片” (Photos), including HEIC, gives the expected result. Unsupported formats show a message.
+
+### Drawing
+
+- [ ] Apple Pencil: pressure and tilt apply, fast strokes do not break, stroke ends have no blob, and a palm resting on the screen leaves no mark (palm rejection).
+- [ ] One finger pans and two fingers zoom. With finger drawing turned on, one finger draws.
+- [ ] Pixel eraser: the eraser is narrow with the Pencil upright and wider with the Pencil tilted flat. The width stays constant within one drag.
+
+### Sync
+
+- [ ] With both devices open, strokes drawn on the iPad appear on the Mac immediately, and strokes drawn on the Mac appear on the iPad immediately.
+- [ ] Turn off Wi-Fi, draw several strokes, and reconnect. The strokes sync without duplicates.
+- [ ] Quit and reopen the app on the Mac. The iPad reconnects automatically and no content is lost.
+
+## 3. Read-only board (optional)
+
+This section verifies the read-only notice itself.
+
+- [ ] Copy a board's `.wbz` file as a backup. Then change a few bytes of the original file in a text editor.
+- [ ] Open the board. Both devices show the read-only notice, and drawing pans the canvas instead.
+- [ ] On the Mac, choose “仍然编辑” (Edit anyway). A copy of the original file appears in `backups/locked/`, and both devices can continue drawing.
+- [ ] Restore the file from the backup.
+
+## 4. Publish the release
+
+When every item passes, push a tag without a suffix (for example `v1.0.0`) on the `stable` branch.
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+| Tag | Published as | Offered by the in-app updater |
+| --- | --- | --- |
+| `v1.0.0` | Release | Yes |
+| `v1.0.0-rc.1` (contains a hyphen) | Prerelease | No |
+
+- CI (`.github/workflows/build-macos.yml`) builds the Mac app and the iPad shell, then publishes the `.zip` and the `.ipa` to the GitHub Release.
+- The in-app updater reads `releases/latest`, which excludes prereleases. Existing users receive the update only after the release is published.
+- The release notes are the section of `CHANGELOG.zh-CN.md` for that version (`packaging/release_notes.py`). The update dialog shows these notes. A prerelease without its own section uses the section of the corresponding release version. If no section exists, GitHub generates the notes.
