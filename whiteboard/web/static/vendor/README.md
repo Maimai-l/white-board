@@ -1,16 +1,25 @@
+English | [简体中文](README.zh-CN.md)
+
 # vendor
 
-这里放的是第三方代码，**原样存放，不做修改**。要改行为请在 `static/js/` 里包一层。
+This directory contains third-party code, stored unmodified. To change its behavior, wrap it in `static/js/`.
 
 ## pencilkit-picker.js
 
-- 来源：用户提供的 `pencil-toolpicker.js`（PencilBoard，iPadOS PencilKit 工具栏的原生 JS 复刻，含画布）。
-- 图形资源：文件头注明由 [WireFrameRate/PencilKitForSketch](https://github.com/WireFrameRate/PencilKitForSketch)
-  的 `PencilKit.sketch` 符号转换而来，也就是对 Apple PencilKit 界面的再现。
-  这部分是**苹果界面的仿制素材**，随仓库分发有版权风险，仓库公开发布前请自行确认。
-- 内含 [perfect-freehand](https://github.com/steveruizok/perfect-freehand) 1.2.3
-  （MIT，Copyright (c) 2021 Stephen Ruiz Ltd），tldraw 和 Excalidraw 用的就是它。
-- 白板只用它的工具栏，画布那一半在 `static/js/pkpicker.js` 里通过继承摘掉了，
-  这个文件本身一个字节都没改。
-- 体积约 470 KB（大部分是 base64 图片），所以是**按需加载**：只有 iPad 上
-  （笔具盘是 iPad 的工具栏）才会 `import()` 它，别的设备不下载。
+`pencilkit-picker.js` provides the tool picker used on the iPad. It is PencilBoard, a plain JavaScript reproduction of the iPadOS PencilKit toolbar, including a canvas.
+
+| Item | Details |
+| --- | --- |
+| Source | `pencil-toolpicker.js`, provided by the user |
+| Graphic assets | Converted from the `PencilKit.sketch` symbols of [WireFrameRate/PencilKitForSketch](https://github.com/WireFrameRate/PencilKitForSketch), as stated in the file header. They reproduce the Apple PencilKit interface. |
+| Bundled library | [perfect-freehand](https://github.com/steveruizok/perfect-freehand) 1.2.3 (MIT, Copyright (c) 2021 Stephen Ruiz Ltd), the stroke outline library used by tldraw and Excalidraw |
+| Modifications | None. The file is unmodified. |
+| Size | About 470 KB, mostly base64 images |
+
+> **Warning**
+> The graphic assets imitate Apple interface artwork. Distributing them in the repository carries a copyright risk. Confirm the licensing before publishing the repository.
+
+### Usage
+
+- The board uses only the toolbar. `static/js/pkpicker.js` removes the canvas by subclassing.
+- The file is loaded on demand. Only the iPad, where the tool picker is the toolbar, loads it with `import()`. Other devices do not download it.

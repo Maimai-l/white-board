@@ -1,56 +1,106 @@
-局域网共享白板 · 使用说明
-================================
+English | Simplified Chinese: GETTING-STARTED.zh-CN.txt
 
-准备
-----
-Mac 上需要有 Python 3.10 或更高版本（终端里执行 python3 --version 可以确认，
-没有的话去 https://www.python.org/downloads/ 装一个）。
-Mac 和 iPad 连同一个 Wi-Fi。
+LAN Shared Whiteboard - Getting Started
+=======================================
 
-安装（推荐）
+Requirements
 ------------
-到仓库的 Releases 页面下载 Whiteboard-*-macos-arm64.zip（Intel 机器选 x86_64），
-解压后把 Whiteboard.app 拖进「应用程序」，像普通应用一样双击打开。
+- A Mac with Apple silicon, and an iPad.
+- The Mac and the iPad are on the same Wi-Fi network.
+- Running from source only: Python 3.10 or later on the Mac.
+  Check with: python3 --version
+  Download: https://www.python.org/downloads/
 
-第一次打开会有两个系统提示：
-  1. 「无法验证开发者」→ 右键点应用 → 打开 → 再点「打开」。只需这一次。
-  2. 「想要查找并连接到本地网络上的设备」→ 必须允许，否则 iPad 连不上。
+Install (recommended)
+---------------------
+1. On the repository's Releases page, download Whiteboard-<version>-macos-arm64.zip.
+2. Unzip it and drag Whiteboard.app into "应用程序" (Applications).
+3. Open it by double-clicking.
 
-以后不用手动更新：应用会自己查新版本，界面上方会出现提示，点一下就更新并重启。
+On first launch, macOS shows two prompts:
+  1. The developer cannot be verified: right-click the app, choose Open,
+     then click Open again. This is required only once.
+  2. "想要查找并连接到本地网络上的设备" (find and connect to devices on your
+     local network): click Allow. Without it, the iPad cannot connect.
 
-从源码跑（可选）
-----------------
+Updates
+-------
+The app checks for a new version at launch. When one is available, an update
+dialog shows the release notes and three choices:
+  - "跳过这个版本" (Skip this version): no further prompts for this version.
+  - "退出应用时安装" (Install on quit): the update is installed when the app quits.
+  - "安装并重启应用" (Install and restart): the update is installed now and
+    the app reopens.
+The switch "以后自动下载更新" (Download updates automatically) is off by
+default. When it is on, the update is downloaded in the background before
+the dialog appears.
+To check manually: "关于" (About), the last icon at the top right, then
+"检查更新" (Check for updates).
+
+Run from source (optional)
+--------------------------
   git clone https://github.com/Maimai-l/white-board.git
-然后双击 start-whiteboard.command；更新双击 update.command。
-脚本被系统拦住时同样是右键 → 打开。
+- start-whiteboard.command: starts the app. The first run installs the
+  dependencies.
+- update.command: updates to the latest version (git pull).
+- browser-mode.command: runs the server without a window. Open the board in
+  a browser.
+If macOS blocks a script, right-click it and choose Open.
 
-把白板装到 iPad 主屏
---------------------
-1. Mac 窗口右上角点最后一个图标（iPad 形状），卡片上有地址，
-   形如 http://你的电脑名.local:8848/
-2. 点卡片上的下载按钮保存描述文件，用隔空投送发给 iPad；
-   或者直接让 iPad 的 Safari 打开 http://你的电脑名.local:8848/profile.mobileconfig
-3. iPad：设置 → 已下载描述文件 → 安装（会提示「未签名」，确认即可）
-4. 主屏出现「白板」图标，点开就是全屏白板。
+Add the board to the iPad Home Screen
+-------------------------------------
+1. In the Mac window, click the iPad icon at the top right ("连接 iPad",
+   Connect iPad). The card shows the address, for example
+   http://<computer-name>.local:8848/
+2. Click the download button on the card and send the profile to the iPad
+   with AirDrop. Alternatively, open this address in Safari on the iPad:
+   http://<computer-name>.local:8848/profile.mobileconfig
+3. On the iPad: Settings > Profile Downloaded > Install. The profile is
+   unsigned; confirm the installation.
+4. The "白板" (Whiteboard) icon appears on the Home Screen and opens the board
+   full screen.
 
-日常使用
---------
-iPad：底部工具栏是钢笔、马克笔、荧光笔、橡皮擦、手指书写开关、颜色粗细、撤销、清屏。
-      默认只有 Apple Pencil 能画线，手指负责平移和缩放，手掌搭上去不会留痕。
-      没有 Pencil 时，点亮工具栏上的手形图标就能用手指写（单指书写、双指平移缩放）。
-Mac： 鼠标左键书写，空格 / 中键拖动画布，滚轮平移，⌘ + 滚轮缩放，⌘Z 撤销。
-      右上角依次是：白板选择、白板设置（背景 / 存储目录）、导出 PNG、iPad 连接。
-      新建白板时选延伸方式：四向无限的大白板，或宽度固定、只向下延伸的笔记。
-      右下角中间的按钮是「回到内容」。
+Daily use
+---------
+iPad:
+  - The toolbar is the tool picker (PencilKit style): undo, redo, pen,
+    marker, highlighter, eraser, and colors. Tap the selected tool to change
+    its width. Drag the tool picker to another edge or corner.
+  - "更多" (More) in the tool picker contains auto-minimize, finger drawing,
+    and clear board.
+  - By default only the Apple Pencil draws. One finger pans, two fingers
+    zoom, and a resting palm leaves no mark.
+  - Without an Apple Pencil, turn on finger drawing: one finger draws, and
+    two fingers pan and zoom.
+  - By default the iPad and other devices can only draw. To allow managing,
+    setting up, clearing, or exporting boards, turn on the matching
+    permission in "白板设置" (Board settings) on the Mac.
+Mac and other devices (classic toolbar):
+  - The toolbar contains pen, marker, highlighter, eraser, color and width,
+    undo, redo, and clear board. On touch devices it also contains the
+    finger drawing switch.
+  - Mouse: the left button draws. Space + drag or the middle button pans.
+    The scroll wheel pans. Cmd + scroll wheel zooms.
+  - Keys: Cmd+Z undo, Cmd+Shift+Z redo, Cmd+= / Cmd+- zoom, Cmd+0 fit content.
+  - Top right, in order: board chooser, "白板设置" (Board settings:
+    background, storage directory, permissions), export PNG, connect iPad,
+    and about. Connect iPad and about appear only in the Mac window.
+  - Bottom right: zoom in, "回到内容" (Fit content), zoom out.
+  - New board: choose an infinite board (extends in all four directions) or
+    a note board (fixed width, extends downward). Drag a PDF or an image into
+    the window to create a document board.
 
-白板内容自动保存在
+Storage
+-------
+Boards are saved automatically to:
   ~/Library/Application Support/Whiteboard/boards-data
-可以在「白板设置」里改到别的文件夹。
+Change the storage directory in "白板设置" (Board settings).
 
-不开程序窗口、只想用浏览器访问时，双击 browser-mode.command。
-
-出问题
-------
-终端窗口里的报错信息直接反馈即可。常见情况：
-  * iPad 打不开地址 —— 确认两台设备在同一个 Wi-Fi，且 Mac 上程序正在运行。
-  * 端口被占用 —— 程序会自动往后顺延，地址里的端口号以窗口里显示的为准。
+Troubleshooting
+---------------
+Report problems together with the log file ~/Library/Logs/Whiteboard.log
+(when running from source, the Terminal window output).
+  * The iPad cannot open the address: check that both devices are on the same
+    Wi-Fi network and that the app is running on the Mac.
+  * The port is in use: the app tries the following ports (8849, 8850, and so
+    on, up to 20 attempts). Use the port shown in the Mac window.
