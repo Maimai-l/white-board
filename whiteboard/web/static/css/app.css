@@ -85,6 +85,15 @@
   -webkit-user-drag: none;
 }
 
+/* 输入框要开回来：iPadOS 的 Safari 里 -webkit-user-select: none 的输入框点得中、
+   键盘也弹得出来，就是打不进字（白板选择界面的搜索框、改名框都中过）。
+   长按的「粘贴」菜单也一并开回来。画布上没有输入框，挡手势那一刀不受影响。 */
+input, textarea, [contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 html, body {
   margin: 0;
   height: 100%;
