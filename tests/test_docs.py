@@ -625,3 +625,28 @@ def test_mask_survives_a_save_and_load(tmp_path):
     _, loaded = store.load_board(meta["id"])
     assert loaded[0]["m"] == [[5.0, 10.0, -12.0, 30.0, -12.0]]
     assert "m" not in loaded[1]
+
+
+def test_pages_are_closed_before_their_document(tmp_path, monkeypatch):
+    """关文档时不能还挂着没关的页面。
+
+    pypdfium2 关文档时要遍历它记着的页面（一组弱引用）逐个关掉；页面要是留给垃圾
+    回收去关，回收恰好在这次遍历中途发生时，集合被改动，抛
+    「Set changed size during iteration」——导入 PDF、渲染页面就会随机失败
+    （CI 上出现过）。所以每一页用完当场关掉，关文档时它名下一个页面都不剩。
+    """
+    import pypdfium2 as pdfium
+
+    live = []
+    original = pdfium.PdfDocument.close
+
+    def spy(self, *args, **kwargs):
+        live.append(sum(1 for ref in self._kids if ref() is not None and ref().raw))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(pdfium.PdfDocument, "close", spy)
+    path = make_pdf(tmp_path / "src.pdf", sizes=((595, 842),) * 4)
+    docs.probe(path)
+    docs.render_page(path, 2, 300)
+    docs.export(path, [wave(100, 100)], tmp_path / "out.pdf")
+    assert live and all(count == 0 for count in live), live
