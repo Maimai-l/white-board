@@ -58,4 +58,5 @@ jobs:
           or test_offline_drawing_is_flushed_after_server_restart
           or test_picker_is_only_on_ipad or test_pencilkit_picker_drives_the_board
           or test_undo_and_redo_round_trip or test_bite_syncs_and_undoes
-          or test_a_board_that_cannot_be_read_opens_read_only_until_unlocked"
+          or test_a_board_that_cannot_be_read_opens_read_only_until_unlocked
+          or test_text_fields_can_take_typing_on_the_ipad"

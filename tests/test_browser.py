@@ -4125,3 +4125,38 @@ def test_a_board_that_cannot_be_read_opens_read_only_until_unlocked(browser, tmp
         ipad.close()
     finally:
         thread.stop()
+
+
+# ------------------------------------------- iPad 上的输入框要能打字
+
+
+TEXT_FIELDS_SELECTABLE = """
+() => [...document.querySelectorAll('input:not([type=checkbox]):not([type=file]), textarea')]
+  .map((el) => {
+    const style = getComputedStyle(el);
+    return { key: el.className || el.type, select: style.webkitUserSelect || style.userSelect };
+  })
+"""
+
+
+def test_text_fields_can_take_typing_on_the_ipad(browser, server):
+    """iPadOS 的 Safari 里，-webkit-user-select: none 的输入框弹得出键盘，却打不进字。
+
+    页面为了挡住选择 / 放大镜手势，给所有元素一刀切设了 user-select: none，
+    输入框也跟着被关掉了——白板选择界面的搜索框、改名框在 iPad 上都打不了字。
+    Chromium 和桌面 WebKit 不按这条规则办事，所以只能检查样式本身。
+    """
+    _mac, ipad = open_pages(browser, server.port, picker=True)
+    ipad.wait_for_selector("#pk-host .pk-picker", timeout=20000)
+    ipad.click('button[title="白板"]')
+    ipad.wait_for_selector(".board-search")
+    fields = ipad.evaluate(TEXT_FIELDS_SELECTABLE)
+    assert fields, "白板选择界面里应该有输入框"
+    blocked = [field for field in fields if field["select"] == "none"]
+    assert not blocked, f"这些输入框在 iPad 上打不了字：{blocked}"
+
+    # 照用户的做法点一下再打字，而不是 fill() 直接塞值
+    ipad.click(".board-search")
+    ipad.keyboard.type("查无此板")
+    ipad.wait_for_selector(".gallery-empty")
+    assert ipad.evaluate("() => document.querySelector('.board-search').value") == "查无此板"
