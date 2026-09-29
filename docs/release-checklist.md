@@ -34,6 +34,15 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 - [ ] Close and reopen the window. Recently written content is present.
 - [ ] Each line in the log file `~/Library/Logs/Whiteboard.log` appears only once.
 
+### Open With
+
+CI cannot check these items: they depend on the packaged app's Info.plist and on Finder.
+
+- [ ] In Finder, “打开方式” (Open With) for a PDF and a JPEG lists the app; the default app for those files is unchanged.
+- [ ] With the app closed, opening a PDF with it launches the app and creates a document board.
+- [ ] With the board chooser showing a folder, opening an image with the app puts the new board in that folder.
+- [ ] Double-clicking a `.wbz` from `backups/upgrade/` imports it as a new board, and the file in `backups/` is unchanged.
+
 ## 2. iPad
 
 Run this section twice: once in the iPad shell and once from the Home Screen icon.

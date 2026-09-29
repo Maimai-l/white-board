@@ -6,6 +6,7 @@ import asyncio
 import errno
 import logging
 import threading
+from pathlib import Path
 from typing import Optional
 
 from aiohttp import web
@@ -168,6 +169,15 @@ class ServerThread:
     @property
     def hub(self):
         return self.app[HUB_KEY] if self.app is not None else None
+
+    def open_file(self, path, folder: str = "", timeout: float = 120.0):
+        """在服务端打开一个本地文件（见 ``server.open_local_file``），返回新白板的 meta。"""
+        from .server import open_local_file  # noqa: WPS433
+
+        hub = self.hub
+        if hub is None:
+            raise RuntimeError("服务端未启动")
+        return self.run_coroutine(open_local_file(hub, Path(path), folder)).result(timeout)
 
     def save_now(self) -> None:
         hub = self.hub

@@ -279,6 +279,13 @@ class Hub:
         self.current_id = meta["id"]
         return meta
 
+    def import_board_file(self, path) -> Dict[str, Any]:
+        """把存储目录之外的 ``.wbz`` 复制成新白板并切过去（见 ``store.import_board_file``）。"""
+        self.save_all()
+        meta = self.store.import_board_file(path)
+        self.current_id = meta["id"]
+        return meta
+
     def rename_board(self, board_id: str, name: str) -> bool:
         """给任意一块白板改名，不必是当前这块。改名不算「编辑」，不动 updated。"""
         return self._edit_meta(board_id, name=name if isinstance(name, str) else "")

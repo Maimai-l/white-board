@@ -99,5 +99,41 @@ app = BUNDLE(
         "NSLocalNetworkUsageDescription": "与同一局域网内的 iPad 同步白板内容。",
         # _whiteboard._tcp 给 iPad 外壳自动发现这台 Mac 用（docs/ipad-shell.md 8.4 节）
         "NSBonjourServices": ["_http._tcp", "_whiteboard._tcp"],
+        # 「打开方式」：.wbz 归本应用；PDF 和图片只作为备选（Alternate），不抢默认打开方式
+        "CFBundleDocumentTypes": [
+            {
+                "CFBundleTypeName": "白板文件",
+                "CFBundleTypeRole": "Editor",
+                "LSHandlerRank": "Owner",
+                "LSItemContentTypes": ["local.whiteboard.board"],
+            },
+            {
+                "CFBundleTypeName": "PDF 文档",
+                "CFBundleTypeRole": "Viewer",
+                "LSHandlerRank": "Alternate",
+                "LSItemContentTypes": ["com.adobe.pdf"],
+            },
+            {
+                "CFBundleTypeName": "图片",
+                "CFBundleTypeRole": "Viewer",
+                "LSHandlerRank": "Alternate",
+                "LSItemContentTypes": [
+                    "public.png",
+                    "public.jpeg",
+                    "com.compuserve.gif",
+                    "com.microsoft.bmp",
+                    "org.webmproject.webp",
+                    "public.tiff",
+                ],
+            },
+        ],
+        "UTExportedTypeDeclarations": [
+            {
+                "UTTypeIdentifier": "local.whiteboard.board",
+                "UTTypeDescription": "白板文件",
+                "UTTypeConformsTo": ["public.data"],
+                "UTTypeTagSpecification": {"public.filename-extension": ["wbz"]},
+            },
+        ],
     },
 )

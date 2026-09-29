@@ -7,6 +7,18 @@ One section per version, titled with the version number. When a release is publi
 > **Note**
 > The update dialog displays content line by line, so every entry must fit on a single line.
 
+## 1.1.0
+
+### New
+
+- Finder “打开方式” (Open With): PDF and image files list the app as an alternative; `.wbz` files open with a double-click. A `.wbz` from outside the storage directory, such as a backup, is imported as a new board.
+- A new folder's name field is selected for editing right away, as in Finder.
+
+### Fixes
+
+- A PDF or image dropped onto the window while a folder is open in the board chooser now goes into that folder.
+- Image export of a document board now removes ink erased with the pixel eraser and keeps flat ends on split strokes, as PDF export already did.
+
 ## 1.0.0
 
 The first stable release. It adds no new features; it focuses on data safety, connection stability and consistent behaviour.
