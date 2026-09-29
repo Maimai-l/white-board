@@ -1,11 +1,12 @@
 # Whiteboard
 
 A shared handwriting whiteboard for a Mac and an iPad on the same local network.
-Run the app on the Mac, open the icon on the iPad home screen, and both screens
-write on the same board with every stroke appearing on the other in real time.
 
-Everything stays on the LAN. There is no account, no cloud service and no
-outbound connection other than the update check.
+English | [简体中文](README.zh-CN.md)
+
+## Overview
+
+Whiteboard is a Mac app that serves a handwriting board to the local network. The Mac and an iPad open the same board, and every stroke appears on the other device in real time. All traffic stays on the LAN. There is no account and no cloud service; the only outbound connection is the update check against GitHub Releases.
 
 ```
 ┌──────────── Mac ────────────┐            ┌─────── iPad ───────┐
@@ -17,89 +18,55 @@ outbound connection other than the update check.
 └─────────────────────────────┘            └────────────────────┘
 ```
 
-Chinese version of this document: [README.zh-CN.md](README.zh-CN.md).
-The design notes under `docs/` are in Chinese.
-
-## Contents
-
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installing on the Mac](#installing-on-the-mac)
-- [Connecting an iPad](#connecting-an-ipad)
-- [Native iPad shell (optional)](#native-ipad-shell-optional)
-- [Writing](#writing)
-- [Boards, folders and documents](#boards-folders-and-documents)
-- [Permissions for other devices](#permissions-for-other-devices)
-- [Stored data](#stored-data)
-- [Troubleshooting](#troubleshooting)
-- [Development](#development)
-- [Non-goals](#non-goals)
-
 ## Features
 
-- **Real-time sync over the LAN.** One Mac serves the page and stores the
-  boards; any device on the network opens it in a browser and writes.
-- **Vector ink.** Strokes are stored as points, not images — a 500-point stroke
-  is usually under 2 KB. Outlines come from
-  [perfect-freehand](https://github.com/steveruizok/perfect-freehand).
-- **Apple Pencil first.** Pressure and tilt drive the pen width, the palm is
-  ignored while the Pencil is down, and fingers pan and zoom unless finger
-  drawing is switched on.
-- **Two erasers.** One deletes the stroke it touches; the other removes only the
-  area it sweeps, and the ink stays vector.
-- **Three kinds of board**, including annotating a PDF or an image and
-  exporting it with the ink merged back in.
-- **Works while disconnected.** Strokes queue locally (and in IndexedDB) and are
-  replayed in order once the connection returns.
-- **Everything but writing is opt-in.** Any device on the network can draw;
-  managing boards, changing settings, clearing and exporting are each granted
-  separately from the Mac.
+- **Real-time sync over the LAN.** The Mac serves the page and stores the boards; any device on the network opens the page in a browser and writes.
+- **Vector ink.** Strokes are stored as points, not images. A 500-point stroke is usually under 2 KB. Outlines are drawn with [perfect-freehand](https://github.com/steveruizok/perfect-freehand).
+- **Apple Pencil input.** Pressure and tilt set the pen width, the palm is ignored while the Pencil is down, and fingers pan and zoom unless finger drawing is on.
+- **Two erasers.** The object eraser deletes the stroke it touches; the pixel eraser removes only the swept area and keeps the ink as vectors.
+- **Three board kinds**, including document boards for annotating a PDF or an image and exporting it with the ink.
+- **Offline writing.** Strokes queue locally and in IndexedDB and are sent in order when the connection returns.
+- **Permissions.** Any device on the network can write. Managing boards, changing settings, clearing and exporting are each granted separately on the Mac.
 
 ## Requirements
 
-- A Mac for the server. The packaged app declares macOS 11 as its minimum and
-  is published for Apple silicon only; see [Building](#building) for Intel.
-- An iPad with Safari. Apple Pencil is optional but is what the input layer is
-  tuned for.
-- Both devices on the same network, with mDNS/Bonjour not blocked by the router.
-- From source: Python 3.10 or later (releases are built with 3.12).
+| Item | Requirement |
+| --- | --- |
+| Server | A Mac with macOS 11 or later. Releases are published for Apple silicon (`arm64`) only; for Intel, see [Building](#building). |
+| iPad | Safari. Apple Pencil is optional; the input handling is tuned for it. |
+| Network | Both devices on the same network; the router must not block mDNS/Bonjour. |
+| Running from source | Python 3.10 or later (releases are built with 3.12). |
 
-## Installing on the Mac
+## Installation
 
-Download the archive for your architecture from the repository's Releases page
-(`arm64` for Apple silicon, `x86_64` for Intel), unpack it, and drag
-**Whiteboard.app** into `/Applications`.
+### Download
 
-The first launch raises two system prompts, both one-off:
+1. Download `Whiteboard-<version>-macos-arm64.zip` from the repository's Releases page.
+2. Unpack it and drag **Whiteboard.app** into `/Applications`.
 
-- **"Cannot verify developer."** The app is ad-hoc signed. Right-click the app,
-  choose **Open**, then **Open** again; afterwards double-clicking works.
-- **"Whiteboard would like to find and connect to devices on your local
-  network."** This must be allowed, or the iPad cannot reach the Mac. (Required
-  since macOS 15; the app ships the usage description.)
+The first launch shows two system prompts. Each appears once.
+
+| Prompt | Action |
+| --- | --- |
+| "Cannot verify developer" | The app is ad-hoc signed. Right-click the app, choose **Open**, then **Open** again. Afterwards, double-clicking works. |
+| "Whiteboard would like to find and connect to devices on your local network" | Allow it. Otherwise the iPad cannot reach the Mac. This prompt exists since macOS 15. |
 
 ### Updates
 
-The app checks GitHub Releases once at startup and offers three choices when a
-newer version exists: **skip this version** (remembered, newer ones still
-prompt), **install on quit** (downloaded in the background, swapped in silently
-when you close the window), or **install and restart now**.
+The app checks GitHub Releases once at startup. When a newer version exists, a dialog shows the version, the release notes and three choices:
 
-"Download updates automatically" is **off** by default, so the check only
-fetches version information. Turning it on pre-downloads the package at startup;
-a manual check never downloads.
+| Choice | Result |
+| --- | --- |
+| Skip this version | The version is remembered and not offered again. Newer versions are still offered. |
+| Install on quit | The package downloads in the background and replaces the app when the window closes. |
+| Install and restart | The app is replaced and reopened immediately. |
 
-The downloaded package is unpacked with `ditto` and verified before it replaces
-anything: a `.app` contains hundreds of symlinks and executable files, and
-dropping any of them makes macOS refuse to open the bundle. The executable and
-the code signature are checked before the swap and again after it; if the check
-fails, the previous version is put back and reopened.
+- “以后自动下载更新” (Download updates automatically), in the dialog's bottom-left corner, is **off** by default. When off, the check fetches only version information, and the download starts when you choose to install; progress appears in the dialog.
+- When the switch is on, a newer version found at startup is downloaded in the background before the dialog appears. A manual check never downloads.
+- Prereleases (tags with a hyphen, such as `v1.0.0-rc.1`) are not offered: the check reads `releases/latest`.
+- The package is unpacked with `ditto`. The executable and the code signature are checked before the replacement and the signature again after it. If a check fails, the previous version is restored and reopened.
 
-The About panel (关于, last icon in the top-right corner) shows the version and
-links to the changelog and the log file, with 检查更新 (check for updates) at the
-bottom. The result
-is written above the button, including the version when already current and the
-reason when the check fails.
+The About panel (关于, the last icon in the top-right corner) shows the app icon, name, version and address, links to the changelog and the log file, and has 检查更新 (Check for updates) at the bottom. The result appears above the button: the current version when up to date, or the reason when the check fails (no connection, rate limit, no package for this Mac).
 
 ### Running from source
 
@@ -108,14 +75,16 @@ git clone https://github.com/Maimai-l/white-board.git
 cd white-board
 ```
 
-On a Mac, double-click **start-whiteboard.command**: the first run creates the
-environment and installs the dependencies, and later runs open the window
-directly. **update.command** runs `git pull`.
+| Script | Effect |
+| --- | --- |
+| `start-whiteboard.command` | First run creates the environment and installs the dependencies; later runs open the window directly. |
+| `browser-mode.command` | Runs `start-whiteboard.command --headless`: serves only, for access from a browser. |
+| `update.command` | Runs `git pull --ff-only`; changed dependencies are installed on the next start. |
 
-macOS may refuse to open the scripts ("unidentified developer"); right-click →
-**Open** → **Open**, or run `xattr -dr com.apple.quarantine <this folder>` once.
+> **Note**
+> If macOS refuses to open a script ("unidentified developer"), right-click it, choose **Open**, then **Open** again, or run `xattr -dr com.apple.quarantine <repository folder>` once.
 
-By hand:
+To run it by hand:
 
 ```bash
 pip install -r requirements.txt
@@ -124,30 +93,29 @@ python run.py                 # opens the Mac window and serves on the LAN
 
 | Option | Effect |
 | --- | --- |
-| `--headless` | Serve only, no window (reach it from a browser) |
-| `--port 9000` | Change the port (taken ports roll over to the next one) |
-| `--data-dir DIR` | Change where boards are stored |
+| `--headless` | Serve only, without a window. |
+| `--port 9000` | Listen on another port (default 8848). A taken port rolls over to the next one, up to 20 attempts. |
+| `--data-dir DIR` | Store boards in another directory. |
+| `--mdns` | Also register an `_http._tcp` service. On macOS this is left to the system by default. |
+| `--no-mdns` | Do not register the `_http._tcp` service. |
+| `--no-bonjour` | Do not register the `_whiteboard._tcp` service that the iPad shell uses. |
+| `--debug` | Enable debug logging and the developer tools. |
+| `--version` | Print the version. |
 
-`--port` and `--data-dir` apply to this run only and are not written to the
-configuration; to change the storage directory permanently, pick it in the
-interface. A port that rolls over because it is taken is likewise used for this
-run only, so the next launch tries the configured port again.
-| `--mdns` | Also register an `_http._tcp` service (macOS leaves this to the system) |
-| `--no-bonjour` | Do not register the `_whiteboard._tcp` service used by the iPad shell |
-| `--version` | Print the version |
+> **Note**
+> `--port` and `--data-dir` apply to one run only and are not written to the configuration. To change the storage directory permanently, choose it in board settings. A port that rolls over because it is taken is also used for that run only; the next launch tries the configured port again.
 
-The default port is 8848. The **iPad** button in the window's top-right corner
-shows the address the iPad should open, of the form
-`http://your-mac-name.local:8848/`.
+The iPad button in the window's top-right corner shows the address for the iPad, in the form `http://your-mac-name.local:8848/`.
 
 ### Building
 
+Pushing a tag builds and publishes a Release, including the iPad shell IPA of the same version:
+
 ```bash
-git tag v1.1.0 && git push origin v1.1.0     # builds and publishes a Release
+git tag v1.1.0 && git push origin v1.1.0
 ```
 
-The "打包 macOS 应用" workflow can also be run manually from the Actions page,
-which produces build artifacts without publishing a Release. Locally:
+The “打包 macOS 应用” (Build macOS app) workflow can also run manually from the Actions page; it produces build artifacts without publishing a Release. To build locally:
 
 ```bash
 pip install pyinstaller
@@ -155,382 +123,307 @@ python packaging/make_icns.py packaging/whiteboard.icns
 WHITEBOARD_VERSION=1.1.0 pyinstaller --noconfirm packaging/whiteboard.spec
 ```
 
-Application data stays in `~/Library/Application Support/Whiteboard` and is
-shared with source runs, so switching between them keeps the boards. The
-packaged app logs to `~/Library/Logs/Whiteboard.log`, as it has no terminal.
+- A local build includes the iPad shell only if `packaging/ipad/Whiteboard.ipa` exists; otherwise the install page points to the Release download.
+- An Intel build needs a local build on an Intel Mac, or a `macos-13` / `x86_64` matrix entry in `.github/workflows/build-macos.yml`.
+- Before turning a prerelease into a release, follow [docs/release-checklist.md](docs/release-checklist.md).
+
+The packaged app and source runs share `~/Library/Application Support/Whiteboard`, so switching between them keeps the boards. The packaged app writes its log to `~/Library/Logs/Whiteboard.log`.
 
 ## Connecting an iPad
 
-1. In the Mac window, click the iPad icon in the top-right corner (连接 iPad),
-   then the download button on the card to get `whiteboard.mobileconfig`. Safari on the iPad
-   can also fetch it directly from
-   `http://your-mac-name.local:8848/profile.mobileconfig`.
-2. On the iPad, open the profile → **Settings** → **Profile Downloaded** →
-   **Install**. The profile is unsigned, so iPadOS says so; confirm.
-3. A **Whiteboard** icon appears on the home screen and opens the board full
-   screen, without Safari's address bar.
+### Home screen profile
 
-The profile refers to the `.local` mDNS host name, so it survives the Mac
-changing its IP address. The name is published by the system's own Bonjour
-responder; `--mdns` only adds an extra `_http._tcp` service for discovery tools
-and is harmless if it fails.
+1. In the Mac window, click the iPad icon in the top-right corner (连接 iPad), then the download button on the card to get `whiteboard.mobileconfig`. Safari on the iPad can also open `http://your-mac-name.local:8848/profile.mobileconfig` directly.
+2. On the iPad, open the profile, then **Settings** → **Profile Downloaded** → **Install**. The profile is unsigned; confirm the installation.
+3. A **Whiteboard** icon appears on the home screen. It opens the board full screen, without Safari's address bar.
 
-## Native iPad shell (optional)
+The profile uses the `.local` mDNS host name, so it keeps working when the Mac's IP address changes. macOS publishes that name through its own Bonjour responder; `--mdns` only adds an `_http._tcp` service for discovery tools, and a failure there does not affect use.
 
-Safari hands the page about 60 new Pencil positions per second, with integer
-coordinates. A native app receives about 240, with fractional coordinates and
-predicted samples. The shell is a small native app wrapping a `WKWebView`: it
-loads the same page from the Mac and forwards the UIKit Pencil samples to it.
-All whiteboard logic stays in the page, so updating the Mac updates the shell's
-behaviour the next time it opens. Design and acceptance criteria:
-[docs/ipad-shell.md](docs/ipad-shell.md).
+### iPad shell
 
-The shell is installed through TrollStore, so the iPad must run a version
-TrollStore supports (iPadOS 14.0 beta 2 through 16.6.1, 16.7 RC, 17.0). Without
-TrollStore, keep using the profile above; the features are the same.
+The iPad shell is an optional native app that wraps a `WKWebView`. It loads the same page from the Mac and passes UIKit Pencil samples to it. All board logic stays in the page, so updating the Mac also updates the shell's behavior the next time it opens.
 
-1. The 连接 iPad card in the Mac window shows the install page address,
-   `http://your-mac-name.local:8848/ipad`. Open it in Safari on the iPad.
-2. Tap **安装白板外壳** to install through TrollStore (enable URL schemes in
-   TrollStore's settings first).
-3. Open the shell. With one Mac on the network it connects directly; with
-   several it lists them; if the router blocks Bonjour, return to the install
-   page and tap **打开外壳**.
+| Input path | New Pencil positions per second | Coordinates | Predicted samples |
+| --- | --- | --- | --- |
+| Safari | about 60 | integers | no |
+| iPad shell | about 240 | fractional | yes |
 
-When the Mac is updated, the shell offers to update itself on the next launch
-and hands the package to TrollStore. To connect to a different Mac, open the
-board settings (白板设置) and use 换一台 Mac, or turn on 重新查找 Mac in the iOS
-Settings app under Whiteboard. Either way the shell lists what it finds, even if
-that is a single Mac, so you can confirm which one to join.
+The shell installs through TrollStore, so the iPad must run a version TrollStore supports: iPadOS 14.0 beta 2 through 16.6.1, 16.7 RC, or 17.0. Without TrollStore, use the home screen profile; the features are the same.
 
-The Mac registers `_whiteboard._tcp` through the system mDNS responder, which is
-how the shell finds it; `--no-bonjour` turns that off, leaving only the install
-page as a way in.
+1. The 连接 iPad card in the Mac window shows the install page address, `http://your-mac-name.local:8848/ipad`. Open it in Safari on the iPad.
+2. In TrollStore's settings, enable URL schemes. Then tap **安装白板外壳** (Install shell).
+3. Open the shell. With one Mac on the network, it connects directly; with several, it lists them. If the router blocks Bonjour, return to the install page and tap **打开外壳** (Open shell).
 
-Exports on the iPad are caught by the shell as downloads and handed to the
-system share sheet, so they can be saved to Files or sent on.
+- **Updates.** After the Mac is updated, the shell offers to update on its next launch and passes the package to TrollStore.
+- **Another Mac.** Use 换一台 Mac (Switch Mac) in board settings, or turn on 重新查找 Mac (Find Mac again) under Whiteboard in the iPadOS Settings app. Either way the shell lists what it finds, even a single Mac, so you can confirm the choice.
+- **Discovery.** The Mac registers `_whiteboard._tcp` through the system mDNS responder. `--no-bonjour` turns this off; the install page is then the only way in.
+- **Exports.** The shell receives exported files as downloads and opens the system share sheet, so they can be saved to Files or sent.
 
-## Writing
+Design and acceptance criteria: [docs/ipad-shell.md](docs/ipad-shell.md).
 
-### iPad
+## Usage
 
-The default toolbar is the PencilKit tool picker. Managing boards, board
-settings and export sit in the tinted group in the top-right corner; clearing
-the board is under the picker's ⋯ menu; the connection dot in the top-left
-corner is outside the toolbar (triple-tap it for the diagnostics panel).
+### Toolbars
 
-- **Only the Apple Pencil draws by default.** Fingers pan and zoom, and a palm
-  resting on the screen leaves nothing behind.
-- Without a Pencil, switch on finger drawing (hand icon): one finger draws, two
-  pan and zoom, and the stroke just started is withdrawn when a second finger
-  lands. The choice is remembered on the device.
-- The pen varies its width with pressure and tilt; the marker and highlighter
-  are uniform, and the highlighter is translucent. The pressure curve is fitted
-  to the range an iPad actually reports (a whole line of handwriting lands
-  between 0 and 0.13); see [docs/format.md](docs/format.md).
-- **Palm rejection** covers the whole time the Pencil is down plus 0.5 s after
-  it lifts. Movement caused by a palm that touched down first is undone the
-  moment the Pencil lands, so the view does not jump.
-- The page suppresses Safari's selection, lookup and long-press gestures, which
-  otherwise steal a stroke when you write quickly.
+The iPad uses the **tool picker**; every other device uses the **classic toolbar**. A device counts as an iPad when its User-Agent contains `iPad`, when it reports `Macintosh` with more than one touch point (iPadOS Safari uses a desktop User-Agent), or when the page runs inside the iPad shell. There is no switch between the two.
 
-The picker is the implementation from
-[static/vendor](whiteboard/web/static/vendor/README.md), with these additions:
+| | Tool picker (iPad) | Classic toolbar (other devices) |
+| --- | --- | --- |
+| Tools | Pen, marker, highlighter, eraser; each keeps its own color and width | Pen, marker, highlighter, eraser |
+| Other controls | Undo, redo; ⋯ menu with auto-minimize, finger drawing and clear board | Toolbar position, color, width, undo, redo, clear board; finger drawing on touch devices |
+| Position | Docks to any of the four edges, or shrinks to a circle in a corner | Top or bottom edge, remembered on the device; panels open away from the edge |
 
-- Each of the four tools keeps its own colour and width.
-- Tapping the tool in use opens the width panel; the rainbow swatch opens the
-  full colour picker.
-- Dragging the grip docks the picker to **any of the four edges** (the original
-  offers three; the top edge reuses the bottom layout with panels opening
-  downwards). Both the drag and the release were rewritten to match iPadOS:
-  a dwell of 250 ms inside an edge zone turns the pill into a bar, a flick is
-  carried past the release point by inertia, and animations can be interrupted
-  at any point. The tuning constants live in `TUNING` at the top of
-  `static/js/pkpicker.js`.
-- Dropped in a corner it shrinks to a circle showing the current tool, and
-  expands again when the Pencil or cursor comes near.
-- Undo and redo are wired to the board's own history stack.
-- ⋯ holds auto-minimise, finger drawing and clear board.
+Around the toolbar:
 
-On an iPad the picker is the only toolbar; there is no switch back to the plain
-one. Other devices, touch or not (an Android tablet, a touchscreen laptop, the
-Mac), use the plain toolbar. The canvas, sync, zoom, notes and document boards are the
-whiteboard's own — the vendor canvas, ruler and lasso are not connected, and
-opacity is not wired up (the stroke format has no field for it).
+- **Top-right group:** boards, board settings (白板设置) and export. The Mac window also shows 连接 iPad and 关于. On touch devices the group uses tinted icons. Each entry appears only if the device has the matching permission.
+- **Bottom-right group (Mac only):** zoom in, back to content, zoom out.
+- **Connection dot (top left):** green connected, yellow syncing, red offline. Triple-tap it for the diagnostics panel.
+
+The tool picker is the implementation in [static/vendor](whiteboard/web/static/vendor/README.md), with these additions:
+
+- Tapping the tool in use opens the width panel. The rainbow swatch opens the full color picker (swatches, spectrum, sliders).
+- Dragging the grip docks the picker to any of the four edges; the top edge uses the bottom layout with panels opening downward. An edge becomes the target after a dwell of 250 ms inside its zone. A flick continues by inertia past the release point; animations can be interrupted at any point. The constants are in `TUNING` at the top of `static/js/pkpicker.js`.
+- Dropped in a corner, the picker shrinks to a circle showing the current tool and expands when the Pencil or the cursor comes near. A finger has no hover and taps the circle.
+- Undo and redo use the board's own history; the buttons follow its state.
+- The picker is hidden while the board chooser or the settings sheet is open.
+- The vendor canvas, ruler and lasso are not used. Opacity is not available because the stroke format has no field for it.
+
+The interface follows the system controls: frosted glass and the system blue accent. Background blur is turned off while a stroke is in progress. The tool picker is never frosted, because it sits over the writing area.
+
+### Pencil, finger and palm
+
+| Input | Behavior |
+| --- | --- |
+| Apple Pencil | Draws. By default only the Pencil draws. |
+| Finger (default) | One or two fingers pan and zoom. |
+| Finger (finger drawing on) | One finger draws; two fingers pan and zoom. A stroke just started is withdrawn when a second finger lands. The setting is remembered on the device. |
+| Palm | Ignored while the Pencil is down and for 0.5 s after it lifts. Movement from a palm that landed before the Pencil is undone when the Pencil lands. |
+
+- The pen varies its width with pressure and tilt. The marker and the highlighter have a uniform width; the highlighter is translucent.
+- The pressure curve fits the range an iPad reports: a whole line of handwriting falls between 0 and 0.13. See [docs/format.md](docs/format.md).
+- The page suppresses Safari's text selection, lookup and long-press gestures on the canvas, which otherwise take over fast strokes.
+- Text fields (board names, search, folder names) accept typing normally.
 
 ### Erasers
 
-Both erasers are selected in the eraser panel, and the choice is remembered on
-the device. Neither has a manual width, and both widths are in screen pixels, so
-zooming in erases more finely.
+Choose the eraser in the eraser panel; the choice is remembered on the device. Neither eraser has a manual width. Widths are in screen pixels, so erasing is finer when zoomed in.
 
-| Eraser | Behaviour | Width |
+| Eraser | Behavior | Diameter |
 | --- | --- | --- |
-| Object (default) | Deletes the stroke it touches. If the pixel eraser has already broken a stroke into separate pieces, only the piece touched goes | Fixed at the pen tip, diameter 6 |
-| Pixel | Removes the swept area from the ink and leaves the rest | Follows the angle of the barrel, decided when the Pencil lands |
+| Object (default) | Deletes the stroke it touches. If the pixel eraser has already split a stroke into separate pieces, deletes only the touched piece. | 6, at any angle |
+| Pixel | Removes the swept area and keeps the rest. | Set by the Pencil's altitude angle when the Pencil lands |
 
-The pixel eraser's width was measured from native PencilKit (`ERASER_CURVE` in
-`static/js/input-erase.js`): diameter 6 with the Pencil upright, about 16.5
-between 68° and 37° (a normal writing grip is around 50°), rising steeply below
-37° to its widest, 81, at 25° and below. The width is fixed when the Pencil
-lands and does not follow the barrel during the drag. A mouse or finger has no
-tilt and gets the 50° width.
+The pixel eraser's diameter follows `ERASER_CURVE` in `static/js/input-erase.js`, measured from native PencilKit. Values between the points are interpolated linearly.
 
-The angle is read from `tiltX`/`tiltY` (Pointer Events Level 2) and converted
-with the formula in the specification's appendix; `altitudeAngle` is consulted
-only when both are zero. Reading `altitudeAngle` alone does not work: the
-specification requires π/2 — perfectly upright — when a device cannot report
-tilt, so browsers without support look like a pen that never tilts.
+| Altitude angle | 90° | 80° | 68°–37° | 35° | 32° | 28° | ≤ 25° |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Diameter (screen px) | 6 | 7.5 | 16.5 | 35 | 52 | 75 | 81 |
 
-The pixel eraser records what it swept as a mask on the stroke (`m` in the file
-format); the stroke itself is unchanged, and rendering and PDF export cut the
-mask out of the outline, so the result stays vector. Only when one stroke's mask
-grows past a limit, even after thinning, is it turned into real cuts: the
-stroke is replaced by the pieces that survive, keeping its stacking order. One
-drag is one undo step. Measurements and the reasoning are in
-[docs/eraser.md](docs/eraser.md) and [docs/format.md](docs/format.md).
+- The width is fixed when the Pencil lands and does not change during the stroke; the hover cursor still follows the tilt. A normal writing grip is about 50°, which gives 16.5. A mouse or a finger has no tilt and uses the 50° value.
+- The angle is computed from `tiltX`/`tiltY` (Pointer Events Level 2) with the formula in the specification's appendix. `altitudeAngle` is used only when both are 0, because browsers without tilt support report π/2 (upright) for it.
+- The pixel eraser records the swept area as a mask on the stroke (`m` in the file format). Rendering and PDF export cut the mask out of the outline, so the ink stays vector.
+- When one stroke's mask exceeds a size limit even after thinning, the stroke is replaced by the pieces that remain, keeping its stacking order. One drag is one undo step.
 
-Erasing costs depend on the area swept, not on how many strokes the board
-holds: strokes are indexed on a 256-unit grid, only dirty rectangles are
-repainted, and the operations produced during one drag are batched per frame.
-On a 3000-stroke board one sweep measured 438 ms → 4.4 ms (object) and
-465 ms → 13 ms (pixel); at 6000 strokes, 854 ms → 28 ms.
+Erasing cost depends on the swept area, not on the number of strokes: strokes are indexed on a 256-unit grid, only dirty rectangles are repainted, and the operations of one drag are sent once per frame. Dirty-rectangle repainting matches a full repaint pixel for pixel.
 
-### Mac
+| Board size | Eraser | One sweep, before → after |
+| --- | --- | --- |
+| 3000 strokes | Object | 438 ms → 4.4 ms |
+| 3000 strokes | Pixel | 465 ms → 13 ms |
+| 6000 strokes | — | 854 ms → 28 ms |
 
-The Mac, like every device other than an iPad, uses the plain toolbar: pen,
-marker, highlighter, eraser, the toolbar position, colour and width, undo, redo
-and clear board (touch devices also get the finger drawing switch). It docks to
-the top or the bottom edge, and the choice is remembered on the device. Around it are the top-right group (boards, board
-settings, export PNG, iPad) and the bottom-right group (zoom in, fit, zoom out).
+Measurements and details: [docs/eraser.md](docs/eraser.md), [docs/format.md](docs/format.md).
 
-The interface follows the system controls: frosted glass, the system blue
-accent, and a connection dot in the traffic-light colours (green connected,
-yellow syncing, red offline). Background blur is switched off while a stroke is
-in progress, since the canvas underneath changes every frame.
+### Mouse, trackpad and keyboard
 
-The iPad tool picker is never frosted: it sits directly over the writing area,
-and the per-stroke blur switch would otherwise make it flicker between frosted
-and solid several times per character.
+| Input | Action |
+| --- | --- |
+| Left button | Write |
+| Middle button, right button, or held Space | Pan |
+| Wheel | Scroll |
+| ⌘/Ctrl + wheel | Zoom |
+| Trackpad pinch | Zoom |
+| `⌘Z` | Undo |
+| `⌘⇧Z` / `⌘Y` | Redo |
+| `⌘0` | Fit |
+| `⌘+` / `⌘-` | Zoom in / out |
 
-- Left button writes; middle button, right button or held space pans; the wheel
-  scrolls; ⌘/Ctrl + wheel zooms.
-- **Trackpad pinch zoom** is handled on both paths, because the browsers differ:
-  Chrome and Firefox send `ctrl + wheel`, WebKit (Safari and the `WKWebView` in
-  the packaged app) sends the non-standard `gesturestart`/`gesturechange`/
-  `gestureend`. Without the second path, pinching does nothing in the `.app`.
-  On the wheel path a single `deltaY` is clamped to 25: a trackpad reports a few
-  pixels at a time while a mouse wheel notch reports 100.
-- Shortcuts: `⌘Z` undo, `⌘⇧Z` / `⌘Y` redo, `⌘0` fit, `⌘+` / `⌘-` zoom.
-- Board settings (白板设置) hold the background (blank, grid, lines, dots), the
-  storage directory and the permissions for other devices.
-- Deleting a board and clearing a board both ask first, with the confirming
-  button in the warning colour.
+- Pinch zoom works in both event models: Chrome and Firefox send `ctrl + wheel`; WebKit (Safari and the packaged app's `WKWebView`) sends `gesturestart`/`gesturechange`/`gestureend`. On the wheel path, one event's `deltaY` is clamped to 25, because a trackpad reports a few pixels per event and a mouse wheel notch reports 100.
+- Shortcuts and Space-to-pan are ignored while a text field has focus, so `⌘Z` there undoes typing.
+- Board settings (白板设置) hold the background (blank, grid, lines, dots), the storage directory and the permissions for other devices.
+- Clearing a board (“清空白板？”) and deleting a board (“删除白板？”) ask for confirmation; the confirm button uses the warning color.
 
-## Boards, folders and documents
+### Board kinds
 
-A board's kind is chosen when it is created and does not change afterwards:
+The kind is chosen when a board is created and cannot change.
 
 | Kind | Extent | Initial view |
 | --- | --- | --- |
-| Board | Infinite in all four directions | Fit to content on the Mac, 1:1 on the iPad |
-| Note | One page wide (1000 units), infinite downwards | Page width, at the top |
-| Document (beta) | Fixed, from a PDF or an image | Page width, first page |
+| Infinite board | Infinite in all four directions; zoom 0.05×–8× | Fit to content on the Mac, 1:1 on the iPad |
+| Note board | One page wide (1000 units), infinite downward | Page width, at the top |
+| Document board (beta) | Fixed, from a PDF or an image | Page width, first page |
 
-Notes do not accept ink outside the paper — dragging at the edge turns the page
-instead, and you cannot scroll past the first page. Page turns carry inertia
-(above roughly 350 px/s), and zoom snaps when a page nearly fills the width.
-Boards have no bounds at all, with zoom limited to 0.05×–8×. The middle button
-in the bottom-right corner returns to the content.
+- On a note board, ink cannot go outside the page; dragging at the edge turns the page, and the view cannot scroll past the first page.
+- Page turns continue by inertia above about 350 px/s. When a page nearly fills the width, zoom snaps to page width on release.
+- The middle button in the bottom-right group returns to the content.
 
-### The board chooser
+### Board chooser
 
-The first icon in the top-right corner (白板) opens the chooser: thumbnails
-filling the screen, each marked with its kind, and a **+** tile for a new board
-or folder.
+The first icon in the top-right group (白板) opens the board chooser: full-screen thumbnails, each marked with its kind, and a **+** tile that creates a board (choose the kind first) or a folder.
 
-- The name and the time of the last stroke sit under each thumbnail. Times are
-  relative: today shows the time of day, this year omits the year.
-- Click a name to edit it; Enter or clicking elsewhere commits, Escape cancels,
-  and emptying it returns to the default name. Boards created from a dropped PDF
-  or image are named after the file.
-- The search box filters on the name, the default name, the folder and the
-  document's original filename. Escape clears the search without closing the
-  chooser.
-- Any board can be renamed without switching to it; only the list is broadcast,
-  not the board itself.
+- **Names and dates.** Each thumbnail shows the name and the time of the last stroke. Today shows only the time; this year omits the year.
+- **Default names.** Unnamed boards show a gray default name (白板, 笔记, 文档). Boards created from a PDF or an image are named after the file, without the extension.
+- **Renaming.** Click a name to edit it. Enter or clicking elsewhere commits, Escape cancels, and an empty name returns to the default. Enter and Escape during IME composition are left to the input method. Any board can be renamed without switching to it; only the list is broadcast.
+- **Search.** The search box matches the name, the default name, the folder and the document's original file name. Search covers every board and shows a flat list. Escape clears the search without closing the chooser.
+- **Reopening.** The chooser opens at the level that holds the current board.
 
-**Dragging** works the same with a finger, a Pencil, a mouse or a trackpad. A
-mouse starts as soon as it moves a few pixels. A finger or Pencil starts either
-by moving sideways — the list only scrolls vertically, so a sideways move can
-only mean a drag — or by holding the card still for 220 ms; a vertical swipe
-still scrolls. The card lifts out of the grid and follows the pointer, leaving
-a gap where it will land.
+**Dragging** works the same with a finger, a Pencil, a mouse or a trackpad. The card lifts out of the grid and follows the pointer, and a gap shows where it will land.
 
-- Drop a board on a folder card to file it there. Only the middle of the folder
-  counts, so passing over one on the way somewhere else does not catch it.
-- Inside a folder, drop a board on the back button or the folder bar to move it
-  back out.
-- Drop a board between two others to reorder them. The rest move aside once the
-  pointer has rested in one place for a moment, rather than shuffling
-  continuously as it travels. Dragging near the top or bottom edge scrolls.
-- The order lives in `index.json` on the Mac, so it is the same on every device
-  and survives a restart. Folders stay sorted by name.
+| Pointer | Drag starts when |
+| --- | --- |
+| Mouse, trackpad | The pointer moves a few pixels. |
+| Finger, Pencil | The pointer moves sideways (the list scrolls only vertically), or the card is held still for 220 ms. A vertical swipe scrolls. |
 
-The interface does not use the browser's own drag-and-drop: iOS Safari does not
-implement it, and the drag image and animation would be the browser's rather
-than ours. Everything is built on pointer events in
-`static/js/dragsort.js`, with the timings and spring curves listed at the top of
-that file. `static/lab/drag.html` is a standalone copy of it that can be opened
-on an iPad to adjust those numbers by feel (only when running from source; the
-packaged app leaves it out).
+| Drop target | Result |
+| --- | --- |
+| Middle of a folder card | Moves the board into the folder. The folder's edges do not count. |
+| Back button or folder bar (inside a folder) | Moves the board out of the folder. |
+| Between two boards | Reorders. Other cards move aside only after the pointer rests in one place. |
+| Near the top or bottom edge | Scrolls the list. |
 
-**Folders** are one level deep and appear as cards in the same grid; opening one
-shows only the boards inside it.
+- The order is stored in `index.json` on the Mac, so it is the same on every device and survives restarts. Folders are sorted by name and are not reordered by dragging.
+- Dragging uses pointer events, not browser drag and drop, which iOS Safari does not implement. Timings and spring curves are at the top of `static/js/dragsort.js`.
+- `static/lab/drag.html` is a standalone copy for tuning those values on an iPad. It is available only when running from source; the packaged app excludes `static/lab/`.
 
-- To file a board, drag it onto the folder, or use the folder icon next to its
-  name and pick an existing folder or type a new name (which creates it).
-- A folder's name is its identity: renaming it rewrites the name recorded on
-  every board inside, and a name already in use is rejected.
-- Boards created inside a folder — including dropped PDFs and images — stay in
-  it.
-- Deleting a folder only removes the folder; its boards move back out.
-- Reopening the chooser lands on the level holding the current board.
-- Search always covers every board and shows a flat list.
+**Folders** are one level deep and appear as cards in the same grid. Opening a folder shows only its boards.
 
-### Writing on a PDF or an image (beta)
+- To file a board, drag it onto the folder, or use the folder icon next to its name and pick a folder or type a new name, which creates the folder.
+- A folder's name is its identity. Renaming a folder renames it on every board inside; a name already in use is rejected.
+- Boards created inside a folder, including dropped PDFs and images, stay in that folder.
+- Deleting a folder does not delete its boards; they move out of it.
 
-Drop a PDF or an image **onto the Mac window**, or pick the document tile in the
-new-board dialog, to create a document board: the pages are laid out on the
-canvas, ready to be written on, and the iPad follows the switch.
+### Documents (PDF and images)
 
-- The original file is not modified, only copied into `docs/` in the storage
-  directory. Ink remains vector data in the `.wbz` file.
-- Ink cannot leave the document: no strokes outside the pages, and no scrolling
-  past the first or last page.
-- Page bitmaps are rendered on the Mac and sent to the iPad, per zoom step, for
-  the pages currently visible.
-- The third icon in the top-right corner exports: a PDF from a PDF, an image
-  from an image. **Ink is appended as vectors and the existing content is not
-  re-encoded**, so the file grows by roughly the size of the ink — a few hundred
-  bytes per stroke, a few hundred KB for a heavily annotated handout. On the
-  iPad the shell catches the file and opens the system share sheet.
-- PDF and png/jpg/gif/bmp/webp/tiff are supported; encrypted PDFs are not.
-- Ink in the gap between two pages is assigned to the nearer page on export, and
-  anything outside the page is clipped.
+Drop a PDF or an image onto the Mac window, or choose the document tile in the new-board dialog, to create a document board (beta). The pages are laid out on the canvas, and connected devices switch to the new board.
+
+| Item | Detail |
+| --- | --- |
+| Formats | PDF, png, jpg/jpeg, gif, bmp, webp, tif/tiff |
+| Limits | Up to 400 pages; uploads up to 256 MB |
+| Not supported | Password-protected PDFs |
+| Original file | Copied unchanged into `docs/` in the storage directory; never modified |
+| Ink | Vector data in the board's `.wbz` file; cannot be placed outside the pages; the view stops at the first and last page |
+| Page images | Rendered on the Mac per zoom step, only for visible pages |
+
+The third icon in the top-right group exports the document: a PDF from a PDF, an image from an image (gif, bmp, webp and tiff export as PNG).
+
+- Ink is appended as vectors and the original content is not re-encoded. The file grows by a few hundred bytes per stroke; a heavily annotated handout grows by a few hundred KB.
+- Ink in the gap between two pages is assigned to the nearer page; ink outside a page is clipped.
 
 ## Permissions for other devices
 
-Anyone on the network can open the address and write — that is the point. Every
-other action has to be granted, one at a time, from the board settings (白板设置)
-on the Mac. Nothing is granted by default.
+Any device that opens the address can write. Every other action must be granted on the Mac in board settings (白板设置), one permission at a time. None is granted by default.
 
-| Permission | Allows |
+| Permission | Allows | Enforced at |
+| --- | --- | --- |
+| Manage boards (管理白板) | Switch, create, delete, rename, file into folders, create from a PDF or image | `/api/info`, `/api/boards`, `/api/thumb`, uploads to `/api/doc`, and the matching WebSocket operations |
+| Board settings (设置白板) | Change the background | `meta` operations |
+| Clear board (清空白板) | Erase a whole board at once | `clear` operations |
+| Export board (导出白板) | Download a whole board, including the original file | `/api/export` |
+
+- Permissions are decided from the TCP peer address. Loopback and the Mac's own LAN addresses have every permission. The User-Agent and the `role` in the WebSocket handshake are not used, because a client can set them freely. A WebSocket's permissions are fixed when the connection opens.
+- Writing is always allowed: the page, the WebSocket, page images, the profile and diagnostics reports need no permission.
+- The page receives the granted permissions in a `data-perms` attribute and shows only the allowed entries. This only affects the display; the server enforces the permissions.
+- Update checks and the storage directory choice use the local pywebview bridge, which other devices cannot reach. 关于 and 连接 iPad therefore appear only in the Mac window.
+
+## Data
+
+### Storage layout
+
+The default storage directory is `~/Library/Application Support/Whiteboard/boards-data`. Change it in board settings.
+
+```
+boards-data/
+  boards/<id>.wbz        one file per board
+  index.json             board list, order and folder names
+  thumbs/<id>.png        chooser thumbnails
+  docs/<id>.<ext>        original file of a document board
+  backups/upgrade/       copies made before a new version first runs
+  backups/locked/        copies made before editing a read-only board
+```
+
+| Path | Details |
 | --- | --- |
-| Manage boards | Switch, create, delete, rename, file into folders, create from a dropped PDF |
-| Board settings | Background texture |
-| Clear board | Wipe a whole board at once |
-| Export board | Take a whole board, original file included |
+| `boards/<id>.wbz` | Points are quantized, delta-coded and varint-packed; the file is zlib-compressed. Format: [docs/format.md](docs/format.md). |
+| `index.json` | Rebuilt from the `.wbz` files if deleted. Folders that contain boards are recovered; empty folders are not. |
+| `thumbs/<id>.png` | Uploaded by the Mac. Document boards have none; their first page is used. |
+| `docs/<id>.<ext>` | Read-only; deleted together with the board. |
 
-- The decision is made from the TCP peer address (loopback, or one of this
-  machine's own LAN addresses), not from the User-Agent or the `role` in the
-  WebSocket handshake — a client can put anything it likes in those. A
-  WebSocket's permissions are fixed when the connection is established.
-- The server enforces them: `/api/info`, `/api/boards`, `/api/thumb` and
-  uploads to `/api/doc` need *manage boards*, `/api/export` needs *export
-  board*, background changes need *board settings*, and clearing needs *clear
-  board*. What writing needs — the page, the WebSocket, page bitmaps, the
-  profile, diagnostics — is always allowed.
-- The page carries a `data-perms` attribute and draws each entry only where the
-  permission allows it: on the Mac in the top-right group, on a touch device in
-  the tinted group in the same corner, and clearing the board in the tool
-  picker's ⋯ menu. That is cosmetic — the enforcement is on the server.
-- **Update checks and choosing the storage directory are outside this system.**
-  They go through the local pywebview bridge, which other devices cannot reach,
-  so About and iPad appear only in that window.
+The server saves changes every 3 seconds, and once more when the window closes or the process is interrupted (Ctrl+C).
 
-## Stored data
+### Read-only boards
 
-- Default directory: `~/Library/Application Support/Whiteboard/boards-data`,
-  changeable in the interface.
-- `boards/<id>.wbz` — one file per board. Points are quantised, delta-coded and
-  varint-packed, then the whole file is zlib-compressed; a 500-point stroke is
-  usually under 2 KB. Format: [docs/format.md](docs/format.md).
-- `index.json` — the board list and the folder names. Deleting it rebuilds from
-  the `.wbz` files; empty folders cannot be recovered that way, since nothing
-  refers to them, while folders holding boards can.
-- `thumbs/<id>.png` — chooser thumbnails only. Document boards have none; their
-  first page is used instead.
-- `docs/<id>.<ext>` — the document board's original file, read-only, deleted
-  with the board.
-- The server saves changes every 3 seconds, and once more when the window closes
-  or the process is interrupted.
-- A board whose file cannot be read completely (damaged, partly unreadable, or
-  written by a newer version) opens **read-only**: what can be read is shown,
-  and the file is never overwritten. The Mac can choose to edit it anyway after
-  a warning; the original file is first copied to `backups/locked/`. Details:
-  [docs/format.md](docs/format.md#版本与读不全的文件).
-- `backups/upgrade/` — the first launch after a version change copies `boards/`
-  and `index.json` here before touching anything. The latest five are kept.
+A board whose file cannot be read completely (damaged, partly unreadable, or written by a newer version) opens as a read-only board.
 
-### Disconnection and restarts
+- The readable content is shown, and the file is never overwritten. The warning appears once per board each time it opens.
+- A device with the manage boards permission can choose 仍然编辑（先备份原文件） (Edit anyway, back up first) after a warning. The original file is first copied to `backups/locked/`.
 
-- Strokes drawn while offline queue locally and in IndexedDB, so a page reload
-  does not lose them, and are replayed in order on reconnect. The server
-  deduplicates by stroke id.
-- A reconnecting client sends its `epoch` and sequence number. A restarted
-  server has a new `epoch` and replies with the whole board, so the iPad is
-  never left showing stale or blank content.
-- Resizing or rotating repaints everything; panning and zooming repaint only the
-  strokes in view.
-- PNG export and thumbnails frame the content with a margin; an empty board
-  exports one screen of blank paper.
+Details: [docs/format.md](docs/format.md).
+
+### Backups
+
+On the first launch after a version change, `boards/` and `index.json` are copied to `backups/upgrade/<time>_<old version>_to_<new version>/` before anything else is touched. The latest 5 copies are kept.
+
+To check your boards before upgrading, run `python tools/check_boards.py`.
+
+## Offline and reconnection
+
+- Strokes drawn while offline queue locally and in IndexedDB, so a page reload does not lose them. They are sent in order on reconnect, and the server deduplicates by stroke id.
+- A reconnecting client sends its epoch and sequence number. A restarted server has a new epoch and sends the whole board, so the iPad never keeps stale or blank content.
+- Resizing or rotating repaints everything; panning and zooming repaint only the strokes in view.
+- PNG export and thumbnails frame the content with a margin. An empty board exports one screen of blank page.
+
+> **Note**
+> `http://*.local` is not a secure context, so Service Workers are unavailable and the iPad cannot open the page while the server is not running. A server restart while the page is open is handled.
 
 ## Troubleshooting
 
-Triple-tap the connection dot in the top-left corner (or append `?debug=1` to
-the address) to open the diagnostics panel: frame rate and longest frame gap,
-render time, sample rate, strokes started and strokes interrupted by the system,
-event intervals and disk write times.
+### Diagnostics panel
 
-While diagnostics are open, stutter reports are also sent to the Mac's terminal;
-page errors are sent whether or not they are open. So when the iPad stutters,
-read the `[诊断]` lines in the Mac terminal:
+Triple-tap the connection dot, or add `?debug=1` to the address, to open the diagnostics panel. It shows frame rate and longest frame gap, render time, sample rate, strokes started, strokes interrupted by the system, event intervals, disk write times, and the Pencil's raw tilt and altitude readings with the angle in use.
 
-- long *最长帧*, short *事件间隔* → something is blocking the main thread;
-- normal *最长帧*, long *事件间隔* or a rising *中断* → a system gesture is
-  taking the events.
+While the panel is open, stutter reports are also sent to the Mac's terminal. Page errors are sent in any case. Read the `[诊断]` lines in the Mac terminal or log:
 
-A window in the background stops `requestAnimationFrame` entirely; those frame
-gaps are excluded from the reports.
+| Pattern | Cause |
+| --- | --- |
+| Long 最长帧 (longest frame), short 事件间隔 (event interval) | Something blocks the main thread. |
+| Normal 最长帧, long 事件间隔 or rising 中断 (interruptions) | A system gesture is taking the events. |
 
-### Loupe on the iPad, or strokes disappearing
+A page in the background pauses `requestAnimationFrame`; those gaps are excluded from the reports.
 
-Everything the page can do is done: selection and long-press menus are
-suppressed, touch events are cancelled in the capture phase (the same fix as
-[excalidraw#4705](https://github.com/excalidraw/excalidraw/pull/4705)), and the
-selection is cleared when a stroke starts.
+### Loupe appears or strokes disappear
 
-One source of interference is out of reach of any page: **Scribble**. It watches
-the Apple Pencil at the system level and takes the ink when it decides you are
-writing text, which looks like a stroke vanishing or a selection UI appearing —
-lifting and landing again quickly is the easiest way to trigger it.
+The page already suppresses selection and long-press menus, cancels touch events in the capture phase (as in [excalidraw#4705](https://github.com/excalidraw/excalidraw/pull/4705)) and clears the selection when a stroke starts.
 
-    Settings → Apple Pencil → Scribble → off
+**Scribble** works at the system level and is outside the page's control. It takes Pencil input when it detects handwriting, which looks like a vanished stroke or a selection UI. Lifting and landing the Pencil again quickly triggers it most often. Turn it off:
 
-After three consecutive interruptions the app raises a notice explaining this.
-**Settings → Accessibility → Zoom**, triggered by a three-finger double tap, has
-the same effect and is equally out of reach.
+```
+Settings → Apple Pencil → Scribble → off
+```
+
+After three consecutive interruptions, the page shows a notice about Scribble. **Settings → Accessibility → Zoom**, triggered by a three-finger double tap, has the same effect and is also outside the page's control.
 
 ## Development
+
+### Source tree
 
 ```
 whiteboard/
   server.py     aiohttp routes and the WebSocket protocol
   hub.py        operation log, broadcast, autosave, read-only boards
   store.py      board persistence (zlib + compact point encoding)
-  codec.py      quantisation, delta coding and varint packing for points
-  models.py     data models and validation of anything from the network
+  codec.py      quantization, delta coding and varint packing for points
+  models.py     data models and validation of network input
   config.py     settings file; command-line values that apply to one run only
   backup.py     copies the boards before a new version first touches them
   docs.py       document boards: reading, rendering and exporting PDFs / images
@@ -549,53 +442,50 @@ whiteboard/
       input.js, input-erase.js,     pointer routing and drawing; the eraser;
         input-gesture.js,           pan / zoom / momentum; fallback for the
         shell-fallback.js           0.9.43 shell
-      ui.js, ui-*.js                toolbar and picker; board chooser, dialogs,
-                                    settings
+      ui.js, ui-*.js                toolbar and tool picker; board chooser,
+                                    dialogs, settings
       stroke.js, boardstate.js,     geometry, ordering and spatial index,
         renderer.js, net.js, ...    rendering, sync, cache, export
+    static/lab/                     tuning pages (source runs only)
 ipad/           the iPad shell (Swift, project generated by XcodeGen)
-tools/          check_boards.py (check your boards before upgrading) and
-                research scripts
+tools/          check_boards.py (check boards before upgrading) and research scripts
 ```
 
-Further reading (in Chinese): the wire protocol in
-[docs/protocol.md](docs/protocol.md), the file format in
-[docs/format.md](docs/format.md), how the pixel eraser's numbers were measured
-in [docs/eraser.md](docs/eraser.md), and the design of the native shell in
-[docs/ipad-shell.md](docs/ipad-shell.md).
+### Documentation
 
-Problems that only a real Pencil can produce — pressure, tilt, coalesced samples
-within a frame, the timing around lift-off — can be recorded on the iPad and
-replayed on a development machine: triple-tap the connection dot and use
-**录制输入** in the bottom-left cell. See [docs/recording.md](docs/recording.md).
+| Document | Content |
+| --- | --- |
+| [docs/protocol.md](docs/protocol.md) | WebSocket protocol |
+| [docs/format.md](docs/format.md) | File format |
+| [docs/eraser.md](docs/eraser.md) | Pixel eraser measurements |
+| [docs/ipad-shell.md](docs/ipad-shell.md) | iPad shell design |
+| [docs/recording.md](docs/recording.md) | Input recording |
+| [docs/release-checklist.md](docs/release-checklist.md) | Release checklist |
+
+Input recording captures problems that need a real Pencil (pressure, tilt, coalesced samples within a frame, timing around lift-off) on the iPad for replay on a development machine. Open the diagnostics panel and use 录制输入 (Record input) in the bottom-left cell.
+
+### Tests
 
 ```bash
-python -m pytest tests -q                                  # everything
+python -m pytest tests -q                                   # everything
 python -m pytest tests --ignore=tests/test_browser.py -q    # skip the browser tests
 node --test tests/js/*.test.mjs                             # front-end pure functions
 WB_BROWSER=webkit python -m pytest tests/test_browser.py    # end-to-end on WebKit
 ```
 
-The end-to-end tests open two real browser pages (a Mac one and a touch
-device) and sync between them, covering drawing, undo, erasing, clearing, Pencil
-exclusivity, switching boards, reconnecting with a backlog, folders, read-only
-boards and PNG export. They skip themselves if Playwright or the browser is
-missing. `tests/test_compat.py` checks that board files written before the
-stable-release clean-up still read back identically; the fixture in
-`tests/fixtures/compat/` must not be regenerated with newer code.
+- The end-to-end tests open two browser pages (the Mac and a touch device) and sync between them. They cover drawing, undo, erasing, clearing, Pencil exclusivity, switching boards, reconnecting with a backlog, folders, read-only boards and PNG export. They skip themselves if Playwright or the browser is missing.
+- `tests/test_compat.py` checks that board files written by earlier versions still read back identically. Do not regenerate the fixture in `tests/fixtures/compat/` with newer code.
 
-CI runs the Python tests with Chromium, the front-end unit tests with Node, and
-a smoke subset on WebKit. The macOS app is built on tags, and on pull requests
-that touch the app or its packaging.
+### CI
+
+| Workflow | Runs |
+| --- | --- |
+| `tests.yml` | Python tests with Chromium, front-end unit tests with Node, a smoke subset on WebKit |
+| `build-macos.yml` | Builds the iPad shell and the macOS app on `v*` tags (publishes a Release), on pull requests that touch the app or its packaging, and manually |
+| `ipad-check.yml` | Compiles the iPad shell when `ipad/` changes |
 
 ## Non-goals
 
-- **No accounts or passwords.** The premise is a home or office network: if you
-  can reach it, you can write on it.
-- **Two devices.** More than two works as far as the protocol is concerned, but
-  is not tested and not promised.
-- **No replica of the iPad selection tool**, which would need artwork.
-- `http://xxx.local` is not a secure context, so Service Workers are
-  unavailable and the iPad cannot open the page while the server is down. That
-  is separate from the server restarting while the page is open, which is
-  handled.
+- **No accounts or passwords.** The premise is a home or office network: any device that can reach the Mac can write.
+- **Two devices.** More than two devices work at the protocol level but are not tested or supported.
+- **No copy of the iPad selection tool**, which would need artwork.
