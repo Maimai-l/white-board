@@ -1,305 +1,273 @@
-# 像素橡皮：从 iPad 原生采来的参数
+English | [简体中文](eraser.zh-CN.md)
 
-白板的像素橡皮对着 iPadOS 的 PencilKit 调。参数不是拍脑袋定的，是从原生实测数据
-反推出来的——采集用的 app 在 [InkProbe](https://github.com/Maimai-l/InkProbe)，
-它在同一次落笔里让 PencilKit 正常绘制和擦除，同时旁路记录全部原始触摸。
+# Pixel Eraser
 
-## 怎么量出来的
+This document records how the pixel eraser parameters were measured from native iPadOS PencilKit, the values the implementation uses, and how erased areas are stored, synchronized, rendered and exported.
 
-在一大片实心墨迹上，用像素橡皮**点**一排孤立的擦除点（不是划），每一排固定一个
-笔身角度。每个孤立点在 `PKStroke.mask` 里就是一个独立的洞，把洞的面积换算成等效
-直径，再和 `input.json` 里那一笔的 `altitudeAngle` 对上。
+## Summary
 
-二十一个点全部匹配，中心偏差都在 3 pt 以内。
+The pixel eraser follows these rules, all derived from native PencilKit measurements.
 
-## 三条结论
+| Rule | Value | Code |
+| --- | --- | --- |
+| Diameter depends only on the altitude angle | 6 to 81 screen px, see [Diameter curve](#diameter-curve) | `input-erase.js` `ERASER_CURVE` |
+| Pressure has no effect | Pressure 0.15 to 0.51 at the same angle gives the same diameter | `input-erase.js` `eraserRadius` |
+| Size is constant on screen | World radius = screen radius / `viewport.scale`, at every zoom level | `input-erase.js` `worldRadius` |
+| Width is fixed for the whole stroke | Taken once at pen-down | `input-erase.js` `startErase` |
+| Mouse, finger, pen without tilt data | Diameter at 50° (16.5 px) | `input-erase.js` `eraserRadius` |
+| Object eraser | Fixed 6 px diameter (`ERASER_TIP`) | `input-erase.js` |
+| Erased area is stored as a mask | Capsule chains in the stroke's `m` field | `app-eraser.js` `erasePixels` |
 
-**一、直径只跟笔身与屏幕的夹角走。**
+## Data sources
 
-| 夹角 | 直径 |
+All native data was collected with [InkProbe](https://github.com/Maimai-l/InkProbe), which lets PencilKit draw and erase normally while recording every raw touch in the same gesture.
+
+| Session | Content | Zoom |
+| --- | --- | --- |
+| Isolated dabs | 21 separate eraser taps on solid ink, one altitude angle per row | 1 |
+| a | Five eraser strokes over a solid area painted with the marker, altitude 37°–43° | 1 |
+| c | Two eraser strokes over a solid marker area | 0.25 |
+| test1 | Calibration | 1 |
+| test2 | Calibration | 2 |
+| test3 | Drag | 1 |
+| bench1 | Mixed | 1–3 |
+| bench2 | One eraser stroke that PencilKit did not record | 0.25 |
+| Native eraser strokes | 92 eraser strokes, used for per-stroke altitude statistics | — |
+
+## Measurement method
+
+Two quantities are measured, and they agree only where the eraser contact shape is circular.
+
+| Quantity | Method | Used for |
+| --- | --- | --- |
+| Equivalent diameter | Area of each isolated hole in `PKStroke.mask`, converted to the diameter of a circle of equal area, matched to the `altitudeAngle` of that tap in `input.json` | Isolated dabs |
+| Perpendicular width | Width of the hole measured perpendicular to the eraser path at each sample; median per stroke | Drag strokes |
+
+All 21 isolated dabs were matched to their taps, with center offsets under 3 pt. Drawing-coordinate measurements are multiplied by the zoom at the time to obtain screen size.
+
+## Measured data
+
+Each table lists native measurements as (altitude angle, diameter in screen units). The same data is used by `tests/test_browser.py::test_eraser_width_follows_the_native_curve`.
+
+### Isolated dabs (equivalent diameter)
+
+| Angle | Diameter | Angle | Diameter | Angle | Diameter |
+| --- | --- | --- | --- | --- | --- |
+| 83.3° | 6.9 | 49.8° | 17.6 | 31.8° | 54.1 |
+| 82.0° | 6.3 | 49.7° | 18.2 | 28.5° | 72.2 |
+| 81.1° | 7.2 | 49.7° | 15.9 | 27.3° | 78.7 |
+| 80.0° | 9.0 | 35.0° | 35.2 | 20.3° | 80.7 |
+| 79.1° | 8.1 | 34.4° | 40.7 | 14.8° | 82.1 |
+| 50.3° | 16.5 | 33.7° | 45.0 | 12.6° | 81.2 |
+| 50.1° | 17.7 | 32.5° | 50.5 | 12.1° | 80.3 |
+
+### Drag strokes (perpendicular width)
+
+| Angle | Width | Angle | Width | Angle | Width |
+| --- | --- | --- | --- | --- | --- |
+| 67.8° | 16.5 | 50.7° | 15.5 | 40.9° (a) | 15.5 |
+| 64.8° | 16.5 | 45.3° | 16.5 | 39.6° (a) | 15.5 |
+| 58.8° | 15.5 | 44.9° | 18.0 | 38.9° (a) | 16.0 |
+| 57.7° | 15.5 | 44.0° | 16.5 | 38.4° (a) | 16.0 |
+| 54.4° | 16.0 | 43.0° (a) | 15.5 | 10.4° (c, zoom 0.25) | 80.5 |
+| 53.4° | 14.5 | | | | |
+| 52.6° | 16.0 | | | | |
+
+Session c measured 322 drawing units at zoom 0.25, which is 80.5 screen units.
+
+## Diameter curve
+
+`ERASER_CURVE` maps the altitude angle to the eraser diameter in screen pixels. Values between points are linearly interpolated; angles above 90° use 6 and angles below 0° use 81.
+
+| Angle | Diameter (px) | Basis |
+| --- | --- | --- |
+| 90° | 6 | Pen tip |
+| 80° | 7.5 | Isolated dabs, 79°–83° |
+| 68° | 16.5 | Drag width |
+| 37° | 16.5 | Drag width, session a |
+| 35° | 35 | Isolated dabs |
+| 32° | 52 | Isolated dabs |
+| 28° | 75 | Isolated dabs |
+| 25° | 81 | Isolated dabs, saturation |
+| 0° | 81 | Saturation |
+
+- The diameter starts to grow at 80°, stays at about 16.5 between 68° and 37°, rises steeply below 37°, and saturates at about 81 below 25°.
+- A typical writing grip is about 50°, where the diameter is 16.5.
+- The curve is monotonic: a flatter pen never gives a narrower eraser.
+
+> **Note**
+> The step from 16.5 at 37° to 35 at 35° joins the two measurement methods. At 35° the two values suggest a contact shape of about 16.5 × 75 (an ellipse elongated along the pen), so the equivalent diameter is larger than the perpendicular width in the 25°–44° range. No drag samples exist between 37° and 25°, so this is the least certain part of the curve.
+
+A straight line from (37°, 16.5) to (25°, 81) was evaluated in place of the isolated-dab points and rejected, because it lowered IoU (test1 0.931 → 0.862, bench1 0.871 → 0.830).
+
+## Zoom
+
+The eraser has a constant size on screen, so zooming in erases a thinner line in drawing coordinates. Hit testing and the cursor ring both use `screen radius / viewport.scale`, in both zoom directions.
+
+| Angle | Zoom 1 (drawing units) | Zoom 2.02 (drawing units × zoom) |
+| --- | --- | --- |
+| ~80° | 6.3–9.0 | 6.9–12.2 |
+| ~50° | 15.9–18.2 | 16.9–22.8 |
+| ~25° | 80.3–82.1 | 80.4–85.4 |
+
+For zoom-out, session c (zoom 0.25, 10.4°) gives 80.5 screen units against 81 from the curve. There is no lower bound on `scale` in `worldRadius`.
+
+## Width within a stroke
+
+The eraser width is set once at pen-down and does not change for the rest of the stroke, which matches native behavior.
+
+| Native statistic (92 eraser strokes) | Value |
 | --- | --- |
-| 83° | 6.3 |
-| 80° | 9.0 |
-| 50° | 15.9 ～ 18.2 |
-| 35° | 35.2 |
-| 33.7° | 45.0 |
-| 32° | 50.5 ～ 54.1 |
-| 28.5° | 72.2 |
-| 27.3° | 78.7 |
-| ≤ 25° | 80.3 ～ 82.1（饱和） |
+| Strokes that report a single altitude value | 65% |
+| Strokes with an in-stroke range of at most 2.36° | 90% |
+| Median in-stroke range | 0° |
+| Longest initial plateau observed | 648 identical readings in a 1450-sample stroke |
 
-变粗从 80° 就开始，25° 左右到顶；最粗约 81。
+- iPadOS Safari reports whole-degree `tiltX` / `tiltY` and no `altitudeAngle`. While writing, the angle varies between about 33° and 47°, across the steep part of the curve. A width that follows the angle per sample would vary by up to 2.7× within one stroke.
+- The hover cursor ring still follows the current tilt, because it is a preview.
 
-孤立点只覆盖了 80° / 50° / 35°～27° / ≤25° 这几档，中间两段一开始是线性插值填的。
-后来拿拖动那一批做逐像素对照，发现插值两处都不对：
+Fixing the width per stroke does not reduce accuracy:
 
-| 夹角 | 原生 | 线性插值 | |
-| --- | --- | --- | --- |
-| 67.8° | 16.5 | 11.4 | 窄 45% |
-| 64.8° | 16.5 | 12.3 | 窄 34% |
-| 44.0° | 16.5 | 24.1 | 宽 46% |
-| 44.9° | 18.0 | 23.1 | 宽 28% |
+| Session | IoU, width per sample | IoU, width per stroke |
+| --- | --- | --- |
+| test1 | 0.934 | 0.931 |
+| test2 | 0.885 | 0.878 |
+| test3 | 0.902 | 0.901 |
+| bench1 | 0.871 | 0.871 |
 
-平台段的下端后来又往下挪过一次。会话 a 是在一大片 marker 涂成的实心区域上划了五条
-橡皮，倾角落在 37°～43°：
+## Pixel comparison
 
-| 夹角 | 原生 | 改之前的曲线 | |
-| --- | --- | --- | --- |
-| 43.0° | 15.5 | 20.4 | 宽 32% |
-| 40.9° | 15.5 | 22.9 | 宽 48% |
-| 39.6° | 15.5 | 24.8 | 宽 60% |
-| 38.9° | 16.0 | 26.4 | 宽 65% |
-| 38.4° | 16.0 | 27.5 | 宽 72% |
+`tools/compare_native_eraser.py` rasterizes the native erased area and the whiteboard's erased area onto the same image and reports IoU, over-erase and under-erase.
 
-所以实际是 **37° 到 68° 之间基本平在 16.5**，37° 以下才陡升。`ERASER_CURVE` 的拐点
-就是这么定的。这一段的原生宽度是沿橡皮路径逐点量洞的垂直宽度、取中位数得来的。
+```sh
+python3 tools/compare_native_eraser.py <unzipped InkProbe sessions directory>
+```
 
-37° 和 35° 之间这个台阶很陡：16.5 跳到 35.2。台阶两侧是两种量法——35° 及以下来自
-孤立点的洞面积换算的等效直径，37° 及以上来自沿拖动路径量的垂直宽度。如果低倾角的
-落笔形状不是圆而是沿笔身拉长的椭圆，等效直径会明显大于垂直宽度，那么台阶就是量法
-差异而不是真的跳变。37° 到 25° 之间没有拖动样本，这是整条曲线里最没把握的一段。
+For each session it prints the pixel counts and writes `<name>-diff.png` next to the sessions: gray = erased by both, red = erased only by native (under-erase), blue = erased only by the whiteboard (over-erase).
 
-## 逐像素对照
+### Method
 
-`tools/compare_native_eraser.py` 把原生的印记和我们的栅格化到同一张图上比，
-输出 IoU 和多擦 / 漏擦的比例，并生成差异图（灰 = 都擦了，红 = 只有原生擦了，
-蓝 = 只有我们擦了）。
+| Step | Rule |
+| --- | --- |
+| Ink region | Rebuilt from the control points (`points`) and per-point width at scale 2. `interpolatedPoints` cannot be used, because its `rangeIndex` covers only the segments that survive the mask. |
+| Native erased area | Ink region minus the ink still visible in `final/render-transparent@2x.png` (alpha > 32). Counting holes in the mask misses strokes that PencilKit split, and holes can extend outside the ink. |
+| Whiteboard erased area | Capsules along the `coalesced` eraser samples, diameter from `ERASER_CURVE` at the first sample, divided by the zoom at `viewportAtBegin`, intersected with the ink region. |
+| Eraser corridor | Both sides are limited to the union of capsules with 3× the eraser radius along the eraser path. |
+| Percentages | Over-erase and under-erase are relative to the union. |
 
-度量上有四处坑，都踩过：
+> **Note**
+> The corridor removes reconstruction error at stroke reversals. The marker tip is a 50 × 100 flat shape, but the ink region is rebuilt with a circle of radius 50, which adds a half-disc at each reversal. In session a this accounted for 47% of the native total and lowered IoU from 0.91 to 0.50 before the corridor was applied. On sessions without reversals the corridor removes 0–8 px.
 
-1. **橡皮半径是屏幕尺度的**，换算到 drawing 坐标要除以当时的缩放。忘了除，
-   zoom 2 的那一批会显示成「多擦 73%」。
-2. **原生的 mask 只是个裁剪区域**，它在墨迹之外长什么样对 PencilKit 没有影响，
-   所以洞可以伸到墨迹外面去。直接拿洞比，等于把墨迹外那部分也算成「原生擦掉了」，
-   实测能占到四成。两边都要先和真实墨迹求交。
-3. **墨迹区域只能从控制点加逐点宽度重建**，不能用 `interpolatedPoints`（它带
-   `rangeIndex`，只覆盖遮罩之后还活着的那几段，正好把擦掉的地方挖空），也不能用
-   mask 的外轮廓代替。重建出来比导出的透明底图瘦约 13%。
-4. **那 13% 不是均匀铺开的，是堆在笔画调头的地方。** marker 的落笔是个 50×100 的
-   扁头，重建按半径 50 的圆去铺，笔画原地掉头时外侧就会多出一块半圆，而真实的扁头
-   没有。这块多出来的区域落在「重建有、导出底图里看不见」里，被算成「原生擦掉了」。
-   会话 a 里这一项占到原生总量的 47%，把 IoU 从 0.91 压到 0.50。
-   所以比对要再限制在**橡皮走廊**里——沿橡皮路径、半径取橡皮半径三倍的胶囊并集。
-   走廊外面两边都不可能擦到，那里的差异只能是重建误差。走廊对干净的会话没有影响
-   （test1 挡掉 4 px，test2 和 bench1 挡掉 0～8 px）。
+The rebuilt ink region is about 13% thinner overall than the exported transparent image.
 
-当前结果（和真实墨迹求交、再限制在橡皮走廊里之后）：
+### Results
 
-| 会话 | 缩放 | IoU | 我们多擦 | 我们漏擦 |
+Results are measured inside the ink region and the eraser corridor.
+
+| Session | Zoom | IoU | Over-erase | Under-erase |
 | --- | --- | --- | --- | --- |
-| a（marker 实心区域上五条橡皮） | 1 | 0.912 | 7.4% | 1.4% |
-| c（marker 实心区域上两条橡皮） | 0.25 | 0.940 | 2.2% | 3.8% |
-| test1 校准 | 1 | 0.934 | 6.5% | 0.1% |
-| test2 校准 | 2 | 0.885 | 11.5% | 0% |
-| test3 拖动 | 1 | 0.902 | 9.8% | 0% |
-| bench1 | 1～3 | 0.871 | 11.6% | 1.2% |
+| a | 1 | 0.912 | 7.4% | 1.4% |
+| c | 0.25 | 0.940 | 2.2% | 3.8% |
+| test1 | 1 | 0.931 | 6.5% | 0.1% |
+| test2 | 2 | 0.878 | 11.5% | 0% |
+| test3 | 1 | 0.901 | 9.8% | 0% |
+| bench1 | 1–3 | 0.871 | 11.6% | 1.2% |
 | bench2 | 0.25 | 0.003 | 99.5% | 0.2% |
 
-两处还没解释清楚，记在这里：
+Over-erase and under-erase percentages were measured with the per-sample width; IoU for test1–bench1 is the per-stroke value.
 
-* test2 的第二条笔画的遮罩里有两块很大的负面积区域（177×131 和 160×90），而那个
-  位置的擦除序列路径长度都不超过 7 pt，输入里找不到对应的动作，会话里也没有 undo。
-* bench2 那一条橡皮在 PencilKit 那边完全没有生效：2361 个采样点、其中 200 个直接
-  压在可见墨迹上，最终二十条笔画一个 mask、一个 `maskedPathRanges` 都没有。同一个
-  缩放（0.25）下会话 c 擦得很彻底，所以这不是缩放规则，是那一次整条橡皮没被记录。
-  表里的 0.003 就是拿「我们擦了、原生什么都没擦」算出来的，不反映几何误差。
+### Known anomalies
 
-会话 a 剩下的差异集中在两条橡皮的起点：原生的擦痕比我们的多出约一个橡皮直径的长度，
-说明 PencilKit 在第一个 coalesced 采样点之前就开始擦了（预测触摸）。
+| Session | Observation |
+| --- | --- |
+| a | The remaining difference is at the start of two eraser strokes: native erases about one eraser diameter further back, which indicates that PencilKit starts erasing before the first coalesced sample (predicted touches). |
+| test2 | The mask of the second stroke contains two large negative-area regions (177 × 131 and 160 × 90) where the eraser path length is at most 7 pt; no matching input or undo exists. |
+| bench2 | The eraser stroke had no effect in PencilKit: 2361 samples, 200 of them on visible ink, and none of the 20 strokes has a mask or `maskedPathRanges`. The IoU of 0.003 reflects this missing native data, not a geometry error. Session c at the same zoom erases fully, so this is not a zoom rule. |
 
-**二、力度不参与。** 同一夹角段里力度从 0.15 到 0.51，直径不跟着动。
+## Mask storage
 
-**三、尺寸恒定在屏幕上，放大缩小都一样。** 同一个夹角在 zoom 1 和 zoom 2.02 下，
-印记在 drawing 坐标里差一倍，乘回缩放之后对得上：
+The pixel eraser never splits a stroke directly; it appends the swept capsules to the stroke's mask (`m` field). The format is described in [format.md](format.md).
 
-| 夹角 | zoom 1 | zoom 2.02 × zoom |
+```json
+"m": [[radius, x0, y0, x1, y1, ...], ...]
+```
+
+| Rule | Value | Code |
 | --- | --- | --- |
-| ~80° | 6.3 ～ 9.0 | 6.9 ～ 12.2 |
-| ~50° | 15.9 ～ 18.2 | 16.9 ～ 22.8 |
-| ~25° | 80.3 ～ 82.1 | 80.4 ～ 85.4 |
+| A new segment extends the last chain | When it starts at the chain's end point and its radius is within 1% of the chain's radius | `stroke.js` `SWEEP_RADIUS_TOLERANCE`, `addMask` |
+| Covered segments are dropped | Chains fully inside the new capsule are removed | `stroke.js` `addMask` |
+| Client limit per stroke | `MASK_LIMIT` = 400 capsule segments | `stroke.js` |
+| Thinning when over the limit | Ramer–Douglas–Peucker with tolerance `r / 6`, the same as PDF export (`inkpdf.py` `_capsules`) | `stroke.js` `simplifyMask` |
+| Baking when still over the limit | The mask is converted into cuts and the stroke is replaced by the remaining pieces (`remove` + `restore`); pieces keep the original stacking number `n` | `app-eraser.js` `bakeMask` |
+| Server limit per stroke | `MAX_MASK_SEGMENTS` = 1024 segments, counted the same way as the client | `models.py` |
 
-缩小方向由会话 c 定下来：zoom 0.25、夹角 10.4°，原生擦出来的垂直宽度是 322 个
-drawing 单位，乘回缩放是 80.5 个屏幕单位，曲线在那个夹角给的是 81。
+- Native PencilKit also uses masks: when the eraser cuts through a stroke, PencilKit splits it into separate strokes, each with its own mask. In the whiteboard a stroke that looks cut in two remains one stroke with one id until it is baked or touched by the object eraser.
+- An earlier design split a stroke whenever the eraser radius was at least the stroke's half-width. It was removed because pressure changes the half-width along the stroke, so one drag switched between splitting and masking.
+- Baking replaces masked edges with flat cut ends and removes thin slivers along the edge, which is visible. Thinning first avoids it in normal use.
+- `tests/test_models.py` checks that `MAX_MASK_SEGMENTS >= MASK_LIMIT`. A server limit counted differently would truncate masks that are valid on the client.
 
-所以放大等于擦得更细，判定和光标都要除以 `viewport.scale`，两个方向都除。
+Full-screen redraw time grows quadratically with the number of mask segments on one stroke, which is why the limit is reduced by thinning rather than raised:
 
-`worldRadius` 里曾经有过一个 `Math.max(scale, 1)` 的下限，依据是 bench2 那次
-zoom 0.25 下一个遮罩都没留下。会话 c 在同样的缩放下擦得很彻底，所以那不是缩放规则，
-下限已经去掉了。
-
-## 原生也是切分和遮罩两者都用
-
-采集数据里有两条笔画 `pathCount` 相同、`mask` 不同——橡皮擦穿一条笔画时
-PencilKit 把它拆成两条独立笔画，各自带自己的 mask；只啃掉一部分时才只记遮罩。
-Apple 在 WWDC20 session 10148 里也是这么说的。白板早先照这个做过分流（橡皮不小于
-笔画半宽就切断，比它小就记遮罩），后来去掉了：压感沿笔画变化，同一次拖动走到一半
-判定就会跨过阈值，前后两截的擦法不一样。现在像素橡皮一律记遮罩，遮罩超过上限才
-落实成切分（见 docs/format.md 的「啃掉的缺口」），擦穿之后笔画照样断开。
-
-对象橡皮（`vector`）擦完之后笔画不带任何 mask，是整条删除。
-
-## 擦痕为什么必须用「把背景画回去」
-
-遮罩是一串胶囊，要的是它们的**并集**。但「从墨迹里减去一组互相重叠的胶囊」
-做不到：
-
-- `even-odd` 算的是对称差不是并集。一次拖动里相邻两段胶囊在共用的那个圆端点处
-  必然重叠，重叠处被算两次成了偶数、判定成「不擦」——擦痕于是每隔一个采样点就
-  留下一块正好等于橡皮直径的墨，看上去是一排断开的小块。
-- `nonzero` 换个绕向也减不干净：盖了两层的地方绕数是 −2，仍然非零。
-
-反过来，把并集**填**出来是容易的：同向绕的子路径用 nonzero 正好就是并集。
-所以屏幕上的做法是在这块并集里把背景重新画一遍（`renderer.js` 的 `paintStrokes`），
-不是从墨迹里减。
-
-顺序上：一条笔画的遮罩可以盖住它自己和它下面的笔画——下面那些当时被同一下橡皮
-一起擦到了，盖住是对的；它上面的笔画是擦完之后才画的，不能盖。所以遇到一条压在
-待补区域上、自己又没有遮罩的笔画时，先把背景补上再画它。
-
-PDF 里没法「把原件重新画一遍」，所以走另一条路：裁剪是可以叠加的，而
-**补集的交 = 并集的补集**。把胶囊分成几组、组内互不重叠，每组出一条
-`外框减去这组胶囊` 的 even-odd 裁剪路径，依次 `W* n` 求交。组数通常两三组。
-见 `inkpdf.py` 的 `mask_clips`。
-
-## 抬笔那一刻
-
-橡皮上有两个缺陷都卡在抬笔这一刻，都是靠录制回放找出来的（见 `docs/recording.md`）。
-
-**抬笔那一下的位置从来没擦到。** 最后一个 `pointermove` 停在上一帧，笔离开屏幕
-之前还走了一段，这一段只有 `pointerup` 里有。不补的话擦痕停在上一帧的位置，末端
-留下一道正好是橡皮直径宽的硬边，而笔真正压过的地方还留着墨。`pointercancel` 不补
-这一段：那一下不是用户抬的笔，位置不代表他想擦到哪。
-
-**橡皮没吃合并采样点，而画线那边一直是吃的。** iPad 上笔是 120Hz 而 `pointermove`
-一帧才来一次，中间的点都在 `getCoalescedEvents()` 里。只取最后一个等于把一帧里的
-一段曲线压成一条直线，擦得越快压得越狠，擦痕边上就出现一节一节的直棱。
-
-## 遮罩攒满了怎么办：先抽稀，不要直接切
-
-裁剪的开销随遮罩段数是**平方**涨的。一条笔画挂着 N 段胶囊时整屏重画的耗时：
-
-| 段数 | 100 | 400 | 1000 | 2000 | 4000 | 8000 |
+| Segments | 100 | 400 | 1000 | 2000 | 4000 | 8000 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 整屏重画 | 0.6 ms | 2.9 ms | 15 ms | 57 ms | 229 ms | 911 ms |
+| Full redraw | 0.6 ms | 2.9 ms | 15 ms | 57 ms | 229 ms | 911 ms |
 
-所以 `MASK_LIMIT` 不能靠放宽来解决，段数只能真的变少。
+For the same back-and-forth input, thinning raises the number of samples before baking from about 400 to about 2500 (from over 3 s to about 20 s at 120 Hz).
 
-以前一超限就走 `bakeMask`，把遮罩落实成切分。那是看得见的变化：啃出来的形状换成
-平口断面，贴边的细条还会被一起清掉。而每个采样点就是一段胶囊，400 段在 120Hz 上
-只要三秒多——在一大块墨上来回擦几下就撞上了，手感上就是「擦着擦着忽然多出一道
-平口」。
+## Input sampling
 
-现在超限先按 RDP 抽稀，容差 `r / 6`，和 `inkpdf.py` 导出时 `_capsules` 用的是同一个
-（那边一直是这么抽的，屏幕和导出用同一个容差才对得上）。抽完还超，说明橡皮真的
-覆盖了这么多互不重合的地方，再抽也抽不动，才落实成切分。实测同一段来回涂的输入，
-触发切分的采样点数从约 400 涨到约 2500，120Hz 上是从三秒多涨到二十秒。
+The eraser processes the same samples as drawing.
 
-## 擦掉的墨为什么会自己回来
+| Event | Handling |
+| --- | --- |
+| `pointerdown` | Sets the width for the stroke and erases at the down position. |
+| `pointermove` | Erases along every sample from `getCoalescedEvents()`, or the event itself if there is only one. Each step sweeps the segment from the previous sample, not a single point. |
+| `pointerup` | Sweeps the last segment to the up position, unless it equals the last sample. |
+| `pointercancel` | Does not sweep a final segment, because the position does not reflect a user lift. |
 
-两份真机录像（`docs/recording.md` 录的）查出来的，一个根因，两种表现。
+## Synchronization
 
-**根因一：一次拖动攒出上百条胶囊链。** 橡皮的粗细每个采样点都重新平滑一次，
-收敛是指数的，永远差那么一点点。`addMask` 判「还是同一次扫掠」用的是半径严格
-相等，于是几乎判不出来——录像里一次擦除攒出 113 条链、82 个互不相同的半径，
-而它们在两位小数上全是同一个值。改成差 1% 以内就算同一次，链上记的半径不跟着
-动（所以链里每一段和它本来的半径最多差 1%，也不会随着链变长一路漂上去），
-同一份录像回放下来从 113 条链变成 28 条。
+Mask changes are sent once per animation frame as `{"op": "mask", "masks": [{id, m}]}`, with the stroke's full current mask rather than a delta. See [protocol.md](protocol.md).
 
-**根因二：服务端和前端的上限不是一个口径。** 服务端原来按「最多 64 条链、每条
-链最多 256 个点」截，而前端管的是**总段数**（`MASK_LIMIT`，400 段，超了就抽稀
-或落实成切分）。两个口径对不上，前端合法的遮罩到服务端会被悄悄截断：113 条链
-截到 64，43% 的擦除就这么没了。
+- A client ignores `mask` operations that echo its own changes (`context.mine` in `app.js` `applyOp`). The local mask is already current, and by the time the acknowledgement arrives it usually contains newer segments.
+- The server rewrites a mask only when it exceeds `MAX_MASK_SEGMENTS`, which is above the client limit.
+- Very long strokes are split into several strokes at commit time, because the server drops point lists longer than `MAX_POINTS_PER_STROKE` (20000). See [protocol.md](protocol.md).
 
-截断的结果不只发给对端，还顺着回执盖回发送端自己（`net.js` 的 `_ack` 把服务端
-返回的 op 当成普通消息再走一遍 `applyOp`，而 `mask` 是全量替换）。所以：
+> **Note**
+> Applying the echoed mask would overwrite newer local segments and break the chain into short pieces. In one drag of 120 samples (one chain, 121 points expected) this produced 60 chains with a 0 ms acknowledgement delay, and 24 chains with 52 points with a 60 ms delay. Input replay does not exercise this path; see [recording.md](recording.md).
 
-* **同步**：对端和存档里比这边少擦一块。
-* **显示和存储打架**：这边刚擦掉的墨，等回执到了自己又回来一部分。回执什么时候
-  到取决于网络，所以看上去像随机——同样的操作有时候好有时候不好。
+## Rendering on screen
 
-服务端的上限现在也按总段数算（`MAX_MASK_SEGMENTS`），数值放在前端上限之上留出
-版本差的余量，`tests/test_models.py` 里有用例把两边钉在一起防止再次跑偏。
+The screen renderer paints the background again over the union of mask capsules instead of subtracting capsules from the ink (`renderer.js` `paintStrokes`).
 
-输入这条链路本身是确定的：同一份录像连回放四次，除了新笔画的随机 id 之外逐字节
-一样。所以那个「随机」不在判定和平滑里，就是上面这一刀。
+- Subtraction cannot express a union of overlapping capsules. With `even-odd`, overlaps at shared chain end points count twice and remain unerased; with `nonzero`, doubly covered areas have winding −2 and also remain.
+- Filling the union is exact: all capsule subpaths use the same winding direction, and `nonzero` fills their union.
+- Order: a stroke's mask covers that stroke and the strokes below it. Before drawing an unmasked stroke that overlaps the pending area, the renderer repaints the background, so later strokes are never covered.
+- Consecutive masked strokes are collected and repainted in one batch.
+- The repainted background is the board background: paper and pattern, the note page, or the document page. PNG export uses the same function; with a transparent background it clears the area instead.
 
-同一类问题还有一处：服务端对超长点列是**整条丢掉**而不是截断，而客户端画的时候
-不设上限。画得特别久的一笔于是本机看得见、对端和存档里没有。现在由客户端在提交
-时切成几段，见 `docs/protocol.md`。
+## PDF export
 
-## 粗细在落笔时定下，整笔不变
+PDF export clips each masked stroke with several even-odd clip paths applied in sequence (`inkpdf.py` `mask_clips`).
 
-原生就是这样。92 条原生橡皮笔画里，**65% 整笔只报一个倾角读数**，九成笔内极差在
-2.36° 以内，中位数是 0。极差大的那几条也不是一路抖：开头先是一段很长的平台
-（一条 1450 个采样的笔画，前 648 个采样倾角一模一样），之后才慢慢漂。
+1. Thin each chain with tolerance `r / 6` and flatten it into capsules.
+2. Split the capsules into groups whose members do not overlap.
+3. For each group, emit a clip path of the stroke's bounding box minus the group's capsules, followed by `W* n`.
+4. Fill the stroke inside `q` / `Q`.
 
-我们原来每个采样点都重新用 `ERASER_SMOOTH` 平滑一次。三件事凑在一起就坏了：
+The intersection of the complements equals the complement of the union, so the result is the stroke outside all capsules. Usually two or three groups are needed, and the gaps remain vector paths. Each stroke is clipped by its own mask only.
 
-1. iPad 的 Safari 报的是 `tiltX` / `tiltY`，**整度**的，没有 `altitudeAngle`。
-2. 写字的时候笔身本来就在晃，实测一份真机录像，写字的倾角在 33°～47° 之间来回。
-3. 曲线在 37° 以下很陡（两度之内 16.5 跳到 35.2）。
+## Object eraser on masked strokes
 
-于是同一笔里直径能差 2.7 倍，而遮罩是一段一段的定宽胶囊拼出来的，宽的那一段的
-圆头就从窄的那一段旁边鼓出来——擦痕看上去一节粗一节细，像一串香肠。
+The object eraser deletes only the piece it touches, even when that piece belongs to a masked stroke (`app-eraser.js` `splitBitten`).
 
-现在落笔时取一次，整笔不变。同一份录像回放下来，那条笔画上的胶囊链从 134 条降到
-25 条，正好一笔一条。悬停时的光标圈照旧跟着倾斜走，那是预览，本来就该跟手。
+1. For each touched stroke that has a mask, bake the mask into separate strokes with `bakeMask`.
+2. Hit-test again against the new pieces.
+3. Delete only the pieces the eraser touches.
 
-逐像素对照确认这个改动不花代价：test1 0.934→0.931，test2 0.885→0.878，
-test3 0.902→0.901，bench1 0.871→0.871。
-
-顺带记一次走错的路。为了抹平 37° 那个台阶，试过把 37° 以下改成「(37°,16.5) 和
-(25°,81) 两个锚点之间连直线」，理由是台阶两侧是两种量法（等效直径 vs 垂直宽度）。
-逐像素对照直接否了：test1 掉到 0.862、bench1 掉到 0.830，而孤立点那几档原样留着
-时两边都不掉。所以那几档虽然量的是等效直径，拿来当曲线却更贴近原生擦掉的实际
-范围，留着不动。台阶带来的手感问题不在曲线上，在整笔粗细跟不跟着倾斜走。
-
-## 擦痕一节一节：自己的回执把自己盖了
-
-上面「擦掉的墨为什么会自己回来」修的是服务端截断，那之后还剩一条同源的：
-**自己发出去的遮罩从服务器回来时，会盖掉本地已经擦到的新位置。**
-
-遮罩发的是全量，每帧发一次。回执回到手里时本地往往已经又擦了几下，照盖就是拿
-旧快照覆盖新状态：擦掉的点白丢，而且下一段胶囊的起点接不回链尾，链就断开，
-断口处只剩两头的圆帽重叠，细成一道脖子——擦痕于是一节一节，像一串香肠。
-
-实测一次连续拖动、120 个采样（本该是一条链、121 个点）：
-
-| 回执延迟 | 胶囊链 | 总点数 |
-| --- | --- | --- |
-| 0 ms | 60 条 | 121 |
-| 60 ms | 24 条 | 52 |
-| 修好之后 | 1 条 | 121 |
-
-所以它在 Mac 上用鼠标几乎看不出来（本机回环，回执几乎不晚），在 iPad 上用笔很
-明显（局域网往返，而且笔的采样密）。看上去像是「笔没做优化」，其实和输入设备
-没关系，是网络往返的长短。
-
-改法是 `applyOp` 遇到 `context.mine` 的 `mask` 直接跳过。本地是自己这些改动的
-权威——发之前就已经原样应用过了；服务端只会在超出上限时改写遮罩，而上限已经
-放在前端上限之上（`models.MAX_MASK_SEGMENTS`），正常擦不到。
-
-这一条卡了很久，因为**录制回放看不见它**：`replay` 直接改本地状态，服务器不认识
-那些笔画，mask 操作被丢弃、回执从不返回，回放永远是干净的。同一份录像，真机
-擦出 32 条链、237 个点，回放是 7 条链、298 个点——真机少了 61 个点。两者对不上
-本身就是线索：差别在回放模型不到的地方。见 `docs/recording.md`。
-
-## 对象橡皮要删哪一截
-
-像素橡皮**不拆笔画**，只给笔画挂一条遮罩（原因见「遮罩攒满了怎么办」和
-`docs/format.md`）。所以被擦断成两截的笔画在数据里仍然是一条，两截共用一个 id。
-这带来一个用起来很别扭的后果：换成对象橡皮，点哪一截都会把整条删掉。
-
-现在对象橡皮在删之前多做一步：碰到的那几条笔画里凡是带遮罩的，先按缺口切成独立
-的几条（`app.js` 的 `splitBitten`，用的还是 `bakeMask` 那套），切完重新判一次命中，
-只删橡皮真正碰到的那一条。
-
-几个边界：
-
-* 只对**真正被碰到**的笔画做，橡皮路过的不动。切分是看得见的变化，不该顺手做。
-* 切分表达不了「削掉半边」，所以贴边的细条会在这一步被清掉。反正接下来就要删它，
-  看不出区别。
-* 遮罩没把笔画真的断开（只啃了个边）的时候，切出来还是一条，删掉的结果和以前一样。
-* 撤销记的是「原来那一条换成这几截」加上「这一截被删了」两件事，合成一条 `split`：
-  撤销时把原来那一条换回来，切出来的段全部清掉。一次拖动里刚切出来又被删掉的段
-  两边都不进记录。
+| Case | Behavior |
+| --- | --- |
+| Stroke passed near but not touched | Not split. |
+| Thin slivers along the edge | Removed by the split; the piece is deleted immediately afterward. |
+| Mask does not cut the stroke through | The split produces one piece; the result equals deleting the whole stroke. |
+| Undo | Recorded as one `split`: undo restores the original stroke and removes all pieces. Pieces created and deleted within the same drag are not recorded. |
