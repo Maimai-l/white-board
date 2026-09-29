@@ -1,122 +1,228 @@
-# iPad 外壳需求
+English | [简体中文](ipad-shell.zh-CN.md)
 
-本文档规定 iPad 外壳（以下简称"外壳"）第一阶段的功能、外壳与网页之间的接口、构建和分发流程，以及验收标准。第二阶段只列出启动条件和基本要求。
+# iPad Shell
 
-## 1. 目标
+The iPad shell is an optional native iPad app. It loads the board page from the Mac in a WKWebView and forwards UIKit Apple Pencil samples to that page.
 
-在 iPad 上，用 Apple Pencil 书写时，网页得到的输入数据与原生应用相同。其他设备继续通过浏览器访问，功能不变。
+This document specifies phase 1 of the shell: its features, the interface between the shell and the web page, the build and distribution process, and the acceptance criteria. For phase 2 it lists only the start condition and the basic requirements.
 
-### 1.1 需要解决的问题
+## 1. Goals
 
-以下数据来自同一台 iPad：Safari 的数据取自白板的录像 `20260927-181756.json`，原生的数据取自 InkProbe 的四份会话（仓库根目录下的 `20260924-*.zip`）。
+On iPad, the Apple Pencil input that the web page receives has the same quality as the input of a native app. Other devices continue to use the browser, with no change in features.
 
-| 项目 | Safari（网页） | 原生（UIKit） |
+### 1.1 Input quality in Safari and in UIKit
+
+Safari delivers fewer, coarser Pencil samples than UIKit on the same iPad.
+
+| Property | Safari (web page) | Native (UIKit) |
 |---|---|---|
-| 每秒采样数 | 约 120 | 240 至 244 |
-| 每秒不重复的新位置 | 约 60 | 147 至 240 |
-| 坐标精度 | 整数 CSS 像素 | 带小数，取自 `preciseLocation(in:)` |
-| 时间戳精度 | 整数毫秒 | `UITouch.timestamp`，秒，带小数 |
-| 预测采样 | 无 | `predictedTouches(for:)` |
+| Samples per second | about 120 | 240 to 244 |
+| New (non-repeated) positions per second | about 60 | 147 to 240 |
+| Coordinate precision | integer CSS pixels | fractional, from `preciseLocation(in:)` |
+| Timestamp precision | integer milliseconds | `UITouch.timestamp`, seconds, fractional |
+| Predicted samples | none | `predictedTouches(for:)` |
 
-输入平滑算法的对比（Google Ink、ink-stroke-modeler、Xournal++、Krita 与当前实现）表明，在同一份 Safari 输入上，各算法画出的笔迹在静态图和回放中都没有可辨别的差别。因此，要改善书写手感，需要改善的是输入数据本身，而不是平滑算法。
+Data sources: Safari figures come from the board recording `20260927-181756.json`; native figures come from four InkProbe sessions (`20260924-*.zip` in the repository root). Both were taken on the same iPad.
 
-### 1.2 原则
+On the same Safari input, the smoothing algorithms of Google Ink, ink-stroke-modeler, Xournal++, Krita and the current implementation produce no visible difference, either in still images or in replay. Handwriting quality is therefore limited by the input data, not by the smoothing algorithm.
 
-外壳只提供输入和平台服务，不包含白板逻辑。笔迹几何、同步、橡皮、界面全部保留在网页中。这一原则带来两个结果：
+### 1.2 Principles
 
-- 用 Safari 访问的版本始终完整可用，只是输入数据的质量较低。
-- 除了外壳本身的原生代码，其余改动都随 Mac 端更新自动生效，不需要重新安装外壳。
+The shell provides input and platform services only; it contains no board logic. Stroke geometry, synchronization, erasing and the user interface all stay in the web page.
 
-## 2. 前提条件
-
-- **安装方式**：通过 TrollStore 安装未签名的 IPA，不需要 Apple 开发者账号。
-- **系统版本**：TrollStore 支持 iPadOS 14.0 beta 2 至 16.6.1、16.7 RC（20H18）和 17.0，16.7.x 的其他版本以及 17.0.1 及以后的版本不受支持。录像中这台 iPad 的 Safari 版本为 15.6，符合条件。这台 iPad 以后不能升级系统，否则无法安装新版外壳。
-- **最低系统版本**：外壳的部署目标定为 iPadOS 15.0，与 InkProbe 相同。
-- **设备**：只支持 iPad。
-
-## 3. 总体结构
-
-| 部分 | 负责的事 |
+| Consequence | Detail |
 |---|---|
-| 外壳（Swift，新增） | 用 WKWebView 加载 Mac 上的白板页面；采集 Pencil 触摸并转发给网页；关闭系统手势对书写的干扰；检查并安装外壳自身的更新 |
-| 网页（现有，需改动） | 把外壳转来的采样作为 Pencil 输入来源；其余行为不变 |
-| Mac 端服务（现有，需改动） | 注册 Bonjour 服务；提供安装页、外壳的版本信息和 IPA 下载 |
-| GitHub Actions（现有，需改动） | 构建 IPA，并把它打包进 Mac 应用 |
+| Safari stays fully functional | Safari access keeps every feature; only the input quality is lower. |
+| Most changes need no reinstall | Everything except the shell's native code ships with the Mac app update. The shell loads the new web code on its next launch. |
 
-手指输入不经过外壳，仍由网页的 pointer 事件处理。平移、缩放、手掌屏蔽、手指书写开关的现有逻辑都不变。
+## 2. Prerequisites
 
-外壳源码放在仓库的 `ipad/` 目录下，用 XcodeGen 生成工程，做法与 InkProbe 相同。
+The shell is installed with TrollStore and runs on a fixed range of iPadOS versions.
 
-## 4. 外壳的功能
+| Item | Requirement |
+|---|---|
+| Installation | Unsigned IPA installed with TrollStore. No Apple Developer account is needed. |
+| Supported iPadOS (TrollStore) | 14.0 beta 2 to 16.6.1, 16.7 RC (20H18), and 17.0. Other 16.7.x releases and 17.0.1 or later are not supported. |
+| Target iPad | Runs Safari 15.6, which is within the supported range. |
+| Deployment target | iPadOS 15.0, the same as InkProbe (`ipad/project.yml`). |
+| Device family | iPad only (`TARGETED_DEVICE_FAMILY = 2`). |
 
-### 4.1 连接 Mac 与加载页面
+> **Warning**
+> Do not upgrade the system on the target iPad. After an upgrade outside the supported range, new versions of the shell cannot be installed.
 
-用户在任何情况下都不需要手动输入主机名和端口。外壳按以下顺序取得 Mac 的地址：
+## 3. Architecture
 
-1. **已保存的地址。** 外壳启动时，如果本机保存过地址，直接加载。加载失败时（例如 Mac 的端口因为被占用而顺延），转到第 2 步。
-2. **Bonjour 自动发现。** 外壳用 `NWBrowser` 查找 `_whiteboard._tcp` 服务（Mac 端的注册方式见 8.4 节）：
-   - 找到一台 Mac 时，直接连接；
-   - 找到多台时，列出各台 Mac 的名称，由用户点选；
-   - 5 秒内一台都没有找到时，显示第 3 步的操作说明。
-3. **一键链接。** 外壳注册 URL scheme `whiteboard-shell`。在 iPad 的 Safari 中打开 Mac 提供的安装页（8.2 节），点"打开外壳"，即打开 `whiteboard-shell://connect?host=<主机名>.local&port=<端口>`，外壳收到后保存地址并连接。这一步用于路由器屏蔽 Bonjour 的网络。
+The shell, the web page, the Mac server and CI each have one responsibility.
 
-连接成功的地址保存在本机，下次启动直接使用。换到另一台 Mac 有两个入口：iOS 设置里的"重新查找 Mac"，以及白板页面上"白板设置"里的"换一台 Mac"（网页发一条 `rediscover` 给外壳，见 5.2 节）。主动要求换一台时，即便局域网里只找到一台也要列出来让用户确认，否则外壳会直接又连回刚才那一台；页面还开着的时候这个列表多一个"取消"。
+| Part | Responsibility |
+|---|---|
+| Shell (Swift, `ipad/`) | Loads the board page from the Mac in a WKWebView; captures Pencil touches and forwards them to the page; suppresses system gestures that interfere with writing; checks for and installs shell updates. |
+| Web page | Uses the samples forwarded by the shell as the Pencil input source; all other behavior is unchanged. |
+| Mac server | Registers the Bonjour service; serves the install page, the shell version information and the IPA. |
+| GitHub Actions | Builds the IPA and bundles it into the Mac app. |
 
-页面的加载方式：
+Finger input does not pass through the shell. The web page handles it with pointer events, and the existing logic for panning, zooming, palm rejection and the finger drawing switch is unchanged.
 
-- 页面地址为 `http://<主机名>.local:<端口>/?role=ipad`。`role=ipad` 让服务端返回 iPad 界面，服务端的 `detect_role` 已经支持这个参数。Bonjour 解析得到的主机名和端口来自服务的 TXT 记录（8.4 节）。
-- `Info.plist` 需要包含：
-  - `NSAppTransportSecurity` → `NSAllowsLocalNetworking = true`，允许加载局域网内的 http 地址；
-  - `NSLocalNetworkUsageDescription`，iPadOS 14 起访问局域网必须提供；
-  - `NSBonjourServices = ["_whiteboard._tcp"]`，iPadOS 14 起查找 Bonjour 服务必须声明服务类型；
-  - `CFBundleURLTypes` 中注册 `whiteboard-shell`。
-- 页面加载失败时，外壳显示错误原因，以及"重试""重新查找 Mac"两个按钮。
-- WKWebView 铺满屏幕，禁止页面滚动和缩放（`scrollView.isScrollEnabled = false`，`bounces = false`，最小和最大缩放都为 1）。
+The shell project is generated with XcodeGen, in the same way as InkProbe:
 
-### 4.1.1 导出文件
+```sh
+python3 ipad/make_icon.py        # generates the icon (the repository stores no binary files)
+cd ipad && xcodegen generate
+```
 
-页面上的"导出"要把 PNG 或者合成好的 PDF 交给用户。WKWebView 默认不处理下载：点一个带 `download` 的链接，或者给 `location.href` 赋一个 `data:` / 导出接口的地址，都会被当成一次导航——白板页面被换走，WebSocket 跟着断，用户看到的是一句连接断开，文件也没有存下来。
+## 4. Shell features
 
-外壳按下载接住这类请求：
+### 4.1 Connecting to the Mac and loading the page
 
-- `decidePolicyFor navigationAction` 里 `navigationAction.shouldPerformDownload` 为真时回 `.download`；
-- 响应头带 `Content-Disposition: attachment` 时（文档板导出），`decidePolicyFor navigationResponse` 也回 `.download`；
-- `WKDownloadDelegate` 把文件下到临时目录下一个随机子目录里（同名文件不会互相覆盖），下完之后弹 `UIActivityViewController`，用户自己选存到"文件"还是发出去。
+The shell finds the Mac without any manual entry of host name or port. It tries the following methods in order.
 
-网页那边的配套要求：一律用带 `download` 的链接触发下载（`exporter.js` 的 `downloadURL`），PNG 先把 `data:` 转成 `blob:` 再下。
+| Step | Method | Behavior |
+|---|---|---|
+| 1 | Saved address | If an address is saved on the device, the shell loads it directly. If loading fails (for example, the Mac's port moved to the next free port), the shell continues with step 2. |
+| 2 | Bonjour discovery | The shell browses for `_whiteboard._tcp` with `NWBrowser` (registration: section 8.4). One Mac found: the shell waits 1 s for further Macs, then connects. Several Macs found: the shell lists their names for the user to choose. No Mac within 5 s: the shell shows the instructions for step 3. |
+| 3 | One-tap link | The shell registers the URL scheme `whiteboard-shell`. On the install page (section 8.2) in Safari, “打开外壳” (Open shell) opens `whiteboard-shell://connect?host=<host>.local&port=<port>`. The shell saves the address and connects. This step covers networks where the router blocks Bonjour. |
 
-### 4.2 采集 Pencil 输入
+The shell saves an address after the page finishes loading and uses it on the next launch. The host name accepts only letters, digits, `.` and `-`; the port must be 1 to 65535.
 
-> 实测修订（见 12 节 Q2）：下面挂在 WKWebView 上的手势识别器收不到完整的笔画。实现改为子类化 `UIWindow`，在 `sendEvent(_:)` 中读取每个触摸事件里的 Pencil 触摸，读取的字段不变；`touchesEstimatedPropertiesUpdated` 只会送给手势识别器，所以另挂一个只接收更新的识别器，挂在 WKWebView 的父视图上。
+There are two ways to switch to another Mac:
 
-- 在 WKWebView 上添加一个自定义的 `UIGestureRecognizer` 子类，设置如下：
-  - `allowedTouchTypes = [UITouch.TouchType.pencil]`，只接收 Pencil；
-  - `cancelsTouchesInView = false`、`delaysTouchesBegan = false`、`delaysTouchesEnded = false`，不影响 WKWebView 自身收到的触摸；
-  - 对所有其他手势识别器都返回可以同时识别（`shouldRecognizeSimultaneouslyWith` 返回 `true`）。
-- 在 `touchesBegan`、`touchesMoved`、`touchesEnded`、`touchesCancelled` 中，对每个 Pencil 触摸：
-  - 用 `event.coalescedTouches(for:)` 取出这一次回调中的全部真实采样；
-  - 用 `event.predictedTouches(for:)` 取出预测采样；
-  - 每个采样读取的字段见 5.1 节。坐标一律用 `preciseLocation(in: webView)`，方位角用 `azimuthAngle(in: webView)`。
-- 在 `touchesEstimatedPropertiesUpdated` 中接收估计属性的更新（通常是力度）。InkProbe 的 `TouchLogger.swift` 已经实现了相同的读取逻辑，可以直接参照。
-- 每次触摸回调结束时，把这次回调产生的全部采样打成一批，发送给网页（格式见第 5 节）。不按固定时间间隔发送。
+| Entry point | Behavior |
+|---|---|
+| iOS Settings app, shell page, switch “重新查找 Mac” (Find Mac again) | On the next launch or return to the foreground, the shell forgets the saved address, resets the switch and starts Bonjour discovery. |
+| Board page, “白板设置” (Board settings), group “Mac”, button “换一台 Mac” (Switch Mac) | The page sends `rediscover` to the shell (section 5.2). |
 
-### 4.3 关闭系统手势对书写的干扰
+When the user asks to switch, the shell lists the Macs found even if there is only one, so that it does not reconnect to the same Mac automatically. While the board page is still loaded, the list also has a “取消” (Cancel) button.
 
-- 网页中已有的拦截（`touch-action: none`、阻止 `touchstart` 默认行为等）保留。
-- 外壳额外关闭以下系统行为：
-  - Scribble（随手写）：iPadOS 14 起，Pencil 在可编辑区域书写会被识别为文字输入。外壳在 WKWebView 上添加 `UIScribbleInteraction`，其代理方法 `scribbleInteraction(_:shouldBeginAt:)` 返回 `false`。
-  - 长按菜单与文字选择：WKWebView 的配置中关闭链接预览（`allowsLinkPreview = false`）。
-- 这些措施是否足够，需要按 9.2 节的检查项实测。
+The Settings app page of the shell also shows “版本” (Version) and “当前 Mac” (Current Mac; “未连接” when no Mac is saved).
 
-### 4.4 检查和安装外壳更新
+Page loading:
 
-见第 8 节。
+- The page URL is `http://<host>.local:<port>/?role=ipad`. `role=ipad` makes the server return the iPad interface (`detect_role` in `whiteboard/server.py`). The host and port come from the TXT record of the Bonjour service (section 8.4).
+- Each load ignores the local cache and times out after 8 s.
+- When loading fails, the shell shows the error and two buttons, “重试” (Retry) and “重新查找 Mac” (Find Mac again).
+- When a new navigation starts, the shell stops sending samples until the page completes the handshake again (section 5.2).
+- When the web content process terminates, the shell reloads the page.
+- Links with a scheme other than `http`, `https`, `about`, `blob` or `data` open in the system. `window.open` opens the URL in Safari.
+- On iPadOS 16.4 or later, the WKWebView is inspectable (`isInspectable = true`).
 
-## 5. 外壳与网页之间的接口
+`Info.plist` contains:
 
-### 5.1 外壳发给网页的采样
+| Key | Value | Purpose |
+|---|---|---|
+| `NSAppTransportSecurity` → `NSAllowsLocalNetworking` | `true` | Allows loading http addresses on the local network. |
+| `NSLocalNetworkUsageDescription` | description text | Required for local network access since iPadOS 14. |
+| `NSBonjourServices` | `["_whiteboard._tcp"]` | Required for Bonjour browsing since iPadOS 14. |
+| `CFBundleURLTypes` | scheme `whiteboard-shell` | One-tap link (step 3). |
+| `LSApplicationQueriesSchemes` | `["apple-magnifier"]` | TrollStore install URL (section 8.3). |
+| `UIRequiresFullScreen`, `UIStatusBarHidden` | `true` | Full-screen app without status bar. |
 
-外壳调用 `webView.evaluateJavaScript("window.whiteboardShell && window.whiteboardShell.receive(<JSON>)")` 发送一批采样。JSON 的结构如下：
+The WKWebView fills the screen; the page does not scroll or zoom:
+
+```swift
+scrollView.isScrollEnabled = false
+scrollView.bounces = false
+scrollView.minimumZoomScale = 1
+scrollView.maximumZoomScale = 1
+scrollView.contentInsetAdjustmentBehavior = .never
+```
+
+### 4.1.1 Exporting files
+
+The shell handles export requests as downloads and hands the file to the system share sheet.
+
+By default, WKWebView treats a link with a `download` attribute, or a `data:` or export URL assigned to `location.href`, as a navigation. The navigation replaces the board page, the WebSocket closes, and no file is saved. The shell therefore applies these rules:
+
+| Condition | Decision |
+|---|---|
+| `navigationAction.shouldPerformDownload` is true | `.download` |
+| Response header `Content-Disposition` contains `attachment` (document board export) | `.download` |
+| `navigationResponse.canShowMIMEType` is false | `.download` |
+
+`WKDownloadDelegate` saves each file in its own temporary directory `export-<UUID>`, so files with the same name do not overwrite each other. An empty suggested file name becomes `whiteboard`. After the download finishes, the shell presents `UIActivityViewController`, where the user saves the file to Files or shares it. A failed download shows the alert “导出失败” (Export failed).
+
+Requirements for the web page: every download uses a link with a `download` attribute (`downloadURL` in `exporter.js`). PNG export converts the `data:` URL to a `blob:` URL before downloading.
+
+### 4.2 Capturing Pencil input
+
+The shell reads Pencil touches in the window's `sendEvent(_:)`, before any gesture recognizer sees them.
+
+> **Note**
+> A gesture recognizer attached to the WKWebView does not receive complete strokes: after the page calls `preventDefault`, WebKit's internal recognizers make it fail. See section 12, Q2.
+
+Components (`ipad/Whiteboard/PencilCapture.swift`):
+
+| Component | Role |
+|---|---|
+| `ShellWindow` (`UIWindow` subclass) | Overrides `sendEvent(_:)` and passes every event to `PencilTracker` before calling `super`. |
+| `PencilTracker` | Reads Pencil touches, encodes the samples (section 5.1) and emits one batch per event. |
+| `EstimateRecognizer` | Receives `touchesEstimatedPropertiesUpdated` only. Attached to the WKWebView's superview, not to the WKWebView. |
+
+Sample capture rules:
+
+- Only touches with `type == .pencil` are read.
+- A touch is tracked only if it begins on the WKWebView or one of its subviews. Touches on the status overlay or alerts are ignored.
+- Touch IDs are assigned by the shell, start at 1 and increase by 1 per touch.
+- Real samples come from `event.coalescedTouches(for:)`:
+
+  | Touch phase | Phases emitted |
+  |---|---|
+  | `began` | first sample `down`, the rest `move` |
+  | `moved` | all samples `move` |
+  | `ended` / `cancelled` | last sample `up` / `cancel`, the rest `move` |
+  | `stationary` | no samples |
+
+- Predicted samples come from `event.predictedTouches(for:)`. The most recent prediction is sent with every batch, including batches that carry only updates; it becomes `null` when no Pencil touch is active.
+- Coordinates use `preciseLocation(in: webView)`; azimuth uses `azimuthAngle(in: webView)`. Non-finite numbers are sent as `0`.
+- The fields of each sample are listed in section 5.1.
+- One batch is sent per touch event and per estimate update callback. There is no fixed send interval. Empty batches are not sent.
+- Batches are sent only while the handshake is active (section 5.2).
+
+`EstimateRecognizer` settings:
+
+| Setting | Value |
+|---|---|
+| `allowedTouchTypes` | `[.pencil]` |
+| `cancelsTouchesInView`, `delaysTouchesBegan`, `delaysTouchesEnded` | `false` |
+| `shouldRecognizeSimultaneouslyWith` | `true` for every recognizer |
+| `shouldRequireFailureOf`, `canPrevent`, `canBePrevented` | `false` |
+| State | Never recognizes; fails when all its touches end or are cancelled. |
+
+If `EstimateRecognizer` fails early, only the force correction is lost; writing is not affected. The InkProbe file `TouchLogger.swift` implements the same reading logic.
+
+### 4.3 Suppressing system gestures
+
+The shell turns off system behaviors that interfere with writing, in addition to the web page's own measures.
+
+The web page keeps its existing measures (`touch-action: none`, `preventDefault` on `touchstart`, and so on). The shell adds:
+
+| Behavior | Measure |
+|---|---|
+| Scribble (handwriting to text in editable areas, iPadOS 14 and later) | `UIScribbleInteraction` on the WKWebView; `scribbleInteraction(_:shouldBeginAt:)` returns `false`. |
+| Long-press menu and link preview | `allowsLinkPreview = false` |
+| Data detectors | `dataDetectorTypes = []` |
+| Back/forward swipe | `allowsBackForwardNavigationGestures = false` |
+| Screen-edge system gestures | `preferredScreenEdgesDeferringSystemGestures = .all`: an edge swipe must be repeated before the system acts on it. |
+| Status bar and home indicator | Hidden. |
+
+Whether these measures are sufficient is checked with the items in section 9.2 (section 12, Q5).
+
+### 4.4 Checking for and installing shell updates
+
+See section 8.
+
+## 5. Interface between the shell and the web page
+
+The shell and the page exchange sample batches and handshake messages through `evaluateJavaScript` and a WebKit message handler.
+
+### 5.1 Sample batches from the shell
+
+The shell sends one batch with:
+
+```js
+window.whiteboardShell && window.whiteboardShell.receive(<JSON>)
+```
+
+Batch structure:
 
 ```json
 {
@@ -130,212 +236,359 @@
 }
 ```
 
-| 字段 | 含义 |
+| Field | Meaning |
 |---|---|
-| `bridge` | 接口版本号，见第 6 节 |
-| `id` | 触摸编号。同一次落笔到抬笔之间不变，由外壳分配，从 1 开始递增 |
-| `ph` | `down`、`move`、`up`、`cancel` |
-| `k` | 固定为 `real`，表示真实采样。预测采样放在 `pred` 中，不放在 `samples` 中 |
-| `t` | `UITouch.timestamp`，单位为秒 |
-| `x`、`y` | `preciseLocation(in: webView)`，单位为 point。页面缩放为 1 且不滚动时，数值等于网页的 `clientX`、`clientY` |
-| `f`、`fmax` | `force`、`maximumPossibleForce` |
-| `alt` | `altitudeAngle`，弧度，0 表示笔贴在屏幕上，π/2 表示笔竖直 |
-| `az` | `azimuthAngle(in: webView)`，弧度 |
-| `est` | `estimatedPropertiesExpectingUpdates` 中包含的属性名，可以为空数组 |
-| `ui` | `estimationUpdateIndex`；`est` 为空时写 `null` |
-| `pred` | 这一批对应的预测采样。每一批都整体替换上一批的预测；没有预测时为 `null` |
-| `updates` | 这一批期间收到的估计属性更新，按 `ui` 对应到之前发送过的采样 |
+| `bridge` | Interface version (section 6). |
+| `id` | Touch ID. Constant from pen down to pen up; assigned by the shell, starting at 1. |
+| `ph` | `down`, `move`, `up` or `cancel`. |
+| `k` | Always `real` (real sample). Predicted samples are in `pred`, never in `samples`. |
+| `t` | `UITouch.timestamp`, in seconds. |
+| `x`, `y` | `preciseLocation(in: webView)`, in points. With page zoom 1 and no scrolling, equal to the page's `clientX`, `clientY`. |
+| `f`, `fmax` | `force`, `maximumPossibleForce`. |
+| `alt` | `altitudeAngle`, in radians. 0 means the pen lies flat on the screen; π/2 means the pen is vertical. |
+| `az` | `azimuthAngle(in: webView)`, in radians. |
+| `est` | Names from `estimatedPropertiesExpectingUpdates`: any of `force`, `azimuth`, `altitude`, `location`. May be empty. |
+| `ui` | `estimationUpdateIndex`; `null` when `est` is empty. |
+| `pred` | Predicted samples for this batch, as `{id, samples}`; each sample has `t`, `x`, `y`, `f`, `fmax`, `alt`, `az`. Each batch replaces the previous prediction completely. `null` when there is no prediction. |
+| `updates` | Estimated property updates received for this batch, each `{ui, f, alt, az}`. `ui` matches a previously sent sample. |
 
-### 5.2 网页发给外壳的消息
+> **Note**
+> The web page itself can create batches in the same format when a 0.9.43 shell stops delivering samples (`shell-fallback.js`, section 12, Q2). Such batches carry `fallback: true` or `orphan: true`, and their samples use `k: "safari"`. The shell never sends these fields. They appear in recordings.
 
-网页通过 `window.webkit.messageHandlers.whiteboard.postMessage(<对象>)` 发送消息，有两种：
+### 5.2 Messages from the web page to the shell
 
-- 页面加载完成后，网页发送 `{"type": "hello", "bridge": [最低版本, 最高版本]}`，表示网页支持的接口版本范围。
-- 用户在"白板设置"里点"换一台 Mac"时，网页发送 `{"type": "rediscover"}`。外壳重新查找并列出局域网里的 Mac，不回复。
+The page sends messages with `window.webkit.messageHandlers.whiteboard.postMessage(<object>)`.
 
-外壳收到后回复（通过 `evaluateJavaScript` 调用 `window.whiteboardShell.hello(<JSON>)`）：
+| Message | When | Shell action |
+|---|---|---|
+| `{"type": "hello", "bridge": [min, max]}` | On page startup (`connectShell` in `shell.js`) | Replies with the handshake result. |
+| `{"type": "rediscover"}` | The user taps “换一台 Mac” (Switch Mac) in “白板设置” (Board settings) | Searches again and lists the Macs on the network (section 4.1). No reply. |
 
-```json
-{"shellVersion": "1.3.0", "bridge": 1, "active": true}
+The shell replies to `hello` with:
+
+```js
+window.whiteboardShell && window.whiteboardShell.hello({"shellVersion": "1.3.0", "bridge": 1, "active": true})
 ```
 
-`active` 为 `true` 时，外壳开始发送采样；为 `false` 时，外壳不发送采样，网页继续使用 Safari 的 pointer 事件。
-
-### 5.3 时间
-
-网页只使用同一次落笔内采样之间的时间差，不把 `t` 与 `performance.now()` 直接比较。网页中依赖当前时间的逻辑（例如抬笔后 500 ms 内屏蔽手掌的 `PALM_GRACE`）使用收到这一批采样时的 `performance.now()`。
-
-## 6. 版本协商
-
-- `bridge` 是整数，只在接口格式有不兼容的改动时加 1。外壳的版本号与 Mac 端相同，由同一个 git tag 决定。
-- 网页声明自己支持的范围 `[最低, 最高]`。外壳的 `bridge` 落在这个范围内时，回复 `active: true`；否则回复 `active: false`，并在外壳界面上提示"外壳版本与白板版本不兼容，请更新外壳"。
-- 网页每次提高最高版本时，保留对上一个版本的支持，直到下一个版本发布。这样 Mac 端更新而外壳尚未更新时，外壳仍然可以使用。
-
-## 7. 网页端的改动
-
-### 7.1 输入来源
-
-- `input.js` 增加一个输入来源层。Safari 的 pointer 事件和外壳的采样都转换成同一种内部采样，之后的处理（`addSample`、`startErase` 等）不区分来源。
-- 内部采样包含：时间（毫秒，允许小数）、`clientX`、`clientY`、压力、`tiltX`、`tiltY` 或 `altitudeAngle`、指针类型、是否来自外壳。
-- 外壳处于 `active` 状态时，`#stage` 上 `pointerType === "pen"` 的 pointer 事件一律忽略，改用外壳的采样。手指和鼠标的 pointer 事件照常处理。
-- 外壳的采样落在 `#ui` 元素上时（在 `down` 时用 `document.elementFromPoint` 判断），整次落笔都忽略外壳的采样，由界面控件自己的点击事件处理。这样 Pencil 仍然可以点工具栏按钮。
-- 预测采样只用于实时层显示，不写入笔画。每一批的预测替换上一批的预测。
-
-### 7.2 压感
-
-- 外壳来源的压力取 `f / fmax`。
-- InkProbe 四份会话中，`force / maximumPossibleForce` 的中位数为 0.017 至 0.084，95 分位为 0.129 至 0.398。Safari 录像中的压力在 0.007 至 0.125 之间。两者在同一量级，推测 Safari 报的压力就是 `force / maximumPossibleForce`。
-- 这四份会话都是橡皮测试，不是正常书写，所以上面的推测需要验证：在同一台 iPad 上，用 InkProbe 和白板（Safari）各写同样的内容，比较两边压力的分布。
-  - 推测成立时，外壳来源的压力不做换算，笔迹格式和现有压感曲线（`stroke.js` 的 `PEN_KNEE`、`PEN_FLOOR`、`PEN_GAMMA`）都不变。
-  - 推测不成立时，在输入层把 `f / fmax` 换算到 Safari 的量程再存入笔画，笔迹格式仍然不变。换算关系由这次对比确定。
-- 估计属性更新：第一阶段只用于尚未提交的笔画。收到更新时，如果对应的采样仍属于正在书写的那一笔，就修正它的压力；笔画提交之后到达的更新丢弃。丢弃的更新占多少比例、对笔宽有多大影响，用 InkProbe 数据统计后写入本文档。
-- InkProbe 四份会话的统计（只算 Pencil 的 80 笔，共 19139 个等待更新的采样，全部收到了更新）：
-
-  | 会话 | 更新数 | 抬笔之后才到 | 比例 | 更新延迟中位数 / 95 分位 | 抬笔后那些更新的力度变化（`Δf / fmax` 中位数） |
-  |---|---|---|---|---|---|
-  | test1-calibr | 3862 | 128 | 3.3% | 25.4 / 39.7 ms | −0.029 |
-  | test2-calibr | 3388 | 203 | 6.0% | 26.0 / 39.6 ms | −0.020 |
-  | test3-drag | 7191 | 101 | 1.4% | 25.3 / 39.0 ms | −0.090 |
-  | test4-contrast | 4698 | 43 | 0.9% | 26.1 / 41.3 ms | −0.016 |
-
-  合计 475 个，占 2.5%。每一笔都是最后约 6 个采样（约 25 ms）的更新落在抬笔之后，而且这些更新都是把力度改小：丢掉它们，笔画末端那几个点的压力偏大约 0.02 至 0.09（以 `f / fmax` 计）。输入层的 `trimSettledTail` 通常会砍掉笔停住之后的末尾几个点，剩下的影响限于末端收笔略粗。诊断面板的"抬笔后丢弃"一行显示实际丢弃的个数。
-
-### 7.3 录像
-
-- 录像增加外壳来源的采样，保留 5.1 节中的全部字段和原始数值，与现有录像一样不做四舍五入。
-- 每条录像的顶层增加 `source` 字段，取值为 `browser` 或 `shell`，同时记录外壳版本和 `bridge`。
-- 回放外壳来源的录像时，把采样直接交给输入来源层，结果必须与录像中的 `after` 一致。`tests/test_browser.py::test_recorder_replays_an_erase_exactly` 的做法同样适用。
-
-### 7.4 诊断面板
-
-诊断面板（`perf.js`）增加以下几行：
-
-- 当前输入来源：`browser` 或 `shell`，以及外壳版本和 `bridge`；
-- 外壳来源的每秒采样数和每秒新位置数，计算方法与现有的 `penHz`、`penMoveHz` 相同；
-- 坐标偏差：同一次落笔时，外壳采样与 Safari pen 事件的 `clientX`、`clientY` 之差（外壳处于 `active` 状态时，Safari 的 pen 事件仍然会到达，只是不参与书写，可以用来对比）。
-
-## 8. 构建、发布与更新
-
-### 8.1 构建
-
-- 在 `.github/workflows/build-macos.yml` 中增加一个 `ipad` 任务，步骤照搬 InkProbe 的 `.github/workflows/build.yml`：macOS 26 runner、`xcodegen generate`、`xcodebuild -sdk iphoneos` 不签名编译、`ldid -S` 伪签名、打包为 `Whiteboard-<版本>-ipad.ipa`。
-- 外壳的版本号与 Mac 端相同，由 tag 决定，写入 `CFBundleShortVersionString`。
-- 现有的 macOS 构建任务改为依赖 `ipad` 任务，并把 IPA 复制进 `Whiteboard.app` 的资源目录。这样每个版本的 Mac 应用都自带同版本的外壳。
-- Release 中同时发布 Mac 的 zip 和 iPad 的 IPA。IPA 也单独发布，用于首次安装。
-
-### 8.2 首次安装
-
-- Mac 端服务新增安装页 `GET /ipad`，不需要任何权限。页面上有两个按钮：
-  - "安装白板外壳"：链接到 `apple-magnifier://install?url=http://<主机名>.local:<端口>/ipad/Whiteboard.ipa`，由 TrollStore 安装；
-  - "打开外壳"：链接到 `whiteboard-shell://connect?host=<主机名>.local&port=<端口>`，把这台 Mac 的地址交给外壳（4.1 节第 3 步）。
-- 页面中的主机名和端口由服务端填入，取值与 `/profile.mobileconfig` 使用的相同。
-- 从源码运行、Mac 应用中没有 IPA 时，安装页说明"这个版本没有附带外壳，请从 Release 下载"，并给出 Release 页面的链接。
-- iPad 到达安装页的方式与现在到达描述文件的方式相同：在 Mac 窗口的"连接 iPad"卡片中，现有的描述文件下载按钮旁边增加安装页的地址。描述文件保留，供没有 TrollStore 的 iPad 使用。
-
-### 8.3 更新
-
-- Mac 端服务新增两个接口，和 `/profile.mobileconfig` 一样不需要任何权限：
-  - `GET /ipad/version`，返回 `{"version": "1.3.0", "ipa": true, "bridge": [1, 1]}`。`ipa` 表示 Mac 应用是否自带 IPA，从源码运行时为 `false`。
-  - `GET /ipad/Whiteboard.ipa`，返回 Mac 应用自带的 IPA。
-- 外壳每次启动和每次从后台回到前台时请求 `/ipad/version`。
-  - 如果 `ipa` 为 `true` 且 `version` 比外壳自身的版本新，外壳显示对话框："有新版本 X，是否更新？"
-  - 用户确认后，外壳打开 `apple-magnifier://install?url=http://<主机名>.local:<端口>/ipad/Whiteboard.ipa`，由 TrollStore 下载并安装。这是 TrollStore 1.3 起提供的 URL 安装接口，需要在 TrollStore 的设置中开启 URL Scheme。
-  - 用户选择"以后再说"时，本次运行期间不再提示。
-- 大多数改动不需要这个流程：外壳加载的是 Mac 上的页面，Mac 端更新后，iPad 下次打开外壳时自动使用新的网页代码。只有外壳的原生代码或 `bridge` 版本改变时，外壳才需要更新。
-
-### 8.4 Mac 端注册 Bonjour 服务
-
-- Mac 端服务启动后，注册 `_whiteboard._tcp` 服务，服务端停止时注销。TXT 记录包含：
-  - `host`：本机的 `.local` 主机名，与 `netinfo.local_hostname()` 相同；
-  - `port`：服务实际监听的端口（端口被占用而顺延时，写顺延后的值）；
-  - `version`：Mac 端版本号；
-  - `name`：显示给用户的 Mac 名称，取系统的电脑名称。
-- 在 macOS 上必须通过系统的 mDNSResponder 注册，不能再启动第二个 mDNS 响应程序。现有的 `MDNSAdvertiser` 使用 zeroconf 库，它会自己监听 mDNS 端口，因此在 macOS 上默认关闭（`netinfo.mdns_default()`）。新的注册改用系统接口，两种做法可选：
-  - pyobjc 提供的 `NSNetService`（`pyobjc-framework-Cocoa` 已经是依赖）；
-  - 通过 `ctypes` 调用 libSystem 中的 `DNSServiceRegister`。
-- 与现有的 `MDNSAdvertiser` 一样，注册失败只写日志，不影响服务启动。
-- 验证方法：在 Mac 的终端运行 `dns-sd -B _whiteboard._tcp`，能看到这台 Mac；再运行 `dns-sd -L <服务名> _whiteboard._tcp`，TXT 记录中的四个字段与实际一致。无窗口模式（`--headless`）下也要满足。
-- 现有的 `_http._tcp` 注册（`--mdns` 参数）保持不变。
-
-## 9. 第一阶段的验收标准
-
-### 9.1 输入数据
-
-| 编号 | 标准 | 检查方法 |
-|---|---|---|
-| A1 | 外壳来源每秒不重复的新位置数不低于同一台 iPad 上 InkProbe 记录值的 95% | 诊断面板读数；同样的内容分别在外壳和 InkProbe 中写一遍 |
-| A2 | 外壳采样的坐标带小数 | 外壳来源的录像 |
-| A3 | 外壳采样与 Safari pen 事件的坐标偏差不超过 1 CSS 像素 | 诊断面板的坐标偏差一行 |
-| A4 | 外壳来源的录像回放后与 `after` 完全一致 | 新增一条与 `test_recorder_replays_an_erase_exactly` 相同做法的测试 |
-
-### 9.2 功能不退化
-
-在外壳中逐项检查，每项都必须与 Safari 中的行为相同：
-
-- 钢笔、马克笔、荧光笔书写；
-- 对象橡皮和像素橡皮，包括像素橡皮直径随倾角变化；
-- 手指平移和缩放，手掌屏蔽，手指书写开关；
-- 用 Pencil 点击工具栏按钮和笔具盘；
-- 快速书写时不出现长按菜单、文字选择或 Scribble 识别；
-- 断线重连、离线书写后重新同步。
-
-### 9.3 浏览器版本不受影响
-
-- 不经过外壳、直接用 Safari 访问时，行为与改动前相同。
-- `tests/` 中现有的全部测试通过。
-
-### 9.4 连接
-
-- 同一局域网内只有一台 Mac 运行白板时，首次打开外壳后不做任何操作即可进入白板。
-- 有两台 Mac 时，外壳列出两台，点选后进入对应的白板。
-- Mac 的端口改变后（例如 8848 被占用，顺延到 8849），外壳下次启动时自动连接到新端口。
-- 在屏蔽 Bonjour 的网络中（可以用关闭 Mac 端注册的方式模拟），通过安装页的"打开外壳"按钮进入白板，全程不需要输入文字。
-
-### 9.5 构建、安装与更新
-
-- 打 tag 后，Release 中同时出现 Mac 的 zip 和 iPad 的 IPA，Mac 应用中包含同版本的 IPA。
-- 在 iPad 的 Safari 中打开安装页，点"安装白板外壳"，能通过 TrollStore 完成安装。
-- Mac 端版本比外壳新时，外壳在启动时提示更新；确认后通过 TrollStore 完成安装，重新打开后外壳显示新版本号。
-
-## 10. 第二阶段：原生绘制正在书写的笔画
-
-### 10.1 启动条件
-
-第一阶段完成后，如果在外壳中书写时仍然感觉墨迹跟不上笔，再启动第二阶段。判断方法：用 240 fps 慢动作视频分别拍摄外壳和 InkProbe 中的书写过程，比较笔尖位置与墨迹末端之间相差的帧数。
-
-### 10.2 基本要求
-
-- 在 WKWebView 上方加一个透明的原生图层，只绘制正在书写的那一笔（包括预测部分）。抬笔后，这一笔交给网页正式绘制，原生图层清空。
-- 原生图层画出的形状必须与网页 `stroke.js` 画出的形状一致，否则抬笔时墨迹会发生位移。为此需要把 perfect-freehand 和 `stroke.js` 的轮廓计算移植到 Swift，并逐点比对。仓库中的 `whiteboard/freehand.py` 和 `tests/test_docs.py` 已经用同样的方法保证了 Python 移植与原版逐点一致，可以照此执行。
-- 第二阶段的详细需求在启动时另写。
-
-## 11. 不在本次范围内
-
-- Pencil 双击和捏压切换工具（`UIPencilInteraction`）。
-- Pencil 悬停。它需要 iPadOS 16.1 以上和支持悬停的 iPad 与 Pencil。
-- App Store 或 TestFlight 分发。
-- 使用 PencilKit 绘制笔迹。笔迹必须在所有设备上一致，所以只能由网页绘制。
-
-## 12. 需要实测确认的问题
-
-| 编号 | 问题 | 确认方法 | 影响 |
-|---|---|---|---|
-| Q1 | Safari 报的压力是否等于 `force / maximumPossibleForce` | 见 7.2 节 | 决定外壳来源的压力是否需要换算 |
-| Q2 | WKWebView 上的手势识别器能否收到全部 Pencil 触摸，且不影响网页收到的 pointer 事件 | 外壳原型中打印两边的采样数 | 决定 4.2 节的做法是否可行。**已确认不可行**：0.9.43 的录像 20260927-211825 中，三笔都只收到落笔后约 30 ms 的采样，此后没有 move，也没有 up。采样改为在窗口的 `sendEvent` 中读取，只有估计属性更新仍用手势识别器，挂在 WKWebView 的父视图上。网页端另加三道保护：外壳这一笔一个采样都没送时，由 Safari 的 pen 事件起笔；外壳断流超过 50 ms 时用 Safari 的 pen 事件补完这一笔；Safari 报抬笔后 150 ms 内外壳没有 up 时，由网页替它收尾 |
-| Q3 | `evaluateJavaScript` 每次调用的耗时，以及每帧调用一次是否会造成掉帧 | 诊断面板的帧间隔；外壳中记录调用前后的时间 | 如果耗时过长，改为减少发送次数或改用其他传递方式 |
-| Q4 | TrollStore 能否从局域网的 http 地址下载 IPA | 用 8.2 节的安装页实际安装一次 | 如果不能：首次安装改为在 Safari 中下载 IPA 后用 TrollStore 打开；更新改为外壳自己下载 IPA，再通过系统分享菜单交给 TrollStore 打开 |
-| Q5 | 4.3 节的措施能否完全阻止 Scribble 和长按菜单 | 按 9.2 节的检查项快速书写 | 如果不能，需要找其他关闭方法 |
-| Q6 | 升级系统后，已安装的外壳是否还能继续运行 | 本文档不要求验证；在决定是否升级 iPad 系统之前查阅 TrollStore 的说明 | 决定这台 iPad 能否升级系统 |
-| Q7 | 在无窗口模式下，`NSNetService` 注册是否需要额外运行 run loop 才能生效 | 按 8.4 节的验证方法，在 `--headless` 下检查 | 如果需要且不便处理，改用 `DNSServiceRegister`。实现已直接采用 `DNSServiceRegister`（回调传 NULL，不依赖 run loop），仍需按 8.4 节在 Mac 上验证一次 |
-
-## 13. 第一阶段的实现位置
-
-| 部分 | 位置 |
+| `active` | Behavior |
 |---|---|
-| 外壳（第 4 节） | `ipad/`：`PencilCapture.swift`（4.2、5.1），`ShellViewController.swift`（4.1、4.3、5.2、8.3），`MacDiscovery.swift`（Bonjour 查找与更新检查），`MacAddress.swift`（地址、本机保存、版本比较），`Settings.bundle`（"重新查找 Mac"与版本号） |
-| 网页（第 7 节） | `input.js` 的"外壳输入"一节（输入来源、坐标偏差、估计属性更新、预测），`shell.js`（握手），`recorder.js`（7.3），`perf.js`（7.4） |
-| Mac 端服务（第 8 节） | `ipadshell.py`（`/ipad`、`/ipad/version`、`/ipad/Whiteboard.ipa`），`netinfo.BonjourService`（8.4），连接 iPad 卡片上的安装页地址 |
-| 构建（8.1 节） | `.github/workflows/build-macos.yml` 的 `ipad` 任务；`ipad-check.yml` 在外壳源码变动时编译一遍；`packaging/smoke_ipad.py` 检查打包后的应用带着 IPA |
-| 测试 | `tests/test_shell_input.py`（网页端，含 A2、A4），`tests/test_ipadshell.py`（安装页、版本接口、Bonjour 注册） |
+| `true` | The shell starts sending samples. |
+| `false` | The shell sends no samples; the page keeps using Safari's pointer events. |
 
-需要在真机上完成的检查：9.1 节的 A1、A3，9.2 节全部，9.4 节，9.5 节的安装与更新，以及第 12 节的 Q1 至 Q5、Q7。
+The page switches to the shell source only if `active` is `true` and the reported `bridge` is within its own range. It then sets `document.documentElement.dataset.shell` to `active` (otherwise `inactive`). Outside the shell, `window.webkit.messageHandlers.whiteboard` does not exist and the page does nothing.
+
+### 5.3 Time
+
+The page uses `t` only for time differences between samples of the same stroke and never compares `t` with `performance.now()`.
+
+Logic that depends on the current time (for example `PALM_GRACE`, which rejects palm touches for 500 ms after pen up) uses `performance.now()` at the moment the batch is received.
+
+## 6. Interface version negotiation
+
+The shell and the page agree on an integer interface version, `bridge`, during the handshake.
+
+| Rule | Detail |
+|---|---|
+| Version number | `bridge` is an integer, currently `1` (`PencilTracker.bridge`). It increases by 1 only for an incompatible change to the interface format. |
+| Shell version | Equal to the Mac version; both come from the same git tag. |
+| Supported range | The page declares `[min, max]`: `SHELL_BRIDGE = [1, 1]` in `input.js`. `BRIDGE` in `whiteboard/ipadshell.py` must be equal (`tests/test_ipadshell.py::test_bridge_range_matches_the_web_page`); `/ipad/version` reports it. |
+| In range | The shell replies `active: true`. |
+| Out of range | The shell replies `active: false`, shows the alert “外壳版本与白板版本不兼容，请更新外壳” (Shell and board versions are incompatible; update the shell) once per run, and runs the update check (section 8.3). |
+| Compatibility window | When the page raises `max`, it keeps support for the previous version until the next release. A shell that is one release behind the Mac therefore continues to work. |
+
+## 7. Web page changes
+
+### 7.1 Input source
+
+`input.js` converts shell samples into pointer-like events, which then follow the same path as Safari's pointer events (`onDown`, `onMove`, `onUp`, `addSample`, `startErase`, and so on).
+
+Conversion (`shellEvent` in `input.js`):
+
+| Event property | Value |
+|---|---|
+| `clientX`, `clientY` | `x`, `y` |
+| `pressure` | `f / fmax`, clamped to 0–1; 0 when `fmax` is not positive |
+| `tiltX`, `tiltY` | 0 (`penAltitude` then reads `altitudeAngle`) |
+| `altitudeAngle` | `alt`; π/2 when missing |
+| `azimuthAngle` | `az` |
+| `timeStamp` | `t × 1000` (milliseconds, fractional) |
+| `pointerId` | `1000000 + id` (kept apart from browser pointer IDs) |
+| `pointerType` | `pen` |
+| `fromShell` | `true` |
+
+Rules:
+
+- While the shell is `active`, Safari's `pointerType === "pen"` events on `#stage` do not draw. They still update the palm rejection timer, provide the reference for the coordinate deviation (section 7.4), and drive the fallback for 0.9.43 shells (section 12, Q2). Finger and mouse events are unchanged.
+- On `down`, the page checks the point with `document.elementFromPoint`. If the element is not inside `#stage`, the whole stroke is ignored and the control handles its own click events. The Pencil can therefore tap toolbar and tool picker buttons.
+- Predicted samples are drawn on the live layer only. They are never stored in the stroke or sent to other devices.
+- In the shell the page is treated as an iPad: the tool picker is shown, and the “白板设置” (Board settings) button is always present, even without the settings permission, because it contains “换一台 Mac” (Switch Mac).
+
+### 7.2 Pressure
+
+Shell pressure is `f / fmax`, without conversion.
+
+In the four InkProbe sessions, the median of `force / maximumPossibleForce` is 0.017 to 0.084 and the 95th percentile is 0.129 to 0.398. Safari recordings report pressure between 0.007 and 0.125. The two are of the same magnitude, so Safari's pressure is assumed to be `force / maximumPossibleForce` (section 12, Q1).
+
+The four sessions are eraser tests, not normal writing, so the assumption requires verification: write the same content in InkProbe and in the board (Safari) on the same iPad and compare the pressure distributions.
+
+| Result | Action |
+|---|---|
+| Assumption holds | No conversion. The stroke format and the pressure curve (`PEN_KNEE`, `PEN_FLOOR`, `PEN_GAMMA` in `stroke.js`) stay unchanged. |
+| Assumption fails | The input layer converts `f / fmax` to Safari's range before storing it. The stroke format stays unchanged; the conversion is derived from the comparison. |
+
+Estimated property updates (phase 1):
+
+- An update is applied only if its sample belongs to the stroke that is still being written. The page recomputes the point's pressure from the new `f` and `alt`, with the same tilt adjustment and smoothing as `addSample`.
+- Updates that arrive after the stroke is committed are discarded and counted in the diagnostics line “抬笔后丢弃” (Discarded after lift).
+- The table of pending updates is cleared when it exceeds 4096 entries.
+
+Statistics from the four InkProbe sessions (80 Pencil strokes; 19,139 samples expecting updates, all of which received an update):
+
+| Session | Updates | Arriving after pen up | Share | Update delay, median / 95th percentile | Force change of late updates (median `Δf / fmax`) |
+|---|---|---|---|---|---|
+| test1-calibr | 3862 | 128 | 3.3% | 25.4 / 39.7 ms | −0.029 |
+| test2-calibr | 3388 | 203 | 6.0% | 26.0 / 39.6 ms | −0.020 |
+| test3-drag | 7191 | 101 | 1.4% | 25.3 / 39.0 ms | −0.090 |
+| test4-contrast | 4698 | 43 | 0.9% | 26.1 / 41.3 ms | −0.016 |
+
+In total, 475 updates (2.5%) arrive after pen up. In every stroke they belong to the last 6 or so samples (about 25 ms), and all of them reduce the force. Discarding them leaves the last few points of a stroke 0.02 to 0.09 (in `f / fmax`) too high. `trimSettledTail` in the input layer usually removes the settled end points of a stroke, so the remaining effect is a slightly thicker stroke end.
+
+### 7.3 Recording
+
+Recordings store shell batches unchanged, so that a replay reproduces the stroke exactly.
+
+| Item | Format |
+|---|---|
+| Top-level `source` | `browser` or `shell` |
+| Top-level `shell` | `{version, bridge}` when `source` is `shell`; otherwise `null` |
+| Shell batch entry | `{"type": "shell", "t": ..., "batch": {...}}`; `batch` is the object from section 5.1 with all fields and original values, without rounding |
+
+Safari pen events recorded alongside do not draw during replay. Replaying a shell recording passes each batch to the input source layer (`receiveShell`); the result must equal the recording's `after`. Tests: `tests/test_shell_input.py::test_shell_recording_replays_exactly`, following `tests/test_browser.py::test_recorder_replays_an_erase_exactly`. Recording format: [recording.md](recording.md).
+
+### 7.4 Diagnostics panel
+
+The diagnostics panel (`perf.js`) shows the input source and, in the shell, the shell's sample rates and deviation counters.
+
+| Line | Content | Shown |
+|---|---|---|
+| `输入来源 <source>  外壳 <version>  bridge <n>` | Input source (`browser` or `shell`), shell version and `bridge` | Always; version part only when known |
+| `外壳 <n>/s  新位置 <n>/s` | Shell samples per second and new positions per second, computed like `penHz` and `penMoveHz` | Shell version known or source `shell` |
+| `坐标偏差 <d>px（对上 <n> 个）  力度更新 <n>  抬笔后丢弃 <n>` | Coordinate deviation and matched samples; applied estimate updates; updates discarded after lift | Same |
+| `外壳断笔 <n>  Safari 补点 <n>` | Strokes closed by the page because the shell sent no `up`; samples filled in from Safari events. Both are 0 in normal operation. | Same |
+
+Coordinate deviation compares shell samples with Safari pen events of the same stroke; Safari pen events keep arriving while the shell is `active`:
+
+- The two time bases are aligned at pen down, because the first sample on both sides is the same `UITouch`.
+- For each Safari event, the nearest shell sample within ±25 ms (`SHELL_MATCH_MS`) is found. The deviation is the largest `|Δx|` or `|Δy|` over the stroke.
+- At most 512 samples per stroke are kept for the comparison (`SHELL_TRACE`).
+- Rounding alone accounts for at most 0.5 px; a larger value indicates misaligned coordinate systems.
+
+Samples filled in from Safari events are not counted in the shell sample rate.
+
+## 8. Build, distribution and updates
+
+### 8.1 Building the IPA in CI
+
+`.github/workflows/build-macos.yml` builds the IPA, bundles it into the Mac app and publishes both.
+
+| Job | Runner | Steps |
+|---|---|---|
+| `ipad` | `macos-26` | Determine version; `brew install xcodegen ldid`; `python3 ipad/make_icon.py`; `xcodegen generate`; `xcodebuild -sdk iphoneos -configuration Release` without code signing; `ldid -S` pseudo-signing; zip `Payload/` into `Whiteboard-<version>-ipad.ipa`; upload artifact `Whiteboard-ipad`. |
+| `build` | `macos-14` (arm64), needs `ipad` | Download the IPA to `packaging/ipad/Whiteboard.ipa`; PyInstaller (`packaging/whiteboard.spec`) places it in the app resources at `whiteboard/ipad/Whiteboard.ipa`; smoke test with `packaging/smoke_ipad.py`. |
+| `release` | `ubuntu-latest`, needs `ipad` and `build`, tags only | Publishes the Mac zip and the IPA in the GitHub Release. The IPA is also a separate asset for the first installation. Tags containing `-` are published as prereleases. |
+
+Version numbers:
+
+| Value | Source |
+|---|---|
+| Version | Tag `v1.2.3` → `1.2.3`; manual runs use the `version` input (default `0.0.0-dev`); other runs use `0.0.0-dev`. |
+| `CFBundleShortVersionString` | The numeric part of the version: `1.0.0-rc.1` → `1.0.0`, `0.0.0-dev` → `0.0.0`. Passed as `MARKETING_VERSION`. |
+| `CFBundleVersion` | `github.run_number` |
+
+Triggers of `build-macos.yml`: tags `v*` (build and release); pull requests that change `whiteboard/**`, `packaging/**`, `ipad/**`, `run.py`, `requirements.txt` or the workflow (build only); `workflow_dispatch` (build only, no release).
+
+`.github/workflows/ipad-check.yml` compiles the shell without producing an IPA. It runs on pushes to any branch that change `ipad/**` or the workflow, and on pull requests that change `ipad/**`.
+
+A local PyInstaller build without `packaging/ipad/Whiteboard.ipa` still succeeds; the app then contains no shell and the install page links to the Release.
+
+### 8.2 First installation
+
+The install page `GET /ipad` lets an iPad install the shell with TrollStore and pass the Mac's address to it. It requires no permission.
+
+| Element | Content |
+|---|---|
+| Header | Version and `<host>:<port>` |
+| “安装白板外壳” (Install shell) | Link to `apple-magnifier://install?url=http://<host>.local:<port>/ipad/Whiteboard.ipa`, installed by TrollStore. A note says to enable URL Scheme in TrollStore settings if nothing happens. |
+| No bundled IPA (running from source) | Instead of the button: “这个版本没有附带外壳，请从 Release 下载” (This version has no bundled shell; download it from the Release) and a link to `https://github.com/<repo>/releases`. |
+| “打开外壳” (Open shell) | Link to `whiteboard-shell://connect?host=<host>.local&port=<port>`, which passes this Mac's address to the shell (section 4.1, step 3). |
+
+The host is the `host` query parameter if present, otherwise `netinfo.local_hostname()`, the same value as for `/profile.mobileconfig`. The port is the server's actual port.
+
+The iPad reaches the install page in the same way as the configuration profile: the “连接 iPad” (Connect iPad) card in the Mac window shows `外壳安装页 <url>ipad` next to the profile download button. The configuration profile remains available for iPads without TrollStore.
+
+### 8.3 Updates
+
+The shell compares its own version with the IPA bundled in the Mac app and offers to install a newer one.
+
+Server endpoints (no permission required, `Cache-Control: no-store`):
+
+| Endpoint | Response |
+|---|---|
+| `GET /ipad/version` | `{"version": "1.3.0", "ipa": true, "bridge": [1, 1]}`. `ipa` is `false` when running from source. |
+| `GET /ipad/Whiteboard.ipa` | The bundled IPA (`application/octet-stream`, `Content-Disposition: attachment`). 404 “这个版本没有附带外壳” when there is none. |
+
+Update check:
+
+- The shell requests `/ipad/version` after each page load, on each return to the foreground while a page is loaded, and after an incompatible handshake. The request ignores the cache and times out after 5 s.
+- If `ipa` is `true` and `version` is newer than the shell's version, the shell shows “有新版本 X，是否更新？” (New version X available. Update?) with the buttons “更新” (Update) and “以后再说” (Later).
+- “更新” opens `apple-magnifier://install?url=http://<host>.local:<port>/ipad/Whiteboard.ipa`; TrollStore downloads and installs the IPA. This URL install interface exists since TrollStore 1.3 and requires URL Scheme to be enabled in TrollStore settings.
+- “以后再说” suppresses the prompt for the rest of the current run.
+
+Version comparison (`ShellVersion` in `MacAddress.swift`):
+
+| Rule | Example |
+|---|---|
+| A leading `v` or `V` is removed. | `v1.2.0` equals `1.2.0` |
+| Everything from the first `-` is ignored (prerelease suffix). | `1.0.0-rc.1` equals `1.0.0`; no prompt |
+| Dot-separated parts are compared as numbers; non-digit characters after the digits of a part are ignored; missing parts count as 0. | `1.10.0` is newer than `1.9.3`; `1.2` equals `1.2.0` |
+
+> **Note**
+> The shell's own version (`CFBundleShortVersionString`) contains digits only. Ignoring the prerelease suffix prevents a prerelease Mac app from offering its own shell version as an update on every launch.
+
+Most changes need no shell update: the shell loads the page from the Mac, so the iPad uses the new web code on its next launch. The shell needs an update only when its native code or the `bridge` version changes.
+
+### 8.4 Bonjour registration on the Mac
+
+The server registers the `_whiteboard._tcp` service so that the shell can find the Mac without manual input.
+
+| Item | Behavior |
+|---|---|
+| Default | Registered on macOS only (`netinfo.bonjour_default()`). `--no-bonjour` disables it. |
+| Timing | Registered in a background task after the port is fixed; deregistered when the server stops. |
+| macOS | `DNSServiceRegister` from libSystem through `ctypes`, handled by the system mDNSResponder. The callback is NULL, so no run loop is needed and registration works in `--headless` mode. Registration times out after 5 s. |
+| Other platforms | zeroconf (`MDNSAdvertiser`). |
+| Service name | The `name` field below. |
+| Failure | Logged only; the server starts normally. The shell can connect through the install page instead. |
+
+TXT record fields:
+
+| Field | Value |
+|---|---|
+| `host` | The Mac's `.local` host name, equal to `netinfo.local_hostname()` |
+| `port` | The port the server actually listens on (after moving to the next free port, the new value) |
+| `version` | Mac app version |
+| `name` | The computer name shown to users (`scutil --get ComputerName`; falls back to the host name without `.local`) |
+
+> **Warning**
+> On macOS, registration must go through the system mDNSResponder. Do not start a second mDNS responder. The zeroconf-based `MDNSAdvertiser` listens on the mDNS port itself and is therefore off by default on macOS (`netinfo.mdns_default()`).
+
+The existing `_http._tcp` registration (`--mdns`, `--no-mdns`) is unchanged.
+
+Verification on the Mac, in both window mode and `--headless` mode:
+
+```sh
+dns-sd -B _whiteboard._tcp                    # lists this Mac
+dns-sd -L "<service name>" _whiteboard._tcp   # TXT record contains host, port, version, name
+```
+
+On the shell side, `MacDiscovery` browses with `NWBrowser` (`.bonjourWithTXTRecord`, peer-to-peer off) and takes host and port directly from the TXT record. If `name` is missing or empty, it uses the service name. Results are sorted by name.
+
+## 9. Phase 1 acceptance criteria
+
+### 9.1 Input data
+
+| ID | Criterion | Check |
+|---|---|---|
+| A1 | New positions per second from the shell are at least 95% of the InkProbe value on the same iPad. | Diagnostics panel; write the same content in the shell and in InkProbe. |
+| A2 | Shell sample coordinates are fractional. | Shell recording |
+| A3 | Coordinate deviation between shell samples and Safari pen events is at most 1 CSS pixel. | Diagnostics line “坐标偏差” (Coordinate deviation) |
+| A4 | Replaying a shell recording reproduces `after` exactly. | `tests/test_shell_input.py::test_shell_recording_replays_exactly` |
+
+### 9.2 No regressions
+
+Each item in the shell must behave as in Safari:
+
+- Writing with pen, marker and highlighter.
+- Object eraser and pixel eraser, including the pixel eraser diameter that follows the tilt.
+- Finger pan and zoom, palm rejection, and the finger drawing switch.
+- Tapping toolbar and tool picker buttons with the Pencil.
+- No long-press menu, text selection or Scribble recognition during fast writing.
+- Reconnection after a disconnect, and resynchronization after offline writing.
+
+### 9.3 Browser version unaffected
+
+- Without the shell, Safari behaves as before.
+- All existing tests in `tests/` pass.
+
+### 9.4 Connection
+
+- With one Mac running the board on the local network, the shell opens the board on first launch without user action.
+- With two Macs, the shell lists both; choosing one opens its board.
+- After the Mac's port changes (for example, 8848 is in use and the server moves to 8849), the shell connects to the new port on its next launch.
+- On a network that blocks Bonjour (simulated with `--no-bonjour` on the Mac), the “打开外壳” (Open shell) button on the install page opens the board without any text input.
+
+### 9.5 Build, installation and updates
+
+- After a tag is pushed, the Release contains the Mac zip and the iPad IPA, and the Mac app contains the IPA of the same version.
+- Opening the install page in Safari on the iPad and tapping “安装白板外壳” (Install shell) installs the shell through TrollStore.
+- When the Mac version is newer than the shell, the shell offers an update on launch; after confirmation, TrollStore installs it, and the reopened shell shows the new version.
+
+## 10. Phase 2: native rendering of the active stroke
+
+### 10.1 Start condition
+
+Phase 2 starts only if, after phase 1, ink in the shell still visibly lags behind the pen.
+
+Measurement: record writing in the shell and in InkProbe with 240 fps slow-motion video and compare the number of frames between the pen tip and the end of the ink.
+
+### 10.2 Basic requirements
+
+- A transparent native layer above the WKWebView draws only the stroke being written, including its prediction. On pen up, the stroke is handed to the web page for final rendering and the native layer is cleared.
+- The native layer must produce the same outline as `stroke.js` in the web page; otherwise the ink shifts on pen up. This requires porting perfect-freehand and the outline computation of `stroke.js` to Swift, with point-by-point comparison. `whiteboard/freehand.py` and `tests/test_docs.py` already use this method to keep the Python port identical to the original.
+- Detailed phase 2 requirements are written when phase 2 starts.
+
+## 11. Out of scope
+
+- Pencil double-tap and squeeze for switching tools (`UIPencilInteraction`).
+- Pencil hover (requires iPadOS 16.1 or later and an iPad and Pencil that support hover).
+- App Store or TestFlight distribution.
+- Drawing strokes with PencilKit. Strokes must look the same on all devices, so only the web page draws them.
+
+## 12. Questions requiring device verification
+
+| ID | Question | Method | Impact and status |
+|---|---|---|---|
+| Q1 | Is Safari's pressure equal to `force / maximumPossibleForce`? | See section 7.2. | Decides whether shell pressure needs conversion. Open. |
+| Q2 | Does a gesture recognizer on the WKWebView receive all Pencil touches without affecting the page's pointer events? | Print the sample counts on both sides in a shell prototype. | **Answered: no.** See below. |
+| Q3 | How long does each `evaluateJavaScript` call take, and does one call per frame drop frames? | Frame interval in the diagnostics panel; the shell logs the call duration. | If too slow, send fewer batches or use another transport. Open. The shell logs the count, average and maximum duration every 5 s (`EvalStats`); read them in Console.app on the Mac. |
+| Q4 | Can TrollStore download the IPA from a local http address? | Install once from the install page (section 8.2). | If not: first installation downloads the IPA in Safari and opens it with TrollStore; updates download the IPA in the shell and pass it to TrollStore through the share sheet. Open. |
+| Q5 | Do the measures in section 4.3 fully prevent Scribble and the long-press menu? | Write fast, following section 9.2. | If not, another method is needed. Open. |
+| Q6 | Does the installed shell keep working after a system upgrade? | Not verified by this document; read the TrollStore documentation before deciding to upgrade the iPad. | Decides whether the iPad can be upgraded. |
+| Q7 | Does `NSNetService` registration need an extra run loop in headless mode? | Check with the method in section 8.4 under `--headless`. | Resolved in the implementation: registration uses `DNSServiceRegister` with a NULL callback and needs no run loop. Verification on a Mac per section 8.4 is still required. |
+
+Q2 findings and measures:
+
+- In the 0.9.43 recording `20260927-211825`, all three strokes received samples only for about 30 ms after pen down, followed by no `move` and no `up`. After the page calls `preventDefault`, WebKit's internal recognizer that defers other gestures makes recognizers inside the WKWebView fail.
+- The shell now reads samples in the window's `sendEvent` (section 4.2). Only estimated property updates still use a gesture recognizer, attached to the WKWebView's superview.
+- For 0.9.43 shells, which need to be reinstalled, the web page fills the gaps with Safari pen events (`whiteboard/web/static/js/shell-fallback.js`). The filled strokes have Safari's precision but are complete:
+
+  | Situation | Page action |
+  |---|---|
+  | The shell sent no sample for a stroke 50 ms (`SHELL_STALL_MS`) after Safari's pen down | The page starts the stroke from Safari's pen events. |
+  | A shell stroke received no real sample for more than 50 ms while Safari pen events continue | The page completes the stroke with Safari's pen events. |
+  | No shell `up` within 150 ms (`SHELL_ORPHAN_MS`) after Safari's pen up | The page closes the stroke. |
+  | A tap during which the shell sent nothing | After 150 ms the page creates the dot from Safari's down and up. |
+
+  Batches created this way go through `receiveShell`, so they are recorded and replay identically. A current shell never triggers this code; it can be removed together with its call sites in `input.js` when all iPads run a current shell.
+
+## 13. Phase 1 implementation map
+
+| Part | Location |
+|---|---|
+| Shell (section 4) | `ipad/Whiteboard/`: `AppDelegate.swift` (window, URL scheme, foreground), `PencilCapture.swift` (4.2, 5.1), `ShellViewController.swift` (4.1, 4.1.1, 4.3, 5.2, 8.3), `StatusView.swift` (search, list, error screens), `MacDiscovery.swift` (Bonjour browsing, update check), `MacAddress.swift` (address, saved settings, version comparison), `Settings.bundle` (“重新查找 Mac”, version, current Mac), `Info.plist`; `ipad/project.yml`, `ipad/make_icon.py` |
+| Web page (section 7) | `input.js` shell input section (input source, coordinate deviation, estimate updates, prediction), `shell-fallback.js` (fallback for 0.9.43 shells), `shell.js` (handshake), `recorder.js` (7.3), `perf.js` (7.4), `ui.js` (tool picker, settings button in the shell), `ui-settings.js` (“Mac” group, install page address on the Connect iPad card), `exporter.js` (4.1.1) |
+| Mac server (section 8) | `whiteboard/ipadshell.py` (`/ipad`, `/ipad/version`, `/ipad/Whiteboard.ipa`), routes in `whiteboard/server.py`, `netinfo.BonjourService` (8.4), `runner.py`, `run.py` (`--no-bonjour`) |
+| Build (section 8.1) | `ipad` job in `.github/workflows/build-macos.yml`; `.github/workflows/ipad-check.yml`; `packaging/whiteboard.spec`; `packaging/smoke_ipad.py` (checks that the packaged app serves the IPA and the install page) |
+| Tests | `tests/test_shell_input.py` (web page, including A2 and A4), `tests/test_ipadshell.py` (install page, version endpoint, Bonjour registration, bridge range, download handling) |
+
+Checks that require a real device: A1 and A3 in section 9.1, all of section 9.2, section 9.4, installation and updates in section 9.5, and Q1 to Q5 and Q7 in section 12.
