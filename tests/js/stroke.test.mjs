@@ -18,7 +18,7 @@ import {
   splitLongStroke,
   strokeBBox,
   strokeRadius,
-} from "../../whiteboard/web/static/js/stroke.js";
+} from "../../packages/inksync/inksync/web/stroke.js";
 
 function line(id, x0, y0, x1, y1, count = 20, pressure = 0.5, width = 6) {
   const p = [];

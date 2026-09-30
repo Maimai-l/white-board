@@ -15,7 +15,7 @@
 // 录的是**原始指针事件**，不是笔画。笔画是输入经过整条链路之后的结果，拿结果
 // 回放就只能复现渲染，复现不了判定、平滑、合并采样、抬笔那一刻的时序。
 
-import { plainStroke } from "./util.js";
+import { plainStroke } from "/inksync/util.js";
 
 const SCHEMA = 1;
 

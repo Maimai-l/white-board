@@ -6,7 +6,7 @@
 import { icon } from "./icons.js";
 import { renderNotes } from "./notes.js";
 import { iconButton } from "./ui-common.js";
-import { el } from "./util.js";
+import { el } from "/inksync/util.js";
 
 export function installDialogs(proto) {
   Object.assign(proto, methods);

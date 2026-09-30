@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BoardState, PAGE_GAP, docLayout } from "../../whiteboard/web/static/js/boardstate.js";
+import { BoardState } from "../../packages/inksync/inksync/web/boardstate.js";
 
 function dot(id, x, y, n) {
   const stroke = { id, tool: "pen", color: "#000000", w: 4, p: [x, y, 0.5, x + 1, y + 1, 0.5] };
@@ -56,8 +56,16 @@ test("hitTest 由新到旧返回命中的笔画", () => {
   assert.deepEqual(state.hitTest(10, 10, 5, () => true), ["b", "a"]);
 });
 
-test("文档页自上而下排，页与页之间留一条缝", () => {
-  const pages = docLayout([[600, 800], [600, 800]]);
-  assert.equal(pages.length, 2);
-  assert.ok(pages[1].y >= pages[0].y + pages[0].h + PAGE_GAP - 1e-9);
+test("书写范围来自画布", () => {
+  const state = new BoardState();
+  state.reset({ id: "a", canvas: { mode: "infinite" } }, []);
+  assert.equal(state.limits, null);
+  assert.equal(state.kind, "board");
+  state.reset({ id: "b", canvas: { mode: "column", width: 1000 } }, []);
+  assert.deepEqual(state.limits, { x0: 0, x1: 1000, y0: 0 });
+  assert.equal(state.kind, "note");
+  state.reset({ id: "c", canvas: { mode: "fixed", width: 800, height: 1200 } }, []);
+  assert.deepEqual(state.limits, { x0: 0, x1: 800, y0: 0, y1: 1200 });
+  state.reset({ id: "d" }, []);
+  assert.equal(state.limits, null);
 });

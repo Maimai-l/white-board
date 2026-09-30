@@ -16,6 +16,7 @@ from typing import Any, Dict, FrozenSet, Optional
 from aiohttp import web
 from inksync import DefaultPolicy, FileStorage, Principal, Spaces, mount, serve_sdk
 from inksync.hub import Hub as CoreHub
+from inksync import server as inksync_server
 from inksync.server import MAX_WS_MESSAGE  # noqa: F401
 
 from . import __version__, ipadshell, models, netinfo, profile, resources, updater
@@ -409,8 +410,8 @@ def list_apps(config: Config) -> list:
 
 
 async def handle_sdk(request: web.Request) -> web.Response:
-    """嵌入用的手写板模块。跳转到真实位置，模块里的相对 import 才解析得对。"""
-    raise web.HTTPFound("/static/js/embed.js")
+    """嵌入用的手写板模块（1.0.1 的地址）。跳转到 inksync 提供的入口。"""
+    raise web.HTTPFound("/inksync/inkpad.js")
 
 
 async def handle_apps(request: web.Request) -> web.Response:
@@ -645,6 +646,8 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
         client_max_size=MAX_THUMB_BYTES + 4096, middlewares=[revalidate_static]
     )
     app[CONFIG_KEY] = config
+    # 前端据构建号判断页面是不是旧的（服务端升级之后 iPad 上还开着的页面会重新载入）
+    inksync_server.BUILD = running_build()
     hub = Hub(store)
     app[HUB_KEY] = hub
     app[RENDER_KEY] = asyncio.Semaphore(RENDER_LIMIT)
@@ -679,6 +682,7 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app.router.add_get("/apps/{name}", handle_app_file)
     app.router.add_get("/apps/{name}/{tail:.*}", handle_app_file)
     app.router.add_static("/static/", WEB_DIR / "static", name="static")
+    serve_sdk(app, prefix="/inksync/")
 
     async def _on_startup(_app: web.Application) -> None:
         spaces.get("")  # 用户空间一直开着

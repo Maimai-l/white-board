@@ -57,7 +57,7 @@ def test_sanitize_ids_filters():
 def _client_mask_limit() -> int:
     """前端一条笔画最多挂多少段胶囊（stroke.js 的 MASK_LIMIT）。"""
     src = (Path(__file__).resolve().parent.parent
-           / "whiteboard/web/static/js/stroke.js").read_text("utf-8")
+           / "packages/inksync/inksync/web/stroke.js").read_text("utf-8")
     return int(re.search(r"export const MASK_LIMIT = (\d+)", src).group(1))
 
 
@@ -100,7 +100,7 @@ def test_stroke_point_limit_matches_what_the_client_will_send():
     是同一类问题。
     """
     src = (Path(__file__).resolve().parent.parent
-           / "whiteboard/web/static/js/stroke.js").read_text("utf-8")
+           / "packages/inksync/inksync/web/stroke.js").read_text("utf-8")
     client = int(re.search(r"export const MAX_STROKE_POINTS = (\d+)", src).group(1))
     assert client <= models.MAX_POINTS_PER_STROKE
     # 正好卡在上限的一笔要收下

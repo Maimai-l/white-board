@@ -189,9 +189,15 @@ class ServerThread:
     def save_now(self) -> None:
         hub = self.hub
         if hub is not None:
-            future = self.run_coroutine(_call_save(hub))
+            from .server import SPACES_KEY  # noqa: WPS433
+
+            spaces = self.app.get(SPACES_KEY) if self.app is not None else None
+            future = self.run_coroutine(_call_save(hub, spaces))
             future.result(timeout=10)
 
 
-async def _call_save(hub) -> None:
+async def _call_save(hub, spaces=None) -> None:
     hub.save_all()
+    for name, space in (spaces.hubs().items() if spaces is not None else ()):
+        if name:
+            await space.flush()

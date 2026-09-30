@@ -4,9 +4,9 @@
 // 从 ui.js 原样搬过来，只是换了个文件放。
 
 import { icon } from "./icons.js";
-import { inShell, shellCommand } from "./shell.js";
+import { inShell, shellCommand } from "/inksync/shell.js";
 import { iconButton } from "./ui-common.js";
-import { el } from "./util.js";
+import { el } from "/inksync/util.js";
 
 // 可以放开给别的设备的权限，顺序就是设置面板里的顺序；键与 config.REMOTE_PERMISSIONS 一致。
 const PERMISSIONS = [
@@ -38,7 +38,7 @@ const methods = {
     for (const [kind, markup] of kinds) {
       row.append(
         el("button", {
-          class: `bg-opt${this.meta && this.meta.background === kind ? " active" : ""}`,
+          class: `bg-opt${this.meta && this.meta.pattern === kind ? " active" : ""}`,
           html: `<svg viewBox="0 0 56 44">${markup}</svg>`,
           title: kind,
           onclick: () => this.actions.onMeta({ background: kind }),

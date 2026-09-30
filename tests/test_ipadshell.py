@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_bridge_range_matches_the_web_page():
     """Mac 端报给外壳的接口版本范围，必须和网页自己声明的一致。"""
-    source = (ROOT / "whiteboard/web/static/js/input.js").read_text("utf-8")
+    source = (ROOT / "packages/inksync/inksync/web/input.js").read_text("utf-8")
     match = re.search(r"export const SHELL_BRIDGE = \[(\d+), (\d+)\];", source)
     assert match, "input.js 里找不到 SHELL_BRIDGE"
     assert tuple(int(v) for v in match.groups()) == ipadshell.BRIDGE
@@ -34,7 +34,7 @@ def test_exporting_is_a_download_not_a_navigation():
     的链接外壳会当成下载接住（见 ShellViewController 的 WKDownloadDelegate）。
     """
     app_js = (ROOT / "whiteboard/web/static/js/app.js").read_text("utf-8")
-    exporter_js = (ROOT / "whiteboard/web/static/js/exporter.js").read_text("utf-8")
+    exporter_js = (ROOT / "packages/inksync/inksync/web/exporter.js").read_text("utf-8")
     assert "downloadURL(`/api/export/${boardId}`" in app_js
     assert "location.href = `/api/export" not in app_js
     assert "link.download" in exporter_js
@@ -49,7 +49,7 @@ def test_exporting_is_a_download_not_a_navigation():
 
 def test_the_page_can_ask_the_shell_to_switch_macs():
     """局域网里有好几台 Mac 时，从页面的设置里换一台；两边的命令名要对得上。"""
-    shell_js = (ROOT / "whiteboard/web/static/js/shell.js").read_text("utf-8")
+    shell_js = (ROOT / "packages/inksync/inksync/web/shell.js").read_text("utf-8")
     # 界面拆成了 ui.js 和几个 ui-*.js，调用在哪一个里都算
     ui_js = "".join(
         path.read_text("utf-8") for path in sorted((ROOT / "whiteboard/web/static/js").glob("ui*.js"))

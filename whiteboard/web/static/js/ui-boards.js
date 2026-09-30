@@ -6,7 +6,7 @@
 import { icon } from "./icons.js";
 import { startCardDrag } from "./dragsort.js";
 import { boardLabel, iconButton } from "./ui-common.js";
-import { el, isComposing } from "./util.js";
+import { el, isComposing } from "/inksync/util.js";
 
 /** 卡片下方那行时间：今天只给时刻，今年不给年份，其余给全。 */
 function boardDate(seconds) {

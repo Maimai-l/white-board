@@ -498,7 +498,7 @@ def test_the_pressure_curve_is_the_same_on_both_sides():
     """
     src = (
         pathlib.Path(__file__).resolve().parents[1]
-        / "whiteboard/web/static/js/stroke.js"
+        / "packages/inksync/inksync/web/stroke.js"
     ).read_text(encoding="utf-8")
 
     def constant(name):

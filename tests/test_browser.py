@@ -17,6 +17,7 @@ sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 from whiteboard import inkpdf
 from whiteboard.config import Config
 from whiteboard.runner import ServerThread
+from whiteboard.server import SPACES_KEY
 
 IPAD_UA = (
     "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
@@ -579,7 +580,7 @@ def test_canvas_is_infinite(browser, server):
 
     # 缩放仍然有上下限
     limits = ipad.evaluate(
-        "async () => { const m = await import('/static/js/viewport.js');"
+        "async () => { const m = await import('/inksync/viewport.js');"
         "const v = whiteboard.viewport;"
         "v.zoomAt(1e6, 0, 0); const max = v.scale;"
         "v.zoomAt(1e-9, 0, 0); const min = v.scale;"
@@ -1121,7 +1122,7 @@ def test_board_switch_and_settings_follow(browser, server):
     # 背景改动会同步到 iPad
     mac.click('button[title="白板设置"]')
     mac.click('.bg-opt[title="dots"]')
-    ipad.wait_for_function("() => whiteboard.state.meta.background === 'dots'")
+    ipad.wait_for_function("() => whiteboard.state.meta.background.pattern === 'dots'")
     mac.close()
     ipad.close()
 
@@ -1784,7 +1785,7 @@ def test_export_png_has_content(browser, server):
     draw(mac, [(300, 300), (400, 360), (500, 300)], pointer_type="mouse")
     wait_strokes(mac, 1)
     data_url = mac.evaluate(
-        "async () => { const m = await import('/static/js/exporter.js');"
+        "async () => { const m = await import('/inksync/exporter.js');"
         "return m.exportDataURL(whiteboard.state); }"
     )
     assert data_url.startswith("data:image/png;base64,")
@@ -1811,7 +1812,7 @@ def open_doc_board(mac, path):
     with mac.expect_file_chooser() as chooser:
         mac.click(".dialog.kinds .kind-tile:nth-child(3)")
     chooser.value.set_files(str(path))
-    mac.wait_for_function("() => whiteboard.state.kind === 'doc'", timeout=15000)
+    mac.wait_for_function("() => !!(whiteboard.state.meta && whiteboard.state.meta.data && whiteboard.state.meta.data.doc)", timeout=15000)
 
 
 def test_doc_board_created_from_file_and_synced(browser, server, tmp_path):
@@ -1819,16 +1820,18 @@ def test_doc_board_created_from_file_and_synced(browser, server, tmp_path):
     path = make_doc(tmp_path)
     mac, ipad = open_pages(browser, server.port)
     open_doc_board(mac, path)
-    ipad.wait_for_function("() => whiteboard.state.kind === 'doc'", timeout=15000)
+    ipad.wait_for_function("() => !!(whiteboard.state.meta && whiteboard.state.meta.data && whiteboard.state.meta.data.doc)", timeout=15000)
 
-    pages = mac.evaluate("() => whiteboard.state.pages")
+    pages = mac.evaluate(
+        "() => whiteboard.state.layers.filter((l) => l.sheet).map((l) => ({x: l.x, y: l.y, w: l.width, h: l.height}))"
+    )
     assert len(pages) == 2
     assert pages[1]["y"] == pytest.approx(842 + 24)
     limits = mac.evaluate("() => whiteboard.state.limits")
     assert limits["y1"] == pytest.approx(842 * 2 + 24)
 
     # 首页底图由服务端渲染后送过来
-    mac.wait_for_function("() => whiteboard.renderer.docPages.get(0) !== null", timeout=15000)
+    mac.wait_for_function("() => whiteboard.renderer.images.get(0) !== null", timeout=15000)
 
     # 从末页里落笔，一路划到文档下方：超出的部分被夹回最后一页里
     start = ipad.evaluate(
@@ -4465,7 +4468,7 @@ def test_background_can_be_changed_from_the_ipad(browser, server):
     ipad.tap('button[title="白板设置"]')
     ipad.tap('.bg-opt[title="dots"]')
     for page in (ipad, mac):
-        page.wait_for_function("() => whiteboard.state.meta.background === 'dots'")
+        page.wait_for_function("() => whiteboard.state.meta.background.pattern === 'dots'")
 
 
 def test_the_export_button_downloads_a_png(browser, server):
@@ -4699,7 +4702,7 @@ def open_demo(browser, port, path="/apps/demo/"):
         viewport={"width": 1000, "height": 900}, user_agent=TABLET_UA, has_touch=True
     ).new_page()
     page.goto(f"http://127.0.0.1:{port}{path}")
-    page.wait_for_function("() => window.pad && pad.net.status === 'online'")
+    page.wait_for_function("() => window.pad && pad.status === 'online'")
     return page
 
 
@@ -4711,30 +4714,57 @@ def draw_embedded(page, points, selector="#pad .inkpad-stage", pointer_id=1):
     page.evaluate(EMBED_FIRE, [selector, "pointerup", *points[-1], "pen", pointer_id, 0])
 
 
-def test_an_embedded_pad_syncs_with_the_mac(browser, server):
-    """刷题这类页面嵌入手写板：iPad 上写的内容进 Mac 上的同一块白板，反过来也一样。"""
+def space_strokes(server, space, board):
+    """服务端存下的某个应用空间里某块白板的笔画 id。"""
+    from inksync import FileStorage
+
+    server.save_now()
+    _meta, strokes, _problem = FileStorage(server.config.data_dir / "spaces" / space).read_file(board)
+    return [s["id"] for s in strokes]
+
+
+def test_an_embedded_pad_syncs_between_devices(browser, server):
+    """刷题这类页面嵌入手写板：一台设备上写的内容实时出现在打开同一题的另一台上。"""
     install_demo_app(server)
     mac, _ = open_pages(browser, server.port)
     pad = open_demo(browser, server.port)
+    other = open_demo(browser, server.port)
 
-    meta = pad.evaluate("() => pad.state.meta")
-    assert meta["id"] == "demo-q1" and meta["app"] == "demo" and meta["folder"] == "示例"
-    assert meta["underlay"] == {"src": "/apps/demo/question.svg", "width": 800}
-    # 底图按宽度铺满手写板
-    assert pad.evaluate("() => Math.abs(pad.viewport.scale * 800 + 32 - pad.renderer.viewW) < 1")
+    meta = pad.evaluate("() => pad.board")
+    assert meta["id"] == "q1" and meta["name"] == "示例 第 1 题" and meta["data"] == {"question": 1}
+    assert meta["canvas"] == {"mode": "fixed", "width": 800, "height": 1100}
+    assert meta["layers"] == [{"src": "/apps/demo/question.svg", "x": 0, "y": 0, "width": 800}]
+    assert pad.evaluate("() => pad.caps.write && pad.version === '2.0.0'")
 
     draw_embedded(pad, [(100, 300), (160, 340), (230, 300), (300, 360)])
-    pad.wait_for_function("() => pad.state.strokes.length === 1 && pad.net.outbox.length === 0")
+    pad.wait_for_function("() => pad.snapshot().strokes.length === 1 && pad.status === 'online'")
+    other.wait_for_function("() => pad.snapshot().strokes.length === 1")
+    draw_embedded(other, [(100, 400), (160, 440), (230, 400)])
+    pad.wait_for_function("() => pad.snapshot().strokes.length === 2")
 
-    # Mac 没有被切走；在白板列表里能看到这块白板，打开它就看到刚写的内容
-    assert mac.evaluate("() => whiteboard.state.id") != "demo-q1"
-    mac.wait_for_function("() => whiteboard.ui.boards.some(b => b.id === 'demo-q1')")
-    mac.evaluate("() => whiteboard.net.send({ t: 'sel', board: 'demo-q1' })")
-    mac.wait_for_function("() => whiteboard.state.id === 'demo-q1'")
-    wait_strokes(mac, 1)
+    # 应用的白板在它自己的空间里：不进用户的白板列表，Mac 没有被切走
+    assert mac.evaluate("() => whiteboard.ui.boards.some(b => b.id === 'q1')") is False
+    listed = mac.evaluate("async () => (await (await fetch('/api/spaces/demo/boards')).json())")
+    assert listed["total"] == 1 and listed["boards"][0]["id"] == "q1"
+    assert len(space_strokes(server, "demo", "q1")) == 2
 
-    draw(mac, [(300, 500), (360, 540), (420, 500)], pointer_type="mouse")
-    pad.wait_for_function("() => pad.state.strokes.length === 2")
+
+def test_an_embedded_pad_switches_questions_on_one_connection(browser, server):
+    install_demo_app(server)
+    pad = open_demo(browser, server.port)
+    draw_embedded(pad, [(100, 300), (160, 340), (230, 300)])
+    # 不等回执就换题：没送达的那一笔照样落到第 1 题
+    pad.click("[data-question='2']")
+    pad.wait_for_function("() => pad.board.id === 'q2' && pad.board.data.question === 2")
+    assert pad.evaluate("() => pad.snapshot().strokes.length") == 0
+    draw_embedded(pad, [(120, 320), (180, 360)])
+    pad.wait_for_function("() => pad.snapshot().strokes.length === 1 && pad.status === 'online'")
+    assert len(space_strokes(server, "demo", "q1")) == 1
+    assert len(space_strokes(server, "demo", "q2")) == 1
+    # 换回来：第 1 题的内容还在，撤销记录是新的
+    pad.click("[data-question='1']")
+    pad.wait_for_function("() => pad.board.id === 'q1' && pad.snapshot().strokes.length === 1")
+    assert pad.evaluate("() => document.getElementById('undo').disabled") is True
 
 
 def test_an_embedded_pad_leaves_the_rest_of_the_page_alone(browser, server):
@@ -4746,6 +4776,23 @@ def test_an_embedded_pad_leaves_the_rest_of_the_page_alone(browser, server):
     assert pad.evaluate("() => document.getElementById('answer').value") == "x=2 或 x=3"
     pad.tap("button[data-tool='eraser']")
     assert pad.evaluate("() => pad.tool.tool") == "eraser"
+    # 手写板对宿主页面只装了外壳用的那一个全局对象，没有改 <html> 的属性
+    assert pad.evaluate("() => document.documentElement.dataset.shell") is None
+    assert pad.evaluate("() => typeof window.whiteboardShell") == "object"
+
+
+def test_the_pad_object_exposes_only_its_interface(browser, server):
+    install_demo_app(server)
+    pad = open_demo(browser, server.port)
+    keys = pad.evaluate("() => Object.keys(pad).sort()")
+    assert keys == sorted([
+        "open", "setTool", "undo", "redo", "clear", "fit", "zoom", "setMeta", "exportPNG",
+        "snapshot", "load", "on", "destroy", "board", "status", "tool", "caps", "locked",
+        "shell", "info", "version",
+    ])
+    assert pad.evaluate("() => Object.isFrozen(pad) && pad.state === undefined && pad.net === undefined")
+    png = pad.evaluate("async () => (await pad.exportPNG({ layers: true })).slice(0, 22)")
+    assert png == "data:image/png;base64,"
 
 
 def test_two_pads_on_one_page_keep_their_own_boards(browser, server):
@@ -4757,16 +4804,15 @@ def test_two_pads_on_one_page_keep_their_own_boards(browser, server):
           box.id = 'second';
           box.style.height = '300px';
           document.querySelector('main').append(box);
-          const { createInkPad } = await import('/sdk/inkpad.js');
-          window.pad2 = createInkPad(box, { app: 'demo', board: 'demo-q2', name: '第 2 题' });
+          const { createInkPad } = await import('/inksync/inkpad.js');
+          window.pad2 = createInkPad(box, { space: 'demo', board: 'q2', create: { name: '第 2 题' } });
         }"""
     )
-    pad.wait_for_function("() => pad2.net.status === 'online'")
-    assert pad.evaluate("() => pad.clientId !== pad2.clientId")
+    pad.wait_for_function("() => pad2.status === 'online'")
     draw_embedded(pad, [(80, 80), (140, 120), (200, 80)], selector="#second .inkpad-stage", pointer_id=2)
-    pad.wait_for_function("() => pad2.state.strokes.length === 1 && pad2.net.outbox.length === 0")
-    assert pad.evaluate("() => pad.state.strokes.length") == 0
-    assert pad.evaluate("() => pad2.state.id") == "demo-q2"
+    pad.wait_for_function("() => pad2.snapshot().strokes.length === 1 && pad2.status === 'online'")
+    assert pad.evaluate("() => pad.snapshot().strokes.length") == 0
+    assert pad.evaluate("() => pad2.board.id") == "q2"
 
     pad.evaluate("() => pad2.destroy()")
     assert pad.evaluate("() => document.querySelector('#second .inkpad-stage')") is None
@@ -4791,10 +4837,10 @@ ADD_PAD = """async ([id, options]) => {
   box.id = id;
   box.style.height = '300px';
   document.querySelector('main').append(box);
-  const { createInkPad } = await import('/sdk/inkpad.js');
+  const { createInkPad } = await import('/inksync/inkpad.js');
   const pad = createInkPad(box, options);
-  pad.ops = [];
-  pad.on('op', (op) => pad.ops.push(op));
+  const ops = (window[id + 'Ops'] = []);
+  pad.on('op', ({ op }) => ops.push(op));
   window[id] = pad;
 }"""
 
@@ -4805,41 +4851,49 @@ def test_a_local_pad_works_without_a_server(browser, server):
     page = open_demo(browser, server.port)
     seed = {"id": "seed-1", "tool": "pen", "color": "#1b1b1f", "w": 3, "p": [10, 10, 0.5, 60, 40, 0.5]}
     page.evaluate(ADD_PAD, ["solo", {"board": "local-q1", "transport": "local", "initial": {"strokes": [seed]}}])
-    page.wait_for_function("() => solo.net.status === 'local' && solo.state.strokes.length === 1")
-    assert page.evaluate("() => solo.state.meta.id") == "local-q1"
+    page.wait_for_function("() => solo.status === 'local' && solo.snapshot().strokes.length === 1")
+    assert page.evaluate("() => solo.board.id") == "local-q1"
 
     draw_embedded(page, [(80, 80), (140, 120), (200, 80)], selector="#solo .inkpad-stage", pointer_id=3)
-    page.wait_for_function("() => solo.state.strokes.length === 2")
-    assert page.evaluate("() => solo.ops.map(op => op.op)") == ["add"]
+    page.wait_for_function("() => solo.snapshot().strokes.length === 2")
     snapshot = page.evaluate("() => solo.snapshot()")
     assert [s["id"] for s in snapshot["strokes"]][0] == "seed-1" and len(snapshot["strokes"]) == 2
     page.evaluate("() => solo.undo()")
-    assert page.evaluate("() => [solo.state.strokes.length, solo.ops.at(-1).op]") == [1, "remove"]
+    assert page.evaluate("() => solo.snapshot().strokes.length") == 1
 
-    # 服务器上没有这块白板，也没有为它建连接
-    assert page.evaluate("() => solo.net.outbox.length") == 0
-    boards = page.evaluate("async () => (await (await fetch('/api/boards')).json()).boards.map(b => b.id)")
-    assert "local-q1" not in boards
+    # 服务器上没有这块白板
+    listed = page.evaluate("async () => (await (await fetch('/api/spaces/demo/boards')).json()).boards")
+    assert "local-q1" not in [b["id"] for b in listed]
 
     # 不给 initial 时用本机缓存恢复
     page.evaluate("() => solo.destroy()")
     page.wait_for_timeout(300)
     page.evaluate(ADD_PAD, ["again", {"board": "local-q1", "transport": "local"}])
-    page.wait_for_function("() => again.state.strokes.length === 1")
-    assert page.evaluate("() => again.state.strokes[0].id") == "seed-1"
+    page.wait_for_function("() => again.snapshot().strokes.length === 1")
+    assert page.evaluate("() => again.snapshot().strokes[0].id") == "seed-1"
+
+
+def test_local_pad_reports_ops(browser, server):
+    install_demo_app(server)
+    page = open_demo(browser, server.port)
+    page.evaluate(ADD_PAD, ["solo2", {"board": "local-q2", "transport": "local"}])
+    page.wait_for_function("() => solo2.status === 'local'")
+    draw_embedded(page, [(80, 80), (140, 120), (200, 80)], selector="#solo2 .inkpad-stage", pointer_id=6)
+    page.wait_for_function("() => solo2Ops.length === 1")
+    assert page.evaluate("() => solo2Ops.map(op => op.op)") == ["add"]
+    page.evaluate("() => solo2.undo()")
+    assert page.evaluate("() => solo2Ops.at(-1).op") == "remove"
 
 
 def test_a_pad_can_sync_through_a_given_url_or_a_custom_transport(browser, server):
     install_demo_app(server)
     page = open_demo(browser, server.port)
     url = f"ws://127.0.0.1:{server.port}/ws"
-    page.evaluate(ADD_PAD, ["remote", {"app": "demo", "board": "demo-url", "transport": {"url": url}}])
-    page.wait_for_function("() => remote.net.status === 'online' && remote.state.id === 'demo-url'")
+    page.evaluate(ADD_PAD, ["remote", {"space": "demo", "board": "via-url", "create": {}, "transport": {"url": url}}])
+    page.wait_for_function("() => remote.status === 'online' && remote.board && remote.board.id === 'via-url'")
     draw_embedded(page, [(80, 80), (140, 120), (200, 80)], selector="#remote .inkpad-stage", pointer_id=4)
-    page.wait_for_function("() => remote.state.strokes.length === 1 && remote.net.outbox.length === 0")
-    server.save_now()
-    _, strokes = server.hub.store.load_board("demo-url")
-    assert len(strokes) == 1
+    page.wait_for_function("() => remote.snapshot().strokes.length === 1 && remote.status === 'online'")
+    assert len(space_strokes(server, "demo", "via-url")) == 1
 
     # 自定义传输：宿主自己实现同一组成员，例如接到刷题项目自己的后端
     page.evaluate(
@@ -4849,23 +4903,49 @@ def test_a_pad_can_sync_through_a_given_url_or_a_custom_transport(browser, serve
             outbox: [], boardId: null, lastSeq: 0, epoch: null, status: 'offline',
             connect() {
               handlers.onStatus('online');
-              handlers.onMessage({ t: 'init', board: { id: 'custom-1', kind: 'board', background: 'blank' },
+              handlers.onMessage({ t: 'init', board: { id: 'custom-1', canvas: { mode: 'infinite' },
+                                   background: { pattern: 'blank' }, layers: [], data: {} },
                                    strokes: [], seq: 0, epoch: 'e1' });
             },
-            send() { return true; }, sendLive() {},
+            open() {}, send() { return true; }, sendLive() {},
             sendOp(op) { window.sent.push(op); return 'c' + window.sent.length; },
             restoreOutbox() {}, close() {},
           });
           const box = document.createElement('div');
           box.id = 'custom'; box.style.height = '300px';
           document.querySelector('main').append(box);
-          const { createInkPad } = await import('/sdk/inkpad.js');
-          window.custom = createInkPad(box, { app: 'demo', board: 'custom-1', transport });
+          const { createInkPad } = await import('/inksync/inkpad.js');
+          window.custom = createInkPad(box, { board: 'custom-1', transport });
         }"""
     )
-    page.wait_for_function("() => custom.state.id === 'custom-1'")
+    page.wait_for_function("() => custom.board && custom.board.id === 'custom-1'")
     draw_embedded(page, [(80, 80), (140, 120), (200, 80)], selector="#custom .inkpad-stage", pointer_id=5)
     page.wait_for_function("() => sent.length === 1 && sent[0].op === 'add'")
+
+
+def test_a_pad_is_told_when_the_server_was_upgraded(browser, server):
+    """服务端升级之后，还开着的页面收到 outdated；白板应用据此重新载入页面。"""
+    import inksync.server as inksync_server
+
+    install_demo_app(server)
+    pad = open_demo(browser, server.port)
+    _mac, ipad = open_pages(browser, server.port)
+    pad.evaluate("() => { window.outdated = []; pad.on('outdated', (e) => outdated.push(e)); }")
+    ipad.evaluate("() => { window.loadedAt = performance.timeOrigin; }")
+    original = inksync_server.BUILD
+    try:
+        inksync_server.BUILD = "next-build"
+
+        async def drop():
+            for space in server.app[SPACES_KEY].hubs().values():
+                await space.close_connections()
+
+        server.run_coroutine(drop()).result(10)
+        pad.wait_for_function("() => outdated.length === 1 && outdated[0].server === 'next-build'")
+        # 白板应用的页面重新载入了（新的页面没有 loadedAt）
+        ipad.wait_for_function("() => window.whiteboard && window.loadedAt === undefined", timeout=15000)
+    finally:
+        inksync_server.BUILD = original
 
 
 def test_permission_changes_update_a_connected_page(browser, server, monkeypatch):
@@ -4888,3 +4968,73 @@ def test_permission_changes_update_a_connected_page(browser, server, monkeypatch
     server.config.set_remote_permission("manage", False)
     server.refresh_permissions()
     page.wait_for_function("() => !document.querySelector('#topright button[title=\"白板\"]')")
+
+
+# ---------------------------------------------------------------- 1.x 页面（docs/design/inksync-2.zh-CN.md 7.3 节）
+
+LEGACY_WEB = Path(__file__).resolve().parent / "fixtures" / "web-1.0.1"
+
+
+@pytest.fixture
+def legacy_server(tmp_path, monkeypatch):
+    """2.0 的服务端，另外在 /v1/ 下提供 1.0.1 的前端文件：模拟升级时还开着的旧页面。"""
+    from aiohttp import web
+
+    import whiteboard.runner as runner
+
+    original = runner.create_app
+
+    def create_app(config, store=None):
+        app = original(config, store)
+
+        async def page(request):
+            html = (LEGACY_WEB / "index.html").read_text("utf-8")
+            html = html.replace("{{ROLE}}", request.query.get("role", "mac"))
+            html = html.replace("{{PERMS}}", "manage settings clear export").replace("{{BUILD}}", "1.0.1")
+            html = html.replace('"/static/', '"/v1/static/')
+            return web.Response(text=html, content_type="text/html")
+
+        app.router.add_get("/v1/", page)
+        app.router.add_static("/v1/static/", LEGACY_WEB / "static")
+        return app
+
+    monkeypatch.setattr(runner, "create_app", create_app)
+    config = Config(path=tmp_path / "config.json")
+    config.data_dir = tmp_path / "data"
+    config.port = free_port()
+    thread = ServerThread(config, advertise=False)
+    thread.start()
+    yield thread
+    thread.stop()
+
+
+def test_a_1x_page_keeps_working_against_the_2_0_server(browser, legacy_server):
+    port = legacy_server.port
+    old = browser.new_page(viewport={"width": 1200, "height": 800})
+    old.goto(f"http://127.0.0.1:{port}/v1/?role=mac")
+    old.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    assert old.evaluate("() => whiteboard.state.meta.background") == "grid"  # 1.x 的字段
+    _mac, ipad = open_pages(browser, port)
+
+    # 两边互相看得到对方写的内容
+    draw(old, [(300, 300), (360, 340), (420, 300)], pointer_type="mouse")
+    wait_strokes(ipad, 1)
+    draw(ipad, [(300, 420), (360, 460), (420, 420)])
+    wait_strokes(old, 2)
+
+    # 旧页面上新建笔记：新页面跟着切过去；旧页面看到的是 1.x 的元数据
+    old.evaluate("() => whiteboard.net.send({ t: 'newboard', kind: 'note' })")
+    ipad.wait_for_function("() => whiteboard.state.meta.canvas.mode === 'column'")
+    old.wait_for_function("() => whiteboard.state.kind === 'note' && whiteboard.state.meta.kind === 'note'")
+    board = old.evaluate("() => whiteboard.state.id")
+
+    # 改名、归类
+    old.evaluate(f"() => whiteboard.net.send({{ t: 'rename', board: '{board}', name: '旧页面改的名' }})")
+    ipad.wait_for_function("() => whiteboard.state.meta.name === '旧页面改的名'")
+    old.evaluate(f"() => whiteboard.net.send({{ t: 'folder', board: '{board}', folder: '数学' }})")
+    old.wait_for_function(f"() => whiteboard.ui.boards.find(b => b.id === '{board}').folder === '数学'")
+    ipad.wait_for_function("() => whiteboard.state.meta.data.folder === '数学'")
+
+    # 新页面改背景，旧页面收到的是字符串形式
+    ipad.evaluate("() => whiteboard.setMeta({ background: { pattern: 'dots' } })")
+    old.wait_for_function("() => whiteboard.state.meta.background === 'dots'")
