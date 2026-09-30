@@ -61,7 +61,7 @@ Creates a pad inside `container` and returns it. The pad fills the container and
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `app` | string | Required. App name, `^[a-z0-9-]{1,32}$`. |
+| `app` | string | App name, `^[a-z0-9-]{1,32}$`. Required unless `transport` is `"local"`. |
 | `board` | string | Required. Board ID, `^[A-Za-z0-9_-]{1,64}$`. The same ID is the same board on every device. |
 | `name` | string | Name of a new board. |
 | `kind` | string | `board` (default, infinite board) or `note` (note board) for a new board. |
@@ -70,6 +70,8 @@ Creates a pad inside `container` and returns it. The pad fills the container and
 | `tool` | object | Initial tool: `{tool, color, width, eraserMode}`. |
 | `fingerDraw` | boolean | Whether a finger draws. Default: only Apple Pencil draws; fingers pan and zoom. |
 | `role` | string | `ipad` or `mac`. Default: detected from the device. |
+| `transport` | string, object or function | How the pad syncs; see [Transports](#transports). Default: the server that served the page. |
+| `initial` | object | `{meta, strokes}`: initial content when `transport` is `"local"`. |
 
 `name`, `kind`, `folder` and `underlay` apply only when the board is created. The board is created the first time any device opens it; see [Pinned connections](protocol.md#pinned-connections).
 
@@ -87,6 +89,8 @@ With an `underlay`, the pad first opens with the image filling its width. After 
 | `exportPNG()` | Returns the ink as a PNG data URL, without the underlay. |
 | `on(event, listener)` | Subscribes to an event; returns a function that unsubscribes. |
 | `destroy()` | Saves to the local cache, disconnects and removes the pad from the page. |
+| `snapshot()` | Returns the current content as `{meta, strokes}`. |
+| `load(board)` | Replaces the content with `{meta, strokes}` and clears undo. Intended for `"local"` pads. |
 
 `pad.tool`, `pad.state`, `pad.locked` and `pad.net.status` can be read. Other properties are internal.
 
@@ -94,15 +98,39 @@ With an `underlay`, the pad first opens with the image filling its width. After 
 
 | Event | Detail | When |
 | --- | --- | --- |
-| `status` | `"online"`, `"syncing"` or `"offline"` | The connection state changes. |
+| `status` | `"online"`, `"syncing"`, `"offline"` or `"local"` | The connection state changes. A `"local"` pad reports `"local"` once. |
 | `history` | `{undo, redo}` | Undo or redo becomes available or unavailable. |
 | `meta` | Board metadata | The board is loaded or its settings change. |
+| `op` | The operation | This device sends an operation (`add`, `remove`, `restore`, `mask`, `clear`, `meta`; see [Operations](protocol.md#operations)). Sent with every transport. |
 | `change` | — | The ink changes on this device. |
 | `strokestart` / `strokeend` | The stroke | A stroke starts or ends on this device. |
 | `locked` | `{board, locked, unlock}` | The board opens read-only, or read-only ends. `unlock()` asks the server to allow editing (needs the “管理白板” (Manage boards) permission). |
 | `interrupted` | `{count}` | The system interrupted strokes three times in a row, usually because of Scribble. |
 | `deleted` | `{board}` | The board was deleted on the Mac. |
 | `error` | `{reason}` | The server refused the connection, for example because of an invalid `board` or `app`. |
+
+## Transports
+
+The `transport` option decides where the pad sends its operations.
+
+| Value | Behavior |
+| --- | --- |
+| Omitted | WebSocket to `/ws` on the server that served the page. |
+| `"local"` | No server. The status is `"local"` and nothing is sent. Content comes from `initial`, else the local cache, else an empty board. Save it from the `op` event or `snapshot()`. |
+| `{url}` | WebSocket to the given address, for example `ws://mac.local:8848/ws`. A page served over https cannot connect to a `ws://` address. |
+| Function | Custom transport. Called with `{clientId, role, pin, onMessage, onStatus}`; returns an object with the members below. |
+
+A custom transport implements the same members as the built-in WebSocket transport (`net.js`):
+
+| Member | Description |
+| --- | --- |
+| `connect()` | Starts syncing. Deliver server messages to `onMessage` in the format of [protocol.md](protocol.md), starting with `init` or `sync`, and state changes to `onStatus`. |
+| `send(msg)` | Sends a control message such as `unlock`. Returns `false` if it could not be sent. |
+| `sendLive(msg)` | Sends live ink. Losing it is harmless. |
+| `sendOp(op)` | Sends an operation and returns an ID. Keep it in `outbox` until the server acknowledges it; report the acknowledgement as `onMessage({t: "op", op, mine: true})`. |
+| `restoreOutbox(items)` | Puts operations from the previous session back into `outbox` and sends them. |
+| `close()` | Stops syncing. |
+| `outbox`, `boardId`, `lastSeq`, `epoch`, `status` | State the pad reads and writes. |
 
 ## Behavior
 

@@ -4784,3 +4784,85 @@ def test_the_ipad_opens_the_chosen_home_app(browser, server):
     mac = browser.new_page()
     mac.goto(f"http://127.0.0.1:{server.port}/?role=mac")
     assert "/apps/" not in mac.url
+
+
+ADD_PAD = """async ([id, options]) => {
+  const box = document.createElement('div');
+  box.id = id;
+  box.style.height = '300px';
+  document.querySelector('main').append(box);
+  const { createInkPad } = await import('/sdk/inkpad.js');
+  const pad = createInkPad(box, options);
+  pad.ops = [];
+  pad.on('op', (op) => pad.ops.push(op));
+  window[id] = pad;
+}"""
+
+
+def test_a_local_pad_works_without_a_server(browser, server):
+    """transport: "local"：不连服务器，内容由宿主通过 op 事件和 snapshot() 自己保存。"""
+    install_demo_app(server)
+    page = open_demo(browser, server.port)
+    seed = {"id": "seed-1", "tool": "pen", "color": "#1b1b1f", "w": 3, "p": [10, 10, 0.5, 60, 40, 0.5]}
+    page.evaluate(ADD_PAD, ["solo", {"board": "local-q1", "transport": "local", "initial": {"strokes": [seed]}}])
+    page.wait_for_function("() => solo.net.status === 'local' && solo.state.strokes.length === 1")
+    assert page.evaluate("() => solo.state.meta.id") == "local-q1"
+
+    draw_embedded(page, [(80, 80), (140, 120), (200, 80)], selector="#solo .inkpad-stage", pointer_id=3)
+    page.wait_for_function("() => solo.state.strokes.length === 2")
+    assert page.evaluate("() => solo.ops.map(op => op.op)") == ["add"]
+    snapshot = page.evaluate("() => solo.snapshot()")
+    assert [s["id"] for s in snapshot["strokes"]][0] == "seed-1" and len(snapshot["strokes"]) == 2
+    page.evaluate("() => solo.undo()")
+    assert page.evaluate("() => [solo.state.strokes.length, solo.ops.at(-1).op]") == [1, "remove"]
+
+    # 服务器上没有这块白板，也没有为它建连接
+    assert page.evaluate("() => solo.net.outbox.length") == 0
+    boards = page.evaluate("async () => (await (await fetch('/api/boards')).json()).boards.map(b => b.id)")
+    assert "local-q1" not in boards
+
+    # 不给 initial 时用本机缓存恢复
+    page.evaluate("() => solo.destroy()")
+    page.wait_for_timeout(300)
+    page.evaluate(ADD_PAD, ["again", {"board": "local-q1", "transport": "local"}])
+    page.wait_for_function("() => again.state.strokes.length === 1")
+    assert page.evaluate("() => again.state.strokes[0].id") == "seed-1"
+
+
+def test_a_pad_can_sync_through_a_given_url_or_a_custom_transport(browser, server):
+    install_demo_app(server)
+    page = open_demo(browser, server.port)
+    url = f"ws://127.0.0.1:{server.port}/ws"
+    page.evaluate(ADD_PAD, ["remote", {"app": "demo", "board": "demo-url", "transport": {"url": url}}])
+    page.wait_for_function("() => remote.net.status === 'online' && remote.state.id === 'demo-url'")
+    draw_embedded(page, [(80, 80), (140, 120), (200, 80)], selector="#remote .inkpad-stage", pointer_id=4)
+    page.wait_for_function("() => remote.state.strokes.length === 1 && remote.net.outbox.length === 0")
+    server.save_now()
+    _, strokes = server.hub.store.load_board("demo-url")
+    assert len(strokes) == 1
+
+    # 自定义传输：宿主自己实现同一组成员，例如接到刷题项目自己的后端
+    page.evaluate(
+        """async () => {
+          window.sent = [];
+          const transport = (handlers) => ({
+            outbox: [], boardId: null, lastSeq: 0, epoch: null, status: 'offline',
+            connect() {
+              handlers.onStatus('online');
+              handlers.onMessage({ t: 'init', board: { id: 'custom-1', kind: 'board', background: 'blank' },
+                                   strokes: [], seq: 0, epoch: 'e1' });
+            },
+            send() { return true; }, sendLive() {},
+            sendOp(op) { window.sent.push(op); return 'c' + window.sent.length; },
+            restoreOutbox() {}, close() {},
+          });
+          const box = document.createElement('div');
+          box.id = 'custom'; box.style.height = '300px';
+          document.querySelector('main').append(box);
+          const { createInkPad } = await import('/sdk/inkpad.js');
+          window.custom = createInkPad(box, { app: 'demo', board: 'custom-1', transport });
+        }"""
+    )
+    page.wait_for_function("() => custom.state.id === 'custom-1'")
+    draw_embedded(page, [(80, 80), (140, 120), (200, 80)], selector="#custom .inkpad-stage", pointer_id=5)
+    page.wait_for_function("() => sent.length === 1 && sent[0].op === 'add'")

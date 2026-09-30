@@ -61,7 +61,7 @@ pad.undo();
 
 | 选项 | 类型 | 说明 |
 | --- | --- | --- |
-| `app` | 字符串 | 必填。应用名称，须符合 `^[a-z0-9-]{1,32}$`。 |
+| `app` | 字符串 | 应用名称，须符合 `^[a-z0-9-]{1,32}$`。`transport` 为 `"local"` 时可以省略，其他情况必填。 |
 | `board` | 字符串 | 必填。白板 id，须符合 `^[A-Za-z0-9_-]{1,64}$`。同一 id 在所有设备上是同一块白板。 |
 | `name` | 字符串 | 新建白板的名称。 |
 | `kind` | 字符串 | 新建白板的类型：`board`（默认，大白板）或 `note`（笔记）。 |
@@ -70,6 +70,8 @@ pad.undo();
 | `tool` | 对象 | 初始工具：`{tool, color, width, eraserMode}`。 |
 | `fingerDraw` | 布尔值 | 手指是否书写。默认只有 Apple Pencil 书写，手指用于平移和缩放。 |
 | `role` | 字符串 | `ipad` 或 `mac`，默认按设备判断。 |
+| `transport` | 字符串、对象或函数 | 同步方式，见[传输](#传输)。默认连接提供该页面的服务端。 |
+| `initial` | 对象 | `{meta, strokes}`：`transport` 为 `"local"` 时的初始内容。 |
 
 `name`、`kind`、`folder` 和 `underlay` 只在新建白板时生效。任一设备第一次打开某块白板时即新建，见[固定白板的连接](protocol.zh-CN.md#固定白板的连接)。
 
@@ -87,6 +89,8 @@ pad.undo();
 | `exportPNG()` | 以 PNG data URL 返回笔迹，不含底图。 |
 | `on(event, listener)` | 订阅事件，返回取消订阅的函数。 |
 | `destroy()` | 写入本地缓存、断开连接，并从页面中移除手写板。 |
+| `snapshot()` | 以 `{meta, strokes}` 返回当前内容。 |
+| `load(board)` | 以 `{meta, strokes}` 替换当前内容，并清空撤销记录。用于 `"local"` 手写板。 |
 
 可以读取 `pad.tool`、`pad.state`、`pad.locked` 和 `pad.net.status`。其余属性属于内部实现。
 
@@ -94,15 +98,39 @@ pad.undo();
 
 | 事件 | 内容 | 触发时机 |
 | --- | --- | --- |
-| `status` | `"online"`、`"syncing"` 或 `"offline"` | 连接状态变化。 |
+| `status` | `"online"`、`"syncing"`、`"offline"` 或 `"local"` | 连接状态变化。`"local"` 手写板只报告一次 `"local"`。 |
 | `history` | `{undo, redo}` | 撤销或重做变为可用或不可用。 |
 | `meta` | 白板元数据 | 白板载入或设置变化。 |
+| `op` | 该操作 | 本设备发出一个操作（`add`、`remove`、`restore`、`mask`、`clear`、`meta`，见[操作](protocol.zh-CN.md#操作)）。任何传输方式下都会触发。 |
 | `change` | —— | 本设备上的笔迹发生变化。 |
 | `strokestart` / `strokeend` | 该笔画 | 本设备上一笔开始或结束。 |
 | `locked` | `{board, locked, unlock}` | 白板以只读方式打开，或解除只读。`unlock()` 请求服务端允许编辑（需要「管理白板」权限）。 |
 | `interrupted` | `{count}` | 笔画连续三次被系统打断，通常是「随手写」造成的。 |
 | `deleted` | `{board}` | 白板在 Mac 上被删除。 |
 | `error` | `{reason}` | 服务端拒绝了连接，例如 `board` 或 `app` 不合法。 |
+
+## 传输
+
+`transport` 选项决定手写板把操作发往何处。
+
+| 取值 | 行为 |
+| --- | --- |
+| 省略 | 通过 WebSocket 连接提供该页面的服务端的 `/ws`。 |
+| `"local"` | 不连接服务器。状态为 `"local"`，不发送任何内容。内容依次取自 `initial`、本地缓存，都没有时为空白板。由宿主通过 `op` 事件或 `snapshot()` 保存。 |
+| `{url}` | 通过 WebSocket 连接指定地址，例如 `ws://mac.local:8848/ws`。通过 https 提供的页面不能连接 `ws://` 地址。 |
+| 函数 | 自定义传输。调用时传入 `{clientId, role, pin, onMessage, onStatus}`，返回实现下列成员的对象。 |
+
+自定义传输实现与内置 WebSocket 传输（`net.js`）相同的成员：
+
+| 成员 | 说明 |
+| --- | --- |
+| `connect()` | 开始同步。把服务端消息按 [protocol.zh-CN.md](protocol.zh-CN.md) 的格式交给 `onMessage`，第一条为 `init` 或 `sync`；状态变化交给 `onStatus`。 |
+| `send(msg)` | 发送控制消息，例如 `unlock`。无法发送时返回 `false`。 |
+| `sendLive(msg)` | 发送实时笔迹，丢失无妨。 |
+| `sendOp(op)` | 发送操作并返回一个 id。收到服务端回执之前保留在 `outbox` 中；回执以 `onMessage({t: "op", op, mine: true})` 的形式报告。 |
+| `restoreOutbox(items)` | 把上次未发出的操作放回 `outbox` 并发送。 |
+| `close()` | 停止同步。 |
+| `outbox`、`boardId`、`lastSeq`、`epoch`、`status` | 手写板读写的状态。 |
 
 ## 行为
 
