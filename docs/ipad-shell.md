@@ -97,7 +97,7 @@ The Settings app page of the shell also shows “版本” (Version) and “当�
 
 Page loading:
 
-- The page URL is `http://<host>.local:<port>/?role=ipad`. `role=ipad` makes the server return the iPad interface (`detect_role` in `whiteboard/server.py`). The host and port come from the TXT record of the Bonjour service (section 8.4).
+- The page URL is `http://<host>.local:<port>/?role=ipad`. `role=ipad` makes the server return the iPad interface (`detect_role` in `packages/inksync/inksync/ws.py`, used by `whiteboard/server.py`). The host and port come from the TXT record of the Bonjour service (section 8.4).
 - Each load ignores the local cache and times out after 8 s.
 - When loading fails, the shell shows the error and two buttons, “重试” (Retry) and “重新查找 Mac” (Find Mac again).
 - When a new navigation starts, the shell stops sending samples until the page completes the handshake again (section 5.2).

@@ -1,0 +1,303 @@
+"""白板数据模型与线上数据的校验。
+
+内存 / WebSocket / 磁盘三处共用同一套字段命名，区别只在于落盘时 ``p``
+（点数组）会被 :mod:`inksync.codec` 压成 base64 字符串。
+
+笔画（stroke）::
+
+    {"id": "c3f1-17", "tool": "pen", "color": "#1b1b1f", "w": 3.0,
+     "p": [x, y, pressure, ...], "n": 42, "dev": "ipad"}
+
+``n`` 是服务端分配的层叠序号，客户端按 ``n`` 升序绘制，撤销「擦除」时
+用原始 ``n`` 复原，保证前后关系不会错乱。
+"""
+
+from __future__ import annotations
+
+import math
+import re
+import time
+import uuid
+from typing import Any, Dict, List, Optional
+
+# 白板的延伸方式，创建时选定、之后不可更改：
+#   board —— 四个方向都无限，是一块大白板；
+#   note  —— 宽度固定成一页，只向下无限延伸，像笔记本；
+#   doc   —— 由一份 PDF / 图片生成，页面自上而下排好，只能在页面上写。
+KINDS = ("board", "note", "doc")
+
+BACKGROUNDS = ("blank", "grid", "lines", "dots")
+DOC_TYPES = ("pdf", "image")
+MAX_DOC_PAGES = 400
+TOOLS = ("pen", "marker", "highlighter")
+
+MAX_POINTS_PER_STROKE = 20000
+# 遮罩的上限，按**总胶囊段数**算，和前端一个口径。
+#
+# 以前这里是「最多 64 条链、每条链最多 256 个点」，而前端管的是总段数
+# （stroke.js 的 MASK_LIMIT，400 段，超了就抽稀或落实成切分）。两个口径对不上，
+# 前端合法的遮罩到这里会被悄悄截断：真机录像里一次擦除攒出 113 条链，截到 64，
+# 43% 的擦除就这么没了。截断的结果既广播给对端，也顺着回执盖回发送端自己，
+# 所以那边刚擦掉的墨过一会儿自己又回来一部分——看上去像随机，其实是这一刀。
+#
+# 现在按总段数算，数值放在前端上限之上留出版本差的余量；
+# tests/test_models.py 里有用例把两边钉在一起，防止再次跑偏。
+MAX_MASK_SEGMENTS = 1024
+MIN_WIDTH = 0.5
+MAX_WIDTH = 96.0
+
+_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+# 由其他应用指定的白板 id（见 docs/protocol.md「固定白板的连接」）。比 _ID_RE 严：
+# 文件名只保留字母、数字、- 和 _，含其他字符的 id 会和别的 id 落到同一个文件上。
+PINNED_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# 建立这块白板的应用名，例如 "qb"。
+APP_RE = re.compile(r"^[a-z0-9-]{1,32}$")
+# 底图（例如题图）：只能是本服务 /apps/ 下的地址，不能指向别的站点或上级目录。
+UNDERLAY_SRC_RE = re.compile(r"^/apps/[A-Za-z0-9._~%-]+(?:/[A-Za-z0-9._~%-]+)*$")
+MAX_UNDERLAY_WIDTH = 10000.0
+
+
+def sanitize_underlay(raw: Any) -> Optional[Dict[str, Any]]:
+    """底图：``{"src": "/apps/<应用>/...", "width": 世界坐标宽度}``，左上角在原点。"""
+    if not isinstance(raw, dict):
+        return None
+    src, width = raw.get("src"), raw.get("width")
+    if not isinstance(src, str) or len(src) > 512 or not UNDERLAY_SRC_RE.match(src):
+        return None
+    if any(part in (".", "..") for part in src.split("/")):
+        return None
+    if not is_number(width) or not 1 <= float(width) <= MAX_UNDERLAY_WIDTH:
+        return None
+    return {"src": src, "width": float(width)}
+
+
+def now() -> float:
+    return time.time()
+
+
+def new_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
+def clamp(value: float, low: float, high: float) -> float:
+    return low if value < low else (high if value > high else value)
+
+
+def is_number(value: Any) -> bool:
+    """有限的数。布尔值在 Python 里是 int 的子类，要单独排除；NaN 和无穷大
+    存盘编码时会出错（codec 要把它们转成整数），发给浏览器时 JSON.parse 也读不了。"""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def new_board_meta(name: str = "", **overrides: Any) -> Dict[str, Any]:
+    meta = {
+        "id": new_id(),
+        "name": name,
+        "kind": "board",
+        "background": "grid",
+        "created": now(),
+        "updated": now(),
+    }
+    meta.update(overrides)
+    return sanitize_meta(meta)
+
+
+def sanitize_doc(raw: Any) -> Optional[Dict[str, Any]]:
+    """文档板的附加信息：原件类型、文件名和每页尺寸。"""
+    if not isinstance(raw, dict):
+        return None
+    doc_type = raw.get("type")
+    if doc_type not in DOC_TYPES:
+        return None
+    pages_raw = raw.get("pages")
+    if not isinstance(pages_raw, list) or not pages_raw:
+        return None
+    pages: List[List[float]] = []
+    for page in pages_raw[:MAX_DOC_PAGES]:
+        if not isinstance(page, (list, tuple)) or len(page) != 2:
+            return None
+        try:
+            width, height = float(page[0]), float(page[1])
+        except (TypeError, ValueError):
+            return None
+        if not (0 < width < 1e6 and 0 < height < 1e6):
+            return None
+        pages.append([round(width, 2), round(height, 2)])
+
+    name = raw.get("name")
+    name = name[:128] if isinstance(name, str) else ""
+    ext = raw.get("ext")
+    ext = ext[:8].lower() if isinstance(ext, str) else ""
+    if ext and not re.match(r"^\.[a-z0-9]{1,7}$", ext):
+        ext = ""
+    return {"type": doc_type, "name": name, "ext": ext, "pages": pages}
+
+
+FOLDER_NAME_MAX = 64
+
+
+def sanitize_folder(raw: Any) -> str:
+    """规整文件夹名。不是字符串、去掉首尾空白之后是空串，都当作「没归类」。"""
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip()[:FOLDER_NAME_MAX]
+
+
+def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """把（可能来自局域网客户端的）白板元数据收敛到合法范围。
+
+    老版本的文件里可能还带着 cols / rows / unit，直接丢掉即可：画布已经是无限的。
+    """
+    background = raw.get("background", "grid")
+    if background not in BACKGROUNDS:
+        background = "grid"
+
+    kind = raw.get("kind", "board")
+    if kind not in KINDS:
+        kind = "board"
+
+    # 文档板离了原件就没有意义，信息不全时按普通白板处理。
+    doc = sanitize_doc(raw.get("doc"))
+    if kind == "doc" and doc is None:
+        kind = "board"
+    if kind != "doc":
+        doc = None
+
+    name = raw.get("name", "")
+    if not isinstance(name, str):
+        name = ""
+    name = name.strip()
+
+    # 文件夹只有一层，白板记的是文件夹的名字，没有单独的文件夹 id。空串表示
+    # 没归类。名字列表另外存在索引里，见 store.BoardStore.folders。
+    folder = sanitize_folder(raw.get("folder", ""))
+
+    board_id = raw.get("id", "")
+    if not isinstance(board_id, str) or not _ID_RE.match(board_id):
+        board_id = new_id()
+
+    try:
+        created = float(raw.get("created", now()))
+    except (TypeError, ValueError):
+        created = now()
+    try:
+        updated = float(raw.get("updated", created))
+    except (TypeError, ValueError):
+        updated = created
+
+    meta = {
+        "id": board_id,
+        "name": name[:64],
+        "kind": kind,
+        "background": background,
+        "created": created,
+        "updated": updated,
+    }
+    # 没归类的白板不带这个字段，省得每块白板的元数据里都多一个空串
+    if folder:
+        meta["folder"] = folder
+    app = raw.get("app")
+    if isinstance(app, str) and APP_RE.match(app):
+        meta["app"] = app
+    underlay = sanitize_underlay(raw.get("underlay"))
+    if underlay is not None:
+        meta["underlay"] = underlay
+    if doc is not None:
+        meta["doc"] = doc
+    return meta
+
+
+def sanitize_stroke(raw: Any) -> Optional[Dict[str, Any]]:
+    """校验单个笔画，非法数据返回 ``None`` 而不是抛错（一条坏数据不该断开连接）。"""
+    if not isinstance(raw, dict):
+        return None
+    stroke_id = raw.get("id")
+    if not isinstance(stroke_id, str) or not _ID_RE.match(stroke_id):
+        return None
+
+    points_raw = raw.get("p")
+    if not isinstance(points_raw, list) or len(points_raw) < 3:
+        return None
+    if len(points_raw) % 3 != 0 or len(points_raw) > MAX_POINTS_PER_STROKE * 3:
+        return None
+    points: List[float] = []
+    for value in points_raw:
+        if not is_number(value):
+            return None
+        points.append(float(value))
+
+    tool = raw.get("tool", "pen")
+    if tool not in TOOLS:
+        tool = "pen"
+    color = raw.get("color", "#1b1b1f")
+    if not isinstance(color, str) or not _COLOR_RE.match(color):
+        color = "#1b1b1f"
+    try:
+        width = float(raw.get("w", 3.0))
+    except (TypeError, ValueError):
+        width = 3.0
+    if math.isnan(width):
+        width = 3.0  # NaN 比较全是 False，clamp 会原样放行
+    width = clamp(width, MIN_WIDTH, MAX_WIDTH)
+    device = raw.get("dev", "")
+    if not isinstance(device, str):
+        device = ""
+
+    stroke = {
+        "id": stroke_id,
+        "tool": tool,
+        "color": color,
+        "w": width,
+        "p": points,
+        "dev": device[:16],
+    }
+    mask = sanitize_mask(raw.get("m"))
+    if mask:
+        stroke["m"] = mask
+    # 橡皮切出来的端头：1 = 起点是切口，2 = 终点是切口，画平口而不是圆笔尖
+    cut = raw.get("cut")
+    if isinstance(cut, int) and not isinstance(cut, bool) and 1 <= cut <= 3:
+        stroke["cut"] = cut
+    n = raw.get("n")
+    if isinstance(n, int) and not isinstance(n, bool) and 0 <= n < 1 << 40:
+        stroke["n"] = n
+    return stroke
+
+
+def sanitize_mask(raw: Any) -> List[List[float]]:
+    """遮罩：``[[半径, x0, y0, x1, y1, ...], ...]``，橡皮啃掉的那几块。
+
+    比笔细的橡皮切不断截面，只能啃；啃出来的形状用胶囊记下来，渲染和导出时
+    从轮廓里裁掉。非法数据整条丢掉而不是抛错，和 sanitize_stroke 一个原则。
+    """
+    if not isinstance(raw, list):
+        return []
+    out: List[List[float]] = []
+    budget = MAX_MASK_SEGMENTS
+    for chain in raw:
+        if budget <= 0:
+            break
+        if not isinstance(chain, list) or len(chain) < 5 or len(chain) % 2 == 0:
+            continue
+        # 一条链 [r, x0, y0, x1, y1, ...]：点数是 (len-1)/2，段数比点数少一个
+        values: List[float] = []
+        for value in chain[: budget * 2 + 3]:
+            if not is_number(value):
+                break
+            values.append(float(value))
+        else:
+            if values[0] > 0:
+                out.append(values)
+                budget -= max(1, (len(values) - 3) // 2)
+    return out
+
+
+def sanitize_ids(raw: Any, limit: int = 5000) -> List[str]:
+    if not isinstance(raw, list):
+        return []
+    out: List[str] = []
+    for value in raw[:limit]:
+        if isinstance(value, str) and _ID_RE.match(value):
+            out.append(value)
+    return out

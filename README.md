@@ -427,12 +427,16 @@ After three consecutive interruptions, the page shows a notice about Scribble. *
 ### Source tree
 
 ```
+packages/inksync/   sync server, installable on its own (see its README)
+  inksync/
+    ws.py       WebSocket protocol; mount() for any aiohttp app
+    hub.py      operation log, broadcast, autosave, read-only boards
+    store.py    board persistence (zlib + compact point encoding)
+    codec.py    quantization, delta coding and varint packing for points
+    models.py   data models and validation of network input
 whiteboard/
-  server.py     aiohttp routes and the WebSocket protocol
-  hub.py        operation log, broadcast, autosave, read-only boards
-  store.py      board persistence (zlib + compact point encoding)
-  codec.py      quantization, delta coding and varint packing for points
-  models.py     data models and validation of network input
+  server.py     aiohttp routes; mounts the inksync protocol at /ws
+  hub.py, store.py   inksync plus document boards and thumbnails
   config.py     settings file; command-line values that apply to one run only
   backup.py     copies the boards before a new version first touches them
   docs.py       document boards: reading, rendering and exporting PDFs / images

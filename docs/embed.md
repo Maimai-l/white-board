@@ -120,6 +120,8 @@ The `transport` option decides where the pad sends its operations.
 | `{url}` | WebSocket to the given address, for example `ws://mac.local:8848/ws`. A page served over https cannot connect to a `ws://` address. |
 | Function | Custom transport. Called with `{clientId, role, pin, onMessage, onStatus}`; returns an object with the members below. |
 
+To store and sync boards on another project's own server instead of the whiteboard app, mount the protocol there with [inksync](../packages/inksync/README.md) and serve the page from that server, or point `{url}` at it.
+
 A custom transport implements the same members as the built-in WebSocket transport (`net.js`):
 
 | Member | Description |
