@@ -249,6 +249,7 @@ class Hub:
         name: str = "",
         kind: str = "board",
         folder: str = "",
+        underlay: Any = None,
     ) -> Dict[str, Any]:
         """固定连接指定的白板：已有就原样返回，没有就新建。新建不改变当前白板。
 
@@ -264,6 +265,7 @@ class Hub:
             id=board_id,
             kind=kind if kind in ("board", "note") else "board",
             app=app,
+            underlay=underlay,
         )
         clean = models.sanitize_folder(folder)
         if clean:

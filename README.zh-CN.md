@@ -473,6 +473,7 @@ tools/          check_boards.py（升级前检查白板）及研究用脚本
 | [docs/ipad-shell.zh-CN.md](docs/ipad-shell.zh-CN.md) | iPad 外壳设计 |
 | [docs/recording.zh-CN.md](docs/recording.zh-CN.md) | 输入录制 |
 | [docs/release-checklist.zh-CN.md](docs/release-checklist.zh-CN.md) | 发布检查清单 |
+| [docs/embed.zh-CN.md](docs/embed.zh-CN.md) | 在其他应用中嵌入手写板 |
 
 输入录制用于在 iPad 上记录只有真实 Pencil 才能产生的问题（压感、倾角、一帧内合并的采样点、抬笔前后的时序），并在开发机上回放。打开诊断面板，使用左下角的「录制输入」。
 

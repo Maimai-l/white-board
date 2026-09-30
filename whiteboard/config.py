@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 import tempfile
 import time
@@ -21,6 +22,9 @@ DEFAULT_PORT = 8848
 APP_NAME = "Whiteboard"
 
 # 局域网上别的设备可以被授予的权限。名字同时是配置的键和界面上的分组。
+# 应用名，与 models.APP_RE 相同
+IPAD_HOME_RE = re.compile(r"^[a-z0-9-]{1,32}$")
+
 REMOTE_PERMISSIONS = ("manage", "settings", "clear", "export")
 
 
@@ -55,6 +59,8 @@ class Config:
             "remote_permissions": {},
             # 上一次运行的版本号。换了版本（升级或降级）时先备份白板，见 backup.py
             "last_version": "",
+            # iPad 打开时进入的应用（存储目录 apps/ 下的文件夹名）；空串是白板本身
+            "ipad_home": "",
         }
         # 只在这一次运行里有效、不写进配置文件的值：命令行给的端口和存储目录，
         # 以及端口被占用时实际顺延到的那个端口。以前这些都直接写进配置，
@@ -167,6 +173,18 @@ class Config:
         current[name] = bool(enabled)
         self.values["remote_permissions"] = current
         return current
+
+    @property
+    def ipad_home(self) -> str:
+        value = self.values.get("ipad_home", "")
+        return value if isinstance(value, str) and IPAD_HOME_RE.match(value) else ""
+
+    @ipad_home.setter
+    def ipad_home(self, value: str) -> None:
+        value = str(value or "")
+        if value and not IPAD_HOME_RE.match(value):
+            raise ValueError(f"应用名不合法：{value}")
+        self.values["ipad_home"] = value
 
     @property
     def skip_version(self) -> str:

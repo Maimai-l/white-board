@@ -61,6 +61,15 @@ CI browsers do not reproduce iPadOS problems where a text field does not accept 
 - [ ] iOS does not autocorrect or capitalize the first letter while renaming.
 - [ ] In the new-folder dialog, the keyboard does not cover the text field. After the keyboard closes, the layout and the tool picker position are correct.
 
+### Embedded pad
+
+Copy `examples/apps/demo/` into `apps/` in the storage directory first.
+
+- [ ] In the iPad shell, open `/apps/demo/`. The diagnostics panel is not available there, but fast Pencil strokes are as smooth as in the whiteboard.
+- [ ] The answer field accepts typing, and the tool buttons work.
+- [ ] Strokes written in the demo appear on the Mac after opening “示例 第 1 题” in the board chooser, with the question image under them.
+- [ ] Set “iPad 首页” (iPad home) to `demo` on the Mac. Reopening the shell shows the demo; its “白板” link returns to the whiteboard. Set it back to “白板”.
+
 ### Home Screen icon
 
 - [ ] When opened from the Home Screen icon, PNG export saves the file.

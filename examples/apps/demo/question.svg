@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="260" viewBox="0 0 800 260">
+  <rect width="800" height="260" fill="#ffffff"/>
+  <text x="32" y="56" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="26" fill="#1b1b1f">第 1 题</text>
+  <text x="32" y="112" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="24" fill="#1b1b1f">求解方程 x² − 5x + 6 = 0。</text>
+  <text x="32" y="164" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="20" fill="#5f5e66">在下方空白处写出解题过程，把答案填入输入框。</text>
+  <line x1="32" y1="220" x2="768" y2="220" stroke="#c8c5d0" stroke-width="2" stroke-dasharray="8 8"/>
+</svg>

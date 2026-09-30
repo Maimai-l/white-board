@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 from . import __version__, netinfo, profile, resources, updater
 from .config import Config
 from .runner import ServerThread
+from .server import list_apps
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +53,8 @@ class NativeApi:
             "urls": netinfo.candidate_urls(self.server.port),
             "data_dir": str(self.config.data_dir),
             "remote_permissions": self.config.remote_permissions,
+            "apps": list_apps(self.config),
+            "ipad_home": self.config.ipad_home,
             "log": str(resources.log_path()),
             "releases": f"https://github.com/{updater.REPO}/releases",
         }
@@ -152,6 +155,17 @@ class NativeApi:
         self.config.save()
         log.info("其他设备的 %s 权限：%s", name, "开" if granted[name] else "关")
         return granted
+
+    def set_ipad_home(self, name: str) -> Optional[str]:
+        """设定 iPad 打开时进入的应用；空串是白板本身。返回设定后的值，名字不对返回 None。"""
+        name = str(name or "")
+        if name and name not in list_apps(self.config):
+            log.warning("没有这个应用：%s", name)
+            return None
+        self.config.ipad_home = name
+        self.config.save()
+        log.info("iPad 首页：%s", name or "白板")
+        return name
 
     def set_auto_update(self, enabled: bool) -> bool:
         self.config.auto_update = bool(enabled)

@@ -84,6 +84,8 @@ def test_a_pinned_connection_creates_its_board_without_switching_others(tmp_path
             assert init["board"]["app"] == "qb"
             assert hub.current_id == before  # 跟随的连接没有被切走
             assert "刷题" in hub.store.folders()
+            listed = await receive(mac, "boards")  # 新白板出现在其他设备的列表里
+            assert any(b["id"] == "qb-9709-q3" for b in listed["boards"])
             assert await receive(mac, "switch", timeout=0.3) is None
             await mac.close()
             await pad.close()

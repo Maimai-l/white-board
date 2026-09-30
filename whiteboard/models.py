@@ -53,6 +53,23 @@ _ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 PINNED_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # 建立这块白板的应用名，例如 "qb"。
 APP_RE = re.compile(r"^[a-z0-9-]{1,32}$")
+# 底图（例如题图）：只能是本服务 /apps/ 下的地址，不能指向别的站点或上级目录。
+UNDERLAY_SRC_RE = re.compile(r"^/apps/[A-Za-z0-9._~%-]+(?:/[A-Za-z0-9._~%-]+)*$")
+MAX_UNDERLAY_WIDTH = 10000.0
+
+
+def sanitize_underlay(raw: Any) -> Optional[Dict[str, Any]]:
+    """底图：``{"src": "/apps/<应用>/...", "width": 世界坐标宽度}``，左上角在原点。"""
+    if not isinstance(raw, dict):
+        return None
+    src, width = raw.get("src"), raw.get("width")
+    if not isinstance(src, str) or len(src) > 512 or not UNDERLAY_SRC_RE.match(src):
+        return None
+    if any(part in (".", "..") for part in src.split("/")):
+        return None
+    if not is_number(width) or not 1 <= float(width) <= MAX_UNDERLAY_WIDTH:
+        return None
+    return {"src": src, "width": float(width)}
 
 
 def now() -> float:
@@ -183,6 +200,9 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     app = raw.get("app")
     if isinstance(app, str) and APP_RE.match(app):
         meta["app"] = app
+    underlay = sanitize_underlay(raw.get("underlay"))
+    if underlay is not None:
+        meta["underlay"] = underlay
     if doc is not None:
         meta["doc"] = doc
     return meta

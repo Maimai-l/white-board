@@ -473,6 +473,7 @@ tools/          check_boards.py (check boards before upgrading) and research scr
 | [docs/ipad-shell.md](docs/ipad-shell.md) | iPad shell design |
 | [docs/recording.md](docs/recording.md) | Input recording |
 | [docs/release-checklist.md](docs/release-checklist.md) | Release checklist |
+| [docs/embed.md](docs/embed.md) | Embedding the handwriting pad in other apps |
 
 Input recording captures problems that need a real Pencil (pressure, tilt, coalesced samples within a frame, timing around lift-off) on the iPad for replay on a development machine. Open the diagnostics panel and use 录制输入 (Record input) in the bottom-left cell.
 

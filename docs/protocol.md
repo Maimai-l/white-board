@@ -53,6 +53,7 @@ A connection either follows the current board or is pinned to one board. Without
 | `name` | string | Optional. Name of a new board. |
 | `kind` | string | Optional. `board` or `note` for a new board; default `board`. |
 | `folder` | string | Optional. Folder of a new board; the folder is created if it does not exist. |
+| `underlay` | object | Optional. `{src, width}`: image under the ink of a new board, recorded in `meta.underlay` (see [format.md](format.md#meta-fields)). |
 
 ```jsonc
 {"t":"hello","role":"ipad","client":"k3m9x0a1b2c4","board":null,"since":0,"epoch":null,
@@ -65,6 +66,8 @@ A connection either follows the current board or is pinned to one board. Without
 | Board exists and has `meta.app` | Any device may pin to it. |
 | Board exists without `meta.app` (a user's board) | Requires the `manage` permission, as switching boards does. |
 | Invalid `pin`, or permission missing | The server sends `{"t":"error","reason":"pin"}` and closes the connection. |
+| A new board was created | Following connections receive `boards` with the updated list. |
+| `clear` on a board with `meta.app` | Allowed without the `clear` permission. |
 | Operations and `live` | Apply to the pinned board and reach every connection showing that board: other connections pinned to it, and following connections when it is the current board. |
 | `switch` and `boards` | Not sent to pinned connections. |
 | The pinned board is deleted | The server sends `{"t":"deleted","board":"<id>"}`. Later operations are acknowledged without `op` and not applied. |
@@ -373,6 +376,9 @@ The role (`mac` or `ipad`) selects the interface layout.
 | POST | `/api/recording` | — | Save an input recording to `recordings/`. Body: JSON object with an `events` array, at most 32 MB. See [recording.md](recording.md). |
 | POST | `/api/doc?name=<file name>&folder=<folder>` | `manage` | Create a document board from a PDF or image. Body: the file, at most 256 MB. |
 | GET | `/api/doc/{board}/{page}?w=<width>` | — | Rendered page image |
+| GET | `/api/apps` | — | `apps` (installed app names), `ipad_home` |
+| GET | `/apps/{app}/{path}` | — | Static files of an installed app; a directory returns its `index.html`. See [embed.md](embed.md). |
+| GET | `/sdk/inkpad.js` | — | Redirects to `/static/js/embed.js`, the module that provides `createInkPad`. |
 | GET | `/api/export/{board}` | `export` | Document board with ink merged into the original |
 
 A missing permission returns `403`.
