@@ -238,7 +238,7 @@ class Principal:
 | `change` | `{board}` | 当前白板的笔迹变化（本机或其他设备）。 |
 | `op` | `{board, op}` | 本机发出一个操作。 |
 | `strokestart`、`strokeend` | 笔画 | 本机一笔开始、结束。 |
-| `locked` | `{board, locked}` | 白板进入或解除只读。 |
+| `locked` | `{board, locked, unlock}` | 白板进入或解除只读。`caps.unlock` 为 true 时，调用 `unlock()` 请求服务端允许编辑。 |
 | `caps` | `caps` | 权限变化。 |
 | `deleted` | `{board}` | 当前白板被删除。 |
 | `error` | `{reason, detail}` | 服务端拒绝：`board`（不存在且没有 `create`）、`create`（`create` 不合法）、`denied`（规则拒绝）、`rate`（新建过于频繁）、`space`、`version`。 |

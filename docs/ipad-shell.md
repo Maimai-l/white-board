@@ -115,7 +115,7 @@ Names follow `^[a-z0-9-]{1,32}$`; a leading `@` is ignored. Services from other 
 
 Page loading:
 
-- The page URL is `http://<host>.local:<port><path>`, where `path` comes from the TXT record and defaults to `/?role=ipad`. `role=ipad` makes the whiteboard server return the iPad interface (`detect_role` in `packages/inksync/inksync/ws.py`, used by `whiteboard/server.py`). The host and port come from the TXT record of the Bonjour service (section 8.4).
+- The page URL is `http://<host>.local:<port><path>`, where `path` comes from the TXT record and defaults to `/?role=ipad`. `role=ipad` makes the whiteboard server return the iPad interface (`detect_role` in `whiteboard/server.py`). The host and port come from the TXT record of the Bonjour service (section 8.4).
 - Each load ignores the local cache and times out after 8 s.
 - When loading fails, the shell shows the error and two buttons, “重试” (Retry) and “重新查找 Mac” (Find Mac again).
 - When a new navigation starts, the shell stops sending samples until the page completes the handshake again (section 5.2).
@@ -501,6 +501,8 @@ TXT record fields:
 
 Other projects register the same service with `inksync.netinfo.advertise(app, port, source, path)` (see packages/inksync/README.md). It uses the same code as the whiteboard: `DNSServiceRegister` on macOS and zeroconf elsewhere.
 
+Other projects depend on the shell for three things only, and they stay unchanged across inksync 2.x: `source` and `path` in the TXT record; the shell-to-page interface in section 5 (handled by the inksync front end, so the page needs no code); and `GET /ipad/version`. The last one is optional: when the request fails, the shell does not offer an update.
+
 > **Warning**
 > On macOS, registration must go through the system mDNSResponder. Do not start a second mDNS responder. The zeroconf-based `MDNSAdvertiser` listens on the mDNS port itself and is therefore off by default on macOS (`netinfo.mdns_default()`).
 
@@ -592,7 +594,7 @@ Q2 findings and measures:
 
 - In the 0.9.43 recording `20260927-211825`, all three strokes received samples only for about 30 ms after pen down, followed by no `move` and no `up`. After the page calls `preventDefault`, WebKit's internal recognizer that defers other gestures makes recognizers inside the WKWebView fail.
 - The shell now reads samples in the window's `sendEvent` (section 4.2). Only estimated property updates still use a gesture recognizer, attached to the WKWebView's superview.
-- For 0.9.43 shells, which need to be reinstalled, the web page fills the gaps with Safari pen events (`whiteboard/web/static/js/shell-fallback.js`). The filled strokes have Safari's precision but are complete:
+- For 0.9.43 shells, which need to be reinstalled, the web page fills the gaps with Safari pen events (`packages/inksync/inksync/web/shell-fallback.js`). The filled strokes have Safari's precision but are complete:
 
   | Situation | Page action |
   |---|---|

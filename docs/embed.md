@@ -1,28 +1,34 @@
 English | [简体中文](embed.zh-CN.md)
 
-# Embedding the Handwriting Pad
+# Embedding the pad in the whiteboard app
 
-Other web apps can embed a handwriting pad that syncs with the Mac. An exercise page, for example, can show a question image and an answer field and give each question its own board. The Mac stores the boards and shows them in the board chooser.
+Other web apps can live in the whiteboard app's storage directory, be served by the whiteboard server, and embed a pad that syncs with the Mac. For example, a practice page can show a question image and an answer field, with one board per question.
+
+This document covers apps hosted by the whiteboard app. The pad's full interface (options, methods, events, metadata format) is in the [inksync interface reference](../packages/inksync/README.md), which also covers storing boards on your own server without running the whiteboard app.
 
 ```js
-import { createInkPad } from "/sdk/inkpad.js";
+import { createInkPad } from "/inksync/inkpad.js";
 
 const pad = createInkPad(document.querySelector("#answer-pad"), {
-  app: "qb",
-  board: "qb-9709-s23-12-q3",
-  name: "9709 s23 P12 Q3",
-  folder: "刷题",
-  underlay: { src: "/apps/qb/img/9709-s23-12-q3.png", width: 800 },
+  space: "qb",                       // the app name
+  board: "9709-s23-12-q3",
+  create: {
+    name: "9709 s23 P12 Q3",
+    canvas: { mode: "fixed", width: 800, height: 1400 },
+    background: { pattern: "blank" },
+    layers: [{ src: "/apps/qb/img/9709-s23-12-q3.png", x: 0, y: 0, width: 800 }],
+    data: { paper: "9709_s23_12", question: 3 },
+  },
 });
 
 pad.on("history", ({ undo, redo }) => { /* enable or disable buttons */ });
-pad.setTool({ ...pad.tool, tool: "eraser" });
-pad.undo();
+pad.setTool({ tool: "eraser" });
+await pad.open("9709-s23-12-q4", { create: { name: "9709 s23 P12 Q4" } });   // next question
 ```
 
 ## Installing an app
 
-An app is a folder of static files in the `apps/` folder of the storage directory. The whiteboard server serves it at `/apps/<name>/`.
+An app is a static folder in `apps/` under the storage directory; the whiteboard server serves it at `/apps/<name>/`.
 
 ```
 <storage directory>/apps/
@@ -33,111 +39,56 @@ An app is a folder of static files in the `apps/` folder of the storage director
 
 | Rule | Value |
 | --- | --- |
-| Folder name | `^[a-z0-9-]{1,32}$`. Other names are ignored. |
-| Entry page | `index.html`. A folder without it is not listed as an app. |
-| Paths | Only files inside the app's folder are served; `..` and symbolic links that leave the folder return 404. |
-| Caching | Every response has `Cache-Control: no-cache`, so the iPad loads changes after a reload. |
+| Folder name | Must match `^[a-z0-9-]{1,32}$`; other names are ignored. |
+| Entry page | `index.html`. A folder without it is not an app. |
+| Paths | Only files inside the app folder are served; requests that leave it through `..` or a symbolic link return 404. |
+| Caching | Every response carries `Cache-Control: no-cache`, so the iPad loads changed files after a refresh. |
 
-`examples/apps/demo/` in this repository is a complete example: a question image, a pad, tool buttons and an answer field. Copy it into `apps/` and open `http://<computer name>.local:8848/apps/demo/` on the iPad.
+`examples/apps/demo/` in this repository is a complete example: two questions with a board each, a question image, tool buttons and an answer field. Copy it into `apps/` and open `http://your-mac.local:8848/apps/demo/` on the iPad.
 
 > **Note**
-> Serve the page from the whiteboard server. The page and the pad then share an origin, so no cross-origin setup is needed, and the iPad shell delivers Apple Pencil samples at about 240 per second to the pad, as it does in the whiteboard.
+> The page should be served by the whiteboard server. The page and the pad then share an origin and need no cross-origin setup, and the iPad shell hands Apple Pencil samples to the pad at about 240 per second, as it does in the whiteboard.
+
+## The app's space
+
+Each installed app has its own space; set the `space` option to the app name. The space's boards are stored in `<storage directory>/spaces/<app name>/`, apart from the user's own boards:
+
+| Item | Description |
+| --- | --- |
+| Board id | Needs to be unique only within the app. The same id in different apps names different boards. |
+| Creating | A missing board is created from `create`. Devices without the Manage boards permission can create at most 60 boards per minute; beyond that they receive the `error` event (`reason: "rate"`). The number of boards is not limited. |
+| Writing, clearing | Any device that can write. |
+| Editing metadata, unlocking | Requires the Manage boards permission. |
+| Image layers | `src` in `layers` must be a path on this server (starting with `/`), usually under `/apps/<name>/`. |
+| Removing the app | After `apps/<name>/` is deleted the space can no longer be connected to; the boards in `spaces/<name>/` stay and come back when an app of the same name is installed again. |
+
+App board ids are easy to guess, so any device on the local network that can write can open the app's boards. To separate users, run inksync on your own server and decide in its `Policy`; see [examples/qb-server](../examples/qb-server/server.py).
+
+## Viewing on the Mac
+
+On a device with the Manage boards permission, the board chooser shows one entry per installed app. It lists the app's boards page by page; clicking a board opens it read-only, image layers included. App boards do not appear among the user's own boards, and the iPad does not follow them.
 
 ## iPad home
 
-On the Mac, board settings show “iPad 首页” (iPad home) when at least one app is installed. With an app selected, the iPad opens that app instead of the whiteboard, both in the iPad shell and from the Home Screen icon. The Mac window is not affected.
+When at least one app is installed, the Mac's whiteboard settings show iPad Home. After an app is chosen, the iPad opens that app instead of the whiteboard, both in the iPad shell and from the Home Screen icon. The Mac window is not affected.
 
 | Address | Result |
 | --- | --- |
 | `/` on the iPad | Redirects to `/apps/<name>/`. |
-| `/?home=whiteboard` | Opens the whiteboard without redirecting. Use this address for a link back to the whiteboard. |
+| `/?home=whiteboard` | Opens the whiteboard without redirecting. Links from an app back to the whiteboard use this address. |
 | `/` on the Mac | Opens the whiteboard. |
 
-The setting is stored as `ipad_home` in the configuration file. If the app is removed, the iPad opens the whiteboard again.
+The setting is stored as `ipad_home` in the config file. After the app is removed, the iPad opens the whiteboard again.
 
-## `createInkPad(container, options)`
+## Upgrading from 1.x
 
-Creates a pad inside `container` and returns it. The pad fills the container and follows its size, so give the container a height.
-
-| Option | Type | Description |
-| --- | --- | --- |
-| `app` | string | App name, `^[a-z0-9-]{1,32}$`. Required unless `transport` is `"local"`. |
-| `board` | string | Required. Board ID, `^[A-Za-z0-9_-]{1,64}$`. The same ID is the same board on every device. |
-| `name` | string | Name of a new board. |
-| `kind` | string | `board` (default, infinite board) or `note` (note board) for a new board. |
-| `folder` | string | Folder of a new board. Created if missing. |
-| `underlay` | object | `{src, width}`: an image under the ink, such as the question. `src` must be under `/apps/`. The image's top-left corner is at the board origin; `width` is in board units and the height follows the image's aspect ratio. |
-| `tool` | object | Initial tool: `{tool, color, width, eraserMode}`. |
-| `fingerDraw` | boolean | Whether a finger draws. Default: only Apple Pencil draws; fingers pan and zoom. |
-| `role` | string | `ipad` or `mac`. Default: detected from the device. |
-| `transport` | string, object or function | How the pad syncs; see [Transports](#transports). Default: the server that served the page. |
-| `initial` | object | `{meta, strokes}`: initial content when `transport` is `"local"`. |
-
-`name`, `kind`, `folder` and `underlay` apply only when the board is created. The board is created the first time any device opens it; see [Pinned connections](protocol.md#pinned-connections).
-
-With an `underlay`, the pad first opens with the image filling its width. After that, each device remembers its own view of each board.
-
-## Methods
-
-| Method | Description |
+| 1.x | 2.0 |
 | --- | --- |
-| `setTool(tool)` | Changes the tool. `tool.tool` is `pen`, `marker`, `highlighter` or `eraser`; `eraserMode` is `object` or `pixel`. |
-| `undo()` / `redo()` | Undoes or redoes this device's last change. |
-| `clear()` | Clears the board. Boards created by an app can be cleared without the “清空白板” (Clear board) permission. |
-| `fit()` | Shows all ink. |
-| `zoom(factor)` | Zooms around the center. |
-| `exportPNG()` | Returns the ink as a PNG data URL, without the underlay. |
-| `on(event, listener)` | Subscribes to an event; returns a function that unsubscribes. |
-| `destroy()` | Saves to the local cache, disconnects and removes the pad from the page. |
-| `snapshot()` | Returns the current content as `{meta, strokes}`. |
-| `load(board)` | Replaces the content with `{meta, strokes}` and clears undo. Intended for `"local"` pads. |
+| `import … from "/sdk/inkpad.js"` | `import … from "/inksync/inkpad.js"`. The old address `/sdk/inkpad.js` redirects there, but 1.x options must be changed as below. |
+| `app: "qb"` | `space: "qb"`. |
+| `name`, `kind`, `folder`, `underlay` options | Go into `create`: `name`; `canvas`; `layers` (`underlay: {src, width}` becomes `layers: [{src, x: 0, y: 0, width}]`). App boards have no folders; put grouping into `data`. |
+| `pad.state`, `pad.net.status` | `pad.snapshot()`, `pad.status`. The returned object has only the members listed in the interface reference. |
+| `setTool({...pad.tool, tool})` | `setTool({tool})`; fields not given are kept. |
+| `unlock()` in the `locked` event | Unchanged; whether it is allowed is `pad.caps.unlock`. |
 
-`pad.tool`, `pad.state`, `pad.locked` and `pad.net.status` can be read. Other properties are internal.
-
-## Events
-
-| Event | Detail | When |
-| --- | --- | --- |
-| `status` | `"online"`, `"syncing"`, `"offline"` or `"local"` | The connection state changes. A `"local"` pad reports `"local"` once. |
-| `history` | `{undo, redo}` | Undo or redo becomes available or unavailable. |
-| `meta` | Board metadata | The board is loaded or its settings change. |
-| `op` | The operation | This device sends an operation (`add`, `remove`, `restore`, `mask`, `clear`, `meta`; see [Operations](protocol.md#operations)). Sent with every transport. |
-| `change` | — | The ink changes on this device. |
-| `strokestart` / `strokeend` | The stroke | A stroke starts or ends on this device. |
-| `locked` | `{board, locked, unlock}` | The board opens read-only, or read-only ends. `unlock()` asks the server to allow editing (needs the “管理白板” (Manage boards) permission). |
-| `interrupted` | `{count}` | The system interrupted strokes three times in a row, usually because of Scribble. |
-| `deleted` | `{board}` | The board was deleted on the Mac. |
-| `error` | `{reason}` | The server refused the connection, for example because of an invalid `board` or `app`. |
-
-## Transports
-
-The `transport` option decides where the pad sends its operations.
-
-| Value | Behavior |
-| --- | --- |
-| Omitted | WebSocket to `/ws` on the server that served the page. |
-| `"local"` | No server. The status is `"local"` and nothing is sent. Content comes from `initial`, else the local cache, else an empty board. Save it from the `op` event or `snapshot()`. |
-| `{url}` | WebSocket to the given address, for example `ws://mac.local:8848/ws`. A page served over https cannot connect to a `ws://` address. |
-| Function | Custom transport. Called with `{clientId, role, pin, onMessage, onStatus}`; returns an object with the members below. |
-
-To store and sync boards on another project's own server instead of the whiteboard app, mount the protocol there with [inksync](../packages/inksync/README.md) and serve the page from that server, or point `{url}` at it.
-
-A custom transport implements the same members as the built-in WebSocket transport (`net.js`):
-
-| Member | Description |
-| --- | --- |
-| `connect()` | Starts syncing. Deliver server messages to `onMessage` in the format of [protocol.md](protocol.md), starting with `init` or `sync`, and state changes to `onStatus`. |
-| `send(msg)` | Sends a control message such as `unlock`. Returns `false` if it could not be sent. |
-| `sendLive(msg)` | Sends live ink. Losing it is harmless. |
-| `sendOp(op)` | Sends an operation and returns an ID. Keep it in `outbox` until the server acknowledges it; report the acknowledgement as `onMessage({t: "op", op, mine: true})`. |
-| `restoreOutbox(items)` | Puts operations from the previous session back into `outbox` and sends them. |
-| `close()` | Stops syncing. |
-| `outbox`, `boardId`, `lastSeq`, `epoch`, `status` | State the pad reads and writes. |
-
-## Behavior
-
-- **Offline.** Strokes written offline are kept in IndexedDB and sent after reconnecting, as in the whiteboard. Each board has its own cache and outbox.
-- **Several pads.** A page can contain several pads, each with its own board. Each pad takes only the strokes that start inside it, including samples from the iPad shell.
-- **Page input.** The pad blocks touch gestures only inside its own area. Text fields, buttons and scrolling elsewhere on the page work normally.
-- **Mac view.** Boards created by an app appear in the board chooser, in the given folder. The Mac shows the underlay as well.
-- **Permissions.** A device that can only write can create and open boards of an app installed in `apps/`, up to 5000 boards per app. Opening one of the user's own boards requires the “管理白板” (Manage boards) permission. Board IDs chosen by an app are easy to guess, so any device on the network can open that app's boards.
+Boards created by apps in 1.x move into their app's space the first time 2.0 starts, keeping their ids.

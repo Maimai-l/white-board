@@ -213,7 +213,7 @@ iPad 使用**笔具盘**；其他设备使用**普通工具栏**。满足以下�
 | 对象橡皮擦（默认） | 删除所触及的笔画。若该笔画已被像素橡皮擦分成多段，只删除触及的那一段。 | 6，与角度无关 |
 | 像素橡皮擦 | 移除扫过的区域，保留其余部分。 | 由 Pencil 落下时笔身与屏幕的夹角决定 |
 
-像素橡皮擦的直径取自 `static/js/input-erase.js` 中的 `ERASER_CURVE`，数值根据原生 PencilKit 测得。表中各点之间按线性插值。
+像素橡皮擦的直径取自 `packages/inksync/inksync/web/input-erase.js` 中的 `ERASER_CURVE`，数值根据原生 PencilKit 测得。表中各点之间按线性插值。
 
 | 笔身与屏幕的夹角 | 90° | 80° | 68°–37° | 35° | 32° | 28° | ≤ 25° |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -291,7 +291,7 @@ iPad 使用**笔具盘**；其他设备使用**普通工具栏**。满足以下�
 | 两块白板之间 | 调整顺序。只有指针在同一位置停留后，其他卡片才会让位。 |
 | 靠近上边或下边 | 滚动列表。 |
 
-- 顺序保存在 Mac 上的 `index.json` 中，因此所有设备上一致，重启后保留。文件夹按名称排序，不参与拖动排序。
+- 顺序保存在 Mac 上的 `space.json` 中，因此所有设备上一致，重启后保留。文件夹按名称排序，不参与拖动排序。
 - 拖动基于指针事件实现，未使用浏览器的拖放功能，因为 iOS Safari 不支持该功能。时间参数和弹簧曲线位于 `static/js/dragsort.js` 开头。
 - `static/lab/drag.html` 是用于在 iPad 上调整上述参数的独立页面。它只在从源码运行时可用；打包后的应用不包含 `static/lab/`。
 
@@ -354,7 +354,10 @@ iPad 使用**笔具盘**；其他设备使用**普通工具栏**。满足以下�
 ```
 boards-data/
   boards/<id>.wbz        每块白板一个文件
-  index.json             白板列表、顺序和文件夹名称
+  index.sqlite           白板列表的索引（可重建）
+  space.json             顺序、文件夹名称和当前白板
+  spaces/<应用名>/        已安装应用的白板，结构同上
+  apps/<应用名>/          已安装的应用（见 docs/embed.zh-CN.md）
   thumbs/<id>.png        白板选择界面的缩略图
   docs/<id>.<ext>        文档板的原件
   backups/upgrade/       新版本首次运行前的副本
@@ -364,7 +367,9 @@ boards-data/
 | 路径 | 说明 |
 | --- | --- |
 | `boards/<id>.wbz` | 点经过量化、增量编码和 varint 编码；文件整体经 zlib 压缩。格式见 [docs/format.zh-CN.md](docs/format.zh-CN.md)。 |
-| `index.json` | 删除后可从 `.wbz` 文件重建。包含白板的文件夹可以恢复；空文件夹不能恢复。 |
+| `index.sqlite` | 删除后下次启动时从 `.wbz` 文件重建。启动时按修改时间核对文件与索引，应用关闭期间被改动或放入的文件也会更新到索引中。 |
+| `space.json` | 顺序、文件夹名称和当前白板。删除后顺序按更新时间排列；包含白板的文件夹可以恢复，空文件夹不能恢复。 |
+| `spaces/<应用名>/` | 删除应用（`apps/<应用名>/`）后保留，重新安装同名应用后恢复。 |
 | `thumbs/<id>.png` | 由 Mac 上传。文档板没有缩略图，使用其首页。 |
 | `docs/<id>.<ext>` | 只读；随白板一起删除。 |
 
@@ -381,7 +386,9 @@ boards-data/
 
 ### 备份
 
-版本变更后首次启动时，应用先将 `boards/` 和 `index.json` 复制到 `backups/upgrade/<时间>_<旧版本>_to_<新版本>/`，然后才处理其他文件。只保留最近 5 份。
+版本变更后首次启动时，应用先将 `boards/`、`index.sqlite`、`space.json` 和 `spaces/`（存在的才复制）复制到 `backups/upgrade/<时间>_<旧版本>_to_<新版本>/`，然后才处理其他文件。只保留最近 5 份。
+
+从 1.x 升级到 2.0 时，存储目录要先转换（见 [docs/format.zh-CN.md](docs/format.zh-CN.md#读取-1x-的文件)），这时备份失败就不启动，并显示原因。不支持用 1.x 打开 2.0 转换过的存储目录；需要回到 1.x 时，使用 `backups/upgrade/` 中的副本。
 
 升级前可以执行 `python tools/check_boards.py` 检查白板。
 
@@ -427,41 +434,47 @@ boards-data/
 ### 源码结构
 
 ```
-packages/inksync/   同步服务端，可单独安装（见其 README）
+packages/inksync/   同步组件，可单独安装（接口见其 README）
   inksync/
-    ws.py       WebSocket 协议；mount() 挂到任意 aiohttp 应用上
-    hub.py      操作日志、广播、自动保存、只读白板
-    store.py    白板的保存与读取（zlib + 紧凑点编码）
+    server.py   WebSocket 协议 v2；mount()、Spaces、serve_sdk()
+    hub.py      一个空间的运行时：操作、广播、保存、释放、事件
+    storage.py  白板文件与 SQLite 索引、space.json
+    policy.py   Principal、Policy、新建速率限制
     codec.py    点数据的量化、增量编码与 varint 编码
-    models.py   数据模型与网络输入校验
+    models.py   元数据 v2、笔画与操作的校验
+    netinfo.py  .local 主机名、局域网地址、Bonjour 注册
+    web/        手写板前端（原生 ES Module，无构建步骤）
+      inkpad.js                    对外入口 createInkPad
+      pad.js、eraser.js            书写、擦除、撤销、同步、缓存、视口；不含界面
+      input.js、input-erase.js、   指针分派与书写；橡皮擦；
+        input-gesture.js、         平移、缩放与惯性；
+        shell-fallback.js          0.9.43 版外壳的备用输入
+      stroke.js、boardstate.js、   几何、层叠顺序与空间索引、
+        renderer.js、layers.js、   渲染、图片层、
+        net.js、cache.js……         同步、本地缓存、导出
 whiteboard/
-  server.py     aiohttp 路由；在 /ws 挂载 inksync 的协议
-  hub.py、store.py   在 inksync 之上加文档板与缩略图
+  server.py     aiohttp 路由；在 /ws 挂载 inksync，应用空间与权限规则
+  hub.py、store.py   白板应用的扩展：跟随、文件夹、顺序、文档板、缩略图、
+                1.x 页面兼容与数据迁移
   config.py     配置文件；只对本次运行有效的命令行参数
   backup.py     新版本首次处理白板前的备份
   docs.py       文档板：读取、渲染、导出 PDF / 图片
   inkpdf.py     将笔迹写为 PDF 矢量路径
   freehand.py   perfect-freehand 的 Python 移植，用于导出
   profile.py    .mobileconfig 与图标生成（纯 Python 写 PNG）
-  netinfo.py    .local 主机名、局域网地址、mDNS、供外壳使用的 Bonjour
+  netinfo.py、codec.py   指向 inksync 中的同名模块（旧的导入路径）
   ipadshell.py  外壳安装页、版本接口与 IPA 下载
   updater.py    检查更新、下载、校验与替换
   resources.py  源码运行与打包运行时的路径和日志
   runner.py     在后台线程中运行服务端
   app.py        pywebview 窗口与本地文件对话框
   web/          前端（原生 ES Module，无构建步骤）
-    static/js/
-      inkpad.js、app-eraser.js      手写板：书写、擦除、撤销、同步、缓存、
-                                    视口；不含界面
+    static/js/                      界面；手写板取自 /inksync/
       app.js                        建立在手写板之上的白板应用：选择界面、
                                     设置、导入导出、更新
-      input.js、input-erase.js、    指针分派与书写；橡皮擦；
-        input-gesture.js、          平移、缩放与惯性；
-        shell-fallback.js           0.9.43 版外壳的备用输入
+      boards.js                     白板在界面中的类型、文件夹与文档
       ui.js、ui-*.js                工具栏与笔具盘；白板选择界面、
                                     对话框、设置
-      stroke.js、boardstate.js、    几何、层叠顺序与空间索引、
-        renderer.js、net.js……       渲染、同步、缓存、导出
     static/lab/                     参数调试页面（仅源码运行）
 ipad/           iPad 外壳（Swift，工程由 XcodeGen 生成）
 tools/          check_boards.py（升级前检查白板）及研究用脚本
@@ -477,7 +490,9 @@ tools/          check_boards.py（升级前检查白板）及研究用脚本
 | [docs/ipad-shell.zh-CN.md](docs/ipad-shell.zh-CN.md) | iPad 外壳设计 |
 | [docs/recording.zh-CN.md](docs/recording.zh-CN.md) | 输入录制 |
 | [docs/release-checklist.zh-CN.md](docs/release-checklist.zh-CN.md) | 发布检查清单 |
-| [docs/embed.zh-CN.md](docs/embed.zh-CN.md) | 在其他应用中嵌入手写板 |
+| [docs/embed.zh-CN.md](docs/embed.zh-CN.md) | 在白板应用中托管应用并嵌入手写板 |
+| [packages/inksync/README.zh-CN.md](packages/inksync/README.zh-CN.md) | inksync 的接口：在自己的服务端上保存和同步白板 |
+| [docs/design/inksync-2.zh-CN.md](docs/design/inksync-2.zh-CN.md) | inksync 2.0 的需求与规格 |
 
 输入录制用于在 iPad 上记录只有真实 Pencil 才能产生的问题（压感、倾角、一帧内合并的采样点、抬笔前后的时序），并在开发机上回放。打开诊断面板，使用左下角的「录制输入」。
 
@@ -497,7 +512,7 @@ WB_BROWSER=webkit python -m pytest tests/test_browser.py    # 在 WebKit 上运�
 
 | 工作流 | 内容 |
 | --- | --- |
-| `tests.yml` | 使用 Chromium 运行 Python 测试，使用 Node 运行前端单元测试，在 WebKit 上运行一组冒烟测试 |
+| `tests.yml` | 使用 Chromium 运行 Python 测试，使用 Node 运行前端单元测试，在 WebKit 上运行一组冒烟测试；在 Python 3.10 上单独安装并测试 inksync |
 | `build-macos.yml` | 在推送 `v*` tag 时（并发布 Release）、在修改应用或打包配置的 pull request 中、以及手动运行时，构建 iPad 外壳和 macOS 应用 |
 | `ipad-check.yml` | `ipad/` 有改动时编译 iPad 外壳 |
 
