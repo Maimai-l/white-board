@@ -48,6 +48,11 @@ MAX_WIDTH = 96.0
 
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+# 由其他应用指定的白板 id（见 docs/protocol.md「固定白板的连接」）。比 _ID_RE 严：
+# 文件名只保留字母、数字、- 和 _，含其他字符的 id 会和别的 id 落到同一个文件上。
+PINNED_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# 建立这块白板的应用名，例如 "qb"。
+APP_RE = re.compile(r"^[a-z0-9-]{1,32}$")
 
 
 def now() -> float:
@@ -175,6 +180,9 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     # 没归类的白板不带这个字段，省得每块白板的元数据里都多一个空串
     if folder:
         meta["folder"] = folder
+    app = raw.get("app")
+    if isinstance(app, str) and APP_RE.match(app):
+        meta["app"] = app
     if doc is not None:
         meta["doc"] = doc
     return meta

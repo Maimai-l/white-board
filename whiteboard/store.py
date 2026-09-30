@@ -221,10 +221,11 @@ class BoardStore:
 
     # ------------------------------------------------------------- 创建 / 删除
 
-    def create_board(self, name: str = "", **overrides: Any) -> Dict[str, Any]:
+    def create_board(self, name: str = "", make_current: bool = True, **overrides: Any) -> Dict[str, Any]:
         meta = models.new_board_meta(name, **overrides)
         self._index["boards"].insert(0, meta)
-        self._index["current"] = meta["id"]
+        if make_current:
+            self._index["current"] = meta["id"]
         self.save_board(meta, [])
         self._write_index()
         return dict(meta)
