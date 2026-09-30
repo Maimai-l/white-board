@@ -299,6 +299,44 @@ class App extends InkPad {
     }
   }
 
+  /** 只读查看某个应用空间里的一块白板：浮层里放一块只读的手写板，关掉就断开。 */
+  async viewAppBoard(space, board) {
+    this.ui.closeGallery();
+    const { createInkPad } = await import("/inksync/inkpad.js");
+    const close = () => {
+      pad.destroy();
+      overlay.remove();
+      removeEventListener("keydown", onKey, true);
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        close();
+      }
+    };
+    const title = document.createElement("span");
+    title.className = "app-viewer-title";
+    title.textContent = `${space} · ${board.name || board.id}（只读）`;
+    const shut = document.createElement("button");
+    shut.className = "icon-btn";
+    shut.title = "关闭";
+    shut.textContent = "×";
+    shut.addEventListener("click", () => close());
+    const head = document.createElement("div");
+    head.className = "app-viewer-head";
+    head.append(title, shut);
+    const body = document.createElement("div");
+    body.className = "app-viewer-body";
+    const overlay = document.createElement("div");
+    overlay.className = "app-viewer";
+    overlay.append(head, body);
+    document.body.append(overlay);
+    const pad = createInkPad(body, { space, board: board.id, readonly: true, role: this.role });
+    pad.on("error", ({ reason }) => (title.textContent = `打不开：${reason}`));
+    addEventListener("keydown", onKey, true);
+    this.appViewer = { pad, close };
+  }
+
   actionsOpenUrl(url) {
     const api = nativeApi();
     if (api && api.open_external) api.open_external(url);
@@ -379,6 +417,7 @@ class App extends InkPad {
         this.setMeta(patch);
       },
       onNewDoc: (file, folder) => this.importDoc(file, folder),
+      onViewAppBoard: (space, board) => this.viewAppBoard(space, board),
       onExport: async () => {
         if (docOf(this.state.meta)) {
           await this.exportDoc();

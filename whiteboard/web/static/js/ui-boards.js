@@ -8,6 +8,8 @@ import { startCardDrag } from "./dragsort.js";
 import { boardLabel, iconButton } from "./ui-common.js";
 import { el, isComposing } from "/inksync/util.js";
 
+const APP_PAGE = 60;
+
 /** 卡片下方那行时间：今天只给时刻，今年不给年份，其余给全。 */
 function boardDate(seconds) {
   const when = new Date(seconds * 1000);
@@ -58,12 +60,28 @@ const methods = {
     // 打开时停在当前白板所在的那一层，否则归过类的白板一打开界面就看不见了
     const current = this.boards.find((board) => board.id === this.currentBoardId);
     this.openFolder = (current && current.folder) || "";
+    this.openApp = null;
     if (this.actions.onBoardsOpen) await this.actions.onBoardsOpen();
+    await this.loadApps();
     this.renderBoards();
+  },
+
+  /** 已安装的应用：每个应用的白板在它自己的空间里，选择界面里各显示成一个入口。 */
+  async loadApps() {
+    try {
+      const response = await fetch("/api/apps");
+      this.apps = response.ok ? (await response.json()).apps || [] : [];
+    } catch (err) {
+      this.apps = [];
+    }
   },
 
   /** Mac 端专门的白板选择界面：满屏缩略图，左上角标出延伸类型，下面是名字和日期。 */
   renderBoards({ opening = true } = {}) {
+    if (this.openApp) {
+      this.renderAppSpace(this.openApp, { opening });
+      return;
+    }
     // 列表随时可能被广播刷新（别处改了名、新建、删除），重建之前记住焦点落在哪，
     // 建完再放回去，否则正在输入的搜索框或改名框会被抽走。
     const active = document.activeElement;
@@ -177,6 +195,9 @@ const methods = {
     if (!this.openFolder) {
       if (this.folderDraft) grid.append(this.folderDraftItem());
       for (const name of this.folderNames()) grid.append(this.folderItem(name));
+      if (this.perms && this.perms.has("manage")) {
+        for (const name of this.apps || []) grid.append(this.appItem(name));
+      }
     }
     for (const board of this.boards) {
       if ((board.folder || "") === this.openFolder) grid.append(this.boardItem(board));
@@ -217,6 +238,102 @@ const methods = {
         onRefresh: () => this.fillBoardGrid(),
       })
     );
+  },
+
+  /** 一个应用的空间：点开看这个应用建的白板（只读）。 */
+  appItem(name) {
+    const card = el(
+      "div",
+      {
+        class: "board-card folder app",
+        "data-app": name,
+        title: `应用：${name}`,
+        onclick: () => {
+          this.openApp = { name, boards: [], total: 0 };
+          this.renderBoards();
+        },
+      },
+      [el("span", { class: "folder-card-icon", html: icon("tablet", 48) })]
+    );
+    return el("div", { class: "board-item" }, [
+      card,
+      el("div", { class: "board-meta" }, [el("span", { class: "board-name folder", text: name })]),
+    ]);
+  },
+
+  /** 进了某个应用的空间：按更新时间列出白板，分页读取。 */
+  renderAppSpace(app, { opening = false } = {}) {
+    this.closeGallery();
+    this.closeSheet();
+    const head = el("div", { class: "gallery-head" }, [
+      iconButton("back", "返回", () => {
+        this.openApp = null;
+        this.renderBoards();
+      }),
+      el("span", { class: "gallery-title", text: `应用：${app.name}` }),
+      iconButton("close", "关闭", () => this.closeGallery()),
+    ]);
+    this.boardGrid = el("div", { class: "gallery-grid" });
+    const gallery = el("div", { class: `gallery${opening ? " opening" : ""}` }, [head, this.boardGrid]);
+    this.root.append(gallery);
+    this.gallery = gallery;
+    this.fillAppGrid(app);
+    if (!app.boards.length) this.loadAppBoards(app);
+  },
+
+  async loadAppBoards(app) {
+    try {
+      const response = await fetch(
+        `/api/spaces/${encodeURIComponent(app.name)}/boards?offset=${app.boards.length}&limit=${APP_PAGE}`
+      );
+      if (!response.ok) throw new Error(String(response.status));
+      const page = await response.json();
+      app.boards.push(...(page.boards || []));
+      app.total = page.total || app.boards.length;
+      app.loaded = true;
+    } catch (err) {
+      app.failed = true;
+    }
+    if (this.openApp === app && this.gallery) this.fillAppGrid(app);
+  },
+
+  fillAppGrid(app) {
+    const grid = this.boardGrid;
+    if (!grid) return;
+    grid.textContent = "";
+    for (const board of app.boards) {
+      const card = el(
+        "div",
+        {
+          class: "board-card app-board",
+          title: "只读查看",
+          onclick: () => this.actions.onViewAppBoard(app.name, board),
+        },
+        [el("span", { class: "kind", html: icon("board", 20) })]
+      );
+      grid.append(
+        el("div", { class: "board-item" }, [
+          card,
+          el("div", { class: "board-meta" }, [
+            el("span", { class: "board-name", text: board.name || board.id }),
+            el("span", { class: "board-date", text: boardDate(board.updated) }),
+          ]),
+        ])
+      );
+    }
+    if (app.failed) grid.append(el("p", { class: "gallery-empty", text: "读不出这个应用的白板" }));
+    else if (app.loaded && !app.boards.length) grid.append(el("p", { class: "gallery-empty", text: "这个应用还没有白板" }));
+    if (app.boards.length < app.total) {
+      grid.append(
+        el("div", { class: "board-item" }, [
+          el("button", {
+            class: "board-card add more",
+            text: `再显示 ${Math.min(APP_PAGE, app.total - app.boards.length)} 块`,
+            onclick: () => this.loadAppBoards(app),
+          }),
+        ])
+      );
+    }
   },
 
   /** 文件夹在格子里就是一块卡片：点开进去，名字可以直接改，也可以把白板拖进来。 */
