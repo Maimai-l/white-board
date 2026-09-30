@@ -861,7 +861,7 @@ function makeClass(Base) {
         color: cfg.color || "#000000",
         sizeIndex: typeof cfg.size === "number" ? cfg.size : 1,
         fingerDraws: !!this.fingerDraws,
-        // 橡皮那个面板里的「对象 / 像素」二选一，白板两种都做了，见 app.js 的 erasePixels
+        // 橡皮那个面板里的「对象 / 像素」二选一，白板两种都做了，见 app-eraser.js 的 erasePixels
         eraserMode: (this.tools.eraser && this.tools.eraser.mode) === "pixel" ? "pixel" : "object",
       };
       const key = JSON.stringify(next);

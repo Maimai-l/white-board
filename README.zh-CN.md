@@ -447,7 +447,10 @@ whiteboard/
   app.py        pywebview 窗口与本地文件对话框
   web/          前端（原生 ES Module，无构建步骤）
     static/js/
-      app.js、app-eraser.js         主控；擦除对白板的处理
+      inkpad.js、app-eraser.js      手写板：书写、擦除、撤销、同步、缓存、
+                                    视口；不含界面
+      app.js                        建立在手写板之上的白板应用：选择界面、
+                                    设置、导入导出、更新
       input.js、input-erase.js、    指针分派与书写；橡皮擦；
         input-gesture.js、          平移、缩放与惯性；
         shell-fallback.js           0.9.43 版外壳的备用输入

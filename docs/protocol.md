@@ -268,7 +268,7 @@ The server answers every `op` message with exactly one `ack` to the sender.
 On `ack` the client removes `cid` from the outbox and applies the returned `op` (`net.js` `_ack`), so the sender's board matches the server's normalized result.
 
 > **Warning**
-> The client skips its own `mask` operations when they return in an `ack` (`app.js` `applyOp`, `context.mine`). The local mask may already have grown since the operation was sent; applying the older full mask would undo the newer erasing. For this reason the server limit `MAX_MASK_SEGMENTS` (1024) must accept every mask the client can produce (`MASK_LIMIT` = 400); `tests/test_models.py` checks this.
+> The client skips its own `mask` operations when they return in an `ack` (`inkpad.js` `applyOp`, `context.mine`). The local mask may already have grown since the operation was sent; applying the older full mask would undo the newer erasing. For this reason the server limit `MAX_MASK_SEGMENTS` (1024) must accept every mask the client can produce (`MASK_LIMIT` = 400); `tests/test_models.py` checks this.
 
 ## Sequence numbers, epochs and reconnection
 
