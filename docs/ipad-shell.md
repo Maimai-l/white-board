@@ -496,7 +496,7 @@ TXT record fields:
 | `port` | The port the server actually listens on (after moving to the next free port, the new value) |
 | `version` | Mac app version |
 | `name` | The computer name shown to users (`scutil --get ComputerName`; falls back to the host name without `.local`) |
-| `source` | Service name used to choose a service (section 4.1): `whiteboard` for the whiteboard app. Absent in versions before 1.1.0; the shell treats that as `whiteboard`. |
+| `source` | Service name used to choose a service (section 4.1): `whiteboard` for the whiteboard app. Absent in versions before 1.0.1; the shell treats that as `whiteboard`. |
 | `path` | Page the shell opens after connecting: `/?role=ipad` for the whiteboard app. |
 
 Other projects register the same service with `inksync.netinfo.advertise(app, port, source, path)` (see packages/inksync/README.md). It uses the same code as the whiteboard: `DNSServiceRegister` on macOS and zeroconf elsewhere.

@@ -496,7 +496,7 @@ TXT 记录的字段：
 | `port` | 服务实际监听的端口（端口被占用而顺延时，为顺延后的值） |
 | `version` | Mac 端版本号 |
 | `name` | 显示给用户的电脑名称（`scutil --get ComputerName`；取不到时为去掉 `.local` 的主机名） |
-| `source` | 选择服务时使用的名字（4.1 节）：白板应用为 `whiteboard`。1.1.0 之前的版本没有这一项，外壳按 `whiteboard` 处理。 |
+| `source` | 选择服务时使用的名字（4.1 节）：白板应用为 `whiteboard`。1.0.1 之前的版本没有这一项，外壳按 `whiteboard` 处理。 |
 | `path` | 外壳连接后打开的页面：白板应用为 `/?role=ipad`。 |
 
 其他项目用 `inksync.netinfo.advertise(app, port, source, path)` 注册同一种服务（见 packages/inksync/README.zh-CN.md）。它与白板使用相同的代码：macOS 上用 `DNSServiceRegister`，其他系统用 zeroconf。

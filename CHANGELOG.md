@@ -7,7 +7,7 @@ One section per version, titled with the version number. When a release is publi
 > **Note**
 > The update dialog displays content line by line, so every entry must fit on a single line.
 
-## 1.1.0
+## 1.0.1
 
 ### New
 
