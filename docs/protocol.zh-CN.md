@@ -53,6 +53,7 @@
 | `name` | 字符串 | 可选。新建白板的名称。 |
 | `kind` | 字符串 | 可选。新建白板的类型，`board` 或 `note`，默认为 `board`。 |
 | `folder` | 字符串 | 可选。新建白板所在的文件夹；文件夹不存在时自动建立。 |
+| `underlay` | 对象 | 可选。`{src, width}`：新建白板笔迹下方的底图，记入 `meta.underlay`（见 [format.zh-CN.md](format.zh-CN.md#meta-字段)）。 |
 
 ```jsonc
 {"t":"hello","role":"ipad","client":"k3m9x0a1b2c4","board":null,"since":0,"epoch":null,
@@ -65,6 +66,8 @@
 | 白板存在且有 `meta.app` | 任何设备都可以固定到这块白板。 |
 | 白板存在但没有 `meta.app`（用户自己的白板） | 需要「管理白板」权限，与切换白板相同。 |
 | `pin` 无效或权限不足 | 服务端发送 `{"t":"error","reason":"pin"}` 并关闭连接。 |
+| 新建了白板 | 跟随当前白板的连接收到带有新列表的 `boards`。 |
+| 对有 `meta.app` 的白板执行 `clear` | 不需要 `clear` 权限。 |
 | 操作与 `live` | 作用于固定的白板，并发给所有正在显示这块白板的连接：固定在它上面的其他连接，以及它是当前白板时跟随的连接。 |
 | `switch` 与 `boards` | 不发给固定连接。 |
 | 固定的白板被删除 | 服务端发送 `{"t":"deleted","board":"<id>"}`。此后的操作只回执，不含 `op`，也不应用。 |
@@ -373,6 +376,9 @@
 | POST | `/api/recording` | — | 将输入录制保存到 `recordings/`。请求体为带 `events` 数组的 JSON 对象，最大 32 MB。见 [recording.md](recording.md)。 |
 | POST | `/api/doc?name=<文件名>&folder=<文件夹>` | `manage` | 由 PDF 或图片新建文档板。请求体为文件本身，最大 256 MB。 |
 | GET | `/api/doc/{board}/{页码}?w=<宽度>` | — | 渲染后的页面图像 |
+| GET | `/api/apps` | — | `apps`（已安装的应用名称）、`ipad_home` |
+| GET | `/apps/{应用}/{路径}` | — | 已安装应用的静态文件；目录返回其中的 `index.html`。见 [embed.zh-CN.md](embed.zh-CN.md)。 |
+| GET | `/sdk/inkpad.js` | — | 跳转到 `/static/js/embed.js`，即提供 `createInkPad` 的模块。 |
 | GET | `/api/export/{board}` | `export` | 笔迹合并到原件之后的文档板 |
 
 缺少权限时返回 `403`。

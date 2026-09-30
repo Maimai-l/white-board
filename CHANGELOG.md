@@ -13,6 +13,8 @@ One section per version, titled with the version number. When a release is publi
 
 - Finder “打开方式” (Open With): PDF and image files list the app as an alternative; `.wbz` files open with a double-click. A `.wbz` from outside the storage directory, such as a backup, is imported as a new board.
 - A new folder's name field is selected for editing right away, as in Finder.
+- Other web apps can embed a handwriting pad that syncs with the Mac, one board per page element, with an optional underlay image. Apps are installed in `apps/` in the storage directory. See docs/embed.md.
+- Board settings on the Mac can choose which app the iPad opens (“iPad 首页”).
 
 ### Fixes
 

@@ -33,6 +33,21 @@ export class Net {
     });
   }
 
+  /** 停止同步：断开连接，不再重连。手写板被移除时调用。 */
+  close() {
+    this._closed = true;
+    clearTimeout(this._timer);
+    this._stopPing();
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch (err) {
+        /* 本来就要丢掉这条连接 */
+      }
+      this.ws = null;
+    }
+  }
+
   get online() {
     return this.ws && this.ws.readyState === WebSocket.OPEN;
   }

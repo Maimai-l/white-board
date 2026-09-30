@@ -75,6 +75,12 @@ def require(request: web.Request, permission: str) -> None:
 
 async def handle_index(request: web.Request) -> web.Response:
     role = detect_role(request.headers.get("User-Agent", ""), request.query.get("role"))
+    # Mac 上设了「iPad 首页」时，iPad（外壳或主屏图标）打开就进入那个应用。
+    # 带 ?home=… 的地址不跳转，应用靠它回到白板。
+    config: Config = request.app[CONFIG_KEY]
+    home = config.ipad_home
+    if role == "ipad" and home and "home" not in request.query and home in list_apps(config):
+        raise web.HTTPFound(f"/apps/{home}/")
     # 界面按这份清单决定露出哪些管理入口；真正的拦截在服务端，这里只是别画出来。
     html = (WEB_DIR / "index.html").read_text("utf-8")
     html = html.replace("{{ROLE}}", role)
@@ -302,6 +308,59 @@ async def handle_thumb_post(request: web.Request) -> web.Response:
     except (ValueError, OSError) as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
     return web.json_response({"ok": True})
+
+
+# ------------------------------------------------------------- 嵌入与应用
+
+def apps_dir(config: Config) -> Path:
+    """其他应用的静态文件：存储目录下的 apps/，每个应用一个文件夹。"""
+    return config.data_dir / "apps"
+
+
+def list_apps(config: Config) -> list:
+    """装好的应用：apps/ 下名字合法、带 index.html 的文件夹。"""
+    root = apps_dir(config)
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        return []
+    return [
+        entry.name
+        for entry in entries
+        if entry.is_dir() and models.APP_RE.match(entry.name) and (entry / "index.html").is_file()
+    ]
+
+
+async def handle_sdk(request: web.Request) -> web.Response:
+    """嵌入用的手写板模块。跳转到真实位置，模块里的相对 import 才解析得对。"""
+    raise web.HTTPFound("/static/js/embed.js")
+
+
+async def handle_apps(request: web.Request) -> web.Response:
+    """已装的应用和当前的 iPad 首页。只是名字，不需要权限。"""
+    config: Config = request.app[CONFIG_KEY]
+    return web.json_response({"apps": list_apps(config), "ipad_home": config.ipad_home})
+
+
+async def handle_app_file(request: web.Request) -> web.StreamResponse:
+    """``/apps/<应用>/<路径>``：应用的静态文件。目录返回其中的 index.html。"""
+    config: Config = request.app[CONFIG_KEY]
+    name = request.match_info["name"]
+    if not models.APP_RE.match(name):
+        raise web.HTTPNotFound()
+    root = (apps_dir(config) / name).resolve()
+    tail = request.match_info.get("tail", "")
+    if not tail and not request.path.endswith("/"):
+        raise web.HTTPFound(f"/apps/{name}/")
+    target = (root / tail).resolve()
+    # 不能用 .. 或符号链接跑出这个应用自己的文件夹
+    if target != root and root not in target.parents:
+        raise web.HTTPNotFound()
+    if target.is_dir():
+        target = target / "index.html"
+    if not target.is_file():
+        raise web.HTTPNotFound()
+    return web.FileResponse(target, headers={"Cache-Control": "no-cache"})
 
 
 # ------------------------------------------------------------- 文档板（beta）
@@ -577,8 +636,9 @@ class _Session:
             client_id = models.new_id()
         role = detect_role("", msg.get("role"))
         pinned = None
+        created = False
         if msg.get("pin") is not None:
-            pinned = self._pin(msg.get("pin"))
+            pinned, created = self._pin(msg.get("pin"))
             if pinned is None:
                 await self.ws.send_json({"t": "error", "reason": "pin"})
                 await self.ws.close()
@@ -630,31 +690,34 @@ class _Session:
                 return
 
         await self.client.send({"t": "init", "strokes": runtime.stroke_list(), **common})
+        if created:
+            # 新建的白板要出现在其他设备的白板列表里
+            await self._broadcast_boards()
 
     # ------------------------------------------------------------- 操作
 
-    def _pin(self, raw: Any) -> Optional[str]:
-        """握手里的 ``pin``：找到或新建指定的白板，返回它的 id；不允许时返回 None。
+    def _pin(self, raw: Any) -> "tuple[Optional[str], bool]":
+        """握手里的 ``pin``：找到或新建指定的白板，返回 ``(id, 是否新建)``；不允许时 id 为 None。
 
         应用自己建的白板（meta 里有 ``app``）只要能写字就能打开；用户自己的白板
         要有「管理白板」权限，和在界面上切换白板相同。
         """
         if not isinstance(raw, dict):
-            return None
+            return None, False
         board_id, app = raw.get("board"), raw.get("app")
         if not isinstance(board_id, str) or not models.PINNED_ID_RE.match(board_id):
-            return None
+            return None, False
         if not isinstance(app, str) or not models.APP_RE.match(app):
-            return None
+            return None, False
         existing = self.hub.store.get_meta(board_id)
         if existing is not None and not existing.get("app") and "manage" not in self.allowed:
             log.warning("拒绝固定到白板 %s：不是应用建立的白板，且没有管理权限", board_id)
-            return None
+            return None, False
         name = raw.get("name") if isinstance(raw.get("name"), str) else ""
         folder = raw.get("folder") if isinstance(raw.get("folder"), str) else ""
         kind = raw.get("kind") if isinstance(raw.get("kind"), str) else "board"
-        self.hub.pin_board(board_id, app, name=name, kind=kind, folder=folder)
-        return board_id
+        self.hub.pin_board(board_id, app, name=name, kind=kind, folder=folder, underlay=raw.get("underlay"))
+        return board_id, existing is None
 
     def _board_id(self) -> Optional[str]:
         """这条连接所在的白板；固定的白板已被删除时返回 None。"""
@@ -675,8 +738,8 @@ class _Session:
             kind = raw.get("op")
             if kind == "meta" and not self._may("settings"):
                 raw = None  # 背景这些属于白板设置
-            elif kind == "clear" and not self._may("clear"):
-                raw = None  # 一下把整块白板抹掉，单独一项权限
+            elif kind == "clear" and not self._may("clear") and not runtime.meta.get("app"):
+                raw = None  # 一下把整块白板抹掉，单独一项权限；应用自己的白板（例如一道题）不受限
         op = runtime.apply(raw) if raw is not None else None
         cid = msg.get("cid")
         if op is None:
@@ -837,7 +900,7 @@ async def revalidate_static(request: web.Request, handler):
     iPad 的主屏图标点开还是旧的。局域网里多一次 304 的开销可以忽略。
     """
     response = await handler(request)
-    if request.path.startswith("/static/"):
+    if request.path.startswith(("/static/", "/apps/")):
         response.headers.setdefault("Cache-Control", "no-cache")
     return response
 
@@ -867,6 +930,10 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app.router.add_post("/api/doc", handle_doc_upload)
     app.router.add_get("/api/doc/{board_id}/{index}", handle_doc_page)
     app.router.add_get("/api/export/{board_id}", handle_doc_export)
+    app.router.add_get("/sdk/inkpad.js", handle_sdk)
+    app.router.add_get("/api/apps", handle_apps)
+    app.router.add_get("/apps/{name}", handle_app_file)
+    app.router.add_get("/apps/{name}/{tail:.*}", handle_app_file)
     app.router.add_static("/static/", WEB_DIR / "static", name="static")
 
     async def _on_startup(_app: web.Application) -> None:

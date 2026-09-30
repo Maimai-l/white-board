@@ -362,6 +362,11 @@ class App extends InkPad {
         if (!api || !api.choose_data_dir) return null;
         return api.choose_data_dir();
       },
+      onIpadHome: async (name) => {
+        const api = nativeApi();
+        if (!api || !api.set_ipad_home) return null;
+        return api.set_ipad_home(name);
+      },
       onOpenReleases: () => {
         const info = this.ui.info || {};
         this.actionsOpenUrl(info.releases || "https://github.com/Maimai-l/white-board/releases");

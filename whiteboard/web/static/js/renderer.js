@@ -148,6 +148,7 @@ export class Renderer {
     this.dirty = null;
     // 文档板的页面底图：解码完一页就重画一次
     this.docPages = new DocPages(() => this.requestFull());
+    this.underlays = new Map(); // 底图地址 → {img, ready}
     this.resize();
   }
 
@@ -283,6 +284,7 @@ export class Renderer {
       ctx.fillRect(0, 0, this.viewW, this.viewH);
       const background = this.state.meta ? this.state.meta.background : "blank";
       drawPattern(ctx, background, scale, x, y, this.viewW, this.viewH);
+      this.drawUnderlay(ctx);
       return;
     }
 
@@ -298,7 +300,39 @@ export class Renderer {
     ctx.rect(page.left, page.top, page.width, page.height);
     ctx.clip();
     drawPattern(ctx, this.state.meta.background, scale, x, y, this.viewW, this.viewH);
+    this.drawUnderlay(ctx);
     ctx.restore();
+  }
+
+  /**
+   * 底图（meta.underlay，例如题图）：左上角在世界原点，宽度按世界坐标给出，高度按
+   * 图片比例。画在背景之后、笔迹之前；像素橡皮擦补背景时同样经过这里，擦不掉它。
+   */
+  drawUnderlay(ctx) {
+    const underlay = this.state.meta && this.state.meta.underlay;
+    if (!underlay || !underlay.src) return;
+    let entry = this.underlays.get(underlay.src);
+    if (!entry) {
+      const img = new Image();
+      entry = { img, ready: false };
+      img.onload = () => {
+        entry.ready = true;
+        this.requestFull();
+      };
+      img.src = underlay.src;
+      this.underlays.set(underlay.src, entry);
+    }
+    if (!entry.ready || !entry.img.naturalWidth) return;
+    const { scale, x, y } = this.viewport;
+    const width = underlay.width * scale;
+    const height = (underlay.width * entry.img.naturalHeight / entry.img.naturalWidth) * scale;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    try {
+      ctx.drawImage(entry.img, x, y, width, height);
+    } catch (err) {
+      /* 图还没解码好，下一帧再说 */
+    }
   }
 
   // ------------------------------------------------------------------ 绘制

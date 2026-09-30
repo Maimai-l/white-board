@@ -22,7 +22,7 @@ import { Cache } from "./cache.js";
 import { InputController } from "./input.js";
 import { Net } from "./net.js";
 import { PerfMonitor } from "./perf.js";
-import { connectShell } from "./shell.js";
+import { connectShell, disconnectShell } from "./shell.js";
 import { Renderer } from "./renderer.js";
 import { Viewport } from "./viewport.js";
 import { clearStrokeCache, splitLongStroke, strokeHit } from "./stroke.js";
@@ -70,6 +70,7 @@ export class InkPad {
    * @param {object} [options.pin]          固定白板：{board, app, name, kind, folder}
    * @param {object} [options.tool]         初始工具
    * @param {boolean} [options.shell]       接收 iPad 外壳的 Pencil 采样（默认接收）
+   * @param {boolean} [options.embedded]    嵌在别的页面里：只拦截自己区域里的触摸和捏合
    */
   constructor(options) {
     this.role = options.role || "mac";
@@ -113,6 +114,7 @@ export class InkPad {
       viewport: this.viewport,
       renderer: this.renderer,
       device: this.role,
+      embedded: !!options.embedded,
       // 会话段必不可少：光用客户端 id + 计数器的话，重开页面后计数器从头数，
       // 新笔画的 id 会和上次的撞车，被当成重复项丢掉（表现为抬笔即消失）。
       strokePrefix: `${this.clientId}-${uid(4)}`,
@@ -126,6 +128,17 @@ export class InkPad {
 
     this.saveCache = debounce(() => this.persistWhenIdle(), SAVE_DEBOUNCE);
     this.saveView = debounce(() => this.persistView(), 400);
+  }
+
+  /** 停止工作：断开同步、停止渲染、不再接收外壳采样。先把内容写进本地缓存。 */
+  destroy() {
+    if (this.destroyed) return;
+    this.persist();
+    this.destroyed = true;
+    this.net.close();
+    disconnectShell(this);
+    this.stopViewAnimation();
+    this.listeners.clear();
   }
 
   /** 开始工作：画出缓存、连上服务端、启动渲染循环。子类先接好事件再调用。 */
@@ -189,6 +202,7 @@ export class InkPad {
 
   bindWindow() {
     const onResize = () => {
+      if (this.destroyed) return;
       this.renderer.resize();
       this.clampView();
       this.renderer.requestFull();
@@ -198,9 +212,11 @@ export class InkPad {
     if (window.visualViewport) visualViewport.addEventListener("resize", onResize);
 
     document.addEventListener("visibilitychange", () => {
-      if (document.hidden) this.persist();
+      if (document.hidden && !this.destroyed) this.persist();
     });
-    addEventListener("pagehide", () => this.persist());
+    addEventListener("pagehide", () => {
+      if (!this.destroyed) this.persist();
+    });
   }
 
   loop() {
@@ -226,7 +242,7 @@ export class InkPad {
         }
       } finally {
         previous = started;
-        requestAnimationFrame(frame);
+        if (!this.destroyed) requestAnimationFrame(frame);
       }
     };
     requestAnimationFrame(frame);
@@ -675,6 +691,12 @@ export class InkPad {
     if (limits) {
       // 笔记：按页宽铺满、停在页首
       this.viewport.fitWidth(limits, this.renderer.viewW, this.renderer.viewH);
+      return;
+    }
+    const underlay = this.state.meta && this.state.meta.underlay;
+    if (underlay) {
+      // 有底图（例如题图）：按底图宽度铺满，停在顶部
+      this.viewport.fitWidth({ x0: 0, x1: underlay.width, y0: 0 }, this.renderer.viewW, this.renderer.viewH, 16);
       return;
     }
     const bounds = contentBounds(this.state);

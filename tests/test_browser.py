@@ -4671,3 +4671,116 @@ def test_two_fingers_pinch_and_pan_on_a_touch_device(browser, server):
     assert ipad.evaluate(where) != before
     assert abs(ipad.evaluate(scale) - zoomed) < zoomed * 0.05
     assert stroke_count(ipad) == 0
+
+
+# ---------------------------------------------------------------- 嵌入手写板（docs/embed.md）
+
+EMBED_FIRE = """
+([selector, type, x, y, pointerType, pointerId, pressure]) => {
+  const stage = document.querySelector(selector);
+  const rect = stage.getBoundingClientRect();
+  stage.dispatchEvent(new PointerEvent(type, {
+    clientX: rect.left + x, clientY: rect.top + y, pointerType, pointerId, pressure,
+    buttons: type === 'pointerup' ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true,
+  }));
+}
+"""
+
+
+def install_demo_app(server):
+    import shutil
+
+    target = server.config.data_dir / "apps" / "demo"
+    shutil.copytree(Path(__file__).resolve().parents[1] / "examples" / "apps" / "demo", target)
+
+
+def open_demo(browser, port, path="/apps/demo/"):
+    page = browser.new_context(
+        viewport={"width": 1000, "height": 900}, user_agent=TABLET_UA, has_touch=True
+    ).new_page()
+    page.goto(f"http://127.0.0.1:{port}{path}")
+    page.wait_for_function("() => window.pad && pad.net.status === 'online'")
+    return page
+
+
+def draw_embedded(page, points, selector="#pad .inkpad-stage", pointer_id=1):
+    """在嵌入的手写板上画一笔；坐标相对手写板的左上角。"""
+    page.evaluate(EMBED_FIRE, [selector, "pointerdown", *points[0], "pen", pointer_id, 0.6])
+    for x, y in points[1:]:
+        page.evaluate(EMBED_FIRE, [selector, "pointermove", x, y, "pen", pointer_id, 0.6])
+    page.evaluate(EMBED_FIRE, [selector, "pointerup", *points[-1], "pen", pointer_id, 0])
+
+
+def test_an_embedded_pad_syncs_with_the_mac(browser, server):
+    """刷题这类页面嵌入手写板：iPad 上写的内容进 Mac 上的同一块白板，反过来也一样。"""
+    install_demo_app(server)
+    mac, _ = open_pages(browser, server.port)
+    pad = open_demo(browser, server.port)
+
+    meta = pad.evaluate("() => pad.state.meta")
+    assert meta["id"] == "demo-q1" and meta["app"] == "demo" and meta["folder"] == "示例"
+    assert meta["underlay"] == {"src": "/apps/demo/question.svg", "width": 800}
+    # 底图按宽度铺满手写板
+    assert pad.evaluate("() => Math.abs(pad.viewport.scale * 800 + 32 - pad.renderer.viewW) < 1")
+
+    draw_embedded(pad, [(100, 300), (160, 340), (230, 300), (300, 360)])
+    pad.wait_for_function("() => pad.state.strokes.length === 1 && pad.net.outbox.length === 0")
+
+    # Mac 没有被切走；在白板列表里能看到这块白板，打开它就看到刚写的内容
+    assert mac.evaluate("() => whiteboard.state.id") != "demo-q1"
+    mac.wait_for_function("() => whiteboard.ui.boards.some(b => b.id === 'demo-q1')")
+    mac.evaluate("() => whiteboard.net.send({ t: 'sel', board: 'demo-q1' })")
+    mac.wait_for_function("() => whiteboard.state.id === 'demo-q1'")
+    wait_strokes(mac, 1)
+
+    draw(mac, [(300, 500), (360, 540), (420, 500)], pointer_type="mouse")
+    pad.wait_for_function("() => pad.state.strokes.length === 2")
+
+
+def test_an_embedded_pad_leaves_the_rest_of_the_page_alone(browser, server):
+    """手写板只拦自己区域里的触摸：页面上的输入框照常点得中、打得了字。"""
+    install_demo_app(server)
+    pad = open_demo(browser, server.port)
+    pad.tap("#answer")
+    pad.keyboard.type("x=2 或 x=3")
+    assert pad.evaluate("() => document.getElementById('answer').value") == "x=2 或 x=3"
+    pad.tap("button[data-tool='eraser']")
+    assert pad.evaluate("() => pad.tool.tool") == "eraser"
+
+
+def test_two_pads_on_one_page_keep_their_own_boards(browser, server):
+    install_demo_app(server)
+    pad = open_demo(browser, server.port)
+    pad.evaluate(
+        """async () => {
+          const box = document.createElement('div');
+          box.id = 'second';
+          box.style.height = '300px';
+          document.querySelector('main').append(box);
+          const { createInkPad } = await import('/sdk/inkpad.js');
+          window.pad2 = createInkPad(box, { app: 'demo', board: 'demo-q2', name: '第 2 题' });
+        }"""
+    )
+    pad.wait_for_function("() => pad2.net.status === 'online'")
+    assert pad.evaluate("() => pad.clientId !== pad2.clientId")
+    draw_embedded(pad, [(80, 80), (140, 120), (200, 80)], selector="#second .inkpad-stage", pointer_id=2)
+    pad.wait_for_function("() => pad2.state.strokes.length === 1 && pad2.net.outbox.length === 0")
+    assert pad.evaluate("() => pad.state.strokes.length") == 0
+    assert pad.evaluate("() => pad2.state.id") == "demo-q2"
+
+    pad.evaluate("() => pad2.destroy()")
+    assert pad.evaluate("() => document.querySelector('#second .inkpad-stage')") is None
+
+
+def test_the_ipad_opens_the_chosen_home_app(browser, server):
+    install_demo_app(server)
+    server.config.ipad_home = "demo"
+    pad = open_demo(browser, server.port, path="/?role=ipad")
+    assert pad.url.endswith("/apps/demo/")
+    # 应用里的「白板」链接带 home=…，回到白板不再跳转
+    pad.click("header a")
+    pad.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    assert "/apps/" not in pad.url
+    mac = browser.new_page()
+    mac.goto(f"http://127.0.0.1:{server.port}/?role=mac")
+    assert "/apps/" not in mac.url

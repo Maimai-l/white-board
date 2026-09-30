@@ -25,7 +25,7 @@ INCLUDE_FILES = [
     "browser-mode.command",
     "update.command",
 ]
-INCLUDE_DIRS = ["whiteboard", "docs", "tests"]
+INCLUDE_DIRS = ["whiteboard", "docs", "tests", "examples"]
 SKIP_PARTS = {"__pycache__", ".git", ".venv", "data", ".pytest_cache"}
 
 

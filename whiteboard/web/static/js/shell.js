@@ -44,23 +44,24 @@ export function bridgeSupported(bridge) {
  * 这边再按自己的范围核对一遍：两边都认才切到外壳来源。
  */
 export function connectShell(app) {
+  pads.add(app);
+  if (shellReply) applyShell(app, shellReply);
+  if (window.whiteboardShell) return shellHandler() !== null;
   window.whiteboardShell = {
+    // 页面上可以有几块手写板（嵌入的情况）：每一批都交给每一块，各自只接
+    // 落笔点在自己区域里的笔画（input.js 的 onStage）
     receive(batch) {
-      try {
-        app.input.receiveShell(batch);
-      } catch (err) {
-        console.error("外壳采样处理出错", err);
+      for (const pad of pads) {
+        try {
+          pad.input.receiveShell(batch);
+        } catch (err) {
+          console.error("外壳采样处理出错", err);
+        }
       }
     },
     hello(info) {
-      const reply = info || {};
-      const active = reply.active === true && bridgeSupported(reply.bridge);
-      app.input.setShell({
-        active,
-        version: String(reply.shellVersion || ""),
-        bridge: reply.bridge | 0,
-      });
-      document.documentElement.dataset.shell = active ? "active" : "inactive";
+      shellReply = info || {};
+      for (const pad of pads) applyShell(pad, shellReply);
     },
   };
   const handler = shellHandler();
@@ -71,4 +72,22 @@ export function connectShell(app) {
     return false;
   }
   return true;
+}
+
+/** 手写板被移除时调用，之后不再收外壳的采样。 */
+export function disconnectShell(app) {
+  pads.delete(app);
+}
+
+const pads = new Set();
+let shellReply = null;
+
+function applyShell(app, reply) {
+  const active = reply.active === true && bridgeSupported(reply.bridge);
+  app.input.setShell({
+    active,
+    version: String(reply.shellVersion || ""),
+    bridge: reply.bridge | 0,
+  });
+  document.documentElement.dataset.shell = active ? "active" : "inactive";
 }

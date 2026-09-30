@@ -67,6 +67,9 @@ const methods = {
           el("div", { class: "perm-list" }, PERMISSIONS.map((item) => this.permissionRow(item))),
         ])
       );
+      // 存储目录 apps/ 下装了应用时才有这一段
+      const apps = (this.info && this.info.apps) || [];
+      if (apps.length) groups.push(this.settingsGroup("iPad 首页", [this.ipadHomeCard(apps)]));
     }
     const sheet = this.openSheet(groups);
     sheet.parentElement.dataset.kind = "settings";
@@ -129,6 +132,26 @@ const methods = {
       ]),
       input,
     ]);
+  },
+
+  /** iPad 打开时进入白板还是某个应用（docs/embed.md）。 */
+  ipadHomeCard(apps) {
+    const current = (this.info && this.info.ipad_home) || "";
+    const select = el("select", { class: "home-select", title: "iPad 首页" }, [
+      el("option", { value: "", text: "白板" }),
+      ...apps.map((name) => el("option", { value: name, text: name })),
+    ]);
+    select.value = current;
+    select.addEventListener("change", async () => {
+      const next = await this.actions.onIpadHome(select.value);
+      if (next === null || next === undefined) {
+        select.value = current;
+        return;
+      }
+      if (this.info) this.info.ipad_home = next;
+      this.toast("check");
+    });
+    return el("div", { class: "card" }, [select]);
   },
 
   connectCard() {

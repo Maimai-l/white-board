@@ -207,6 +207,9 @@ export class InputController {
     this.hooks = options.hooks;
     this.strokePrefix = options.strokePrefix;
     this.device = options.device;
+    // 嵌在别的页面里（见 embed.js）：只拦自己区域里的触摸和捏合，页面其余部分
+    // （输入框、滚动、按钮）保持浏览器的默认行为
+    this.embedded = !!options.embedded;
 
     this.counter = 0;
     this.pointers = new Map();
@@ -285,9 +288,10 @@ export class InputController {
     // WebKit（Safari 和 Mac 窗口用的 WKWebView）发的是这套非标准的 gesture 事件，
     // 两条路都得接，不然 Mac 应用里捏合是没反应的。挂在 window 上：应用窗口里
     // 任何地方都不该缩放网页本身，哪怕指针停在工具栏上。
-    window.addEventListener("gesturestart", (e) => this.onPinchStart(e), { passive: false });
-    window.addEventListener("gesturechange", (e) => this.onPinch(e), { passive: false });
-    window.addEventListener("gestureend", (e) => this.onPinchEnd(e), { passive: false });
+    const pinchTarget = this.embedded ? stage : window;
+    pinchTarget.addEventListener("gesturestart", (e) => this.onPinchStart(e), { passive: false });
+    pinchTarget.addEventListener("gesturechange", (e) => this.onPinch(e), { passive: false });
+    pinchTarget.addEventListener("gestureend", (e) => this.onPinchEnd(e), { passive: false });
     stage.addEventListener("contextmenu", (e) => e.preventDefault());
 
     // iPadOS 上光有 touch-action: none 还不够：书写快一点，Safari 的选择 / 查词
@@ -312,7 +316,7 @@ export class InputController {
     // 界面控件要放过，否则 iOS 不再合成 click，按钮就点不动了。
     const ui = document.getElementById("ui");
     const guard = (e) => {
-      if (ui && ui.contains(e.target)) return;
+      if (this.embedded ? !stage.contains(e.target) : ui && ui.contains(e.target)) return;
       this.stats.touch += 1;
       if (!e.cancelable) {
         // 不可取消说明系统已经接管了这次手势，我们拦不住（多半是随手写 Scribble）。
@@ -340,6 +344,11 @@ export class InputController {
     addEventListener("keyup", (e) => {
       if (e.code === "Space") this.spaceHeld = false;
     });
+  }
+
+  /** 书写区域的位置或大小变了（例如嵌入的容器改变尺寸），下次重新量。 */
+  invalidateRect() {
+    this._rect = null;
   }
 
   /** 指针捕获：合成事件或指针已经消失时浏览器会抛错，这里忽略掉。 */
