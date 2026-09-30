@@ -202,6 +202,23 @@ export class UI {
     return this.perms.has(permission);
   }
 
+  /**
+   * Mac 上改了这台设备的权限：右上角那一组、清空按钮和笔具盘里的清空跟着变，
+   * 失去权限时关掉对应的界面。真正的拦截在服务端，这里只是不再显示入口。
+   */
+  setPerms(perms) {
+    this.perms = perms;
+    if (this.corner) this.corner.remove();
+    const zoombar = document.getElementById("zoombar");
+    if (zoombar) zoombar.remove();
+    this.corner = null;
+    this.buildCorner();
+    if (this.clearButton) this.clearButton.hidden = !this.may("clear");
+    if (this.pk) this.pk.allowClear = this.may("clear");
+    if (!this.may("manage")) this.closeGallery();
+    if (!this.may("settings") && !this.native) this.closeSheet();
+  }
+
   /** 填工具栏。开了笔具盘就把这条藏起来，交给 pkpicker.js 那条。 */
   fillToolbar() {
     this.closePopover();
@@ -256,9 +273,10 @@ export class UI {
     this.undoButton = iconButton("undo", "撤销", () => this.actions.onUndo());
     this.redoButton = iconButton("redo", "重做", () => this.actions.onRedo());
     bar.append(this.undoButton, this.redoButton);
-    if (this.may("clear")) {
-      bar.append(iconButton("trash", "清空白板", () => this.confirmClear(), "danger"));
-    }
+    // 一直建好，没有权限时藏起来：权限可能在使用中途放开（见 setPerms）
+    this.clearButton = iconButton("trash", "清空白板", () => this.confirmClear(), "danger");
+    this.clearButton.hidden = !this.may("clear");
+    bar.append(this.clearButton);
   }
 
   /* ---------------------------------------------------- 笔具盘 */

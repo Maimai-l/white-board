@@ -179,6 +179,13 @@ class ServerThread:
             raise RuntimeError("服务端未启动")
         return self.run_coroutine(open_local_file(hub, Path(path), folder)).result(timeout)
 
+    def refresh_permissions(self) -> None:
+        """权限设置改了之后调用：已连接的设备立即按新设置生效。"""
+        from .server import refresh_permissions  # noqa: WPS433
+
+        if self.app is not None:
+            self.run_coroutine(refresh_permissions(self.app)).result(timeout=10)
+
     def save_now(self) -> None:
         hub = self.hub
         if hub is not None:

@@ -30,10 +30,13 @@ Requires Python 3.10 or later and aiohttp 3.9 or later.
 | `app` | The aiohttp application. |
 | `hub` | A `Hub` over a `BoardStore`. One hub per storage directory. |
 | `path` | Route of the WebSocket endpoint. |
-| `permissions` | `request -> frozenset` of `manage`, `settings`, `clear`, `export`. Default: all four. Writing never needs a permission. |
+| `permissions` | `request -> frozenset` of `manage`, `settings`, `clear`, `export`. Default `local_only`: all four for this machine, none for other devices. Writing never needs a permission. |
+| `pin_policy` | `(allowed, app, board_id, existing) -> bool`: whether a pinned connection may open or create a board. Default: app boards and new boards for anyone, a user's own board only with `manage`. |
 | `info` | `request -> dict` sent to clients in `init` / `sync` as `info`. Default: `{"version": …}`. |
 
 `mount` also starts autosave (every 3 s) and saves and closes connections when the app shuts down.
+
+After changing the permission rules, call `await hub.refresh_permissions(lambda client: permissions(client.request))`: every open connection whose permissions changed receives `perms` and an updated board list at once. Requests carrying `X-Forwarded-For` or `Forwarded` never count as local, so a reverse proxy on the same machine does not grant local permissions.
 
 ## Letting the iPad shell find the service
 

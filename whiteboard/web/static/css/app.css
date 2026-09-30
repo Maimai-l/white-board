@@ -1156,6 +1156,8 @@ body.dropping::after {
 }
 /* display: flex 会盖掉 hidden 自带的 display: none，得自己写回来 */
 #rec[hidden] { display: none; }
+/* 没有权限时藏起来的按钮（ui.js 的 setPerms） */
+.icon-btn[hidden] { display: none !important; }
 #rec button {
   border: 0;
   border-radius: 7px;

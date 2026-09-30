@@ -188,18 +188,55 @@ def test_pinned_boards_are_saved_and_reopened(tmp_path):
     assert [s["id"] for s in strokes] == ["s1"]
 
 
+def install_app(tmp_path, name="qb"):
+    folder = tmp_path / "data" / "apps" / name
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "index.html").write_text("<p>app</p>", "utf-8")
+
+
 def test_a_device_without_permissions_may_pin_app_boards_only(tmp_path):
     async def main():
         async with make_client(tmp_path, remote=True) as (client, app):
             hub = app[HUB_KEY]
             own = hub.current_id  # 用户自己的白板
 
+            # 应用还没安装：只能写字的设备不能拿这个应用名建板
+            ws, refused = await connect(client, "pad-zero", pin=PIN)
+            assert refused == {"t": "error", "reason": "pin"}
+            await ws.close()
+            assert hub.store.get_meta("qb-9709-q3") is None
+
+            install_app(tmp_path)
             pad, init = await connect(client, "pad-one", pin=PIN)
-            assert init["t"] == "init"  # 应用的白板：能写字就能建、能打开
+            assert init["t"] == "init"  # 已安装应用的白板：能写字就能建、能打开
+            # 只能写字的设备只看得到自己这块，看不到完整的白板列表
+            assert [b["id"] for b in init["boards"]] == ["qb-9709-q3"] and init["folders"] == []
             await pad.close()
 
             ws, refused = await connect(client, "pad-two", pin={"board": own, "app": "qb"})
             assert refused == {"t": "error", "reason": "pin"}
+            await ws.close()
+
+    run(main())
+
+
+def test_app_boards_are_capped_per_app(tmp_path, monkeypatch):
+    import inksync.hub
+
+    monkeypatch.setattr(inksync.hub, "MAX_APP_BOARDS", 2)
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            for index in (1, 2):
+                ws, init = await connect(client, f"pad-{index}aa", pin={"board": f"qb-{index}", "app": "qb"})
+                assert init["t"] == "init"
+                await ws.close()
+            ws, refused = await connect(client, "pad-3aa", pin={"board": "qb-3", "app": "qb"})
+            assert refused == {"t": "error", "reason": "pin"}
+            await ws.close()
+            # 已有的照样能打开
+            ws, init = await connect(client, "pad-4aa", pin={"board": "qb-1", "app": "qb"})
+            assert init["t"] == "init"
             await ws.close()
 
     run(main())

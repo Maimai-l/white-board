@@ -42,6 +42,7 @@ The endpoint stores one recording as a file.
 | --- | --- |
 | Request body | JSON object with an `events` array |
 | Maximum size | 32 MiB (`MAX_RECORDING_BYTES`) |
+| Retention | The newest 50 files, up to 256 MiB in total; older files are deleted. The file just saved is always kept. |
 | Permission | None required |
 | Response | `{"ok": true, "path": "<file path>", "events": <event count>}` |
 | Errors | `400` if the body is not a JSON object with an `events` array; `413` if it exceeds the size limit |

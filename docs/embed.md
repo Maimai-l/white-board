@@ -140,4 +140,4 @@ A custom transport implements the same members as the built-in WebSocket transpo
 - **Several pads.** A page can contain several pads, each with its own board. Each pad takes only the strokes that start inside it, including samples from the iPad shell.
 - **Page input.** The pad blocks touch gestures only inside its own area. Text fields, buttons and scrolling elsewhere on the page work normally.
 - **Mac view.** Boards created by an app appear in the board chooser, in the given folder. The Mac shows the underlay as well.
-- **Permissions.** A device that can only write can create and open boards that an app created. Opening one of the user's own boards requires the “管理白板” (Manage boards) permission.
+- **Permissions.** A device that can only write can create and open boards of an app installed in `apps/`, up to 5000 boards per app. Opening one of the user's own boards requires the “管理白板” (Manage boards) permission. Board IDs chosen by an app are easy to guess, so any device on the network can open that app's boards.

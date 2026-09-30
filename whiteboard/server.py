@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, FrozenSet, Optional
 
 from aiohttp import web
-from inksync.ws import MAX_WS_MESSAGE, detect_role, websocket_handler  # noqa: F401
+from inksync.ws import MAX_WS_MESSAGE, default_pin_policy, detect_role, websocket_handler  # noqa: F401
 
 from . import __version__, ipadshell, models, netinfo, profile, resources, updater
 from .config import REMOTE_PERMISSIONS, Config
@@ -27,6 +27,9 @@ WEB_DIR = resources.web_dir()
 MAX_THUMB_BYTES = 512 * 1024
 # 一次录制几千条事件，一条一百来字节；给到 32 MB 足够长时间连续录
 MAX_RECORDING_BYTES = 32 * 1024 * 1024
+# recordings/ 里最多留几份、总共多大；超出时删掉最旧的
+MAX_RECORDINGS = 50
+MAX_RECORDINGS_BYTES = 256 * 1024 * 1024
 MAX_DOC_BYTES = 256 * 1024 * 1024
 # 同时最多渲染两页：渲染走线程池，再多也只是互相抢 CPU。
 RENDER_LIMIT = 2
@@ -64,10 +67,32 @@ def permissions(request: web.Request) -> FrozenSet[str]:
     检查更新和选存储目录不在这里：它们走 pywebview 的本地接口，别的设备本来
     就够不着。
     """
-    if netinfo.is_own_address(request.remote):
+    if netinfo.is_local_request(request):
         return frozenset(REMOTE_PERMISSIONS)
     config: Config = request.app[CONFIG_KEY]
     return frozenset(name for name, on in config.remote_permissions.items() if on)
+
+
+def pin_policy_for(config: Config):
+    """固定连接的规则：在 inksync 的默认规则之上，只能写字的设备只能打开或新建
+    **已安装应用**（存储目录 apps/ 下有这个应用）的白板，防止随便起个应用名就不停建板。"""
+
+    def allow(allowed, app, board_id, existing) -> bool:
+        if not default_pin_policy(allowed, app, board_id, existing):
+            return False
+        return "manage" in allowed or app in list_apps(config)
+
+    return allow
+
+
+async def refresh_permissions(app: web.Application) -> None:
+    """Mac 上改了其他设备的权限：已连接的设备立即按新设置生效，界面入口随之更新。"""
+    hub: Hub = app[HUB_KEY]
+
+    def compute(client) -> FrozenSet[str]:
+        return permissions(client.request) if client.request is not None else frozenset()
+
+    await hub.refresh_permissions(compute)
 
 
 def require(request: web.Request, permission: str) -> None:
@@ -246,8 +271,20 @@ async def handle_recording(request: web.Request) -> web.Response:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     path = folder / f"{stamp}{'-' + safe if safe else ''}.json"
     path.write_bytes(body)
+    prune_recordings(folder)
     log.warning("[录制] %s，%d 条事件", path, len(payload["events"]))
     return web.json_response({"ok": True, "path": str(path), "events": len(payload["events"])})
+
+
+def prune_recordings(folder: Path) -> None:
+    """录像只留最近的一些：任何设备都能上传录像，不限的话可以把磁盘写满。"""
+    files = sorted(folder.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+    total = 0
+    for index, item in enumerate(files):
+        total += item.stat().st_size
+        # 最新的那一份（刚上传的）总是留着，哪怕它自己就超过了总大小
+        if index > 0 and (index >= MAX_RECORDINGS or total > MAX_RECORDINGS_BYTES):
+            item.unlink(missing_ok=True)
 
 
 async def handle_boards(request: web.Request) -> web.Response:
@@ -458,6 +495,9 @@ async def handle_doc_page(request: web.Request) -> web.StreamResponse:
 
     hub: Hub = request.app[HUB_KEY]
     board_id = request.match_info["board_id"]
+    # 只能写字的设备只看得到正在用的那块白板的页面；别的文档板要「管理白板」权限
+    if board_id != hub.current_id:
+        require(request, "manage")
     meta = hub.store.get_meta(board_id)
     if not meta or meta.get("kind") != "doc":
         raise web.HTTPNotFound()
@@ -559,7 +599,12 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app.router.add_get(
         "/ws",
         # permissions 每次按名字取，而不是在这里存下函数本身：测试会替换它
-        websocket_handler(lambda request: request.app[HUB_KEY], lambda request: permissions(request), server_info),
+        websocket_handler(
+            lambda request: request.app[HUB_KEY],
+            lambda request: permissions(request),
+            server_info,
+            pin_policy_for(config),
+        ),
     )
     app.router.add_get("/profile.mobileconfig", handle_profile)
     app.router.add_get("/icon.png", handle_icon)

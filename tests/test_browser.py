@@ -935,12 +935,12 @@ def test_dialog_stays_solid_while_the_scrim_darkens(browser, server):
 
 
 def test_clear_button_disappears_without_the_permission(browser, server):
-    """没给清空权限的设备，工具栏上连这个按钮都没有。"""
+    """没给清空权限的设备，工具栏上看不到这个按钮（按钮建好后藏起来，权限放开时直接显示）。"""
     mac, ipad = open_pages(browser, server.port)
-    assert ipad.locator('button[title="清空白板"]').count() == 1
+    assert ipad.locator('button[title="清空白板"]:visible').count() == 1
 
     serve_with_perms(ipad, "export manage settings")
-    assert ipad.locator('button[title="清空白板"]').count() == 0
+    assert ipad.locator('button[title="清空白板"]:visible').count() == 0
     assert ipad.locator('button[title="撤销"]').count() == 1  # 别的按钮照旧
     mac.close()
     ipad.close()
@@ -4866,3 +4866,25 @@ def test_a_pad_can_sync_through_a_given_url_or_a_custom_transport(browser, serve
     page.wait_for_function("() => custom.state.id === 'custom-1'")
     draw_embedded(page, [(80, 80), (140, 120), (200, 80)], selector="#custom .inkpad-stage", pointer_id=5)
     page.wait_for_function("() => sent.length === 1 && sent[0].op === 'add'")
+
+
+def test_permission_changes_update_a_connected_page(browser, server, monkeypatch):
+    """Mac 上给其他设备放开「管理白板」：已经打开的页面不用刷新就出现「白板」入口，收回后消失。"""
+    import whiteboard.netinfo as netinfo
+
+    monkeypatch.setattr(netinfo, "is_local_request", lambda request: False)  # 模拟局域网上的其他设备
+    page = browser.new_context(user_agent=TABLET_UA, has_touch=True).new_page()
+    page.goto(f"http://127.0.0.1:{server.port}/?role=ipad")
+    page.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
+    assert page.query_selector('#topright button[title="白板"]') is None
+    assert page.evaluate("() => document.querySelector('button[title=\"清空白板\"]').hidden") is True
+
+    server.config.set_remote_permission("manage", True)
+    server.config.set_remote_permission("clear", True)
+    server.refresh_permissions()
+    page.wait_for_selector('#topright button[title="白板"]')
+    assert page.evaluate("() => document.querySelector('button[title=\"清空白板\"]').hidden") is False
+
+    server.config.set_remote_permission("manage", False)
+    server.refresh_permissions()
+    page.wait_for_function("() => !document.querySelector('#topright button[title=\"白板\"]')")

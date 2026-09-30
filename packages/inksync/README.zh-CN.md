@@ -30,10 +30,13 @@ pip install "git+https://github.com/Maimai-l/white-board.git#subdirectory=packag
 | `app` | aiohttp 应用。 |
 | `hub` | 建立在 `BoardStore` 之上的 `Hub`。每个存储目录一个 Hub。 |
 | `path` | WebSocket 接口的路径。 |
-| `permissions` | `request -> frozenset`，取值为 `manage`、`settings`、`clear`、`export`。默认四项全部给予。书写不需要任何权限。 |
+| `permissions` | `request -> frozenset`，取值为 `manage`、`settings`、`clear`、`export`。默认为 `local_only`：本机四项全部给予，其他设备没有权限。书写不需要任何权限。 |
+| `pin_policy` | `(allowed, app, board_id, existing) -> bool`：固定连接能否打开或新建某块白板。默认：应用的白板和新白板任何设备都可以，用户自己的白板需要 `manage`。 |
 | `info` | `request -> dict`，在 `init` / `sync` 中作为 `info` 发给客户端。默认为 `{"version": …}`。 |
 
 `mount` 同时启动自动保存（每 3 秒），并在应用关闭时保存白板、断开连接。
+
+修改权限规则后，调用 `await hub.refresh_permissions(lambda client: permissions(client.request))`：权限有变化的已建立连接立即收到 `perms` 和更新后的白板列表。带有 `X-Forwarded-For` 或 `Forwarded` 的请求一律不算本机，因此本机上的反向代理不会使请求获得本机权限。
 
 ## 让 iPad 外壳找到服务
 

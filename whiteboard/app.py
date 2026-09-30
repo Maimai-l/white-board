@@ -154,6 +154,10 @@ class NativeApi:
             return None
         self.config.save()
         log.info("其他设备的 %s 权限：%s", name, "开" if granted[name] else "关")
+        try:
+            self.server.refresh_permissions()
+        except Exception:  # noqa: BLE001 - 设置已经存下，下次连接时照样生效
+            log.exception("通知已连接的设备更新权限失败")
         return granted
 
     def set_ipad_home(self, name: str) -> Optional[str]:
