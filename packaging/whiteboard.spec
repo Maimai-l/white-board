@@ -48,7 +48,7 @@ for package in ("webview", "zeroconf", "aiohttp", "certifi", "pypdfium2", "pypdf
 
 a = Analysis(
     [os.path.join(ROOT, "run.py")],
-    pathex=[ROOT],
+    pathex=[ROOT, os.path.join(ROOT, "packages", "inksync")],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

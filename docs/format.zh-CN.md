@@ -360,7 +360,7 @@ uvarint  count
 
 解码按相反顺序进行：`x = Σdx / 8`，`y = Σdy / 8`，`压感 = 字节 / 255`。varint 超过 63 位、读取越界或缺少压感字节时报错。
 
-一条 500 个点的笔画通常小于 2 KB。代码位于 `whiteboard/codec.py`；`encode_points` / `decode_points`（以及对应的 `_b64` 函数）互为逆运算，有往返测试覆盖。
+一条 500 个点的笔画通常小于 2 KB。代码位于 `packages/inksync/inksync/codec.py`；`encode_points` / `decode_points`（以及对应的 `_b64` 函数）互为逆运算，有往返测试覆盖。
 
 ## 版本与读不全的文件
 

@@ -120,6 +120,8 @@ pad.undo();
 | `{url}` | 通过 WebSocket 连接指定地址，例如 `ws://mac.local:8848/ws`。通过 https 提供的页面不能连接 `ws://` 地址。 |
 | 函数 | 自定义传输。调用时传入 `{clientId, role, pin, onMessage, onStatus}`，返回实现下列成员的对象。 |
 
+要让其他项目自己的服务端保存和同步白板、不运行白板应用，在该服务端上用 [inksync](../packages/inksync/README.zh-CN.md) 挂载协议，并由该服务端提供页面，或者让 `{url}` 指向它。
+
 自定义传输实现与内置 WebSocket 传输（`net.js`）相同的成员：
 
 | 成员 | 说明 |

@@ -427,12 +427,16 @@ boards-data/
 ### 源码结构
 
 ```
+packages/inksync/   同步服务端，可单独安装（见其 README）
+  inksync/
+    ws.py       WebSocket 协议；mount() 挂到任意 aiohttp 应用上
+    hub.py      操作日志、广播、自动保存、只读白板
+    store.py    白板的保存与读取（zlib + 紧凑点编码）
+    codec.py    点数据的量化、增量编码与 varint 编码
+    models.py   数据模型与网络输入校验
 whiteboard/
-  server.py     aiohttp 路由与 WebSocket 协议
-  hub.py        操作日志、广播、自动保存、只读白板
-  store.py      白板的保存与读取（zlib + 紧凑点编码）
-  codec.py      点数据的量化、增量编码与 varint 编码
-  models.py     数据模型与网络输入校验
+  server.py     aiohttp 路由；在 /ws 挂载 inksync 的协议
+  hub.py、store.py   在 inksync 之上加文档板与缩略图
   config.py     配置文件；只对本次运行有效的命令行参数
   backup.py     新版本首次处理白板前的备份
   docs.py       文档板：读取、渲染、导出 PDF / 图片

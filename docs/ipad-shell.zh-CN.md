@@ -97,7 +97,7 @@ cd ipad && xcodegen generate
 
 页面的加载方式：
 
-- 页面地址为 `http://<主机名>.local:<端口>/?role=ipad`。`role=ipad` 使服务端返回 iPad 界面（`whiteboard/server.py` 的 `detect_role`）。主机名和端口取自 Bonjour 服务的 TXT 记录（8.4 节）。
+- 页面地址为 `http://<主机名>.local:<端口>/?role=ipad`。`role=ipad` 使服务端返回 iPad 界面（`packages/inksync/inksync/ws.py` 的 `detect_role`，由 `whiteboard/server.py` 调用）。主机名和端口取自 Bonjour 服务的 TXT 记录（8.4 节）。
 - 每次加载都忽略本地缓存，超时时间为 8 秒。
 - 加载失败时，外壳显示错误原因以及「重试」「重新查找 Mac」两个按钮。
 - 开始新的导航时，外壳停止发送采样点，直到页面重新完成握手（5.2 节）。

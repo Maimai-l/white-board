@@ -360,7 +360,7 @@ repeat count times:
 
 Decoding reverses the steps: `x = Σdx / 8`, `y = Σdy / 8`, `pressure = byte / 255`. A varint longer than 63 bits, a read past the end, or a missing pressure byte is an error.
 
-A stroke of 500 points is usually under 2 KB. The code is in `whiteboard/codec.py`; `encode_points` / `decode_points` (and the `_b64` variants) are inverse functions covered by round-trip tests.
+A stroke of 500 points is usually under 2 KB. The code is in `packages/inksync/inksync/codec.py`; `encode_points` / `decode_points` (and the `_b64` variants) are inverse functions covered by round-trip tests.
 
 ## File version and incomplete reads
 
