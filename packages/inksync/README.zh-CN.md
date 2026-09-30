@@ -23,7 +23,7 @@ pip install "git+https://github.com/Maimai-l/white-board.git#subdirectory=packag
 
 需要 Python 3.10 或更高版本、aiohttp 3.9 或更高版本。
 
-## `mount(app, hub, path="/ws", permissions=None, info=None)`
+## `mount(app, hub, path="/ws", permissions=None, info=None, pin_policy=None)`
 
 | 参数 | 说明 |
 | --- | --- |
