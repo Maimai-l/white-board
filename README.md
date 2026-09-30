@@ -447,7 +447,10 @@ whiteboard/
   app.py        pywebview window and native file dialogs
   web/          front end (native ES modules, no build step)
     static/js/
-      app.js, app-eraser.js         wiring; what erasing does to the board
+      inkpad.js, app-eraser.js      handwriting pad: drawing, erasing, undo,
+                                    sync, cache, view; no interface
+      app.js                        whiteboard app on top of the pad: chooser,
+                                    settings, import / export, updates
       input.js, input-erase.js,     pointer routing and drawing; the eraser;
         input-gesture.js,           pan / zoom / momentum; fallback for the
         shell-fallback.js           0.9.43 shell

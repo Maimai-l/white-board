@@ -14,8 +14,13 @@ function idbRequest(request) {
 }
 
 export class Cache {
-  constructor() {
+  /**
+   * ``namespace`` 为空时沿用原来的键；固定白板的手写板各用一个命名空间，
+   * 待发队列和「上次的白板」不会和白板应用或别的手写板混在一起。
+   */
+  constructor(namespace = "") {
     this.db = null;
+    this.prefix = namespace ? `${namespace}:` : "";
   }
 
   async open() {
@@ -44,6 +49,7 @@ export class Cache {
   }
 
   async get(key) {
+    key = this.prefix + key;
     try {
       const store = await this._tx("readonly");
       if (!store) return null;
@@ -54,6 +60,7 @@ export class Cache {
   }
 
   async set(key, value) {
+    key = this.prefix + key;
     try {
       const store = await this._tx("readwrite");
       if (!store) return false;

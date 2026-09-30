@@ -5,9 +5,11 @@ const PONG_TIMEOUT = 12000;
 const BACKOFF = [400, 800, 1500, 3000, 5000, 8000];
 
 export class Net {
-  constructor({ clientId, role, onMessage, onStatus }) {
+  constructor({ clientId, role, pin, onMessage, onStatus }) {
     this.clientId = clientId;
     this.role = role;
+    // 固定白板（docs/protocol.md「固定白板的连接」）；为空时跟随当前白板
+    this.pin = pin || null;
     this.onMessage = onMessage;
     this.onStatus = onStatus || (() => {});
     this.onOutboxChange = () => {};
@@ -71,6 +73,7 @@ export class Net {
           board: this.boardId,
           since: this.lastSeq,
           epoch: this.epoch,
+          ...(this.pin ? { pin: this.pin } : {}),
         })
       );
       this._startPing();

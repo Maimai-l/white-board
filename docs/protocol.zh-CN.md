@@ -268,7 +268,7 @@
 收到 `ack` 后，客户端将 `cid` 从待发队列中移除，并应用返回的 `op`（`net.js` 的 `_ack`），使发送方的白板与服务端规整后的结果一致。
 
 > **警告**
-> 客户端自己发出的 `mask` 操作随 `ack` 返回时，客户端不应用它（`app.js` 的 `applyOp`，`context.mine`）。发送之后本地遮罩可能已经增加；应用较早的完整遮罩会撤销较新的擦除。因此服务端上限 `MAX_MASK_SEGMENTS`（1024）必须能容纳客户端可能产生的任何遮罩（`MASK_LIMIT` = 400）；`tests/test_models.py` 检查这一条件。
+> 客户端自己发出的 `mask` 操作随 `ack` 返回时，客户端不应用它（`inkpad.js` 的 `applyOp`，`context.mine`）。发送之后本地遮罩可能已经增加；应用较早的完整遮罩会撤销较新的擦除。因此服务端上限 `MAX_MASK_SEGMENTS`（1024）必须能容纳客户端可能产生的任何遮罩（`MASK_LIMIT` = 400）；`tests/test_models.py` 检查这一条件。
 
 ## 序号、纪元与重连
 
