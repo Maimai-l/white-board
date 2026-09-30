@@ -97,19 +97,21 @@ def test_list_apps_and_config_reject_bad_names(tmp_path):
     assert config.ipad_home == ""
 
 
-def test_underlays_must_stay_inside_apps():
-    ok = models.sanitize_underlay({"src": "/apps/qb/img/q1.png", "width": 800})
-    assert ok == {"src": "/apps/qb/img/q1.png", "width": 800.0}
+def test_image_layers_must_be_same_origin_paths():
+    ok = models.sanitize_layers([{"src": "/apps/qb/img/q1.png", "x": 0, "y": 0, "width": 800}])
+    assert ok == [{"src": "/apps/qb/img/q1.png", "x": 0.0, "y": 0.0, "width": 800.0}]
     for bad in (
         {"src": "https://example.com/a.png", "width": 800},
+        {"src": "//example.com/a.png", "width": 800},
         {"src": "/apps/qb/../../config.json", "width": 800},
-        {"src": "/static/a.png", "width": 800},
+        {"src": "javascript:alert(1)", "width": 800},
         {"src": "/apps/qb/a.png", "width": 0},
         {"src": "/apps/qb/a.png", "width": "800"},
         {"src": "/apps/qb/a.png"},
         "nope",
     ):
-        assert models.sanitize_underlay(bad) is None, bad
-    meta = models.sanitize_meta({"id": "b1", "underlay": {"src": "/apps/qb/a.png", "width": 500}})
-    assert meta["underlay"] == {"src": "/apps/qb/a.png", "width": 500.0}
-    assert "underlay" not in models.sanitize_meta({"id": "b1", "underlay": {"src": "http://x"}})
+        assert models.sanitize_layers([bad]) is None, bad
+    # 1.x 的底图读进来是第一层
+    meta = models.sanitize_meta({"id": "b1", "kind": "board", "underlay": {"src": "/apps/qb/a.png", "width": 500}})
+    assert meta["layers"] == [{"src": "/apps/qb/a.png", "x": 0.0, "y": 0.0, "width": 500.0}]
+    assert models.sanitize_meta({"id": "b1", "kind": "board", "underlay": {"src": "http://x", "width": 5}})["layers"] == []

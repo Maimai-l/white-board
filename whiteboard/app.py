@@ -18,7 +18,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from . import __version__, netinfo, profile, resources, updater
+from . import __version__, backup, netinfo, profile, resources, updater
 from .config import Config
 from .runner import ServerThread
 from .server import list_apps
@@ -469,6 +469,16 @@ def install_open_files_handler(callback) -> bool:
     return True
 
 
+def _error_page(message: str) -> str:
+    import html
+
+    return (
+        "<!doctype html><meta charset='utf-8'><body style='font:15px -apple-system,sans-serif;"
+        "padding:28px;color:#1b1b1f;background:#fdfbff'><h3 style='margin-top:0'>白板没有启动</h3>"
+        f"<p>{html.escape(message)}</p></body>"
+    )
+
+
 def _decode_data_url(data_url: str) -> Optional[bytes]:
     if not isinstance(data_url, str) or "," not in data_url:
         return None
@@ -495,7 +505,14 @@ def run(
     if advertise is None:
         advertise = netinfo.mdns_default()
     server = ServerThread(config, advertise=advertise, bonjour=bonjour)
-    server.start()
+    try:
+        server.start()
+    except backup.BackupError as exc:
+        # 1.x 的存储目录要转换格式，转换前的备份没做成：不启动，告诉用户原因
+        log.error("%s", exc)
+        webview.create_window("白板", html=_error_page(str(exc)), width=520, height=260)
+        webview.start()
+        return
     config.save()
     opener = FileOpener(server)
     install_open_files_handler(opener.open)

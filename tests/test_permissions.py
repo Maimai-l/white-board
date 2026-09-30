@@ -45,11 +45,16 @@ def test_local_requests_are_recognised_on_any_interface():
     assert not netinfo.is_local_request(fake_request("127.0.0.1", "127.0.0.1", {"Forwarded": "for=192.0.2.7"}))
 
 
-def test_inksync_grants_everything_only_to_this_machine():
-    from inksync.ws import PERMISSIONS, local_only
+def test_inksync_grants_management_only_to_this_machine():
+    from inksync import DefaultPolicy
+    from inksync.policy import local_principal
 
-    assert local_only(fake_request("127.0.0.1", "127.0.0.1")) == frozenset(PERMISSIONS)
-    assert local_only(fake_request("192.0.2.7", "192.0.2.1")) == frozenset()
+    policy = DefaultPolicy()
+    here = local_principal(fake_request("127.0.0.1", "127.0.0.1"))
+    there = local_principal(fake_request("192.0.2.7", "192.0.2.1"))
+    assert here.local and not there.local
+    assert policy.caps(here, {}) == {"write": True, "clear": True, "meta": True, "unlock": True}
+    assert policy.caps(there, {}) == {"write": True, "clear": True, "meta": False, "unlock": False}
 
 
 @asynccontextmanager
@@ -147,7 +152,7 @@ def test_document_pages_of_other_boards_need_manage(tmp_path, monkeypatch):
     async def main():
         async with make_client(tmp_path, monkeypatch, remote=False) as (client, app):
             hub = app[HUB_KEY]
-            doc = hub.import_doc(body, "讲义.pdf")  # 建好后它就是当前白板
+            doc = await hub.import_doc(body, "讲义.pdf")  # 建好后它就是当前白板
             hidden = hub.store.import_doc(body, "另一份.pdf")  # 不是当前白板
             monkeypatch.setattr(netinfo, "is_local_request", lambda request: False)
             assert (await client.get(f"/api/doc/{doc['id']}/0?w=320")).status == 200

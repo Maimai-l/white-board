@@ -14,11 +14,13 @@ from pathlib import Path
 from typing import Any, Dict, FrozenSet, Optional
 
 from aiohttp import web
-from inksync.ws import MAX_WS_MESSAGE, default_pin_policy, detect_role, websocket_handler  # noqa: F401
+from inksync import DefaultPolicy, FileStorage, Principal, Spaces, mount, serve_sdk
+from inksync.hub import Hub as CoreHub
+from inksync.server import MAX_WS_MESSAGE  # noqa: F401
 
 from . import __version__, ipadshell, models, netinfo, profile, resources, updater
 from .config import REMOTE_PERMISSIONS, Config
-from .hub import Hub
+from .hub import Hub, perms_of
 from .store import BoardStore
 
 log = logging.getLogger(__name__)
@@ -37,6 +39,7 @@ RENDER_LIMIT = 2
 # aiohttp 的类型安全键，避免字符串键的命名冲突。
 CONFIG_KEY: "web.AppKey[Config]" = web.AppKey("config")
 HUB_KEY: "web.AppKey[Hub]" = web.AppKey("hub")
+SPACES_KEY: "web.AppKey[Spaces]" = web.AppKey("spaces")
 RENDER_KEY: "web.AppKey[asyncio.Semaphore]" = web.AppKey("render_lock")
 
 
@@ -73,26 +76,60 @@ def permissions(request: web.Request) -> FrozenSet[str]:
     return frozenset(name for name, on in config.remote_permissions.items() if on)
 
 
-def pin_policy_for(config: Config):
-    """固定连接的规则：在 inksync 的默认规则之上，只能写字的设备只能打开或新建
-    **已安装应用**（存储目录 apps/ 下有这个应用）的白板，防止随便起个应用名就不停建板。"""
+def detect_role(user_agent: str, override: Optional[str] = None) -> str:
+    """区分访问设备：Mac 端拿到完整 GUI，iPad 端只有书写界面。"""
+    if override in ("mac", "ipad"):
+        return override
+    ua = (user_agent or "").lower()
+    if "ipad" in ua or "iphone" in ua or "ipod" in ua:
+        return "ipad"
+    return "mac"
 
-    def allow(allowed, app, board_id, existing) -> bool:
-        if not default_pin_policy(allowed, app, board_id, existing):
-            return False
-        return "manage" in allowed or app in list_apps(config)
 
-    return allow
+def authenticate(request: web.Request) -> Principal:
+    """连接的身份：是否本机，以及四项权限（docs/protocol.md「权限」）。"""
+    return Principal(
+        id=None,
+        local=netinfo.is_local_request(request),
+        address=getattr(request, "remote", None) or "",
+        attrs={"perms": permissions(request)},
+    )
+
+
+class AppPolicy(DefaultPolicy):
+    """已安装应用的空间：能写字就能打开和新建（有速率限制），改元数据和解除只读要「管理白板」。"""
+
+    def can_edit_meta(self, who, meta, patch):
+        return "manage" in perms_of(who)
+
+    def can_unlock(self, who, meta):
+        return "manage" in perms_of(who)
+
+    def create_limit(self, who):
+        return None if "manage" in perms_of(who) else (60, 60.0)
+
+
+def space_factory(config: Config, hub: Hub):
+    """空串是用户自己的白板；已安装应用的名字各是一个空间（spaces/<应用名>/）。"""
+
+    def factory(name: str):
+        if name == "":
+            return hub.core
+        if not models.APP_RE.match(name) or name not in list_apps(config):
+            return None
+        return CoreHub(FileStorage(config.data_dir / "spaces" / name), policy=AppPolicy())
+
+    return factory
 
 
 async def refresh_permissions(app: web.Application) -> None:
     """Mac 上改了其他设备的权限：已连接的设备立即按新设置生效，界面入口随之更新。"""
     hub: Hub = app[HUB_KEY]
-
-    def compute(client) -> FrozenSet[str]:
-        return permissions(client.request) if client.request is not None else frozenset()
-
-    await hub.refresh_permissions(compute)
+    changed = await hub.core.reauthenticate(authenticate)
+    await hub.send_perms(changed)
+    for name, space in app[SPACES_KEY].hubs().items():
+        if name:
+            await space.reauthenticate(authenticate)
 
 
 def require(request: web.Request, permission: str) -> None:
@@ -211,7 +248,7 @@ async def handle_info(request: web.Request) -> web.Response:
             "data_dir": str(config.data_dir),
             "current": hub.current_id,
             "clients": [
-                {"id": c.id, "role": c.role, "since": c.connected_at}
+                {"id": c.id, "role": c.device, "since": c.connected_at}
                 for c in hub.clients.values()
             ],
         }
@@ -290,9 +327,8 @@ def prune_recordings(folder: Path) -> None:
 async def handle_boards(request: web.Request) -> web.Response:
     require(request, "manage")
     hub: Hub = request.app[HUB_KEY]
-    return web.json_response(
-        {"boards": hub.store.list_metas(), "folders": hub.store.folders(), "current": hub.current_id}
-    )
+    payload = hub.boards_payload()
+    return web.json_response({**payload, "current": hub.current_id})
 
 
 _BLANK_THUMB = profile._png(3, 2, [bytearray(b"\xff" * 12) for _ in range(2)])
@@ -323,7 +359,7 @@ async def _doc_thumb(app: web.Application, board_id: str):
 
     hub: Hub = app[HUB_KEY]
     meta = hub.store.get_meta(board_id)
-    if not meta or meta.get("kind") != "doc":
+    if not meta or models.doc_of(meta) is None:
         return None
     path = hub.store.doc_path(board_id)
     if path is None:
@@ -341,7 +377,7 @@ async def handle_thumb_post(request: web.Request) -> web.Response:
     require(request, "manage")
     hub: Hub = request.app[HUB_KEY]
     board_id = request.match_info["board_id"]
-    if not hub.store.get_meta(board_id):
+    if not hub.core.exists(board_id):
         raise web.HTTPNotFound()
     body = await _read_body(request, MAX_THUMB_BYTES)
     try:
@@ -381,6 +417,23 @@ async def handle_apps(request: web.Request) -> web.Response:
     """已装的应用和当前的 iPad 首页。只是名字，不需要权限。"""
     config: Config = request.app[CONFIG_KEY]
     return web.json_response({"apps": list_apps(config), "ipad_home": config.ipad_home})
+
+
+async def handle_space_boards(request: web.Request) -> web.Response:
+    """``/api/spaces/<应用>/boards?offset=&limit=``：某个应用空间里的白板，按更新时间从新到旧。"""
+    require(request, "manage")
+    name = request.match_info["name"]
+    space = request.app[SPACES_KEY].get(name) if name else None
+    if space is None:
+        raise web.HTTPNotFound()
+    try:
+        offset = max(0, int(request.query.get("offset", "0")))
+        limit = max(1, min(500, int(request.query.get("limit", "100"))))
+    except ValueError:
+        raise web.HTTPBadRequest()
+    return web.json_response(
+        {"boards": space.list_boards(offset=offset, limit=limit), "total": space.count()}
+    )
 
 
 async def handle_app_file(request: web.Request) -> web.StreamResponse:
@@ -433,21 +486,22 @@ async def _create_doc(hub: Hub, body: bytes, filename: str, folder: str) -> Dict
         # 读 PDF 可能要好一会儿，放到工作线程；建板要改索引和 hub 的状态，
         # 必须回到事件循环上做，否则会和自动保存、别的连接同时改同一份数据
         prepared = await asyncio.to_thread(hub.store.prepare_doc, body, filename)
-        meta = hub.add_doc(prepared)
+        meta = await hub.add_doc(prepared, folder)
     except docs.DocError as exc:
         log.warning("导入文档失败：%s", exc)
         raise OpenFileError(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - 坏文件不该把服务端带崩
         log.exception("导入文档出错")
         raise OpenFileError("文件读不出来") from exc
-    return await _file_and_switch(hub, meta, folder)
+    await hub.broadcast_switch()
+    return meta
 
 
 async def _file_and_switch(hub: Hub, meta: Dict[str, Any], folder: str) -> Dict[str, Any]:
     if folder and folder in hub.store.folders():
-        hub.move_board(meta["id"], folder)
-        meta = hub.store.get_meta(meta["id"]) or meta
-    await hub.broadcast({"t": "switch", **hub.snapshot()})
+        await hub.move_board(meta["id"], folder)
+        meta = hub.core.board_meta(meta["id"]) or meta
+    await hub.broadcast_switch()
     return meta
 
 
@@ -476,12 +530,11 @@ async def open_local_file(hub: Hub, path: Path, folder: str = "") -> Dict[str, A
     if suffix == ".wbz":
         own = hub.store.board_id_of(path)
         if own is not None:
-            hub.select_board(own)
-            await hub.broadcast({"t": "switch", **hub.snapshot()})
-            return hub.store.get_meta(own) or {}
+            if not await hub.select_board(own):
+                await hub.broadcast_switch()
+            return hub.core.board_meta(own) or {}
         try:
-            # 要改索引和 hub 的状态，留在事件循环线程上；文件通常只有几百 KB
-            meta = hub.import_board_file(path)
+            meta = await hub.import_board_file(path)
         except ValueError as exc:  # BoardFileError
             log.warning("导入白板文件失败：%s", exc)
             raise OpenFileError(str(exc)) from exc
@@ -499,7 +552,7 @@ async def handle_doc_page(request: web.Request) -> web.StreamResponse:
     if board_id != hub.current_id:
         require(request, "manage")
     meta = hub.store.get_meta(board_id)
-    if not meta or meta.get("kind") != "doc":
+    if not meta or models.doc_of(meta) is None:
         raise web.HTTPNotFound()
     path = hub.store.doc_path(board_id)
     if path is None:
@@ -537,14 +590,14 @@ async def handle_doc_export(request: web.Request) -> web.StreamResponse:
     require(request, "export")  # 导出能把任意一块白板整份取走
     hub: Hub = request.app[HUB_KEY]
     board_id = request.match_info["board_id"]
-    meta = hub.store.get_meta(board_id)
-    if not meta or meta.get("kind") != "doc":
+    meta = hub.core.board_meta(board_id)
+    if not meta or models.doc_of(meta) is None:
         raise web.HTTPNotFound()
     path = hub.store.doc_path(board_id)
     if path is None:
         raise web.HTTPNotFound(text="原件已丢失")
 
-    strokes = hub.strokes_of(board_id)
+    strokes = await hub.strokes_of(board_id)
     name = docs.default_export_name(meta)
     out_dir = Path(tempfile.mkdtemp(prefix="whiteboard-export-"))
     out = out_dir / name
@@ -592,20 +645,20 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
         client_max_size=MAX_THUMB_BYTES + 4096, middlewares=[revalidate_static]
     )
     app[CONFIG_KEY] = config
-    app[HUB_KEY] = Hub(store)
+    hub = Hub(store)
+    app[HUB_KEY] = hub
     app[RENDER_KEY] = asyncio.Semaphore(RENDER_LIMIT)
 
     app.router.add_get("/", handle_index)
-    app.router.add_get(
-        "/ws",
-        # permissions 每次按名字取，而不是在这里存下函数本身：测试会替换它
-        websocket_handler(
-            lambda request: request.app[HUB_KEY],
-            lambda request: permissions(request),
-            server_info,
-            pin_policy_for(config),
-        ),
+    # authenticate 每次按名字取，而不是在这里存下函数本身：测试会替换 permissions
+    spaces = mount(
+        app,
+        Spaces(space_factory(config, hub)),
+        path="/ws",
+        authenticate=lambda request: authenticate(request),
+        info=server_info,
     )
+    app[SPACES_KEY] = spaces
     app.router.add_get("/profile.mobileconfig", handle_profile)
     app.router.add_get("/icon.png", handle_icon)
     app.router.add_get("/ipad", handle_ipad_page)
@@ -622,21 +675,13 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app.router.add_get("/api/export/{board_id}", handle_doc_export)
     app.router.add_get("/sdk/inkpad.js", handle_sdk)
     app.router.add_get("/api/apps", handle_apps)
+    app.router.add_get("/api/spaces/{name}/boards", handle_space_boards)
     app.router.add_get("/apps/{name}", handle_app_file)
     app.router.add_get("/apps/{name}/{tail:.*}", handle_app_file)
     app.router.add_static("/static/", WEB_DIR / "static", name="static")
 
     async def _on_startup(_app: web.Application) -> None:
-        _app[HUB_KEY].start_autosave()
-
-    async def _on_shutdown(_app: web.Application) -> None:
-        # 必须在等待处理协程之前断开长连接，否则关服务要干等到超时
-        await _app[HUB_KEY].close_clients()
-
-    async def _on_cleanup(_app: web.Application) -> None:
-        await _app[HUB_KEY].stop()
+        spaces.get("")  # 用户空间一直开着
 
     app.on_startup.append(_on_startup)
-    app.on_shutdown.append(_on_shutdown)
-    app.on_cleanup.append(_on_cleanup)
     return app

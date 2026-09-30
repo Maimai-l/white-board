@@ -6,7 +6,7 @@ from whiteboard import models
 
 def test_meta_is_sanitized():
     meta = models.sanitize_meta({"id": "abc", "background": "hack", "name": 5})
-    assert meta["background"] == "grid"
+    assert meta["background"] == {"pattern": "grid"}
     assert meta["name"] == ""
     assert meta["id"] == "abc"
 
@@ -17,13 +17,18 @@ def test_meta_drops_legacy_board_size():
     assert "cols" not in meta and "rows" not in meta and "unit" not in meta
 
 
+def v1(meta):
+    """读 1.x 文件时的元数据：核心的转换，加上白板应用的钩子。"""
+    return models.sanitize_meta(models.convert_v1_meta(models.sanitize_meta(dict(meta, kind="board"))))
+
+
 def test_a_board_without_a_folder_has_no_folder_field():
     """文件夹是可选的：没归类的白板不带这个字段，省得每份元数据都多一个空串。"""
-    assert "folder" not in models.sanitize_meta({"id": "abc"})
-    assert "folder" not in models.sanitize_meta({"id": "abc", "folder": "   "})
-    assert "folder" not in models.sanitize_meta({"id": "abc", "folder": 7})
-    assert models.sanitize_meta({"id": "abc", "folder": "  数学  "})["folder"] == "数学"
-    assert len(models.sanitize_meta({"id": "abc", "folder": "长" * 200})["folder"]) == 64
+    assert "folder" not in v1({"id": "abc"})["data"]
+    assert "folder" not in v1({"id": "abc", "folder": "   "})["data"]
+    assert "folder" not in v1({"id": "abc", "folder": 7})["data"]
+    assert models.folder_of(v1({"id": "abc", "folder": "  数学  "})) == "数学"
+    assert len(models.folder_of(v1({"id": "abc", "folder": "长" * 200}))) == 64
 
 
 def test_stroke_validation():

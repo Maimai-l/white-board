@@ -10,25 +10,27 @@
 
 ``n`` 是服务端分配的层叠序号，客户端按 ``n`` 升序绘制，撤销「擦除」时
 用原始 ``n`` 复原，保证前后关系不会错乱。
+
+白板元数据（2.0，见 docs/design/inksync-2-interface.zh-CN.md 第 5 节）::
+
+    {"id", "name", "created", "updated",
+     "canvas": {"mode": "infinite" | "column" | "fixed", "width", "height"},
+     "background": {"pattern": "grid", "paper": "#ffffff"},
+     "layers": [{"src", "x", "y", "width", "height"?, "z"?, "sheet"?}],
+     "data": {...}}
 """
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
-# 白板的延伸方式，创建时选定、之后不可更改：
-#   board —— 四个方向都无限，是一块大白板；
-#   note  —— 宽度固定成一页，只向下无限延伸，像笔记本；
-#   doc   —— 由一份 PDF / 图片生成，页面自上而下排好，只能在页面上写。
-KINDS = ("board", "note", "doc")
-
-BACKGROUNDS = ("blank", "grid", "lines", "dots")
-DOC_TYPES = ("pdf", "image")
-MAX_DOC_PAGES = 400
+CANVAS_MODES = ("infinite", "column", "fixed")
+PATTERNS = ("blank", "grid", "lines", "dots")
 TOOLS = ("pen", "marker", "highlighter")
 
 MAX_POINTS_PER_STROKE = 20000
@@ -46,30 +48,27 @@ MAX_MASK_SEGMENTS = 1024
 MIN_WIDTH = 0.5
 MAX_WIDTH = 96.0
 
+MAX_NAME = 64
+MAX_CANVAS = 100000.0
+MAX_LAYERS = 1000
+MAX_SRC = 512
+MAX_DATA_BYTES = 16 * 1024
+# 1.x 笔记的页宽，2.0 里是 column 画布的宽度
+NOTE_WIDTH = 1000.0
+# 1.x 文档板的页间距，和 whiteboard/docs.py 的 PAGE_GAP 相同
+DOC_PAGE_GAP = 24.0
+
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+# 笔画 id：客户端生成，允许 . 和 :
 _ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
-# 由其他应用指定的白板 id（见 docs/protocol.md「固定白板的连接」）。比 _ID_RE 严：
-# 文件名只保留字母、数字、- 和 _，含其他字符的 id 会和别的 id 落到同一个文件上。
-PINNED_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-# 建立这块白板的应用名，例如 "qb"。
-APP_RE = re.compile(r"^[a-z0-9-]{1,32}$")
-# 底图（例如题图）：只能是本服务 /apps/ 下的地址，不能指向别的站点或上级目录。
-UNDERLAY_SRC_RE = re.compile(r"^/apps/[A-Za-z0-9._~%-]+(?:/[A-Za-z0-9._~%-]+)*$")
-MAX_UNDERLAY_WIDTH = 10000.0
+# 白板 id：同时是文件名，只允许字母、数字、- 和 _
+BOARD_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+SPACE_RE = re.compile(r"^[a-z0-9-]{0,32}$")
+# 1.x 固定连接用的名字，保留给白板应用的兼容层
+PINNED_ID_RE = BOARD_ID_RE
 
-
-def sanitize_underlay(raw: Any) -> Optional[Dict[str, Any]]:
-    """底图：``{"src": "/apps/<应用>/...", "width": 世界坐标宽度}``，左上角在原点。"""
-    if not isinstance(raw, dict):
-        return None
-    src, width = raw.get("src"), raw.get("width")
-    if not isinstance(src, str) or len(src) > 512 or not UNDERLAY_SRC_RE.match(src):
-        return None
-    if any(part in (".", "..") for part in src.split("/")):
-        return None
-    if not is_number(width) or not 1 <= float(width) <= MAX_UNDERLAY_WIDTH:
-        return None
-    return {"src": src, "width": float(width)}
+# 可以通过 meta 操作修改的字段
+EDITABLE = ("name", "background", "layers", "data")
 
 
 def now() -> float:
@@ -90,93 +89,153 @@ def is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
-def new_board_meta(name: str = "", **overrides: Any) -> Dict[str, Any]:
-    meta = {
-        "id": new_id(),
-        "name": name,
-        "kind": "board",
-        "background": "grid",
-        "created": now(),
-        "updated": now(),
-    }
-    meta.update(overrides)
-    return sanitize_meta(meta)
+def is_board_id(value: Any) -> bool:
+    return isinstance(value, str) and bool(BOARD_ID_RE.match(value))
 
 
-def sanitize_doc(raw: Any) -> Optional[Dict[str, Any]]:
-    """文档板的附加信息：原件类型、文件名和每页尺寸。"""
+# ------------------------------------------------------------------ 元数据的各部分
+
+
+def sanitize_canvas(raw: Any) -> Optional[Dict[str, Any]]:
+    """画布；不合法时返回 None（调用方决定是报错还是用默认值）。"""
     if not isinstance(raw, dict):
         return None
-    doc_type = raw.get("type")
-    if doc_type not in DOC_TYPES:
+    mode = raw.get("mode", "infinite")
+    if mode == "infinite":
+        return {"mode": "infinite"}
+
+    def size(key: str) -> Optional[float]:
+        value = raw.get(key)
+        if not is_number(value) or not 1 <= float(value) <= MAX_CANVAS:
+            return None
+        return round(float(value), 2)
+
+    if mode == "column":
+        width = size("width")
+        return None if width is None else {"mode": "column", "width": width}
+    if mode == "fixed":
+        width, height = size("width"), size("height")
+        if width is None or height is None:
+            return None
+        return {"mode": "fixed", "width": width, "height": height}
+    return None
+
+
+def sanitize_background(raw: Any) -> Dict[str, Any]:
+    """背景。1.x 的字符串形式（"grid"）照样接受。"""
+    if isinstance(raw, str):
+        raw = {"pattern": raw}
+    if not isinstance(raw, dict):
+        raw = {}
+    pattern = raw.get("pattern", "grid")
+    if pattern not in PATTERNS:
+        pattern = "grid"
+    out: Dict[str, Any] = {"pattern": pattern}
+    paper = raw.get("paper")
+    if isinstance(paper, str) and _COLOR_RE.match(paper):
+        out["paper"] = paper.lower()
+    return out
+
+
+def default_allow_src(src: str) -> bool:
+    """同源的绝对路径：以一个 / 开头，不含 ..、反斜杠和协议名。"""
+    if not src.startswith("/") or src.startswith("//"):
+        return False
+    if "\\" in src or ":" in src.split("?", 1)[0]:
+        return False
+    path = src.split("?", 1)[0]
+    return not any(part in (".", "..") for part in path.split("/"))
+
+
+def sanitize_layer(raw: Any, allow_src: Callable[[str], bool] = default_allow_src) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
         return None
-    pages_raw = raw.get("pages")
-    if not isinstance(pages_raw, list) or not pages_raw:
+    src = raw.get("src")
+    if not isinstance(src, str) or not src or len(src) > MAX_SRC:
         return None
-    pages: List[List[float]] = []
-    for page in pages_raw[:MAX_DOC_PAGES]:
-        if not isinstance(page, (list, tuple)) or len(page) != 2:
+    if any(ord(ch) < 32 for ch in src) or not allow_src(src):
+        return None
+    out: Dict[str, Any] = {"src": src}
+    for key in ("x", "y"):
+        value = raw.get(key, 0)
+        if not is_number(value) or abs(float(value)) > MAX_CANVAS:
             return None
-        try:
-            width, height = float(page[0]), float(page[1])
-        except (TypeError, ValueError):
+        out[key] = round(float(value), 2)
+    width = raw.get("width")
+    if not is_number(width) or not 1 <= float(width) <= MAX_CANVAS:
+        return None
+    out["width"] = round(float(width), 2)
+    height = raw.get("height")
+    if height is not None:
+        if not is_number(height) or not 1 <= float(height) <= MAX_CANVAS:
             return None
-        if not (0 < width < 1e6 and 0 < height < 1e6):
+        out["height"] = round(float(height), 2)
+    if raw.get("z") == "above":
+        out["z"] = "above"
+    if raw.get("sheet") is True:
+        out["sheet"] = True
+    return out
+
+
+def sanitize_layers(raw: Any, allow_src: Callable[[str], bool] = default_allow_src) -> Optional[List[Dict[str, Any]]]:
+    """图片层；任何一项不合法时整份返回 None，不悄悄丢掉其中几项。"""
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or len(raw) > MAX_LAYERS:
+        return None
+    out: List[Dict[str, Any]] = []
+    for item in raw:
+        layer = sanitize_layer(item, allow_src)
+        if layer is None:
             return None
-        pages.append([round(width, 2), round(height, 2)])
-
-    name = raw.get("name")
-    name = name[:128] if isinstance(name, str) else ""
-    ext = raw.get("ext")
-    ext = ext[:8].lower() if isinstance(ext, str) else ""
-    if ext and not re.match(r"^\.[a-z0-9]{1,7}$", ext):
-        ext = ""
-    return {"type": doc_type, "name": name, "ext": ext, "pages": pages}
+        out.append(layer)
+    return out
 
 
-FOLDER_NAME_MAX = 64
+def sanitize_data(raw: Any) -> Optional[Dict[str, Any]]:
+    """使用者自己的字段：JSON 对象，序列化后不超过 16 KB。不合法时返回 None。"""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        return None
+    try:
+        text = json.dumps(raw, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError):
+        return None
+    if len(text.encode("utf-8")) > MAX_DATA_BYTES:
+        return None
+    return json.loads(text)
 
 
-def sanitize_folder(raw: Any) -> str:
-    """规整文件夹名。不是字符串、去掉首尾空白之后是空串，都当作「没归类」。"""
-    if not isinstance(raw, str):
-        return ""
-    return raw.strip()[:FOLDER_NAME_MAX]
+def sanitize_name(raw: Any) -> str:
+    return raw.strip()[:MAX_NAME] if isinstance(raw, str) else ""
 
 
-def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """把（可能来自局域网客户端的）白板元数据收敛到合法范围。
+def merge_data(current: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
+    """``data`` 按键合并：出现的键替换，值为 None 的键删除，其余不变。"""
+    merged = dict(current)
+    for key, value in patch.items():
+        if value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
 
-    老版本的文件里可能还带着 cols / rows / unit，直接丢掉即可：画布已经是无限的。
-    """
-    background = raw.get("background", "grid")
-    if background not in BACKGROUNDS:
-        background = "grid"
 
-    kind = raw.get("kind", "board")
-    if kind not in KINDS:
-        kind = "board"
+# ------------------------------------------------------------------ 元数据
 
-    # 文档板离了原件就没有意义，信息不全时按普通白板处理。
-    doc = sanitize_doc(raw.get("doc"))
-    if kind == "doc" and doc is None:
-        kind = "board"
-    if kind != "doc":
-        doc = None
 
-    name = raw.get("name", "")
-    if not isinstance(name, str):
-        name = ""
-    name = name.strip()
+def sanitize_meta(raw: Dict[str, Any], allow_src: Callable[[str], bool] = default_allow_src) -> Dict[str, Any]:
+    """把磁盘或索引里的元数据收敛到合法范围。不合法的部分换成默认值，不抛错：
+    文件里的元数据坏了一项，白板照样要能打开。"""
+    if not isinstance(raw, dict):
+        raw = {}
+    if "canvas" not in raw and ("kind" in raw or "underlay" in raw or isinstance(raw.get("background"), str)):
+        raw = convert_v1_meta(raw)
 
-    # 文件夹只有一层，白板记的是文件夹的名字，没有单独的文件夹 id。空串表示
-    # 没归类。名字列表另外存在索引里，见 store.BoardStore.folders。
-    folder = sanitize_folder(raw.get("folder", ""))
-
-    board_id = raw.get("id", "")
-    if not isinstance(board_id, str) or not _ID_RE.match(board_id):
+    board_id = raw.get("id")
+    if not is_board_id(board_id):
         board_id = new_id()
-
     try:
         created = float(raw.get("created", now()))
     except (TypeError, ValueError):
@@ -186,26 +245,129 @@ def sanitize_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     except (TypeError, ValueError):
         updated = created
 
-    meta = {
+    meta: Dict[str, Any] = {
         "id": board_id,
-        "name": name[:64],
-        "kind": kind,
-        "background": background,
+        "name": sanitize_name(raw.get("name")),
         "created": created,
         "updated": updated,
+        "canvas": sanitize_canvas(raw.get("canvas", {"mode": "infinite"})) or {"mode": "infinite"},
+        "background": sanitize_background(raw.get("background")),
+        "layers": sanitize_layers(raw.get("layers"), allow_src) or [],
+        "data": sanitize_data(raw.get("data")) or {},
     }
-    # 没归类的白板不带这个字段，省得每块白板的元数据里都多一个空串
-    if folder:
-        meta["folder"] = folder
-    app = raw.get("app")
-    if isinstance(app, str) and APP_RE.match(app):
-        meta["app"] = app
-    underlay = sanitize_underlay(raw.get("underlay"))
-    if underlay is not None:
-        meta["underlay"] = underlay
-    if doc is not None:
-        meta["doc"] = doc
     return meta
+
+
+def new_board_meta(board_id: Optional[str] = None, spec: Optional[Dict[str, Any]] = None,
+                   allow_src: Callable[[str], bool] = default_allow_src) -> Dict[str, Any]:
+    """按 ``create`` 的内容建一份新元数据；内容不合法时抛 ValueError。"""
+    spec = spec or {}
+    if not isinstance(spec, dict):
+        raise ValueError("create 必须是对象")
+    canvas = sanitize_canvas(spec.get("canvas", {"mode": "infinite"}))
+    if canvas is None:
+        raise ValueError("canvas 不合法")
+    layers = sanitize_layers(spec.get("layers"), allow_src)
+    if layers is None:
+        raise ValueError("layers 不合法")
+    data = sanitize_data(spec.get("data"))
+    if data is None:
+        raise ValueError("data 不合法")
+    stamp = now()
+    return {
+        "id": board_id or new_id(),
+        "name": sanitize_name(spec.get("name")),
+        "created": stamp,
+        "updated": stamp,
+        "canvas": canvas,
+        "background": sanitize_background(spec.get("background")),
+        "layers": layers,
+        "data": data,
+    }
+
+
+def apply_meta_patch(meta: Dict[str, Any], patch: Any,
+                     allow_src: Callable[[str], bool] = default_allow_src) -> Optional[Dict[str, Any]]:
+    """把 meta 操作的 ``patch`` 合进 ``meta``，返回新的元数据；patch 不合法时返回 None。
+
+    只处理可修改的字段（:data:`EDITABLE`），其余键忽略。"""
+    if not isinstance(patch, dict):
+        return None
+    merged = dict(meta)
+    if "name" in patch:
+        if not isinstance(patch["name"], str):
+            return None
+        merged["name"] = sanitize_name(patch["name"])
+    if "background" in patch:
+        merged["background"] = sanitize_background(patch["background"])
+    if "layers" in patch:
+        layers = sanitize_layers(patch["layers"], allow_src)
+        if layers is None:
+            return None
+        merged["layers"] = layers
+    if "data" in patch:
+        if not isinstance(patch["data"], dict):
+            return None
+        data = sanitize_data(merge_data(meta.get("data") or {}, patch["data"]))
+        if data is None:
+            return None
+        merged["data"] = data
+    return merged
+
+
+# ------------------------------------------------------------------ 1.x 元数据
+
+
+def doc_extent(pages: Any, gap: float = DOC_PAGE_GAP) -> Optional[Dict[str, float]]:
+    """1.x 文档板各页自上而下排列（横向按最宽的一页居中）之后的外框。"""
+    if not isinstance(pages, list) or not pages:
+        return None
+    sizes = []
+    for page in pages:
+        if not isinstance(page, (list, tuple)) or len(page) != 2 or not all(is_number(v) for v in page):
+            return None
+        if page[0] <= 0 or page[1] <= 0:
+            return None
+        sizes.append((float(page[0]), float(page[1])))
+    width = max(w for w, _ in sizes)
+    height = sum(h for _, h in sizes) + gap * (len(sizes) - 1)
+    return {"width": width, "height": height}
+
+
+def convert_v1_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """1.x 的元数据换成 2.0 的字段（见 docs/design/inksync-2.zh-CN.md 4.6 节）。
+
+    白板应用自己的字段（folder、app、doc）移进 ``data``；文档页的图片层由白板应用
+    的 ``convert_meta`` 钩子补上，这里只定画布。
+    """
+    out: Dict[str, Any] = {
+        key: raw[key] for key in ("id", "name", "created", "updated") if key in raw
+    }
+    kind = raw.get("kind", "board")
+    data: Dict[str, Any] = {}
+    if kind == "note":
+        out["canvas"] = {"mode": "column", "width": NOTE_WIDTH}
+    elif kind == "doc" and isinstance(raw.get("doc"), dict):
+        extent = doc_extent(raw["doc"].get("pages"))
+        out["canvas"] = {"mode": "fixed", **extent} if extent else {"mode": "infinite"}
+        data["doc"] = raw["doc"]
+    else:
+        out["canvas"] = {"mode": "infinite"}
+    out["background"] = raw.get("background", "grid")
+    underlay = raw.get("underlay")
+    if isinstance(underlay, dict) and "src" in underlay:
+        out["layers"] = [{"src": underlay.get("src"), "x": 0, "y": 0, "width": underlay.get("width")}]
+    for key in ("folder", "app"):
+        value = raw.get(key)
+        if isinstance(value, str) and value:
+            data[key] = value
+    if isinstance(raw.get("data"), dict):
+        data = {**raw["data"], **data}
+    out["data"] = data
+    return out
+
+
+# ------------------------------------------------------------------ 笔画
 
 
 def sanitize_stroke(raw: Any) -> Optional[Dict[str, Any]]:

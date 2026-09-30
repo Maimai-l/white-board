@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
+from whiteboard import models
 from whiteboard.config import Config
 from whiteboard.server import CONFIG_KEY, HUB_KEY, create_app, detect_role
 from whiteboard.store import BoardStore
@@ -181,7 +182,7 @@ def test_a_device_without_manage_cannot_switch_or_create_boards(tmp_path, remote
             ack = await ws.receive_json()
             assert ack["t"] == "ack"
             assert hub.current_id == before
-            assert hub.board().meta["background"] == "grid"
+            assert hub.board().meta["background"]["pattern"] == "grid"
             await ws.close()
 
     run(main())
@@ -209,8 +210,8 @@ def test_a_touch_device_with_manage_can_switch_boards(tmp_path, remote):
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
             app[CONFIG_KEY].set_remote_permission("manage", True)
-            other = hub.create_board()["id"]
-            hub.select_board(hub.store.list_metas()[-1]["id"])
+            other = (await hub.create_board())["id"]
+            await hub.select_board(hub.store.list_metas()[-1]["id"])
             ws = await client.ws_connect("/ws")
             await hello(ws, "ipad", client_id="ipad-1")
 
@@ -307,7 +308,7 @@ def test_mac_puts_a_board_in_a_folder_and_ipad_hears_it(tmp_path):
                 assert msg["t"] == "boards"
                 assert msg["board"]["id"] == second  # 当前白板没有被切走
                 assert {m["id"]: m.get("folder") for m in msg["boards"]}[first] == "数学"
-            assert hub.store.get_meta(first)["folder"] == "数学"
+            assert models.folder_of(hub.store.get_meta(first)) == "数学"
 
             # 移出来之后这个字段就没了，界面上那块白板回到没归类的那一段
             await mac.send_json({"t": "folder", "board": first, "folder": ""})
@@ -352,7 +353,7 @@ def test_a_device_without_manage_cannot_reorder_boards(tmp_path, remote):
     async def main():
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
-            hub.create_board()
+            await hub.create_board()
             before = [m["id"] for m in hub.store.list_metas()]
             ws = await client.ws_connect("/ws")
             await hello(ws, "ipad", client_id="ipad-1")
@@ -413,7 +414,7 @@ def test_a_board_made_inside_a_folder_lands_in_it(tmp_path):
             await mac.send_json({"t": "newboard", "kind": "note", "folder": "数学"})
             msg = await mac.receive_json()
             assert msg["board"]["folder"] == "数学"
-            assert hub.store.get_meta(msg["board"]["id"])["folder"] == "数学"
+            assert models.folder_of(hub.store.get_meta(msg["board"]["id"])) == "数学"
 
             # 没有这个文件夹的话就当没写，新白板照常建在外面
             await mac.send_json({"t": "newboard", "kind": "note", "folder": "查无此夹"})
@@ -454,7 +455,7 @@ def test_a_device_without_manage_cannot_move_a_board_into_a_folder(tmp_path, rem
             await ws.send_json({"t": "ping", "ts": 7})
             pong = await ws.receive_json()
             assert pong["t"] == "pong"  # 归类那条被丢掉了，下一条才是回音
-            assert "folder" not in hub.store.get_meta(hub.current_id)
+            assert models.folder_of(hub.store.get_meta(hub.current_id)) == ""
             await ws.close()
 
     run(main())
@@ -651,8 +652,8 @@ def test_upload_creates_doc_board_and_switches(tmp_path):
             response = await client.post("/api/doc?name=讲义.pdf", data=_doc_bytes())
             assert response.status == 200
             meta = (await response.json())["board"]
-            assert meta["kind"] == "doc"
-            assert meta["doc"]["pages"] == [[595.0, 842.0], [400.0, 600.0]]
+            assert models.kind_of(meta) == "doc"
+            assert meta["data"]["doc"]["pages"] == [[595.0, 842.0], [400.0, 600.0]]
 
             switched = await ws.receive_json()
             assert switched["t"] == "switch"
@@ -785,7 +786,7 @@ def test_large_upload_is_stored_byte_exact(tmp_path):
             meta = (await response.json())["board"]
             stored = app[HUB_KEY].store.doc_path(meta["id"])
             assert stored.read_bytes() == source
-            assert meta["doc"]["pages"] == [[900.0, 700.0]]
+            assert meta["data"]["doc"]["pages"] == [[900.0, 700.0]]
 
     run(main())
 
@@ -893,7 +894,7 @@ def test_remote_device_cannot_manage_over_websocket(tmp_path, remote):
             assert hub.current_id == before
             assert len(hub.store.list_metas()) == 1
             assert hub.store.get_meta(before)["name"] == ""
-            assert hub.board().meta["background"] == "grid"
+            assert hub.board().meta["background"]["pattern"] == "grid"
 
             # 写字照常
             await ws.send_json(

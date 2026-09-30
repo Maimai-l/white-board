@@ -109,7 +109,7 @@ def test_infinite_point_does_not_stop_the_board_from_saving(tmp_path):
 )
 def test_malformed_op_is_ignored_without_raising(tmp_path, op):
     hub = Hub(BoardStore(tmp_path))
-    assert hub.board().apply(op) is None
+    assert hub.board().apply(op)[0] is None
 
 
 def test_malformed_message_is_acknowledged_and_keeps_the_connection(tmp_path):
@@ -122,7 +122,7 @@ def test_malformed_message_is_acknowledged_and_keeps_the_connection(tmp_path):
             await hello(ws)
             await ws.send_json({"t": "op", "cid": "bad", "op": {"op": "add", "strokes": {"id": "x"}}})
             ack = await ws.receive_json(timeout=5)
-            assert ack == {"t": "ack", "cid": "bad", "seq": app[HUB_KEY].board().seq}
+            assert ack == {"t": "ack", "cid": "bad", "seq": app[HUB_KEY].board().seq}  # 1.x 页面看到的回执
             # 连接还活着，下一条照常处理
             await ws.send_json({"t": "op", "cid": "ok", "op": {"op": "add", "strokes": [stroke()]}})
             ack = await ws.receive_json(timeout=5)
@@ -140,7 +140,7 @@ def test_unexpected_error_in_a_handler_still_acknowledges(tmp_path, monkeypatch)
             ws = await client.ws_connect("/ws")
             await hello(ws)
 
-            def boom(raw):
+            def boom(raw, *args, **kwargs):
                 raise RuntimeError("意外")
 
             monkeypatch.setattr(app[HUB_KEY].board(), "apply", boom)
@@ -162,18 +162,18 @@ def test_one_board_failing_to_save_does_not_block_the_others(tmp_path, monkeypat
     hub = Hub(store)
     first = hub.current_id
     hub.board().apply({"op": "add", "strokes": [stroke("a")]})
-    second = hub.create_board()["id"]  # 这一步会先把第一块存掉
+    second = asyncio.run(hub.create_board())["id"]
     hub.board(first).apply({"op": "add", "strokes": [stroke("a2")]})
     hub.board().apply({"op": "add", "strokes": [stroke("b")]})
 
-    original = store.save_board
+    original = store.core.write_file
 
-    def flaky(meta, strokes):
+    def flaky(meta, strokes, skip=None):
         if meta["id"] == first:
             raise OverflowError("坏数据")
-        original(meta, strokes)
+        return original(meta, strokes, skip)
 
-    monkeypatch.setattr(store, "save_board", flaky)
+    monkeypatch.setattr(store.core, "write_file", flaky)
     hub.save_all()  # 不抛
     assert [s["id"] for s in store.load_board(second)[1]] == ["b"]
     assert hub.board(first).dirty  # 没存成的那块留着脏标记，下一轮再试
@@ -193,10 +193,10 @@ def test_corrupt_file_is_never_overwritten(tmp_path):
     hub = Hub(store)
     runtime = hub.board(board_id)
     assert runtime.locked and runtime.problem["reason"] == "corrupt"
-    assert runtime.apply({"op": "add", "strokes": [stroke()]}) is None
-    runtime.dirty = True  # 即便别处把它标脏了
+    assert runtime.apply({"op": "add", "strokes": [stroke()]})[0] is None
+    runtime.version += 1  # 即便别处把它标脏了
     hub.save_all()
-    hub.rename_board(board_id, "改个名")
+    asyncio.run(hub.rename_board(board_id, "改个名"))
     hub.save_all()
     assert path.read_bytes() == original
 
@@ -216,7 +216,7 @@ def test_unreadable_strokes_lock_the_board_and_are_kept_on_disk(tmp_path):
     runtime = hub.board(meta["id"])
     assert runtime.problem["reason"] == "partial"
     assert [s["id"] for s in runtime.stroke_list()] == ["ok"]  # 读得出来的照样显示
-    runtime.dirty = True
+    runtime.version += 1
     hub.save_all()
     assert path.read_bytes() == original
 
@@ -237,8 +237,8 @@ def test_board_from_a_newer_version_opens_read_only(tmp_path):
     assert runtime.problem["reason"] == "newer"
     assert runtime.problem["version"] == FILE_VERSION + 1
     assert [s["id"] for s in runtime.stroke_list()] == ["s1"]
-    assert runtime.apply({"op": "add", "strokes": [stroke("s2")]}) is None
-    runtime.dirty = True
+    assert runtime.apply({"op": "add", "strokes": [stroke("s2")]})[0] is None
+    runtime.version += 1
     hub.save_all()
     assert path.read_bytes() == original
 
@@ -255,7 +255,7 @@ def test_renaming_a_locked_board_keeps_everything_else_in_the_file(tmp_path):
 
     hub = Hub(store)
     hub.board(meta["id"])
-    assert hub.rename_board(meta["id"], "新名字")
+    assert asyncio.run(hub.rename_board(meta["id"], "新名字"))
     hub.save_all()
     after = json.loads(zlib.decompress(path.read_bytes()))
     assert after["future"] == {"something": "new"} and after["v"] == FILE_VERSION + 1
@@ -271,13 +271,13 @@ def test_unlocking_backs_up_the_original_then_allows_editing(tmp_path):
 
     hub = Hub(store)
     assert hub.board(board_id).locked
-    assert hub.unlock(board_id)
+    assert asyncio.run(hub.unlock(board_id))
     backups = list((tmp_path / "backups" / "locked").glob(f"{board_id}-*.wbz"))
     assert len(backups) == 1 and backups[0].read_bytes() == b"garbage"
 
     runtime = hub.board(board_id)
     assert not runtime.locked
-    assert runtime.apply({"op": "add", "strokes": [stroke()]}) is not None
+    assert runtime.apply({"op": "add", "strokes": [stroke()]})[0] is not None
     hub.save_all()
     assert [s["id"] for s in store.load_board(board_id)[1]] == ["s1"]
 
@@ -324,9 +324,9 @@ def test_selecting_a_locked_board_again_rereads_the_file(tmp_path):
 
     hub = Hub(store)
     assert hub.board(first).locked
-    second = hub.create_board()["id"]
+    second = asyncio.run(hub.create_board())["id"]
     path.write_bytes(saved)
-    assert hub.select_board(first)
+    assert asyncio.run(hub.select_board(first))
     assert not hub.board(first).locked
     assert hub.board(first).stroke_list() == good[1]
     assert second != first
@@ -425,7 +425,9 @@ def test_port_fallback_is_used_but_not_saved(tmp_path):
 
 
 def test_importing_a_document_touches_hub_state_only_on_the_event_loop(tmp_path, monkeypatch):
-    """旧代码：整个 hub.import_doc 在工作线程里跑，同时事件循环还在改同一份状态。"""
+    """旧代码：整个 hub.import_doc 在工作线程里跑，同时事件循环还在改同一份状态。
+
+    现在读原件在工作线程，建板（改索引、内存中的白板）回到事件循环线程。"""
     pytest.importorskip("pypdfium2")
     threads = {}
 
@@ -433,19 +435,19 @@ def test_importing_a_document_touches_hub_state_only_on_the_event_loop(tmp_path,
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
             loop_thread = threading.current_thread()
-            original_save_all = hub.save_all
-            original_create = hub.store.create_board
+            original_create = hub.core.create_board
+            original_put = hub.store.core.put_meta
 
-            def save_all():
-                threads.setdefault("save_all", set()).add(threading.current_thread() is loop_thread)
-                original_save_all()
-
-            def create_board(*args, **kwargs):
+            async def create_board(*args, **kwargs):
                 threads.setdefault("create_board", set()).add(threading.current_thread() is loop_thread)
-                return original_create(*args, **kwargs)
+                return await original_create(*args, **kwargs)
 
-            monkeypatch.setattr(hub, "save_all", save_all)
-            monkeypatch.setattr(hub.store, "create_board", create_board)
+            def put_meta(*args, **kwargs):
+                threads.setdefault("put_meta", set()).add(threading.current_thread() is loop_thread)
+                return original_put(*args, **kwargs)
+
+            monkeypatch.setattr(hub.core, "create_board", create_board)
+            monkeypatch.setattr(hub.store.core, "put_meta", put_meta)
 
             buffer = io.BytesIO()
             Image.new("RGB", (80, 60), (200, 200, 200)).save(buffer, "PNG")
@@ -453,10 +455,10 @@ def test_importing_a_document_touches_hub_state_only_on_the_event_loop(tmp_path,
             assert response.status == 200
             meta = (await response.json())["board"]
             assert hub.current_id == meta["id"]
-            assert hub.store.get_meta(meta["id"])["kind"] == "doc"
+            assert models.kind_of(hub.store.get_meta(meta["id"])) == "doc"
 
     run(main())
-    assert threads == {"save_all": {True}, "create_board": {True}}
+    assert threads == {"create_board": {True}, "put_meta": {True}}
 
 
 # ------------------------------------------------------------ 升级前备份
@@ -473,11 +475,34 @@ def test_boards_are_backed_up_once_per_version_change(tmp_path):
     first = backup.backup_if_upgraded(config, "1.0.0")
     assert first is not None
     assert (first / "boards" / f"{board_id}.wbz").exists()
-    assert (first / "index.json").exists()
+    assert (first / "index.sqlite").exists() and (first / "space.json").exists()
     assert backup.backup_if_upgraded(config, "1.0.0") is None  # 同一个版本只备份一次
 
     assert backup.backup_if_upgraded(config, "1.0.1") is not None
     assert json.loads(config.path.read_text("utf-8"))["last_version"] == "1.0.1"
+
+
+def test_converting_a_1x_store_refuses_to_start_without_a_backup(tmp_path, monkeypatch):
+    """1.x 的存储目录要转换格式：备份做不成就不启动，也不碰任何文件。"""
+    from whiteboard import backup
+
+    config = Config(path=tmp_path / "config.json")
+    config.data_dir = tmp_path / "data"
+    boards = config.data_dir / "boards"
+    boards.mkdir(parents=True)
+    (boards / "abc.wbz").write_bytes(zlib.compress(json.dumps({"v": 1, "meta": {"id": "abc"}, "strokes": []}).encode()))
+    (config.data_dir / "index.json").write_text('{"boards": [], "folders": [], "current": "abc"}')
+    assert backup.needs_conversion(config.data_dir)
+
+    def fail(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(backup, "_copy", fail)
+    with pytest.raises(backup.BackupError, match="没有启动"):
+        backup.backup_if_upgraded(config, "2.0.0")
+    assert (config.data_dir / "index.json").exists() and not (config.data_dir / "index.sqlite").exists()
+    monkeypatch.undo()
+    assert backup.backup_if_upgraded(config, "2.0.0") is not None
 
 
 def test_only_the_latest_backups_are_kept(tmp_path):
