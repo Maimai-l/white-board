@@ -16,6 +16,7 @@
 - 其他网页应用可以嵌入与 Mac 同步的手写板，每个页面元素对应一块白板，可以设置底图。应用安装在存储目录的 `apps/` 中，见 docs/embed.zh-CN.md。
 - Mac 的白板设置可以选择 iPad 打开时进入的应用（「iPad 首页」）。
 - 同步服务端独立为 `inksync` 包（`packages/inksync`），可以挂到任何 aiohttp 应用上。
+- iPad 外壳可以按名字连接其他服务：在外壳的「设置」页面把「来源」设为 `@名字`，或打开 `whiteboard-shell://open?source=名字`。服务用 `inksync.netinfo.advertise` 注册。需要重装外壳。
 - 嵌入的手写板可以不连接服务器（`transport: "local"`）、同步到其他地址，或使用自定义传输。
 
 ### 修复

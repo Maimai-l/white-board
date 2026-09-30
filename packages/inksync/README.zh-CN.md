@@ -35,6 +35,15 @@ pip install "git+https://github.com/Maimai-l/white-board.git#subdirectory=packag
 
 `mount` 同时启动自动保存（每 3 秒），并在应用关闭时保存白板、断开连接。
 
+## 让 iPad 外壳找到服务
+
+```python
+from inksync.netinfo import advertise
+advertise(app, port=8900, source="qb", path="/")   # 在 web.run_app(app, port=8900) 之前调用
+```
+
+服务以带有 `source` 和 `path` 的 TXT 记录注册 `_whiteboard._tcp`。在「设置」App 中把外壳的「来源」设为 `@qb`，外壳即连接这个服务并打开 `path`，Apple Pencil 输入与白板相同。在 macOS 以外的系统上需要 zeroconf：`pip install "inksync[discovery] @ git+…"`。
+
 ## 模块
 
 | 模块 | 内容 |
@@ -44,6 +53,7 @@ pip install "git+https://github.com/Maimai-l/white-board.git#subdirectory=packag
 | `inksync.store` | `BoardStore`：`index.json`、`.wbz` 读写、只读判断、解锁前备份 |
 | `inksync.models` | 元数据、笔画、遮罩和底图的校验 |
 | `inksync.codec` | 点数据编码 |
+| `inksync.netinfo` | `.local` 主机名、局域网地址、Bonjour 注册（`BonjourService`、`advertise`） |
 
 `BoardStore` 为应用放在白板旁边的文件提供两个钩子：`_delete_extras(board_id)` 和 `_import_extras(path, old_id, board_id, meta)`。白板应用用它们处理缩略图和文档板原件（`whiteboard/store.py`）。
 

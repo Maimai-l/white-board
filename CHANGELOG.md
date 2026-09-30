@@ -16,6 +16,7 @@ One section per version, titled with the version number. When a release is publi
 - Other web apps can embed a handwriting pad that syncs with the Mac, one board per page element, with an optional underlay image. Apps are installed in `apps/` in the storage directory. See docs/embed.md.
 - Board settings on the Mac can choose which app the iPad opens (“iPad 首页”).
 - The sync server is a separate package, `inksync` (`packages/inksync`), that mounts on any aiohttp app.
+- The iPad shell can connect to other services by name: set “来源” (Source) to `@name` in its Settings page, or open `whiteboard-shell://open?source=name`. Services register with `inksync.netinfo.advertise`. Requires reinstalling the shell.
 - The embedded pad can run without a server (`transport: "local"`), sync to another address, or use a custom transport.
 
 ### Fixes
