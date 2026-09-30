@@ -5038,3 +5038,111 @@ def test_a_1x_page_keeps_working_against_the_2_0_server(browser, legacy_server):
     # 新页面改背景，旧页面收到的是字符串形式
     ipad.evaluate("() => whiteboard.setMeta({ background: { pattern: 'dots' } })")
     old.wait_for_function("() => whiteboard.state.meta.background === 'dots'")
+
+
+def test_the_mac_views_app_boards_read_only(browser, server):
+    """应用的白板不在白板列表里：选择界面里每个应用一个入口，点开分页列出，只读查看。"""
+    install_demo_app(server)
+    pad = open_demo(browser, server.port)
+    draw_embedded(pad, [(100, 300), (160, 340), (230, 300)])
+    pad.wait_for_function("() => pad.status === 'online' && pad.snapshot().strokes.length === 1")
+
+    mac, _ = open_pages(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click('.board-card.app[data-app="demo"]')
+    mac.wait_for_selector(".board-card.app-board")
+    assert mac.inner_text(".gallery-title") == "应用：demo"
+    mac.click(".board-card.app-board")
+    mac.wait_for_selector(".app-viewer")
+    # 浮层里的手写板只读，看得到 iPad 上写的那一笔；Mac 自己的当前白板没有变
+    mac.wait_for_function("() => document.querySelector('.app-viewer .inkpad-stage') !== null")
+    assert mac.evaluate("() => whiteboard.state.id") == mac.evaluate("() => whiteboard.ui.currentBoardId")
+    listed = mac.evaluate("async () => (await (await fetch('/api/spaces/demo/boards')).json()).total")
+    assert listed == 1
+    mac.keyboard.press("Escape")
+    mac.wait_for_function("() => document.querySelector('.app-viewer') === null")
+
+
+# ---------------------------------------------------------------- examples/qb-server（A1）
+
+
+@pytest.fixture
+def qb_server(tmp_path):
+    """在后台线程里跑刷题示例服务端。"""
+    import asyncio
+    import importlib.util
+    import threading
+
+    from aiohttp import web
+
+    spec = importlib.util.spec_from_file_location(
+        "qb_example", Path(__file__).resolve().parents[1] / "examples" / "qb-server" / "server.py"
+    )
+    qb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(qb)
+    port = free_port()
+    loop = asyncio.new_event_loop()
+    ready = threading.Event()
+    state = {}
+
+    async def start():
+        app = qb.create_app(tmp_path / "qb")
+        runner = web.AppRunner(app, shutdown_timeout=1.0)
+        await runner.setup()
+        await web.TCPSite(runner, "127.0.0.1", port).start()
+        state["runner"], state["app"] = runner, app
+        ready.set()
+
+    def serve():
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(start())
+        loop.run_forever()
+        loop.run_until_complete(state["runner"].cleanup())
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    ready.wait(10)
+    yield {"port": port, "module": qb, "app": state["app"], "loop": loop, "data": tmp_path / "qb"}
+    loop.call_soon_threadsafe(loop.stop)
+    thread.join(10)
+
+
+def open_qb(browser, port, user):
+    page = browser.new_context(viewport={"width": 1000, "height": 900}, user_agent=TABLET_UA, has_touch=True).new_page()
+    page.goto(f"http://127.0.0.1:{port}/login?user={user}")
+    page.wait_for_function("() => window.pad && pad.status === 'online'")
+    return page
+
+
+def test_the_qb_example_end_to_end(browser, qb_server):
+    port = qb_server["port"]
+    first = open_qb(browser, port, "42")
+    second = open_qb(browser, port, "42")  # 同一个学生的另一台设备
+    assert first.evaluate("() => pad.board.id") == "u42-q1"
+    assert first.evaluate("() => pad.board.layers[0].src") == "/static/q1.svg"
+
+    draw_embedded(first, [(100, 400), (160, 440), (230, 400)])
+    second.wait_for_function("() => pad.snapshot().strokes.length === 1")
+    first.wait_for_function("() => pad.status === 'online'")
+
+    # 换题：同一条连接
+    first.click("[data-q='2']")
+    first.wait_for_function("() => pad.board.id === 'u42-q2' && pad.snapshot().strokes.length === 0")
+    draw_embedded(first, [(100, 420), (160, 460)])
+    first.wait_for_function("() => pad.snapshot().strokes.length === 1 && pad.status === 'online'")
+
+    # 批改：服务端写分数，页面收到新的元数据
+    import asyncio
+
+    async def grade():
+        hub = qb_server["app"][qb_server["module"].HUB_KEY]
+        return await hub.edit_meta("u42-q1", {"data": {"score": 3}})
+
+    asyncio.run_coroutine_threadsafe(grade(), qb_server["loop"]).result(10)
+    second.wait_for_function("() => pad.board.data.score === 3")
+    second.wait_for_function("() => document.getElementById('score').textContent === '得分 3'")
+
+    # 另一个学生打开的是自己的白板，看不到 42 号的内容
+    other = open_qb(browser, port, "7")
+    assert other.evaluate("() => pad.board.id") == "u7-q1"
+    assert other.evaluate("() => pad.snapshot().strokes.length") == 0

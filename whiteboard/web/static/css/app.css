@@ -1169,3 +1169,18 @@ body.dropping::after {
 }
 #rec[data-on="1"] button { background: var(--error); }
 .rec-note { color: rgba(255, 255, 255, .7); min-width: 7em; }
+
+/* 只读查看应用空间里的白板（Mac 的白板选择界面 → 应用） */
+.app-viewer {
+  position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column;
+  background: var(--surface, #f2f2f7);
+}
+.app-viewer-head {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+}
+.app-viewer-title { flex: 1; font-size: 15px; font-weight: 600; }
+.app-viewer-body { flex: 1; margin: 0 14px 14px; border-radius: 12px; overflow: hidden; }
+.gallery-title { flex: 1; font-size: 17px; font-weight: 600; }
+.board-card.app-board { background: #fff; }
+.board-card.add.more { font-size: 14px; }
