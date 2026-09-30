@@ -20,7 +20,7 @@
 import { BoardState } from "./boardstate.js";
 import { Cache } from "./cache.js";
 import { InputController } from "./input.js";
-import { Net } from "./net.js";
+import { LocalTransport, Net } from "./net.js";
 import { PerfMonitor } from "./perf.js";
 import { connectShell, disconnectShell } from "./shell.js";
 import { Renderer } from "./renderer.js";
@@ -71,6 +71,10 @@ export class InkPad {
    * @param {object} [options.tool]         初始工具
    * @param {boolean} [options.shell]       接收 iPad 外壳的 Pencil 采样（默认接收）
    * @param {boolean} [options.embedded]    嵌在别的页面里：只拦截自己区域里的触摸和捏合
+   * @param {string|object|Function} [options.transport]  同步方式：
+   *     省略 —— 连本页所在服务的 /ws；"local" —— 不同步；{url} —— 连指定的 WebSocket 地址；
+   *     函数 —— 自定义传输，参数与 Net 的构造参数相同，返回实现同一组成员的对象
+   * @param {{meta?: object, strokes?: object[]}} [options.initial]  不同步时的初始内容
    */
   constructor(options) {
     this.role = options.role || "mac";
@@ -99,7 +103,8 @@ export class InkPad {
     this.perf = new PerfMonitor();
     this.perf.role = this.role;
 
-    this.net = new Net({
+    this.initial = options.initial || null;
+    this.net = createTransport(options.transport, {
       clientId: this.clientId,
       role: this.role,
       pin: this.pin,
@@ -169,6 +174,49 @@ export class InkPad {
     }
   }
 
+  /**
+   * 不同步时的初始内容：优先用宿主给的 ``initial``，其次是本机缓存，都没有就是一块空白板。
+   */
+  loadLocal() {
+    if (this.initial) {
+      this.load(this.initial);
+      return;
+    }
+    if (this.state.meta) return; // 缓存里已经有了
+    this.load({});
+  }
+
+  /** 换上一份内容（不同步时由宿主调用）：``{meta, strokes}``，撤销记录清空。 */
+  load(board = {}) {
+    const pin = this.pin || {};
+    const meta = {
+      id: pin.board || "local",
+      name: pin.name || "",
+      kind: pin.kind === "note" ? "note" : "board",
+      background: "grid",
+      ...(pin.underlay ? { underlay: pin.underlay } : {}),
+      ...(board.meta || {}),
+    };
+    this.undoStack = [];
+    this.redoStack = [];
+    this.syncHistory();
+    this.applyBoard(meta, board.strokes || [], 0);
+  }
+
+  /** 当前内容：``{meta, strokes}``，可以直接存起来，之后交给 ``load`` 或 ``initial``。 */
+  snapshot() {
+    return {
+      meta: this.state.meta ? { ...this.state.meta } : null,
+      strokes: this.state.strokes.map(plainStroke),
+    };
+  }
+
+  /** 发一个正式操作：先通知宿主（``op`` 事件），再交给传输。 */
+  sendOp(op) {
+    this.emit("op", op);
+    return this.net.sendOp(op);
+  }
+
   /** 内容变了：写、擦、撤销、清空之后调用。 */
   pushThumb() {
     this.emit("change");
@@ -195,6 +243,7 @@ export class InkPad {
       for (const item of pending) this.applyOp(item.op, { local: true });
     }
     this.pendingRestored = true;
+    if (this.net.local) this.loadLocal();
     // 预热：IndexedDB 的第一次写事务最慢，趁还没开始书写先把它跑掉。
     this.cache.set("warmup", Date.now());
     this.net.connect();
@@ -354,7 +403,7 @@ export class InkPad {
     // 重做要把这一笔原样放回去，所以连内容一起记下来。切开的几段算一步撤销：
     // 用户画的是一笔，撤销就该一次全没。
     this.pushUndo({ type: "added", ids: plain.map((s) => s.id), strokes: plain });
-    this.net.sendOp({ op: "add", strokes: plain });
+    this.sendOp({ op: "add", strokes: plain });
     this.saveCache();
     this.pushThumb();
   }
@@ -389,11 +438,11 @@ export class InkPad {
       const ids = gone.map((s) => s.id);
       if (ids.length) {
         this.state.remove(ids);
-        this.net.sendOp({ op: "remove", ids });
+        this.sendOp({ op: "remove", ids });
       }
       if (back.length) {
         this.state.add(back.map((s) => ({ ...s })));
-        this.net.sendOp({ op: "restore", strokes: back });
+        this.sendOp({ op: "restore", strokes: back });
       }
       // 遮罩要在笔画换回来之后再设，不然会落到已经被删掉的 id 上
       const masks = [];
@@ -405,7 +454,7 @@ export class InkPad {
         else delete stroke.m;
         masks.push({ id: bite.id, m: stroke.m || [] });
       }
-      if (masks.length) this.net.sendOp({ op: "mask", masks });
+      if (masks.length) this.sendOp({ op: "mask", masks });
       this.renderer.requestFull();
       this.saveCache();
       this.pushThumb();
@@ -415,10 +464,10 @@ export class InkPad {
     const ids = action.ids || action.strokes.map((s) => s.id);
     if (removing) {
       this.state.remove(ids);
-      this.net.sendOp({ op: "remove", ids });
+      this.sendOp({ op: "remove", ids });
     } else {
       this.state.add(action.strokes.map((s) => ({ ...s })));
-      this.net.sendOp({ op: "restore", strokes: action.strokes });
+      this.sendOp({ op: "restore", strokes: action.strokes });
     }
     this.renderer.requestFull();
     this.saveCache();
@@ -452,7 +501,7 @@ export class InkPad {
     const all = this.state.clear();
     if (!all.length) return;
     this.pushUndo({ type: "removed", strokes: all.map(plainStroke) });
-    this.net.sendOp({ op: "clear" });
+    this.sendOp({ op: "clear" });
     this.renderer.requestFull();
     this.saveCache();
     this.pushThumb();
@@ -465,7 +514,7 @@ export class InkPad {
     this.state.meta = meta;
     this.emit("meta", meta);
     this.renderer.requestFull();
-    this.net.sendOp({ op: "meta", meta: patch });
+    this.sendOp({ op: "meta", meta: patch });
   }
 
   setTool(tool) {
@@ -850,3 +899,11 @@ export class InkPad {
 
 // 橡皮擦的那部分（切笔画、记遮罩、攒网络操作）单独放在 app-eraser.js，方法装回 InkPad 上。
 installEraser(InkPad.prototype);
+
+/** 按 ``transport`` 选项建传输，见构造函数的说明。 */
+export function createTransport(transport, handlers) {
+  if (transport === "local" || transport === null) return new LocalTransport(handlers);
+  if (typeof transport === "function") return transport(handlers);
+  if (transport && typeof transport === "object") return new Net({ ...handlers, url: transport.url });
+  return new Net(handlers);
+}

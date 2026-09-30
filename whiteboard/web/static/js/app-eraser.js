@@ -246,11 +246,11 @@ const methods = {
     queue.remove.clear();
     queue.add.clear();
     queue.mask.clear();
-    if (ids.length) this.net.sendOp({ op: "remove", ids });
-    if (strokes.length) this.net.sendOp({ op: "restore", strokes });
+    if (ids.length) this.sendOp({ op: "remove", ids });
+    if (strokes.length) this.sendOp({ op: "restore", strokes });
     // 被删掉的笔画不用再发它的遮罩
     const gone = new Set(ids);
     const live = masks.filter((entry) => !gone.has(entry.id));
-    if (live.length) this.net.sendOp({ op: "mask", masks: live });
+    if (live.length) this.sendOp({ op: "mask", masks: live });
   },
 };

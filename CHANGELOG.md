@@ -15,6 +15,7 @@ One section per version, titled with the version number. When a release is publi
 - A new folder's name field is selected for editing right away, as in Finder.
 - Other web apps can embed a handwriting pad that syncs with the Mac, one board per page element, with an optional underlay image. Apps are installed in `apps/` in the storage directory. See docs/embed.md.
 - Board settings on the Mac can choose which app the iPad opens (“iPad 首页”).
+- The embedded pad can run without a server (`transport: "local"`), sync to another address, or use a custom transport.
 
 ### Fixes
 

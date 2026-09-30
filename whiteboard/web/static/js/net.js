@@ -1,13 +1,28 @@
-// WebSocket 同步通道：断线重连、按序号补齐、离线操作排队。
+// 同步通道（手写板的「传输」）。
+//
+// 手写板只通过下面这组成员使用传输，自定义传输实现同样的成员即可（见 docs/embed.md）：
+//
+//   connect()            开始同步；收到的消息交给 onMessage，状态变化交给 onStatus
+//   send(msg)            发一条控制消息（例如 unlock），发不出去返回 false
+//   sendLive(msg)        实时笔迹，丢了无妨
+//   sendOp(op)           正式操作，返回 cid；收到回执前留在 outbox 里
+//   restoreOutbox(items) 把上次没发出去的操作放回 outbox
+//   close()              停止同步
+//   outbox / boardId / lastSeq / epoch / status   手写板读写的状态
+//
+// Net 是 WebSocket 实现：断线重连、按序号补齐、离线操作排队。LocalTransport 不连任何
+// 服务器，内容由宿主通过手写板的事件自行保存。
 
 const PING_INTERVAL = 10000;
 const PONG_TIMEOUT = 12000;
 const BACKOFF = [400, 800, 1500, 3000, 5000, 8000];
 
 export class Net {
-  constructor({ clientId, role, pin, onMessage, onStatus }) {
+  constructor({ clientId, role, pin, url, onMessage, onStatus }) {
     this.clientId = clientId;
     this.role = role;
+    // 同步服务的地址；为空时连本页所在服务的 /ws
+    this.url = url || null;
     // 固定白板（docs/protocol.md「固定白板的连接」）；为空时跟随当前白板
     this.pin = pin || null;
     this.onMessage = onMessage;
@@ -73,7 +88,7 @@ export class Net {
     }
 
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+    const ws = new WebSocket(this.url || `${protocol}//${location.host}/ws`);
     this.ws = ws;
     this._setStatus("syncing");
 
@@ -216,4 +231,43 @@ export class Net {
     }
     this._setStatus(this.outbox.length ? "syncing" : "online");
   }
+}
+
+/**
+ * 不同步的传输：操作只在本机生效，不需要服务器。
+ *
+ * 状态固定为 "local"，outbox 始终为空。宿主通过手写板的 ``op`` 事件或
+ * ``snapshot()`` 拿到内容自行保存，下次用 ``initial`` 选项或 ``load()`` 放回来。
+ */
+export class LocalTransport {
+  constructor({ onStatus } = {}) {
+    this.local = true;
+    this.onStatus = onStatus || (() => {});
+    this.onOutboxChange = () => {};
+    this.outbox = [];
+    this.boardId = null;
+    this.lastSeq = 0;
+    this.epoch = null;
+    this.status = "local";
+    this.counter = 0;
+  }
+
+  connect() {
+    this.onStatus("local");
+  }
+
+  send() {
+    return false;
+  }
+
+  sendLive() {}
+
+  sendOp() {
+    this.counter += 1;
+    return `local-${this.counter}`;
+  }
+
+  restoreOutbox() {}
+
+  close() {}
 }

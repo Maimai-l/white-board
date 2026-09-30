@@ -7,6 +7,7 @@
 //
 // 手写板固定在 ``board`` 指定的白板上（docs/protocol.md「固定白板的连接」）：
 // 不存在就由服务端新建，内容同步到 Mac，在白板选择界面里可以看到。
+// ``transport`` 选项可以改成不同步、连别的服务，或者自定义传输。
 
 import { InkPad, deviceClientId, defaultTool } from "./inkpad.js";
 import { exportDataURL } from "./exporter.js";
@@ -44,7 +45,7 @@ function detectRole() {
  *
  * @param {HTMLElement} container
  * @param {object} options
- * @param {string} options.app      应用名，``^[a-z0-9-]{1,32}$``
+ * @param {string} options.app      应用名，``^[a-z0-9-]{1,32}$``；不同步（transport: "local"）时可以省略
  * @param {string} options.board    白板 id，``^[A-Za-z0-9_-]{1,64}$``；同一 id 在各设备上是同一块白板
  * @param {string} [options.name]   新建白板时的名称
  * @param {string} [options.kind]   新建白板时的类型：``board``（默认）或 ``note``
@@ -53,10 +54,15 @@ function detectRole() {
  * @param {object} [options.tool]   初始工具：{tool, color, width, eraserMode}
  * @param {boolean} [options.fingerDraw]  手指是否书写（默认只有 Apple Pencil 书写）
  * @param {"mac"|"ipad"} [options.role]    默认按设备判断
+ * @param {string|object|Function} [options.transport]  同步方式，见 inkpad.js 的 createTransport
+ * @param {{meta?: object, strokes?: object[]}} [options.initial]  不同步时的初始内容
  */
 export function createInkPad(container, options) {
   if (!container) throw new Error("createInkPad：缺少容器元素");
-  if (!options || !options.app || !options.board) throw new Error("createInkPad：需要 app 和 board");
+  const local = options && (options.transport === "local" || options.transport === null);
+  if (!options || !options.board || (!options.app && !local)) {
+    throw new Error("createInkPad：需要 board，同步时还需要 app");
+  }
   installStyle();
 
   const stage = document.createElement("div");
@@ -86,6 +92,8 @@ export function createInkPad(container, options) {
     pin,
     tool: { ...defaultTool(), ...(options.tool || {}) },
     embedded: true,
+    transport: options.transport,
+    initial: options.initial,
   });
   // 直接设，不经过 setFingerDraw：那里会写进白板应用自己的设置
   if (options.fingerDraw !== undefined) pad.input.fingerDraw = !!options.fingerDraw;
