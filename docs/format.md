@@ -2,23 +2,29 @@ English | [简体中文](format.zh-CN.md)
 
 # Board File Format (.wbz)
 
-A `.wbz` file stores one board as zlib-compressed UTF-8 JSON, with each stroke's point list packed into a compact binary encoding.
+A `.wbz` file stores one board. Its content is zlib-compressed UTF-8 JSON; each stroke's point list is additionally encoded in a compact binary format.
 
 Board content is always vector data. Thumbnails and exported images are separate files and are never read back as content.
 
+This document describes file format 2 (inksync 2.0 and later). Files in format 1 (1.x) are still read; see [Reading 1.x files](#reading-1x-files).
+
 ## Storage directory
 
-The storage directory holds every board file, the board index, document originals and backups.
+A storage directory holds one space (inksync's `FileStorage`). The whiteboard app's storage directory is the user space; the spaces of installed apps are under its `spaces/`.
 
 ```
 <storage directory>/
-├── index.json                 board list, folder list, current board (uncompressed)
-├── boards/<board id>.wbz      one file per board
-├── thumbs/<board id>.png      board chooser thumbnail (not content)
-├── docs/<board id>.<ext>      document board original (PDF or image), never modified
-├── backups/upgrade/<...>/     copy of boards/ and index.json taken after a version change
-├── backups/locked/<id>-<time>.wbz   copy of a read-only board file taken before unlocking
-└── recordings/<time>[-<name>].json  input recordings, see recording.md
+├── boards/<board id>.wbz        one file per board: the only source of metadata and strokes
+├── index.sqlite                 index: each board's metadata, rebuildable from the board files at any time
+├── space.json                   per-space data: folder list, order, current board (not rebuildable)
+├── thumbs/<board id>.png        thumbnails for the board chooser (not content)
+├── docs/<board id>.<ext>        originals of document boards (PDF or image), never modified
+├── spaces/<app name>/           spaces of installed apps, with the same boards/, index.sqlite, space.json
+├── apps/<app name>/             static files of installed apps; see embed.md
+├── backups/upgrade/<...>/       data copied after a version change; see [Backups](#backups)
+├── backups/locked/<id>-<time>.wbz   read-only board files copied before unlocking
+├── recordings/<time>[-<name>].json  input recordings; see recording.md
+└── index.v1.json                the 1.x index, renamed after migration and no longer read or written
 ```
 
 | Platform | Default storage directory |
@@ -27,73 +33,60 @@ The storage directory holds every board file, the board index, document original
 | Windows | `%APPDATA%\Whiteboard\boards-data` |
 | Linux | `$XDG_DATA_HOME/whiteboard/boards-data` (default `~/.local/share/whiteboard/boards-data`) |
 
-The storage directory can be changed on the Mac in “白板设置” (Board settings), or for one run with `run.py --data-dir`.
+The storage directory can be changed in the Mac's board settings, or set for one run with `run.py --data-dir`.
 
-All writes to `index.json` and `.wbz` files are atomic: the data goes to a temporary file in the same directory, is flushed with `fsync`, and then replaces the target.
+`.wbz` files and `space.json` are written atomically: the data goes to a temporary file in the same directory, is flushed with `fsync`, and then replaces the target.
 
-## Board index (`index.json`)
+## Index (`index.sqlite`)
 
-`index.json` lists board metadata so the board chooser does not have to decompress every `.wbz` file.
+The index holds each board's metadata, so board lists can be shown without decompressing every `.wbz` file.
 
-```json
-{
-  "boards": [
-    {"id": "49b773c7c7c2", "name": "", "kind": "board", "background": "grid",
-     "folder": "数学", "created": 1758000000.0, "updated": 1758000123.4}
-  ],
-  "folders": ["数学"],
-  "current": "49b773c7c7c2"
-}
-```
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `boards` | array of `meta` | Board metadata, same shape as [`meta`](#meta-fields). The array order is the display order. |
-| `folders` | array of string | Folder names, including empty folders. |
-| `current` | string | ID of the board currently open. |
-
-The index is rebuilt from the `.wbz` files when it is missing, cannot be parsed, or lists a different set of board IDs than `boards/` contains.
-
-| Data | After a rebuild |
+| Item | Description |
 | --- | --- |
-| Board metadata | Read from each `.wbz` file. The file name is the board ID. |
-| Unreadable board files | Kept in the list with default metadata and `updated` = 0. |
-| Board order | Sorted by `updated`, newest first. Manual order is lost. |
-| Folders containing boards | Recovered from `meta.folder`. |
-| Empty folders | Lost. |
+| Table | `boards(id TEXT PRIMARY KEY, meta TEXT, mtime REAL)`: the metadata as JSON and the board file's modification time. |
+| Reading | Loaded into memory at startup; queries then read memory only. |
+| Writing | Row by row (SQLite WAL mode), in order, by one dedicated thread. |
+| Check at startup | The set of file names in `boards/` and each file's modification time are compared with the index: new files and files whose time differs are read again, rows whose file is gone are deleted. If the process exits before the index is written, the next start catches up this way. |
+| Missing or damaged | Rebuilt from all board files. |
 
-Renaming a board or moving it to a folder writes both the index and the `meta` inside the `.wbz` file, because the file is the source for a rebuild.
+The index can be deleted at any time; it is rebuilt at the next start without losing any content.
 
-### Board order
+## Per-space data (`space.json`)
 
-The order of the `boards` array is the order shown in the board chooser. Dragging a card rewrites this array; the order exists only in the index.
+`space.json` holds small data that cannot be rebuilt from the board files. It is written on every change and is limited to 1 MB. The whiteboard app's user space uses these keys:
+
+| Key | Description |
+| --- | --- |
+| `folders` | Folder names, including empty folders. |
+| `order` | A list of board IDs: the order in the board chooser. Boards not in the list come first, newest `created` first. |
+| `current` | The ID of the current board. |
 
 ### Folders
 
-Folders have one level and no nesting. A folder is identified by its name only; there is no separate folder ID.
+Folders have one level and cannot be nested. A folder is identified only by its name; there is no separate folder ID.
 
-- A board records its folder name in `meta.folder`. A board without a folder has no `folder` field.
-- `index.json` stores the folder list in `folders`, because an empty folder has no board to record it.
-- A name that appears in a board's `meta.folder` but not in `folders` is added to `folders` when the index loads (`BoardStore._sync_folders`).
-- Renaming a folder rewrites `meta.folder` on every board in it.
-- Deleting a folder removes the name from `folders` and moves its boards out of the folder. No board is deleted.
-- Folder names are trimmed and limited to 64 characters.
+- A board records its folder's name in `meta.data.folder`. A board outside any folder has no such key.
+- `space.json` keeps the folder list in `folders` as well, because an empty folder has no board to record it.
+- A name that appears in a board's `data.folder` but not in `folders` is added to `folders` when the storage directory is opened.
+- Renaming a folder rewrites `data.folder` of every board in it; deleting a folder only removes the name from the list, and its boards move out of the folder. No board is deleted.
+- Folder names are trimmed and are at most 64 characters.
 
 ## File structure
 
-A `.wbz` file is `zlib.compress(json_utf8, 6)` of the object below.
+A `.wbz` file contains the result of `zlib.compress(json_utf8, 6)` applied to the following object.
 
 ```jsonc
 {
-  "v": 1,
+  "v": 2,
   "meta": {
     "id": "49b773c7c7c2",
     "name": "",
-    "kind": "board",
-    "background": "grid",
-    "folder": "数学",
     "created": 1758000000.0,
-    "updated": 1758000123.4
+    "updated": 1758000123.4,
+    "canvas": {"mode": "infinite"},
+    "background": {"pattern": "grid"},
+    "layers": [],
+    "data": {"folder": "Math"}
   },
   "strokes": [
     {
@@ -113,28 +106,24 @@ A `.wbz` file is `zlib.compress(json_utf8, 6)` of the object below.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `v` | integer | File format version. See [File version and incomplete reads](#file-version-and-incomplete-reads). |
+| `v` | integer | File format version, currently 2. See [File version and incomplete reads](#file-version-and-incomplete-reads). |
 | `meta` | object | Board metadata. See [meta fields](#meta-fields). |
 | `strokes` | array | Strokes. See [Stroke fields](#stroke-fields). |
 
 ### meta fields
 
-`meta` describes the board; the server normalizes it with `models.sanitize_meta` on every read and write.
+`meta` describes the board itself. The server normalizes it with `inksync.models.sanitize_meta` on every read and write; unknown fields are dropped.
 
 | Field | Type | Values and limits |
 | --- | --- | --- |
-| `id` | string | `^[A-Za-z0-9_.:-]{1,64}$`. New boards use 12 hex characters. The file name is `<id>.wbz`. |
-| `name` | string | Trimmed, at most 64 characters. An empty string means “unnamed”; the interface shows a default name for the `kind`. |
-| `kind` | string | `board` (infinite board, extends in four directions), `note` (note board, fixed width, extends downward), `doc` (document board). Set at creation and cannot change. Invalid values become `board`. |
-| `background` | string | `blank`, `grid`, `lines`, `dots`. Invalid values become `grid`. |
-| `folder` | string | Optional. Folder name, at most 64 characters. Omitted when the board has no folder. |
+| `id` | string | `^[A-Za-z0-9_-]{1,64}$`, unique within the space. New boards use 12 hexadecimal characters. The file name is `<id>.wbz`. |
+| `name` | string | Trimmed, at most 64 characters. An empty string means “unnamed”; the interface shows a default name. |
 | `created` | number | Creation time, Unix seconds. |
-| `updated` | number | Time of the last accepted operation, Unix seconds. Renaming and moving to a folder do not change it. |
-| `doc` | object | Only when `kind` is `doc`. See [Document boards](#document-boards). |
-| `app` | string | Optional. `^[a-z0-9-]{1,32}$`. The app that created the board through a pinned connection (see [protocol.md](protocol.md#pinned-connections)). Omitted for boards created in the whiteboard itself. |
-| `underlay` | object | Optional. `{src, width}`: image drawn under the ink with its top-left corner at the origin. `src` must be a path under `/apps/` without `..`; `width` is 1–10000 board units. Set when an app creates the board ([embed.md](embed.md)). Not included in exports. |
-
-The obsolete fields `cols`, `rows` and `unit` from older files are dropped on read. A `doc` board without a valid `doc` object is read as `kind` = `board`.
+| `updated` | number | Time of the last accepted operation, Unix seconds. Renaming and filing do not change it. |
+| `canvas` | object | `{"mode":"infinite"}` (extends in four directions); `{"mode":"column","width":W}` (fixed width, extends downward; the whiteboard app's note boards use 1000); `{"mode":"fixed","width":W,"height":H}` (fixed size). W and H are 1 to 100000. Set at creation and cannot change. Invalid values become `infinite`. |
+| `background` | object | `pattern`: `blank`, `grid`, `lines` or `dots` (`grid` if invalid); `paper`: optional paper color `#rrggbb`. |
+| `layers` | array | Image layers, at most 1000, drawn in order. Each is `{src, x, y, width, height?, z?, sheet?}`: `src` is a same-origin path (starting with a single `/`, without `..`, `\` or a scheme), at most 512 characters, and may contain `{w}` (replaced by 640, 1024, 1600 or 2400 according to the displayed width); `x`, `y`, `width`, `height` are in board coordinates; without `height` the image's aspect ratio is used; `z: "above"` draws the layer above the ink; `sheet: true` draws it as a page with a shadow. If any item is invalid, the whole array is treated as empty. |
+| `data` | object | The host's own fields, at most 16 KB as JSON. The whiteboard app uses `folder` (folder) and `doc` (document board original; see [Document boards](#document-boards)); boards created by an app in 1.0.1 also have `app`. |
 
 ### Stroke fields
 
@@ -167,7 +156,7 @@ Each stroke is rendered as one filled closed outline generated by perfect-freeha
 
 | Target | Implementation |
 | --- | --- |
-| Screen | `whiteboard/web/static/js/vendor/perfect-freehand.js` (perfect-freehand 1.2.3, unmodified ESM build), called from `stroke.js` |
+| Screen | `packages/inksync/inksync/web/vendor/perfect-freehand.js` (perfect-freehand 1.2.3, unmodified ESM build), called from `stroke.js` |
 | Export | `whiteboard/freehand.py`, a Python port used by `/api/export/{board_id}` on the server |
 
 Both implementations must produce identical outline points. `tests/test_browser.py::test_python_outline_matches_perfect_freehand` compares them point by point with tolerance 1e-9 on recorded strokes.
@@ -364,9 +353,9 @@ A stroke of 500 points is usually under 2 KB. The code is in `packages/inksync/i
 
 ## File version and incomplete reads
 
-`v` is the file format version, currently 1 (`store.FILE_VERSION`). It changes only when the file format changes, not when the application version changes. A file without `v` is read as version 1.
+`v` is the file format version, currently 2 (`inksync.storage.FILE_VERSION`). It changes only when the file format changes, not when the application version changes. A file without `v` is read as version 1.
 
-`store.open_board` reports a board as not fully readable in the following cases:
+`FileStorage.read_file` reports a board as not fully readable in the following cases:
 
 | `reason` | Condition | Extra field |
 | --- | --- | --- |
@@ -385,6 +374,7 @@ A board that is not fully readable opens as a read-only board.
 - The server rejects all operations on it, including `meta` (see [protocol.md](protocol.md#read-only-boards)).
 - Autosave does not write the file, so the partial content never overwrites the original.
 - Renaming and moving to a folder rewrite only `meta` in the file; the rest of the file, including fields this version does not recognize, is kept. If the file cannot be read, the change fails.
+- 1.x reads a file with `v` = 2 as `newer` and opens it read-only, but 1.x renaming and filing rewrite `meta` in such files and lose `canvas`, `layers` and `data`. Downgrading from 2.0 to 1.x is therefore not supported; restore from `backups/upgrade/` if needed.
 - Selecting the board again reads the file again.
 - A board in the index whose file cannot be read stays in the board list and opens read-only.
 
@@ -402,22 +392,37 @@ The application writes two kinds of backups inside the storage directory.
 
 | Directory | When | Content | Retention |
 | --- | --- | --- | --- |
-| `backups/upgrade/<time>.<ns>_<old>_to_<new>/` | First start after a version change (upgrade or downgrade), before any board is opened | `boards/` and `index.json` | Latest 5 |
+| `backups/upgrade/<time>.<ns>_<old>_to_<new>/` | First start after a version change (upgrade or downgrade), before any board is opened | `boards/`, `index.json`, `index.sqlite`, `space.json` and `spaces/` (whichever exist) | Latest 5 |
 | `backups/locked/` | Before a read-only board is unlocked | The original `.wbz` file | Not pruned |
 
 - `docs/` is not backed up: the application never modifies the originals.
 - `thumbs/` is not backed up: thumbnails are regenerated.
 - No upgrade backup is taken when `boards/` is empty.
 - An upgrade backup is first written to `.partial-<name>` and renamed when complete.
-- If the upgrade backup fails, startup continues and the backup is retried at the next start.
+- If the upgrade backup fails, startup continues and the backup is retried at the next start. Exception: a storage directory still in the 1.x format (with `index.json` and without `index.sqlite`) must be converted first; then a failed backup stops the start and the reason is shown.
+
+## Reading 1.x files
+
+When 2.0 reads a file with `v` = 1, it converts the metadata to the 2.0 fields in memory; the file is written back with `v: 2` at the next save or metadata change. Strokes are unchanged.
+
+| 1.x field | 2.0 |
+| --- | --- |
+| `kind: "board"` | `canvas: {"mode": "infinite"}` |
+| `kind: "note"` | `canvas: {"mode": "column", "width": 1000}` |
+| `kind: "doc"` | `canvas: {"mode": "fixed", …}` sized to the pages laid out, and one `sheet` image layer per page |
+| `background: "grid"` etc. | `background: {"pattern": "grid"}` |
+| `underlay: {src, width}` | the first item of `layers` |
+| `folder`, `app`, `doc` | moved into `data` |
+
+The first time 2.0 opens a 1.x storage directory, it backs up the data (see [Backups](#backups)), creates `index.sqlite`, moves the folder list, order and current board from `index.json` into `space.json`, moves boards with `app` into `spaces/<app name>/boards/`, and finally renames `index.json` to `index.v1.json`.
 
 ## Reading a file
 
-A `.wbz` file can be read with the Python standard library and `whiteboard.codec`.
+A `.wbz` file can be read with the Python standard library and `inksync.codec`.
 
 ```python
 import json, zlib
-from whiteboard.codec import decode_points_b64
+from inksync.codec import decode_points_b64
 
 payload = json.loads(zlib.decompress(open("boards/xxx.wbz", "rb").read()))
 for stroke in payload["strokes"]:
@@ -429,9 +434,13 @@ PNG export of ordinary boards happens in the browser (export button in the inter
 
 ## Document boards
 
-A document board (`kind` = `doc`, beta) is created from a PDF or image; the ink is stored in the `.wbz` file and the original is kept unchanged in `docs/`.
+A document board (beta) is created from a PDF or image; the ink is stored in the `.wbz` file and the original is kept unchanged in `docs/`. A document board's metadata:
 
-### meta.doc fields
+- `canvas` is `fixed`, sized to the pages laid out;
+- one `sheet` image layer per page, with `src` `/api/doc/<board id>/<page>?w={w}`;
+- the original's information in `data.doc` (below), and `background.pattern` `blank`.
+
+### data.doc fields
 
 ```jsonc
 "doc": {
@@ -462,10 +471,10 @@ Pages are placed top to bottom in world coordinates, each centered on the widest
 
 | Constant | Value | Code |
 | --- | --- | --- |
-| `PAGE_GAP` | 24 | `whiteboard/docs.py`, `whiteboard/web/static/js/boardstate.js` |
+| `PAGE_GAP` | 24 | `whiteboard/docs.py` (export), `doc_layers` in `whiteboard/models.py` (page image layers) |
 
 > **Warning**
-> The two `PAGE_GAP` values must match. If they differ, exported ink lands on the wrong page.
+> The two gaps must match. If they differ, exported ink lands on the wrong page. The front end no longer lays out pages itself; it draws the image layers where they are.
 
 ### PDF export
 

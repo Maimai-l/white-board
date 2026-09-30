@@ -6,19 +6,25 @@
 
 白板内容始终是矢量数据。缩略图和导出的图片是单独的文件，不会作为内容读回。
 
+本文描述文件格式 2（inksync 2.0 起）。文件格式 1（1.x）的文件照常能读，见[读取 1.x 的文件](#读取-1x-的文件)。
+
 ## 存储目录
 
-存储目录保存全部白板文件、白板索引、文档板原件和备份。
+一个存储目录对应一个空间（inksync 的 `FileStorage`）。白板应用的存储目录是用户空间，已安装应用的空间放在它的 `spaces/` 下。
 
 ```
 <存储目录>/
-├── index.json                 白板列表、文件夹名单、当前白板（未压缩）
-├── boards/<白板 id>.wbz        每块白板一个文件
+├── boards/<白板 id>.wbz        每块白板一个文件：元数据与笔画的唯一来源
+├── index.sqlite               索引：每块白板的元数据，可以随时从白板文件重建
+├── space.json                 空间级数据：文件夹名单、排序、当前白板（不可重建）
 ├── thumbs/<白板 id>.png        白板选择界面的缩略图（不属于内容）
 ├── docs/<白板 id>.<扩展名>     文档板的原件（PDF 或图片），程序从不修改
-├── backups/upgrade/<...>/     版本变更后复制的 boards/ 与 index.json
+├── spaces/<应用名>/            已安装应用的空间，结构与上面的 boards/、index.sqlite、space.json 相同
+├── apps/<应用名>/              已安装应用的静态文件，见 embed.zh-CN.md
+├── backups/upgrade/<...>/     版本变更后复制的数据，见[备份](#备份)
 ├── backups/locked/<id>-<时间>.wbz   解除只读之前复制的只读白板文件
-└── recordings/<时间>[-<名称>].json  输入录制文件，见 recording.md
+├── recordings/<时间>[-<名称>].json  输入录制文件，见 recording.md
+└── index.v1.json              1.x 的索引，迁移之后改名保留，不再读写
 ```
 
 | 平台 | 默认存储目录 |
@@ -29,55 +35,41 @@
 
 存储目录可以在 Mac 的「白板设置」中修改，也可以用 `run.py --data-dir` 仅对本次运行指定。
 
-`index.json` 和 `.wbz` 文件的写入均为原子操作：数据先写入同一目录下的临时文件，经 `fsync` 落盘后再替换目标文件。
+`.wbz` 与 `space.json` 的写入均为原子操作：数据先写入同一目录下的临时文件，经 `fsync` 落盘后再替换目标文件。
 
-## 白板索引（index.json）
+## 索引（index.sqlite）
 
-`index.json` 保存白板元数据列表，白板选择界面据此显示，无需解压每个 `.wbz` 文件。
+索引保存每块白板的元数据，白板列表据此显示，不必解压每个 `.wbz` 文件。
 
-```json
-{
-  "boards": [
-    {"id": "49b773c7c7c2", "name": "", "kind": "board", "background": "grid",
-     "folder": "数学", "created": 1758000000.0, "updated": 1758000123.4}
-  ],
-  "folders": ["数学"],
-  "current": "49b773c7c7c2"
-}
-```
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `boards` | `meta` 数组 | 白板元数据，结构与 [`meta`](#meta-字段) 相同。数组顺序即显示顺序。 |
-| `folders` | 字符串数组 | 文件夹名单，包括空文件夹。 |
-| `current` | 字符串 | 当前打开的白板 id。 |
-
-索引缺失、无法解析，或索引中的白板 id 集合与 `boards/` 中的文件不一致时，程序根据 `.wbz` 文件重建索引。
-
-| 数据 | 重建后的结果 |
+| 项目 | 说明 |
 | --- | --- |
-| 白板元数据 | 从各 `.wbz` 文件读取，文件名即白板 id。 |
-| 无法读取的白板文件 | 保留在列表中，使用默认元数据，`updated` 为 0。 |
-| 白板顺序 | 按 `updated` 从新到旧排列，手动排列的顺序丢失。 |
-| 含有白板的文件夹 | 从各白板的 `meta.folder` 恢复。 |
-| 空文件夹 | 丢失。 |
+| 表 | `boards(id TEXT PRIMARY KEY, meta TEXT, mtime REAL)`：元数据 JSON，以及白板文件的修改时间。 |
+| 读取 | 启动时全部读入内存，此后查询只读内存。 |
+| 写入 | 按行写入（SQLite WAL 模式），由一个专用线程依次执行。 |
+| 启动时的核对 | 比较 `boards/` 中的文件名集合和每个文件的修改时间：新增或修改时间不一致的文件重新读取元数据，文件已不存在的行删除。进程在索引写入之前退出时，下次启动据此补齐。 |
+| 缺失或损坏 | 从全部白板文件重建。 |
 
-给白板改名或归入文件夹时，程序同时写入索引和 `.wbz` 文件中的 `meta`，因为重建索引以文件为依据。
+索引可以随时删除，下次启动时重建，不丢任何内容。
 
-### 白板顺序
+## 空间级数据（space.json）
 
-`boards` 数组的顺序就是白板选择界面上的顺序。拖动卡片会改写这个数组；顺序只保存在索引中。
+`space.json` 保存不能从白板文件重建的小数据。每次修改立即写入，大小上限 1 MB。白板应用的用户空间使用下列键：
+
+| 键 | 说明 |
+| --- | --- |
+| `folders` | 文件夹名单，包括空文件夹。 |
+| `order` | 白板 id 的列表，即白板选择界面上的顺序。不在列表中的白板按 `created` 从新到旧排在最前。 |
+| `current` | 当前白板的 id。 |
 
 ### 文件夹
 
 文件夹只有一层，不能嵌套。文件夹仅以名字区分，没有单独的文件夹 id。
 
-- 白板在 `meta.folder` 中记录所属文件夹的名字。未归入文件夹的白板没有 `folder` 字段。
-- `index.json` 在 `folders` 中另存文件夹名单，因为空文件夹没有白板可以记录它。
-- 某个名字出现在白板的 `meta.folder` 中但不在 `folders` 中时，载入索引时会补入 `folders`（`BoardStore._sync_folders`）。
-- 文件夹改名时，其中每块白板的 `meta.folder` 都会随之改写。
-- 删除文件夹只从 `folders` 中移除该名字，其中的白板移出文件夹，不删除任何白板。
-- 文件夹名会去除首尾空白，最长 64 个字符。
+- 白板在 `meta.data.folder` 中记录所属文件夹的名字。未归入文件夹的白板没有这个键。
+- `space.json` 在 `folders` 中另存文件夹名单，因为空文件夹没有白板可以记录它。
+- 某个名字出现在白板的 `data.folder` 中但不在 `folders` 中时，打开存储目录时补入 `folders`。
+- 文件夹改名时，其中每块白板的 `data.folder` 都随之改写；删除文件夹只从名单中移除该名字，其中的白板移出文件夹，不删除任何白板。
+- 文件夹名去除首尾空白，最长 64 个字符。
 
 ## 文件结构
 
@@ -85,15 +77,16 @@
 
 ```jsonc
 {
-  "v": 1,
+  "v": 2,
   "meta": {
     "id": "49b773c7c7c2",
     "name": "",
-    "kind": "board",
-    "background": "grid",
-    "folder": "数学",
     "created": 1758000000.0,
-    "updated": 1758000123.4
+    "updated": 1758000123.4,
+    "canvas": {"mode": "infinite"},
+    "background": {"pattern": "grid"},
+    "layers": [],
+    "data": {"folder": "数学"}
   },
   "strokes": [
     {
@@ -113,28 +106,24 @@
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `v` | 整数 | 文件格式版本号，见[版本与读不全的文件](#版本与读不全的文件)。 |
+| `v` | 整数 | 文件格式版本号，当前为 2，见[版本与读不全的文件](#版本与读不全的文件)。 |
 | `meta` | 对象 | 白板元数据，见 [meta 字段](#meta-字段)。 |
 | `strokes` | 数组 | 笔画，见[笔画字段](#笔画字段)。 |
 
 ### meta 字段
 
-`meta` 描述白板本身；服务端每次读写时都用 `models.sanitize_meta` 将其规整到合法范围。
+`meta` 描述白板本身；服务端每次读写时都用 `inksync.models.sanitize_meta` 将其规整到合法范围，未知字段被丢弃。
 
 | 字段 | 类型 | 取值与限制 |
 | --- | --- | --- |
-| `id` | 字符串 | `^[A-Za-z0-9_.:-]{1,64}$`。新建的白板使用 12 位十六进制字符。文件名为 `<id>.wbz`。 |
-| `name` | 字符串 | 去除首尾空白，最长 64 个字符。空串表示未命名，界面按 `kind` 显示默认名称。 |
-| `kind` | 字符串 | `board`（大白板，向四个方向延伸）、`note`（笔记，宽度固定，向下延伸）、`doc`（文档板）。创建时确定，之后不能修改。非法值按 `board` 处理。 |
-| `background` | 字符串 | `blank`、`grid`、`lines`、`dots`。非法值按 `grid` 处理。 |
-| `folder` | 字符串 | 可选。所属文件夹的名字，最长 64 个字符。未归入文件夹时省略。 |
+| `id` | 字符串 | `^[A-Za-z0-9_-]{1,64}$`，在空间内唯一。新建的白板使用 12 位十六进制字符。文件名为 `<id>.wbz`。 |
+| `name` | 字符串 | 去除首尾空白，最长 64 个字符。空串表示未命名，界面显示默认名称。 |
 | `created` | 数字 | 创建时间，Unix 秒。 |
 | `updated` | 数字 | 最近一次被接受的操作的时间，Unix 秒。改名和归入文件夹不改变它。 |
-| `doc` | 对象 | 仅当 `kind` 为 `doc` 时存在，见[文档板](#文档板)。 |
-| `app` | 字符串 | 可选。须符合 `^[a-z0-9-]{1,32}$`。通过固定连接建立这块白板的应用（见 [protocol.zh-CN.md](protocol.zh-CN.md#固定白板的连接)）。在白板内新建的白板没有这个字段。 |
-| `underlay` | 对象 | 可选。`{src, width}`：画在笔迹下方的底图，左上角位于原点。`src` 必须是 `/apps/` 下的路径且不含 `..`；`width` 为 1 至 10000 个白板单位。由应用新建白板时设定（[embed.zh-CN.md](embed.zh-CN.md)）。导出时不包含。 |
-
-旧文件中已废弃的 `cols`、`rows`、`unit` 字段在读取时丢弃。`kind` 为 `doc` 但没有合法 `doc` 对象的白板按 `kind` 为 `board` 读取。
+| `canvas` | 对象 | `{"mode":"infinite"}`（四个方向延伸）；`{"mode":"column","width":W}`（宽度固定，向下延伸，白板应用的笔记为 1000）；`{"mode":"fixed","width":W,"height":H}`（宽高固定）。W、H 为 1 至 100000。创建时确定，之后不能修改。不合法时按 `infinite` 处理。 |
+| `background` | 对象 | `pattern`：`blank`、`grid`、`lines`、`dots`，不合法时为 `grid`；`paper`：可选，纸张颜色 `#rrggbb`。 |
+| `layers` | 数组 | 图片层，最多 1000 项，按顺序绘制。每项 `{src, x, y, width, height?, z?, sheet?}`：`src` 为同源路径（以一个 `/` 开头，不含 `..`、`\` 和协议名），最长 512 个字符，可以包含 `{w}`（按显示宽度换成 640、1024、1600 或 2400）；`x`、`y`、`width`、`height` 为白板坐标；`height` 省略时按图片比例；`z` 为 `above` 时画在笔迹上方；`sheet` 为 true 时画成带阴影的一页纸。任何一项不合法时整个数组按空处理。 |
+| `data` | 对象 | 使用者自己的字段，JSON 序列化后不超过 16 KB。白板应用使用 `folder`（文件夹）、`doc`（文档板原件信息，见[文档板](#文档板)）；1.0.1 中应用建立的白板另有 `app`。 |
 
 ### 笔画字段
 
@@ -167,7 +156,7 @@
 
 | 用途 | 实现 |
 | --- | --- |
-| 屏幕 | `whiteboard/web/static/js/vendor/perfect-freehand.js`（perfect-freehand 1.2.3，未经修改的 ESM 构建），由 `stroke.js` 调用 |
+| 屏幕 | `packages/inksync/inksync/web/vendor/perfect-freehand.js`（perfect-freehand 1.2.3，未经修改的 ESM 构建），由 `stroke.js` 调用 |
 | 导出 | `whiteboard/freehand.py`，Python 移植版本，供服务端的 `/api/export/{board_id}` 使用 |
 
 两份实现必须生成完全相同的轮廓点。`tests/test_browser.py::test_python_outline_matches_perfect_freehand` 使用真机录制的笔画逐点比对，容差为 1e-9。
@@ -364,9 +353,9 @@ uvarint  count
 
 ## 版本与读不全的文件
 
-`v` 是文件格式版本号，当前为 1（`store.FILE_VERSION`）。只有文件格式变化时才修改它，程序版本变化不修改它。没有 `v` 的文件按版本 1 读取。
+`v` 是文件格式版本号，当前为 2（`inksync.storage.FILE_VERSION`）。只有文件格式变化时才修改它，程序版本变化不修改它。没有 `v` 的文件按版本 1 读取。
 
-`store.open_board` 在以下情况下报告白板未能完整读出：
+`FileStorage.read_file` 在以下情况下报告白板未能完整读出：
 
 | `reason` | 条件 | 附加字段 |
 | --- | --- | --- |
@@ -385,6 +374,7 @@ uvarint  count
 - 服务端拒绝对它的所有操作，包括 `meta`（见 [protocol.zh-CN.md](protocol.zh-CN.md#只读白板)）。
 - 自动保存不写入该文件，因此读出的部分内容不会覆盖原文件。
 - 改名和归入文件夹只改写文件中的 `meta`，文件的其余内容（包括本版本不认识的字段）原样保留。文件无法读取时，修改失败。
+- 1.x 读取 `v` 为 2 的文件时属于 `newer`，以只读方式打开；但 1.x 的改名和归入文件夹会改写这些文件的 `meta`，丢失 `canvas`、`layers` 和 `data`。因此不支持从 2.0 降级到 1.x，需要时从 `backups/upgrade/` 恢复。
 - 再次选择这块白板时，程序重新读取文件。
 - 索引中存在、但文件无法读取的白板仍然显示在列表中，打开时为只读。
 
@@ -402,22 +392,37 @@ uvarint  count
 
 | 目录 | 时机 | 内容 | 保留数量 |
 | --- | --- | --- | --- |
-| `backups/upgrade/<时间>.<纳秒>_<旧版本>_to_<新版本>/` | 版本变更（升级或降级）后第一次启动，在打开任何白板之前 | `boards/` 和 `index.json` | 最近 5 份 |
+| `backups/upgrade/<时间>.<纳秒>_<旧版本>_to_<新版本>/` | 版本变更（升级或降级）后第一次启动，在打开任何白板之前 | `boards/`、`index.json`、`index.sqlite`、`space.json` 和 `spaces/`（存在的才复制） | 最近 5 份 |
 | `backups/locked/` | 解除只读白板之前 | 原 `.wbz` 文件 | 不清理 |
 
 - `docs/` 不备份：程序从不修改原件。
 - `thumbs/` 不备份：缩略图会重新生成。
 - `boards/` 为空时不做版本变更备份。
 - 版本变更备份先写入 `.partial-<名称>`，完成后再改为正式名称。
-- 版本变更备份失败时，程序照常启动，下次启动时重新尝试备份。
+- 版本变更备份失败时，程序照常启动，下次启动时重新尝试备份。例外：存储目录还是 1.x 格式（有 `index.json`、没有 `index.sqlite`）时要先转换，这时备份失败就不启动，并显示原因。
+
+## 读取 1.x 的文件
+
+2.0 读取 `v` 为 1 的文件时，在内存中把元数据换成 2.0 的字段；文件在下次保存或修改元数据时以 `v: 2` 写回。笔画部分不变。
+
+| 1.x 字段 | 2.0 |
+| --- | --- |
+| `kind: "board"` | `canvas: {"mode": "infinite"}` |
+| `kind: "note"` | `canvas: {"mode": "column", "width": 1000}` |
+| `kind: "doc"` | `canvas: {"mode": "fixed", …}`，宽高为各页排列后的外框；每页一个 `sheet` 图片层 |
+| `background: "grid"` 等 | `background: {"pattern": "grid"}` |
+| `underlay: {src, width}` | `layers` 的第一项 |
+| `folder`、`app`、`doc` | 移入 `data` |
+
+首次以 2.0 打开 1.x 的存储目录时：先备份（见[备份](#备份)）；建立 `index.sqlite`；`index.json` 中的文件夹名单、排序和当前白板迁入 `space.json`；带 `app` 的白板移入 `spaces/<应用名>/boards/`；最后 `index.json` 改名为 `index.v1.json`。
 
 ## 读取文件
 
-使用 Python 标准库和 `whiteboard.codec` 即可读取 `.wbz` 文件。
+使用 Python 标准库和 `inksync.codec` 即可读取 `.wbz` 文件。
 
 ```python
 import json, zlib
-from whiteboard.codec import decode_points_b64
+from inksync.codec import decode_points_b64
 
 payload = json.loads(zlib.decompress(open("boards/xxx.wbz", "rb").read()))
 for stroke in payload["strokes"]:
@@ -429,9 +434,13 @@ for stroke in payload["strokes"]:
 
 ## 文档板
 
-文档板（`kind` 为 `doc`，beta）由 PDF 或图片生成；笔迹保存在 `.wbz` 文件中，原件原样保存在 `docs/` 中。
+文档板（beta）由 PDF 或图片生成；笔迹保存在 `.wbz` 文件中，原件原样保存在 `docs/` 中。文档板的元数据：
 
-### meta.doc 字段
+- `canvas` 为 `fixed`，宽高为各页排列后的外框；
+- 每页一个 `sheet` 图片层，`src` 为 `/api/doc/<白板 id>/<页码>?w={w}`；
+- 原件信息在 `data.doc`（下表），`background.pattern` 为 `blank`。
+
+### data.doc 字段
 
 ```jsonc
 "doc": {
@@ -462,10 +471,10 @@ for stroke in payload["strokes"]:
 
 | 常数 | 值 | 代码 |
 | --- | --- | --- |
-| `PAGE_GAP` | 24 | `whiteboard/docs.py`、`whiteboard/web/static/js/boardstate.js` |
+| `PAGE_GAP` | 24 | `whiteboard/docs.py`（导出）、`whiteboard/models.py` 的 `doc_layers`（页面图片层） |
 
 > **警告**
-> 两处的 `PAGE_GAP` 必须相同，否则导出时笔迹会落到错误的页面上。
+> 两处的页间距必须相同，否则导出时笔迹会落到错误的页面上。前端不再自己排列页面，只按图片层的位置绘制。
 
 ### PDF 导出
 

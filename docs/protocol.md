@@ -2,15 +2,21 @@ English | [简体中文](protocol.zh-CN.md)
 
 # Sync Protocol
 
-Clients and the server synchronize boards over one WebSocket at `/ws` that carries JSON text messages; a few HTTP endpoints serve pages, thumbnails and document boards.
+Clients and the server synchronize boards over one WebSocket at `/ws` that carries JSON text messages; a few HTTP endpoints serve pages, thumbnails and document boards. This document describes protocol version 2 (inksync 2.0 and later).
 
 The client draws locally first and then sends the operation. The server numbers, forwards and saves operations and never blocks local drawing.
 
+The protocol has two layers:
+
+- **Core** (inksync): handshake, opening boards, operations, live ink, acknowledgements, keepalive, read-only state, errors. The same on any server that mounts inksync.
+- **The whiteboard app's extension**: following the current board, the board list, folders, order and the permission list. See [The whiteboard app's extension](#the-whiteboard-apps-extension).
+
 | Property | Value |
 | --- | --- |
+| Protocol version | 2 (`inksync.server.PROTOCOL`) |
 | WebSocket path | `/ws` |
 | Message format | JSON text frames; each message is an object with a type field `t`. Binary frames and non-object JSON are ignored. |
-| Maximum message size | 8 MB (`server.MAX_WS_MESSAGE`) |
+| Maximum message size | 8 MB (`inksync.server.MAX_WS_MESSAGE`) |
 | Server heartbeat | WebSocket ping every 20 s |
 | Default port | 8848; if taken, the next free port is used for that run |
 
@@ -29,50 +35,65 @@ Lost `live` messages need no recovery: the `op` sent when the stroke ends carrie
 
 ### Handshake
 
-The first message on a connection must be `hello`; the server ignores every other message until it arrives.
+The first message on a connection must be `hello`; until then the server ignores every other message.
 
 | `hello` field | Type | Description |
 | --- | --- | --- |
-| `client` | string | Client ID, `^[A-Za-z0-9_-]{4,64}$`. Otherwise the server assigns a new ID. The web client stores its ID in `localStorage` key `whiteboard.client`. |
-| `role` | string | `mac` or `ipad`. Any other value is treated as `mac`. Controls the interface layout only. |
-| `board` | string or null | Board ID the client last showed. |
-| `since` | integer | Last `seq` the client received. |
-| `epoch` | string or null | Last `epoch` the client received. |
-| `pin` | object | Optional. Pins the connection to one board; see [Pinned connections](#pinned-connections). |
+| `v` | integer | Protocol version, 2. |
+| `client` | string | Client ID, `^[A-Za-z0-9_-]{4,64}$`; otherwise the server assigns a new ID. |
+| `space` | string | Space name, `^[a-z0-9-]{0,32}$`, default the empty string. In the whiteboard app the empty string is the user's own boards, and each installed app's name is a space. |
+| `board` | string or null | ID of the board to open, `^[A-Za-z0-9_-]{1,64}$`. In follow mode, the board the client showed last. |
+| `since` | integer | The last `seq` the client received on this board. |
+| `epoch` | string or null | The last `epoch` the client received on this board. |
+| `create` | object | Optional. Used to create the board if it does not exist; see [Opening boards](#opening-boards). |
+| `readonly` | boolean | Optional. Open read-only: no writing and no live ink. |
+| `follow` | boolean | Optional. The server decides which board to open (the whiteboard app's pages use this to follow the current board). |
+| `device` | string | Optional. Device type, only for the server log, for example `mac` or `ipad`. |
 
-The server answers with `init` or `sync`; see [Sequence numbers, epochs and reconnection](#sequence-numbers-epochs-and-reconnection). A second `hello` on the same connection is ignored.
+The server replies with `init` or `sync`; see [Sequence numbers, epochs and reconnection](#sequence-numbers-epochs-and-reconnection). A second `hello` on the same connection is ignored.
 
-### Pinned connections
+| Handshake failure | Server reply |
+| --- | --- |
+| `v` is not 2 | `{"t":"error","reason":"version","supported":[2]}`, then the connection is closed. A `hello` without `v` comes from a 1.x page and is accepted only in the whiteboard app's user space; see [1.x pages](#1x-pages). |
+| Unknown space | `{"t":"error","reason":"space"}`, then the connection is closed. |
+| The board cannot be opened | `{"t":"error","reason":…}`, then the connection is closed. Reasons below. |
 
-A connection either follows the current board or is pinned to one board. Without `pin` in `hello`, it follows: when any device switches boards, it switches too. With `pin`, it stays on the named board. Other apps that embed a handwriting pad use pinned connections, for example one board per exercise.
+The client's identity (`Principal`) is decided from the request when the connection is made; nothing in the handshake can change it.
 
-| `pin` field | Type | Description |
-| --- | --- | --- |
-| `board` | string | Board ID, `^[A-Za-z0-9_-]{1,64}$`. |
-| `app` | string | Name of the app, `^[a-z0-9-]{1,32}$`. Recorded in the board's `meta.app` when the board is created. |
-| `name` | string | Optional. Name of a new board. |
-| `kind` | string | Optional. `board` or `note` for a new board; default `board`. |
-| `folder` | string | Optional. Folder of a new board; the folder is created if it does not exist. |
-| `underlay` | object | Optional. `{src, width}`: image under the ink of a new board, recorded in `meta.underlay` (see [format.md](format.md#meta-fields)). |
+### Opening boards
+
+`hello` and `open` open a board by the same rules.
+
+| Request | Result |
+| --- | --- |
+| `board` without `follow` | Existing board: opened if the policy's `can_open` allows it; `create` is ignored and the existing metadata is unchanged. Missing board with `create`: `can_create`, the creation rate (`create_limit`) and the fields are checked, then the board is created. Missing board without `create`: refused. |
+| `follow: true`, or no `board` | A server extension decides which board to open (the whiteboard app opens the current board). Refused if there is no such extension. |
+| `readonly: true` | The connection is read-only and `caps.write` is false; its operations are all rejected and its live ink is ignored. |
+
+| `error` `reason` | Meaning |
+| --- | --- |
+| `board` | Invalid board ID, or the board does not exist and there is no `create`. |
+| `create` | Invalid `create` (canvas, image layers or `data`). |
+| `denied` | The policy does not allow opening or creating the board. |
+| `rate` | Boards are being created too fast. |
+
+Fields of `create`:
+
+| Field | Description |
+| --- | --- |
+| `name` | Board name. |
+| `canvas` | Canvas; see [format.md](format.md#meta-fields). |
+| `background` | Background. |
+| `layers` | Image layers. |
+| `data` | The host's own fields. |
 
 ```jsonc
-{"t":"hello","role":"ipad","client":"k3m9x0a1b2c4","board":null,"since":0,"epoch":null,
- "pin":{"board":"qb-9709-s23-12-q3","app":"qb","name":"9709 s23 P12 Q3","folder":"刷题"}}
+{"t":"hello","v":2,"client":"k3m9x0a1b2c4","space":"qb","board":"u42-q3","since":0,"epoch":null,
+ "create":{"name":"Question 3","canvas":{"mode":"fixed","width":800,"height":1400},
+           "layers":[{"src":"/static/q3.png","x":0,"y":0,"width":800}],"data":{"question":3}}}
 ```
 
-| Rule | Behavior |
-| --- | --- |
-| Board does not exist | The server creates it with the given `app`, `name`, `kind` and `folder`. The current board does not change. |
-| Board exists and has `meta.app` | Any device may pin to it. In the whiteboard app, a device without `manage` may pin to (or create) boards only of an app installed in `apps/`. |
-| App board limit | At most 5000 boards per app (`inksync.hub.MAX_APP_BOARDS`); further new boards are refused. |
-| Board exists without `meta.app` (a user's board) | Requires the `manage` permission, as switching boards does. |
-| Invalid `pin`, or permission missing | The server sends `{"t":"error","reason":"pin"}` and closes the connection. |
-| A new board was created | Following connections receive `boards` with the updated list. |
-| `clear` on a board with `meta.app` | Allowed without the `clear` permission. |
-| Operations and `live` | Apply to the pinned board and reach every connection showing that board: other connections pinned to it, and following connections when it is the current board. |
-| `switch` and `boards` | Not sent to pinned connections. |
-| The pinned board is deleted | The server sends `{"t":"deleted","board":"<id>"}`. Later operations are acknowledged without `op` and not applied. |
-| `unlock` | Applies to the pinned board. |
+A connection shows one board at a time. `open` switches to another board on the same connection; its fields are the `board`, `since`, `epoch`, `create` and `readonly` of `hello`. On success the reply is `init` or `sync`; on failure it is an `error` with `board`, and the connection stays open.
 
 ### Client keepalive and reconnection
 
@@ -87,50 +108,37 @@ The web client (`net.js`) detects dead connections itself, because mobile browse
 
 ### Outbox
 
-Every operation goes into an outbox and stays there until its `ack` arrives.
+Every operation first goes into the outbox and leaves it only when the matching `ack` arrives.
 
-- `cid` has the form `<client id>-<time base36>-<counter base36>`.
-- The outbox is saved in the browser cache (IndexedDB) and restored after a page reload.
-- After each `init`, `sync` or `switch`, the client resends every operation still in the outbox, in order.
-- After a snapshot, the client applies the pending operations to the local board again.
+- Each item records `{cid, board, op}`: the board the operation belongs to. After switching boards, unsent operations of the previous board are still sent to that board.
+- `cid` has the form `<client id>-<time in base 36>-<counter in base 36>`.
+- The outbox is stored in the browser cache (IndexedDB) and restored after a reload.
+- After every `init`, `sync` or `switch`, the client resends the whole outbox in order, each item with its own `board`.
+- After a snapshot, the client reapplies the pending operations of that board to the local board.
 
 ## Client-to-server messages
 
-| `t` | Fields | Permission | Server response |
-| --- | --- | --- | --- |
-| `hello` | `client`, `role`, `board`, `since`, `epoch` | — | `init` or `sync` to the sender |
-| `op` | `cid`, `op` | Depends on the operation, see [Operations](#operations) | `ack` to the sender; `op` to all other clients |
-| `live` | `id`, `phase`, and phase fields | — | Forwarded to all other clients with `src` added |
-| `ping` | `ts` | — | `pong` with the same `ts` |
-| `sel` | `board` | `manage` | `switch` to all clients |
-| `newboard` | `kind`, `folder` (optional) | `manage` | `switch` to all clients |
-| `delboard` | `board` | `manage` | `switch` to all clients |
-| `rename` | `board`, `name` | `manage` | `boards` to all clients |
-| `folder` | `board`, `folder` | `manage` | `boards` to all clients |
-| `order` | `ids` | `manage` | `boards` to all clients |
-| `newfolder` | `name` | `manage` | `boards` to all clients |
-| `delfolder` | `name` | `manage` | `boards` to all clients |
-| `renamefolder` | `name`, `to` | `manage` | `boards` to all clients |
-| `unlock` | — | `manage` | `switch` to all clients |
+Core messages:
 
-A message without the required permission, or one that changes nothing, gets no response. The exception is `op`, which is always acknowledged.
+| `t` | Fields | Server response |
+| --- | --- | --- |
+| `hello` | See [Handshake](#handshake) | `init` or `sync` to the sender |
+| `open` | `board`, `since`, `epoch`, `create`, `readonly` | `init`, `sync` or `error` to the sender |
+| `op` | `cid`, `op`, `board` (default: the connection's current board) | `ack` to the sender; when accepted, `op` to the other connections showing the board |
+| `live` | `id`, `phase` and the fields of each phase | Forwarded with `src` added to the other connections showing the same board |
+| `ping` | `ts` | `pong` with the same `ts` |
+| `unlock` | — | If the policy's `can_unlock` allows it, ends read-only and sends `locked` to the connections showing the board |
+
+Other messages are registered by server extensions (the whiteboard app's: [The whiteboard app's extension](#the-whiteboard-apps-extension)); unregistered messages are ignored.
 
 ```jsonc
-{"t":"hello","client":"k3m9x0a1b2c4","role":"ipad","board":"49b773c7c7c2","since":42,"epoch":"a1b2c3d4e5f6"}
-{"t":"op","cid":"k3m9x0a1b2c4-m1x2y3-7","op":{"op":"clear"}}
+{"t":"hello","v":2,"client":"k3m9x0a1b2c4","follow":true,"board":"49b773c7c7c2","since":42,"epoch":"a1b2c3d4e5f6","device":"ipad"}
+{"t":"open","board":"u42-q4","since":0,"epoch":null,"create":{"name":"Question 4"}}
+{"t":"op","cid":"k3m9x0a1b2c4-m1x2y3-7","board":"49b773c7c7c2","op":{"op":"clear"}}
 {"t":"live","id":"c3f1-17","phase":"b","tool":"pen","color":"#1b1b1f","w":3}
 {"t":"live","id":"c3f1-17","phase":"m","p":[120.5,40.25,0.03, 121.0,41.0,0.04]}
 {"t":"live","id":"c3f1-17","phase":"e"}
 {"t":"ping","ts":1730000000000}
-{"t":"sel","board":"49b773c7c7c2"}
-{"t":"newboard","kind":"note","folder":"数学"}
-{"t":"delboard","board":"49b773c7c7c2"}
-{"t":"rename","board":"49b773c7c7c2","name":"线性代数"}
-{"t":"folder","board":"49b773c7c7c2","folder":"数学"}
-{"t":"order","ids":["49b773c7c7c2","0d4be1a2f9c3"]}
-{"t":"newfolder","name":"数学"}
-{"t":"delfolder","name":"数学"}
-{"t":"renamefolder","name":"数学","to":"线性代数"}
 {"t":"unlock"}
 ```
 
@@ -147,95 +155,121 @@ A message without the required permission, or one that changes nothing, gets no 
 
 The server does not validate or store `live` messages.
 
-### Board management
-
-Board management messages change the board list or the current board.
-
-| `t` | Behavior |
-| --- | --- |
-| `sel` | Saves all boards, then makes `board` the current board. Ignored if the board does not exist or is already current. A read-only board is read from disk again. |
-| `newboard` | Creates a board of `kind` `board` or `note` (any other value, including `doc`, creates `board`) and makes it current. If `folder` names an existing folder, the board is placed in it. Document boards are created with `POST /api/doc`. |
-| `delboard` | Deletes the board file, its thumbnail and its document original. If no board remains, a new empty board is created. |
-| `rename` | Renames any board, not only the current one. Does not change `updated`. |
-| `folder` | Moves a board into a folder; an empty string moves it out. A new name is added to the folder list. Does not change `updated`. |
-| `order` | `ids` is the order the sender sees in the current view (the top level or one folder). The listed boards swap positions among the slots they already occupy; other boards do not move. Needs at least 2 known IDs. |
-| `newfolder` | Creates an empty folder. Ignored if the name is empty or exists. |
-| `delfolder` | Removes the folder and moves its boards out of it. No board is deleted. |
-| `renamefolder` | Renames the folder and updates `meta.folder` on its boards. Ignored if `to` is empty, equal to `name`, or already exists, or if `name` does not exist. |
-
-Folders are identified by name; see [format.md](format.md#folders).
-
 ## Server-to-client messages
 
-| `t` | Recipients | Fields |
+| `t` | Recipient | Fields |
 | --- | --- | --- |
-| `init` | Sender of `hello` | `role`, `client`, `info`, `board`, `strokes`, `seq`, `epoch`, `locked`, `boards`, `folders` |
-| `sync` | Sender of `hello` | `role`, `client`, `info`, `board`, `ops`, `seq`, `epoch`, `locked`, `boards`, `folders` |
-| `switch` | All following clients | `board`, `strokes`, `seq`, `epoch`, `locked`, `boards`, `folders` |
-| `boards` | All following clients | `boards`, `folders`, `board` |
-| `op` | Clients showing the same board, except the sender | `op` (with `seq`), `src`, `board` |
-| `ack` | Sender of `op` | `cid`, `seq`, `op` (only if accepted) |
-| `live` | Clients showing the same board, except the sender | The original `live` fields plus `src` |
-| `pong` | Sender of `ping` | `ts` |
-| `error` | Sender of `hello` with an invalid `pin` | `reason` = `pin` |
-| `deleted` | Clients pinned to a deleted board | `board` |
-| `perms` | A client whose permissions changed | `perms`: the new list |
+| `init` | Sender of `hello` or `open` | See [Snapshot fields](#snapshot-fields), with `strokes` |
+| `sync` | Sender of `hello` or `open` | See [Snapshot fields](#snapshot-fields), with `ops` instead of `strokes` |
+| `switch` | A connection the server moved to another board (in the whiteboard app: following connections) | Same as `init` |
+| `op` | Other connections showing the same board | `op` (with `seq`), `src`, `board` |
+| `ack` | Sender of the `op` | `cid`, `board`, `seq`, `op` (when accepted), `rejected` (when rejected); see [Acknowledgements](#acknowledgements) |
+| `live` | Other connections showing the same board | The fields of the `live` message plus `src` |
+| `pong` | Sender of the `ping` | `ts` |
+| `caps` | Connections whose permissions changed | `caps`: `{write, clear, meta, unlock}` |
+| `locked` | Connections showing the board | `board`, `locked`: the board became read-only or stopped being read-only |
+| `deleted` | Connections showing the board | `board`: the board was deleted |
+| `error` | Sender of a handshake or `open` | `reason`, optionally `detail`, `board`, `supported` |
 
 ```jsonc
-{"t":"init","role":"ipad","client":"k3m9x0a1b2c4","info":{...},"board":{...},"strokes":[...],
- "seq":42,"epoch":"a1b2c3d4e5f6","locked":null,"boards":[...],"folders":["数学"]}
-{"t":"sync","role":"ipad","client":"k3m9x0a1b2c4","info":{...},"board":{...},"ops":[...],
- "seq":45,"epoch":"a1b2c3d4e5f6","locked":null,"boards":[...],"folders":["数学"]}
-{"t":"switch","board":{...},"strokes":[...],"seq":0,"epoch":"f6e5d4c3b2a1","locked":null,
- "boards":[...],"folders":["数学"]}
-{"t":"boards","boards":[...],"folders":["数学"],"board":{...}}
+{"t":"init","v":2,"server":{"name":"inksync","version":"2.0.0","protocol":2,"build":"2.0.0"},
+ "client":"k3m9x0a1b2c4","info":{...},"board":{...},"strokes":[...],"seq":42,"epoch":"a1b2c3d4e5f6",
+ "locked":null,"caps":{"write":true,"clear":true,"meta":false,"unlock":false},"readonly":false}
+{"t":"sync","v":2,"server":{...},"client":"k3m9x0a1b2c4","info":{...},"board":{...},"ops":[...],
+ "seq":45,"epoch":"a1b2c3d4e5f6","locked":null,"caps":{...},"readonly":false}
 {"t":"op","op":{"op":"remove","ids":["c3f1-17"],"seq":43},"src":"k3m9x0a1b2c4","board":"49b773c7c7c2"}
-{"t":"ack","cid":"k3m9x0a1b2c4-m1x2y3-7","seq":43,"op":{"op":"remove","ids":["c3f1-17"],"seq":43}}
-{"t":"ack","cid":"k3m9x0a1b2c4-m1x2y3-8","seq":43}
+{"t":"ack","cid":"k3m9x0a1b2c4-m1x2y3-7","board":"49b773c7c7c2","seq":43,"op":{"op":"remove","ids":["c3f1-17"],"seq":43}}
+{"t":"ack","cid":"k3m9x0a1b2c4-m1x2y3-8","board":"49b773c7c7c2","seq":43,"rejected":"denied"}
 {"t":"live","id":"c3f1-17","phase":"m","p":[...],"src":"k3m9x0a1b2c4"}
-{"t":"pong","ts":1730000000000}
+{"t":"caps","caps":{"write":true,"clear":true,"meta":true,"unlock":true}}
+{"t":"locked","board":"49b773c7c7c2","locked":null}
+{"t":"error","reason":"denied"}
 ```
 
 ### Snapshot fields
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `board` | object | `meta` of the current board. See [format.md](format.md#meta-fields). |
-| `strokes` | array | All strokes of the current board, ascending `n`, points as flat arrays. |
+| `v` | integer | Protocol version (in the reply to `hello` only). |
+| `server` | object | `{name, version, protocol, build}` (in the reply to `hello` only). If the front end's build differs from `build`, the page is out of date (the `outdated` event). |
+| `client` | string | The client ID the server recorded for the connection (in the reply to `hello` only). |
+| `info` | object | Whatever the host's `info(request)` hook returns (in the reply to `hello` only). The whiteboard app's is below. |
+| `board` | object | The board's metadata; see [format.md](format.md#meta-fields). |
+| `strokes` | array | All strokes in ascending `n`, points as a flat array. |
 | `ops` | array | Operations with `seq` greater than `since`, in order. |
-| `seq` | integer | Current `seq` of the board. |
-| `epoch` | string | Epoch of the board in memory. |
+| `seq` | integer | The board's current `seq`. |
+| `epoch` | string | The board's epoch. |
 | `locked` | object or null | `null` for a normal board; otherwise the read-only reason. See [Read-only boards](#read-only-boards). |
-| `boards` | array | Metadata of all boards, in display order. |
-| `folders` | array | Folder list, including empty folders. |
-| `role` | string | Role the server recorded for this connection. |
-| `client` | string | Client ID the server recorded for this connection. |
-| `info` | object | Server information, see below. |
+| `caps` | object | What this connection may do on this board: `write`, `clear`, `meta` (edit metadata), `unlock`. |
+| `readonly` | boolean | Whether the connection is read-only. |
 
-`boards` is sent when only the board list changed, for example after a rename, so clients do not reload strokes.
+The whiteboard app's `info`:
 
-| `info` field | Description |
+| Field | Description |
 | --- | --- |
 | `version` | Application version |
-| `hostname` | `<name>.local` host name |
+| `hostname` | Host name in the form `<name>.local` |
 | `port` | Listening port |
-| `urls` | Candidate addresses: `http://<host>.local:<port>/` and, if known, `http://<LAN IP>:<port>/` |
+| `urls` | Candidate addresses: `http://<host>.local:<port>/` and, when known, `http://<LAN IP>:<port>/` |
 | `data_dir` | Storage directory |
+
+## The whiteboard app's extension
+
+The whiteboard app adds the following to its user space (the space named with the empty string; `whiteboard/hub.py`).
+
+### Following the current board
+
+The whiteboard app's pages connect with `follow: true`, and the server opens the current board. After a board is selected, created or deleted on the Mac, the server sends `switch` to every following connection and they switch together. If the current board has not changed, a reconnecting client gets `sync` by the usual catch-up rule.
+
+For following connections, `init`, `sync` and `switch` also carry `boards` (the board list in display order) and `folders` (the folder names, including empty folders).
+
+### Extension messages
+
+Client to server (all need `manage`; a message without permission or without effect gets no response):
+
+| `t` | Fields | Behavior |
+| --- | --- | --- |
+| `sel` | `board` | Makes `board` the current board; every following connection receives `switch`. Ignored if the board does not exist or is already current. A read-only board is read from disk again. |
+| `newboard` | `kind`, `folder` (optional) | Creates a board (a column canvas when `kind` is `note`, an infinite canvas otherwise), makes it current and sends `switch`. If `folder` names an existing folder, the new board goes into it. Document boards are created with `POST /api/doc`. |
+| `delboard` | `board` | Deletes the board file, its thumbnail and its document original, and sends `switch`. If no board remains, a new empty board is created. |
+| `rename` | `board`, `name` | Renames any board and sends `boards`. Does not change `updated`. |
+| `folder` | `board`, `folder` | Moves the board into a folder (`data.folder`); an empty string moves it out. A new name is added to the folder list. Sends `boards`; does not change `updated`. |
+| `order` | `ids` | `ids` is the order the sender sees at the current level (top level or inside a folder). The listed boards swap only among the positions they already occupy; other boards stay. Needs at least 2 known IDs. Sends `boards`. |
+| `newfolder` | `name` | Creates an empty folder. Ignored if the name is empty or exists. Sends `boards`. |
+| `delfolder` | `name` | Deletes the folder; its boards move out of it and no board is deleted. Sends `boards`. |
+| `renamefolder` | `name`, `to` | Renames the folder and updates `data.folder` of its boards. Ignored if `to` is empty, equals `name` or exists, or `name` does not exist. Sends `boards`. |
+
+Server to following connections:
+
+| `t` | Fields | Description |
+| --- | --- | --- |
+| `boards` | `boards`, `folders`, `board` | Only the board list changed (for example after a rename); the client does not reload strokes. |
+| `perms` | `perms` | The permission list after a change; see [The whiteboard app's permissions](#the-whiteboard-apps-permissions). |
+
+Without `manage`, a connection sees only its own board in `boards`, and `folders` is empty.
+
+Folders are identified by name; see [format.md](format.md#folders).
+
+### Spaces of installed apps
+
+Each app installed under `apps/` is a space, stored in `spaces/<app name>/`. Only an installed app's name opens a space; an app installed while running is available at once. Rules: a device that can write may open and create boards (at most 60 per minute); editing metadata and unlocking need `manage`. App boards do not appear in the user's board list; the Mac browses them per app, page by page and read-only, in the board chooser.
 
 ## Operations
 
-An operation is the `op` object inside an `op` message; every accepted operation changes the current board and receives a `seq`.
+An operation is the `op` object inside an `op` message; every accepted operation changes the board it belongs to (the `board` of the `op` message, or the connection's current board) and receives that board's next `seq`.
 
-| `op` | Fields | Permission | Server behavior | Broadcast as |
+If the operation's board is not the connection's current board, the policy's `can_open` must also allow it. Every operation from a read-only connection is rejected.
+
+| `op` | Fields | Policy | Server behavior | Broadcast as |
 | --- | --- | --- | --- | --- |
-| `add` | `strokes` | — | Validates each stroke, ignores IDs that already exist, assigns a new `n` to each stroke. At most 2000 strokes per operation. | `add` |
-| `restore` | `strokes` | — | Same as `add`, but keeps the `n` given in each stroke. | `add` |
-| `remove` | `ids` | — | Removes the listed strokes; unknown IDs are ignored. At most 5000 IDs. | `remove` |
-| `mask` | `masks`: `[{id, m}]` | — | Replaces each stroke's mask with `m`; an empty `m` removes the mask. Unknown IDs and unchanged masks are ignored. At most 2000 entries. | `mask`, changed entries only |
-| `clear` | — | `clear` | Removes all strokes. Ignored on an empty board. | `clear` |
-| `meta` | `meta` | `settings` | Accepts only `background` and `name`. | `meta` with the full resulting `meta` |
+| `add` | `strokes` | `can_write` | Validates each stroke, ignores IDs that already exist, assigns a new `n` to each stroke. At most 2000 strokes per operation. | `add` |
+| `restore` | `strokes` | `can_write` | Same as `add`, but keeps the `n` given in each stroke. | `add` |
+| `remove` | `ids` | `can_write` | Removes the listed strokes; unknown IDs are ignored. At most 5000 IDs. | `remove` |
+| `mask` | `masks`: `[{id, m}]` | `can_write` | Replaces each stroke's mask with `m`; an empty `m` removes the mask. Unknown IDs and unchanged masks are ignored. At most 2000 entries. | `mask`, changed entries only |
+| `clear` | — | `can_write` and `can_clear` | Removes all strokes. Ignored on an empty board. | `clear` |
+| `meta` | `meta` | `can_edit_meta` | May change `name`, `background`, `layers` and `data`. `data` is merged by key (a key set to null is deleted); the others are replaced. `canvas` cannot change. If `data` contains a key in `protected_data_keys`, the whole operation is rejected. | `meta` with the full resulting `meta` |
 
-An operation that is invalid, lacks permission, or changes nothing is not recorded and gets an `ack` without `op`.
+An operation that is invalid, rejected by the policy, or changes nothing is not recorded and gets an `ack` without `op`.
 
 ```jsonc
 {"op":"add","strokes":[{"id":"c3f1-17","tool":"pen","color":"#1b1b1f","w":3,
@@ -245,7 +279,7 @@ An operation that is invalid, lacks permission, or changes nothing is not record
 {"op":"remove","ids":["c3f1-17"]}
 {"op":"mask","masks":[{"id":"c3f1-17","m":[[5,120,40,180,40]]}]}
 {"op":"clear"}
-{"op":"meta","meta":{"background":"grid","name":"线性代数"}}
+{"op":"meta","meta":{"background":{"pattern":"grid"},"name":"Linear algebra","data":{"done":true}}}
 ```
 
 Stroke fields and limits: [format.md](format.md#stroke-fields). Mask format: [format.md](format.md#masks-m).
@@ -262,31 +296,37 @@ Stroke fields and limits: [format.md](format.md#stroke-fields). Mask format: [fo
 
 ## Acknowledgements
 
-The server answers every `op` message with exactly one `ack` to the sender.
+The server answers every `op` message with exactly one `ack` to the sender; `board` is the board the operation belongs to.
 
 | Case | `ack` |
 | --- | --- |
-| Accepted | `{"t":"ack","cid":...,"seq":<new seq>,"op":<normalized op with seq>}` |
-| Invalid, duplicate, no change, no permission, board read-only | `{"t":"ack","cid":...,"seq":<current seq>}` |
-| Server error while handling | `{"t":"ack","cid":...,"seq":<current seq or 0>}` |
+| Accepted | `{"t":"ack","cid":…,"board":…,"seq":<new seq>,"op":<normalized op with seq>}` |
+| Duplicate or no change | `{"t":"ack","cid":…,"board":…,"seq":<current seq>}` |
+| Invalid | The same plus `"rejected":"invalid"` |
+| Not allowed by the policy, or read-only connection | The same plus `"rejected":"denied"` |
+| Read-only board | The same plus `"rejected":"locked"` |
+| Deleted board | The same plus `"rejected":"deleted"`; the deleted board is not loaded or written back because of it |
+| Server error while handling | The same plus `"rejected":"error"` |
 
-On `ack` the client removes `cid` from the outbox and applies the returned `op` (`net.js` `_ack`), so the sender's board matches the server's normalized result.
+On `ack` the client removes `cid` from the outbox and applies the returned `op` (`net.js` `_ack`), so the sender's board matches the server's normalized result. On an `ack` with `rejected`, the client emits the `rejected` event with the operation and then fetches the whole current board again, so its display matches the server. A duplicate is not a rejection: resending after a reconnect is normal.
 
 > **Warning**
-> The client skips its own `mask` operations when they return in an `ack` (`inkpad.js` `applyOp`, `context.mine`). The local mask may already have grown since the operation was sent; applying the older full mask would undo the newer erasing. For this reason the server limit `MAX_MASK_SEGMENTS` (1024) must accept every mask the client can produce (`MASK_LIMIT` = 400); `tests/test_models.py` checks this.
+> The client skips its own `mask` operations when they return in an `ack` (`pad.js` `applyOp`, `context.mine`). The local mask may already have grown since the operation was sent; applying the older full mask would undo the newer erasing. For this reason the server limit `MAX_MASK_SEGMENTS` (1024) must accept every mask the client can produce (`MASK_LIMIT` = 400); `tests/test_models.py` checks this.
 
 ## Sequence numbers, epochs and reconnection
 
-Every accepted operation receives the next `seq` of its board, and the server keeps the latest 4000 operations (`hub.OPS_HISTORY`) for catch-up.
+Every accepted operation receives the next `seq` of its board, and the server keeps each board's latest 4000 operations (`inksync.hub.OPS_HISTORY`) for catch-up.
 
-The client records the last `seq` and `epoch` it received and sends them in `hello` as `since` and `epoch`.
+The client records the last `seq` and `epoch` it received and sends them in `hello` or `open` as `since` and `epoch`.
 
 | Condition | Response |
 | --- | --- |
-| `board` equals the current board, `epoch` matches, `since` is an integer ≥ 0, and the history covers every operation after `since` | `sync` with the missing operations (empty if none) |
+| The opened board is the requested `board`, `epoch` matches, `since` is an integer ≥ 0, and the history covers every operation after `since` | `sync` with the missing operations (empty if none) |
 | Any other case: different board, different `epoch`, missing `since`, or history no longer covers `since` | `init` with the full board |
 
-`epoch` is generated each time a board is loaded into server memory. `seq` restarts at 0 after a server restart; without `epoch`, a client with an older, larger `seq` would treat the board as unchanged. A changed `epoch` makes the client receive a full snapshot.
+A new `epoch` is generated each time the server process loads a board into memory. `seq` restarts at 0 after a server restart; without `epoch`, a client with an older, larger `seq` would think the board had not changed. When `epoch` changes, the client receives a full snapshot.
+
+A board with no connections and no unsaved changes for a while is unloaded from memory (120 s by default), keeping only `(epoch, seq)`. When it is loaded again it keeps that pair, so a client at the latest `seq` gets an empty `sync`, and a client behind gets `init` because the operation history is gone.
 
 The client updates its last `seq` from `seq` in `init`, `sync` and `switch`, from `op.seq` in `op`, and from `seq` in `ack`.
 
@@ -307,10 +347,10 @@ A board whose file was not fully read is sent with a non-null `locked`, and the 
 
 Meaning of each reason: [format.md](format.md#file-version-and-incomplete-reads).
 
-- Every `op` on the board, including `meta`, receives an `ack` without `op` and does not change the board.
+- Every `op` on the board, including `meta`, receives an `ack` with `"rejected":"locked"` and does not change the board.
 - The client stops accepting input and shows a notice once per board.
 - `rename` and `folder` still work; they rewrite only `meta` in the file.
-- `unlock` applies to the current board and needs `manage`. The server first copies the file to `backups/locked/`; if the copy fails, the board stays read-only and no message is sent. On success the server sends `switch` with `locked` = `null` to all clients. The board ID and `epoch` do not change, so clients keep their view and undo history.
+- `unlock` applies to the connection's current board and must be allowed by the policy's `can_unlock` (in the whiteboard app: `manage`). The server first copies the file to `backups/locked/`; if the copy fails, the board stays read-only and nothing is sent. Otherwise the server sends `{"t":"locked","board":…,"locked":null}` to every connection showing the board. The board ID and `epoch` are unchanged, so clients keep their view and undo history.
 
 ## Error handling
 
@@ -322,18 +362,34 @@ If the message was an `op`, the server still sends an `ack`. The client resends 
 
 Permissions decide what a connection or request may do; the role only decides the interface layout.
 
-### Permissions
+### Identity and policy (inksync)
+
+Every inksync connection has an identity (`Principal`: `id`, `local`, `address`, `attrs`), decided by the host's `authenticate(request)` when the connection is made. For each action the server asks the policy (`Policy`):
+
+| Method | Used for |
+| --- | --- |
+| `can_open`, `can_create`, `create_limit` | Opening and creating boards (`hello`, `open`, and an `op` for a board other than the current one) |
+| `can_write` | `add`, `restore`, `remove`, `mask`, `live` |
+| `can_clear` | `clear` |
+| `can_edit_meta`, `protected_data_keys` | `meta` |
+| `can_unlock` | `unlock` |
+
+The results are sent to the client in snapshots (`caps`); when the policy's inputs change, the server sends a `caps` message. Interface: [packages/inksync/README.md](../packages/inksync/README.md).
+
+### The whiteboard app's permissions
+
+The whiteboard app maps four permissions onto this policy (user space):
 
 | Permission | Interface label | Allows |
 | --- | --- | --- |
-| `manage` | “管理白板” (Manage boards) | `sel`, `newboard`, `delboard`, `rename`, `folder`, `order`, `newfolder`, `delfolder`, `renamefolder`, `unlock`; `GET /api/info`, `GET /api/boards`, `GET`/`POST /api/thumb/{board}`, `POST /api/doc` |
+| `manage` | “管理白板” (Manage boards) | Opening boards other than the current one; the extension messages `sel`, `newboard`, `delboard`, `rename`, `folder`, `order`, `newfolder`, `delfolder`, `renamefolder`; `unlock`; `GET /api/info`, `GET /api/boards`, `GET /api/spaces/{app}/boards`, `GET`/`POST /api/thumb/{board}`, `POST /api/doc` |
 | `settings` | “设置白板” (Board settings) | `meta` operation |
 | `clear` | “清空白板” (Clear board) | `clear` operation |
 | `export` | “导出白板” (Export board) | `GET /api/export/{board}` |
 
-Writing on the current board (`add`, `restore`, `remove`, `mask`, `live`) needs no permission.
+Writing on the current board (`add`, `restore`, `remove`, `mask`, `live`) needs no permission. Folders and document originals can change only through the extension messages (`protected_data_keys` holds `folder`, `doc` and `app`).
 
-Without `manage`, a connection sees only its own board: `boards` in `init`, `sync`, `switch` and `boards` messages contains just that board, and `folders` is empty. `GET /api/doc/{board}/{page}` for a board other than the current one also needs `manage`.
+Without `manage`, a connection sees only its own board: `boards` in snapshots and `boards` messages contains just that board, and `folders` is empty. `GET /api/doc/{board}/{page}` for a board other than the current one also needs `manage`.
 
 ### Granting permissions
 
@@ -347,7 +403,7 @@ Permissions are derived from the TCP connection (`netinfo.is_local_request`), no
 | Address unknown | None |
 
 - The setting is stored in `config.json` as `remote_permissions`.
-- A changed setting applies at once: the server recomputes the permissions of every open connection, sends `{"t":"perms","perms":[…]}` and an updated `boards` message to each connection whose permissions changed, and the page shows or hides its entries.
+- A changed setting applies at once: the server recomputes the identity of every open connection from its stored request, and sends `caps`, `{"t":"perms","perms":[…]}` and an updated `boards` message to connections whose permissions changed; the page shows or hides its entries accordingly.
 - The page also receives its permission list in `data-perms` on `<html>` when it loads. The client uses it only to hide entries; the server enforces permissions.
 - Checking for updates and choosing the storage directory use the local pywebview interface and are not available to other devices.
 
@@ -367,13 +423,14 @@ The role (`mac` or `ipad`) selects the interface layout.
 | --- | --- | --- | --- |
 | GET | `/` | — | Application page with `data-role`, `data-perms` and `data-build` |
 | GET | `/ws` | — | WebSocket |
-| GET | `/static/...` | — | Front-end files, `Cache-Control: no-cache` |
+| GET | `/static/...` | — | The whiteboard app's front-end files, `Cache-Control: no-cache` |
+| GET | `/inksync/...` | — | The handwriting pad's front-end files (inksync's `serve_sdk`), entry `/inksync/inkpad.js`; `/inksync/version.js` is generated by the server with the build number. `Cache-Control: no-cache` |
 | GET | `/profile.mobileconfig?host=<host>` | — | iPad configuration profile (Web Clip) |
 | GET | `/icon.png` | — | 180 px app icon |
 | GET | `/ipad?host=<host>` | — | iPad shell install page, see [ipad-shell.md](ipad-shell.md) |
 | GET | `/ipad/version` | — | Version of the iPad shell bundled with this Mac |
 | GET | `/ipad/Whiteboard.ipa` | — | iPad shell package; 404 if not bundled |
-| GET | `/api/info` | `manage` | `build`, `hostname`, `port`, `urls`, `data_dir`, `current`, `clients` (`id`, `role`, `since`) |
+| GET | `/api/info` | `manage` | `build`, `hostname`, `port`, `urls`, `data_dir`, `current`, `clients` (`id`, `role` (device type), `since`) |
 | GET | `/api/boards` | `manage` | `boards`, `folders`, `current` |
 | GET | `/api/thumb/{board}` | `manage` | Thumbnail PNG. Without an uploaded thumbnail: the first page of a document board, otherwise a blank PNG. |
 | POST | `/api/thumb/{board}` | `manage` | Upload a thumbnail. Body: PNG, at most 512 KB. |
@@ -382,8 +439,9 @@ The role (`mac` or `ipad`) selects the interface layout.
 | POST | `/api/doc?name=<file name>&folder=<folder>` | `manage` | Create a document board from a PDF or image. Body: the file, at most 256 MB. |
 | GET | `/api/doc/{board}/{page}?w=<width>` | — for the current board, `manage` otherwise | Rendered page image |
 | GET | `/api/apps` | — | `apps` (installed app names), `ipad_home` |
+| GET | `/api/spaces/{app}/boards?offset=&limit=` | `manage` | Boards in an app's space: `boards` (metadata, newest `updated` first) and `total`. `limit` is 1–500, default 100. 404 if the app does not exist. |
 | GET | `/apps/{app}/{path}` | — | Static files of an installed app; a directory returns its `index.html`. See [embed.md](embed.md). |
-| GET | `/sdk/inkpad.js` | — | Redirects to `/static/js/embed.js`, the module that provides `createInkPad`. |
+| GET | `/sdk/inkpad.js` | — | The 1.0.1 address; redirects to `/inksync/inkpad.js`. |
 | GET | `/api/export/{board}` | `export` | Document board with ink merged into the original |
 
 A missing permission returns `403`.
@@ -393,11 +451,12 @@ A missing permission returns `403`.
 | Endpoint | Details |
 | --- | --- |
 | `POST /api/thumb/{board}` | `404` for an unknown board; `400` if the body is not PNG. |
-| `POST /api/doc` | The file name can also be sent in the `X-Filename` header. `folder` is optional and applies only if the folder exists. The body is read in 64 KB chunks until the end (`StreamReader.read(n)` returns at most `n` bytes). `413` over the limit, `400` for unsupported or unreadable files. Response: `{"board": <meta>}`. The server then sends `switch` to all clients. |
+| `POST /api/doc` | The file name can also be sent in the `X-Filename` header. `folder` is optional and applies only if the folder exists. The body is read in 64 KB chunks until the end (`StreamReader.read(n)` returns at most `n` bytes). `413` over the limit, `400` for unsupported or unreadable files. Response: `{"board": <meta>}`. The server then sends `switch` to every following connection. |
 | `GET /api/doc/{board}/{page}` | `w` defaults to 1200 and is clamped to 160–2600. PDF pages and opaque images return JPEG (quality 82); images with transparency return PNG. `ETag` is `"<board>-<page>-<width>"`; a matching `If-None-Match` returns `304`. `Cache-Control: private, max-age=31536000, immutable`, because the original never changes. `404` if the board is not a document board, the original is missing, or the page is out of range. |
 | `GET /api/export/{board}` | Document boards only (`404` otherwise). `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename*=UTF-8''<name>`, `Cache-Control: no-store`. File name: `<original name>-批注<ext>`. |
 | `POST /api/recording` | Saved as `recordings/<YYYYmmdd-HHMMSS>[-<name>].json`; `name` keeps letters, digits, `-` and `_`, up to 40 characters. Response: `{"ok": true, "path": ..., "events": <count>}`. |
 
+- The `src` of page image layers contains `{w}`, and the front end requests only the widths 640, 1024, 1600 and 2400 (see [format.md](format.md#meta-fields)), so the browser cache stays valid for a long time.
 - At most 2 pages render at the same time (`server.RENDER_LIMIT`). All pdfium calls are serialized by one lock (`docs._PDFIUM_LOCK`), because pdfium is not thread-safe and concurrent calls crash the process.
 - The page triggers downloads with an `<a download>` link, never by assigning `location.href`. In the iPad shell (WKWebView), assigning `location.href` navigates away and closes the WebSocket; see [ipad-shell.md](ipad-shell.md).
 
@@ -419,9 +478,27 @@ iPads reach the Mac at `<host name>.local`; the application can also register tw
 | `port` | Actual listening port |
 | `version` | Application version |
 | `name` | Computer name |
+| `source` | Service name, `whiteboard` for the whiteboard app. When the iPad shell's “来源” (Source) is `@<name>`, it connects only to services with that name. |
+| `path` | The page the shell opens after connecting |
+
+Other projects register the same kind of service with `inksync.netinfo.advertise(app, port, source, path)`.
 
 Registration rules:
 
 - Registration runs as a background task after the HTTP server is ready, with a 5 s timeout (`netinfo.REGISTER_TIMEOUT`). Any failure is logged and does not affect the server.
 - zeroconf must be used through its asynchronous API. The synchronous API blocks the asyncio event loop, raises `EventLoopBlocked` and delays server startup until it times out.
 - zeroconf is not used on macOS, because it would start a second mDNS responder beside the system one.
+
+## 1.x pages
+
+1.x pages still open during an upgrade (a `hello` without `v`) keep working in the whiteboard app 2.0's user space until they are reloaded.
+
+| A 1.x page sends | 2.0 does |
+| --- | --- |
+| `hello` without `v` | Treated as `follow: true`; the current board is opened. |
+| `hello` with `pin` (the 1.0.1 embedded pad) | `{"t":"error","reason":"pin"}`: app boards are now separate spaces, and the 1.0.1 embedding interface has no users. |
+| `op` without `board` | Applied to the connection's current board. |
+
+Messages to 1.x pages are converted back to the 1.x form: snapshots carry `role`; metadata (including in `op` and `ack`) is converted back to `kind`, `folder`, `doc`, `underlay` and a string `background`; `ack` has no `board` or `rejected`; `locked` becomes a full `switch`; `caps` and `deleted` are not sent.
+
+After a server upgrade, 2.0 pages receive the `outdated` event (the front end's build differs from `server.build` in the snapshot). The whiteboard app then reloads the page when no stroke is in progress, once per build. This compatibility is removed in 2.1.
