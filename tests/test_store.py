@@ -54,7 +54,8 @@ def test_index_is_rebuilt_when_missing(tmp_path):
     store = BoardStore(tmp_path)
     meta = store.create_board("第二块")
     store.save_board(meta, make_strokes())
-    (tmp_path / "index.json").unlink()
+    store.core.close()
+    (tmp_path / "index.sqlite").unlink()
     rebuilt = BoardStore(tmp_path)
     assert {m["id"] for m in rebuilt.list_metas()} == {m["id"] for m in store.list_metas()}
 
@@ -98,7 +99,7 @@ def test_unknown_board_returns_blank(tmp_path):
     store = BoardStore(tmp_path)
     meta, strokes = store.load_board("doesnotexist")
     assert strokes == []
-    assert meta["background"] == "grid"
+    assert meta["background"] == {"pattern": "grid"}
 
 
 def test_rename_updates_index_and_file(tmp_path):
@@ -109,7 +110,8 @@ def test_rename_updates_index_and_file(tmp_path):
     assert store.rename_board(meta["id"], "  第三章 草稿  ") is True  # 首尾空白要去掉
     assert store.get_meta(meta["id"])["name"] == "第三章 草稿"
 
-    (tmp_path / "index.json").unlink()
+    store.core.close()
+    (tmp_path / "index.sqlite").unlink()
     rebuilt = BoardStore(tmp_path)
     assert rebuilt.get_meta(meta["id"])["name"] == "第三章 草稿"
     _, strokes = rebuilt.load_board(meta["id"])
@@ -137,11 +139,12 @@ def test_a_folder_survives_losing_the_index(tmp_path):
     meta = store.create_board()
     store.save_board(meta, make_strokes())
     assert store.move_board(meta["id"], "  数学  ") is True  # 首尾空白要去掉
-    assert store.get_meta(meta["id"])["folder"] == "数学"
+    assert models.folder_of(store.get_meta(meta["id"])) == "数学"
 
-    (tmp_path / "index.json").unlink()
+    store.core.close()
+    (tmp_path / "index.sqlite").unlink()
     rebuilt = BoardStore(tmp_path)
-    assert rebuilt.get_meta(meta["id"])["folder"] == "数学"
+    assert models.folder_of(rebuilt.get_meta(meta["id"])) == "数学"
 
 
 def test_moving_a_board_out_of_a_folder_clears_it(tmp_path):
@@ -151,7 +154,7 @@ def test_moving_a_board_out_of_a_folder_clears_it(tmp_path):
     assert store.move_board(meta["id"], "数学") is True
     assert store.move_board(meta["id"], "数学") is False  # 已经在里面了
     assert store.move_board(meta["id"], "") is True
-    assert "folder" not in store.get_meta(meta["id"])
+    assert "folder" not in store.get_meta(meta["id"])["data"]
     assert store.move_board("没有这块", "数学") is False
 
 
@@ -173,20 +176,20 @@ def test_reordering_only_moves_the_boards_you_name(tmp_path):
     assert [m["name"] for m in store.list_metas()] == ["四", "一", "二", "三", ""]
 
 
-def test_the_order_survives_a_restart_but_not_an_index_rebuild(tmp_path):
-    """顺序只存在索引里：索引没了就只能按最后写的时间倒着排。"""
+def test_the_order_survives_a_restart_and_an_index_rebuild(tmp_path):
+    """顺序存在 space.json 里，不属于可以重建的索引：索引没了顺序照样在。"""
     store = BoardStore(tmp_path)
     ids = [store.create_board(name)["id"] for name in ("一", "二", "三")]
     store.set_order([ids[0], ids[1], ids[2]])
     assert [m["name"] for m in BoardStore(tmp_path).list_metas()] == ["一", "二", "三", ""]
 
-    (tmp_path / "index.json").unlink()
-    names = [m["name"] for m in BoardStore(tmp_path).list_metas()]
-    assert sorted(names) == ["", "一", "三", "二"]  # 白板一块没少，只是顺序回到按时间
+    store.core.close()
+    (tmp_path / "index.sqlite").unlink()
+    assert [m["name"] for m in BoardStore(tmp_path).list_metas()] == ["一", "二", "三", ""]
 
 
-def test_an_empty_folder_only_lives_in_the_index(tmp_path):
-    """空文件夹没有白板可依附，索引丢了就找不回来；装着白板的那些要能重建出来。"""
+def test_an_empty_folder_survives_losing_the_index(tmp_path):
+    """空文件夹没有白板可依附，名单存在 space.json 里，索引丢了也在。"""
     store = BoardStore(tmp_path)
     assert store.create_folder(" 数学 ") == "数学"
     assert store.create_folder("数学") == ""  # 重名不再建一个
@@ -195,9 +198,10 @@ def test_an_empty_folder_only_lives_in_the_index(tmp_path):
     store.move_board(meta["id"], "物理")
     assert store.folders() == ["数学", "物理"]  # 归类时顺手把名字记进名单
 
-    (tmp_path / "index.json").unlink()
+    store.core.close()
+    (tmp_path / "index.sqlite").unlink()
     rebuilt = BoardStore(tmp_path)
-    assert rebuilt.folders() == ["物理"]
+    assert rebuilt.folders() == ["数学", "物理"]
 
 
 def test_renaming_a_folder_moves_everything_in_it(tmp_path):
@@ -208,8 +212,8 @@ def test_renaming_a_folder_moves_everything_in_it(tmp_path):
     store.move_board(second["id"], "物理")
 
     assert store.rename_folder("数学", " 线性代数 ") is True
-    assert store.get_meta(first["id"])["folder"] == "线性代数"
-    assert store.get_meta(second["id"])["folder"] == "物理"  # 别的文件夹没动
+    assert models.folder_of(store.get_meta(first["id"])) == "线性代数"
+    assert models.folder_of(store.get_meta(second["id"])) == "物理"  # 别的文件夹没动
     assert store.rename_folder("线性代数", "物理") is False  # 重名会把两个并成一个
     assert store.rename_folder("查无此夹", "随便") is False
     assert store.rename_folder("线性代数", "  ") is False
@@ -223,7 +227,7 @@ def test_deleting_a_folder_does_not_delete_the_boards(tmp_path):
     assert store.delete_folder("数学") is False
     assert store.folders() == []
     assert store.get_meta(meta["id"]) is not None
-    assert "folder" not in store.get_meta(meta["id"])
+    assert "folder" not in store.get_meta(meta["id"])["data"]
 
 
 def test_renaming_a_board_keeps_its_folder(tmp_path):
@@ -232,7 +236,7 @@ def test_renaming_a_board_keeps_its_folder(tmp_path):
     store.move_board(meta["id"], "数学")
     store.rename_board(meta["id"], "第三章")
     after = store.get_meta(meta["id"])
-    assert (after["name"], after["folder"]) == ("第三章", "数学")
+    assert (after["name"], models.folder_of(after)) == ("第三章", "数学")
 
 
 def test_cut_ends_survive_a_save_and_load(tmp_path):

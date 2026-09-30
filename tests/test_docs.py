@@ -322,35 +322,38 @@ def test_render_rejects_bad_index(tmp_path):
 # -------------------------------------------------------------- 模型与存储
 
 
+def v1(meta):
+    """1.x 文件里的元数据读进来之后的样子：核心的转换，加上白板应用的钩子。"""
+    return models.sanitize_meta(models.convert_v1_meta(models.sanitize_meta({"id": "d1", **meta})))
+
+
 def test_meta_keeps_doc_info():
-    meta = models.sanitize_meta(
-        {
-            "kind": "doc",
-            "doc": {"type": "pdf", "name": "a.pdf", "ext": ".pdf", "pages": [[595, 842]]},
-        }
-    )
-    assert meta["kind"] == "doc"
-    assert meta["doc"]["pages"] == [[595.0, 842.0]]
+    meta = v1({"kind": "doc", "doc": {"type": "pdf", "name": "a.pdf", "ext": ".pdf", "pages": [[595, 842]]}})
+    assert models.kind_of(meta) == "doc"
+    assert models.doc_of(meta)["pages"] == [[595.0, 842.0]]
+    assert meta["canvas"] == {"mode": "fixed", "width": 595.0, "height": 842.0}
+    assert meta["layers"] == [{"src": "/api/doc/d1/0?w={w}", "x": 0.0, "y": 0.0, "width": 595.0,
+                               "height": 842.0, "sheet": True}]
 
 
 def test_meta_without_doc_falls_back_to_board():
-    assert models.sanitize_meta({"kind": "doc"})["kind"] == "board"
-    assert models.sanitize_meta({"kind": "doc", "doc": {"type": "pdf", "pages": []}})["kind"] == "board"
+    assert models.kind_of(v1({"kind": "doc"})) == "board"
+    assert models.kind_of(v1({"kind": "doc", "doc": {"type": "pdf", "pages": []}})) == "board"
 
 
 def test_meta_drops_doc_on_plain_board():
-    meta = models.sanitize_meta({"kind": "board", "doc": {"type": "pdf", "pages": [[1, 1]]}})
-    assert "doc" not in meta
+    meta = v1({"kind": "board", "doc": {"type": "pdf", "pages": [[1, 1]]}})
+    assert models.doc_of(meta) is None and models.kind_of(meta) == "board"
 
 
 def test_store_import_and_delete(tmp_path):
     store = BoardStore(tmp_path / "data")
     data = make_pdf(tmp_path / "a.pdf").read_bytes()
     meta = store.import_doc(data, "讲义.pdf")
-    assert meta["kind"] == "doc" and meta["name"] == "讲义"
+    assert models.kind_of(meta) == "doc" and meta["name"] == "讲义"
     path = store.doc_path(meta["id"])
     assert path is not None and path.read_bytes() == data
-    assert store.load_board(meta["id"])[0]["doc"]["pages"]
+    assert models.doc_of(store.load_board(meta["id"])[0])["pages"]
 
     store.delete_board(meta["id"])
     assert store.doc_path(meta["id"]) is None

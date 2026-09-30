@@ -133,8 +133,13 @@ def layout(pages: Sequence[Sequence[float]], gap: float = PAGE_GAP) -> List[Dict
 
 
 def doc_of(meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    doc = meta.get("doc") if isinstance(meta, dict) else None
-    return doc if isinstance(doc, dict) and doc.get("pages") else None
+    """文档板的原件信息（2.0 在 ``data.doc``，1.x 在 ``doc``）；不是文档板时返回 None。"""
+    from . import models
+
+    doc = models.doc_of(meta)
+    if doc is None and isinstance(meta, dict):
+        doc = meta.get("doc") if isinstance(meta.get("doc"), dict) and meta["doc"].get("pages") else None
+    return doc
 
 
 def bounds(meta: Dict[str, Any]) -> Optional[Dict[str, float]]:

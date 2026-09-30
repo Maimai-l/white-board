@@ -21,6 +21,22 @@ jobs:
       - name: 跑测试
         run: python -m pytest tests -q
 
+  # inksync 单独安装、单独测试：不装白板应用，确认包没有依赖它
+  inksync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: 安装 inksync
+        run: |
+          python -m pip install --upgrade pip
+          pip install ./packages/inksync pytest
+      - name: 跑测试
+        working-directory: packages/inksync
+        run: python -m pytest tests -q
+
   # 前端的纯计算（笔画几何、层叠顺序、空间索引），不开浏览器
   js:
     runs-on: ubuntu-latest

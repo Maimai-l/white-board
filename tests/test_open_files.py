@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from whiteboard import models
 from whiteboard.config import Config
 from whiteboard.hub import Hub
 from whiteboard.server import OpenFileError, open_local_file
@@ -36,9 +37,9 @@ def test_an_image_opens_as_a_document_board_in_the_given_folder(tmp_path):
     PIL.new("RGB", (40, 30), (200, 200, 200)).save(image)
 
     meta = run(hub, image, "课件")
-    assert meta["kind"] == "doc"
+    assert models.kind_of(meta) == "doc"
     assert meta["name"] == "照片"
-    assert meta["folder"] == "课件"
+    assert models.folder_of(meta) == "课件"
     assert hub.current_id == meta["id"]
     assert hub.store.doc_path(meta["id"]).read_bytes() == image.read_bytes()
 
@@ -53,14 +54,14 @@ def test_a_pdf_opens_as_a_document_board(tmp_path):
     pdf.write_bytes(buffer.getvalue())
 
     meta = run(make_hub(tmp_path), pdf)
-    assert meta["kind"] == "doc"
-    assert "folder" not in meta  # 没给文件夹就放在最外层
+    assert models.kind_of(meta) == "doc"
+    assert models.folder_of(meta) == ""  # 没给文件夹就放在最外层
 
 
 def test_a_board_file_of_this_store_switches_to_that_board(tmp_path):
     hub = make_hub(tmp_path)
     first = hub.store.list_metas()[0]["id"]
-    second = hub.create_board()["id"]
+    second = asyncio.run(hub.create_board())["id"]
     hub.save_all()
     count = len(hub.store.list_metas())
 
@@ -75,8 +76,8 @@ def test_a_board_file_from_elsewhere_is_imported_as_a_copy(tmp_path):
     source = make_hub(tmp_path, "other")
     board_id = source.current_id
     source.board().apply({"op": "add", "strokes": [stroke("s1")]})
-    source.move_board(board_id, "旧文件夹")
-    source.rename_board(board_id, "周报")
+    asyncio.run(source.move_board(board_id, "旧文件夹"))
+    asyncio.run(source.rename_board(board_id, "周报"))
     source.save_all()
     backup = tmp_path / "备份.wbz"
     backup.write_bytes((source.store.boards_dir / f"{board_id}.wbz").read_bytes())
@@ -86,7 +87,7 @@ def test_a_board_file_from_elsewhere_is_imported_as_a_copy(tmp_path):
     meta = run(hub, backup, "导入")
     assert meta["id"] != board_id
     assert meta["name"] == "周报"
-    assert meta["folder"] == "导入"  # 原文件里的文件夹不带过来
+    assert models.folder_of(meta) == "导入"  # 原文件里的文件夹不带过来
     assert hub.current_id == meta["id"]
     runtime = hub.board()
     assert [s["id"] for s in runtime.stroke_list()] == ["s1"]
@@ -128,14 +129,16 @@ def test_a_document_board_file_needs_its_original(tmp_path):
     source = make_hub(tmp_path, "other")
     image = tmp_path / "图.png"
     PIL.new("RGB", (40, 30), (255, 255, 255)).save(image)
-    doc = source.import_doc(image.read_bytes(), "图.png")
+    doc = asyncio.run(source.import_doc(image.read_bytes(), "图.png"))
     source.save_all()
     board_file = source.store.boards_dir / f"{doc['id']}.wbz"
 
     # 在原存储目录的 boards/ 旁边能找到 docs/ 里的原件
     hub = make_hub(tmp_path)
     meta = run(hub, board_file)
-    assert meta["kind"] == "doc"
+    assert models.kind_of(meta) == "doc"
+    # 页面图片层指向新 id 的原件
+    assert all(f"/api/doc/{meta['id']}/" in layer["src"] for layer in meta["layers"])
     assert hub.store.doc_path(meta["id"]).read_bytes() == image.read_bytes()
 
     # 单独拷出来的文件找不到原件：拒绝，不建一块打不开的文档板

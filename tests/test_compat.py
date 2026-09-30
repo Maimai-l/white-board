@@ -1,8 +1,9 @@
-"""存储兼容性：旧版本写出来的文件，新代码必须读出一模一样的内容。
+"""存储兼容性：1.x 写出来的存储目录，2.0 必须读出同样的内容。
 
-夹具在 tests/fixtures/compat/，由整理开始之前的代码生成，见 make_compat.py。
-这里不关心实现细节，只比对结果：索引、每块白板读出来的元数据与笔画、
-以及读出来再原样存回去之后文件里的内容。
+夹具在 tests/fixtures/compat/，由 1.x 的代码生成，见 make_compat.py。
+2.0 的元数据换了字段（docs/design/inksync-2.zh-CN.md 4.6 节），所以元数据按
+``models.to_v1`` 换回 1.x 的字段再比对：换过去再换回来一样，说明没有丢任何信息。
+笔画、文件夹、排序和当前白板必须完全一样。
 """
 
 import json
@@ -12,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from whiteboard import models
 from whiteboard.hub import Hub
 from whiteboard.store import BoardStore
 
@@ -33,7 +35,7 @@ def read_payload(path):
 
 def test_index_reads_the_same(data_dir):
     store = BoardStore(data_dir)
-    assert store.list_metas() == EXPECTED["index"]["boards"]
+    assert [models.to_v1(m) for m in store.list_metas()] == EXPECTED["index"]["boards"]
     assert store.folders() == EXPECTED["index"]["folders"]
     assert store.current_id == EXPECTED["index"]["current"]
 
@@ -42,17 +44,24 @@ def test_index_reads_the_same(data_dir):
 def test_board_loads_the_same(data_dir, board_id):
     store = BoardStore(data_dir)
     meta, strokes = store.load_board(board_id)
-    assert meta == EXPECTED["boards"][board_id]["meta"]
+    assert models.to_v1(meta) == EXPECTED["boards"][board_id]["meta"]
     assert strokes == EXPECTED["boards"][board_id]["strokes"]
 
 
 @pytest.mark.parametrize("board_id", BOARD_IDS)
 def test_board_saves_back_unchanged(data_dir, board_id):
-    """读出来原样存回去，文件内容不变：新代码不能在存盘时丢字段或改数值。"""
+    """读出来原样存回去：文件升到 v2，笔画数据一个字节不变，元数据换回 1.x 字段后不变。"""
     store = BoardStore(data_dir)
     meta, strokes = store.load_board(board_id)
     store.save_board(meta, strokes)
-    assert read_payload(data_dir / "boards" / f"{board_id}.wbz") == EXPECTED["boards"][board_id]["file"]
+    saved = read_payload(data_dir / "boards" / f"{board_id}.wbz")
+    expected = EXPECTED["boards"][board_id]["file"]
+    assert saved["v"] == 2
+    assert saved["strokes"] == expected["strokes"]
+    assert models.to_v1(saved["meta"]) == expected["meta"]
+    # 再读一遍，内容与第一次读出来的相同
+    again_meta, again_strokes = BoardStore(data_dir).load_board(board_id)
+    assert again_meta == meta and again_strokes == strokes
 
 
 @pytest.mark.parametrize("board_id", BOARD_IDS)
@@ -60,4 +69,15 @@ def test_hub_serves_the_same_strokes(data_dir, board_id):
     hub = Hub(BoardStore(data_dir))
     runtime = hub.board(board_id)
     assert runtime.stroke_list() == EXPECTED["boards"][board_id]["strokes"]
-    assert runtime.meta == EXPECTED["boards"][board_id]["meta"]
+    assert models.to_v1(runtime.meta) == EXPECTED["boards"][board_id]["meta"]
+
+
+def test_index_json_is_retired_after_migration(data_dir):
+    BoardStore(data_dir)
+    assert not (data_dir / "index.json").exists()
+    assert (data_dir / "index.v1.json").exists() and (data_dir / "index.sqlite").exists()
+    # 第二次打开不再迁移，文件夹、排序、当前白板照样在
+    store = BoardStore(data_dir)
+    assert store.folders() == EXPECTED["index"]["folders"]
+    assert [m["id"] for m in store.list_metas()] == [m["id"] for m in EXPECTED["index"]["boards"]]
+    assert store.current_id == EXPECTED["index"]["current"]
