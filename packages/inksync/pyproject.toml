@@ -15,3 +15,7 @@ discovery = ["zeroconf>=0.131"]
 
 [tool.setuptools]
 packages = ["inksync"]
+
+[tool.setuptools.package-data]
+# 前端手写板（由 inksync.serve_sdk 提供）
+inksync = ["web/*.js", "web/vendor/*.js"]

@@ -1,36 +1,37 @@
-"""手写板（inkpad.js）不能依赖白板应用的界面，其他应用才能单独嵌入它。"""
+"""手写板（inksync 的前端，packages/inksync/inksync/web）不能依赖白板应用，
+其他项目才能单独使用它。"""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-JS = Path(__file__).resolve().parents[1] / "whiteboard" / "web" / "static" / "js"
-IMPORT_RE = re.compile(r'^\s*(?:import|export)\s[^;]*?from\s+"\./([\w-]+\.js)"', re.M)
-
-# 白板应用专有的模块：界面、白板选择界面、设置、更新、录制面板
-APP_ONLY = {"app.js", "ui.js", "ui-common.js", "ui-boards.js", "ui-dialogs.js", "ui-settings.js",
-            "pkpicker.js", "toolpicker.js", "dragsort.js", "icons.js", "notes.js", "recorder.js"}
+ROOT = Path(__file__).resolve().parents[1]
+SDK = ROOT / "packages" / "inksync" / "inksync" / "web"
+IMPORT_RE = re.compile(r'^\s*(?:import|export)\s[^;]*?from\s+"([^"]+)"', re.M)
 
 
-def reachable(entry: str) -> set:
-    seen, todo = set(), [entry]
-    while todo:
-        name = todo.pop()
-        if name in seen:
+def test_the_sdk_only_imports_its_own_modules():
+    for path in SDK.rglob("*.js"):
+        for target in IMPORT_RE.findall(path.read_text("utf-8")):
+            assert target.startswith("./"), (path.name, target)
+            assert (path.parent / target).resolve().is_file() or target == "./version.js", (path.name, target)
+
+
+def test_the_sdk_does_not_touch_the_app():
+    for path in SDK.rglob("*.js"):
+        if path.parent.name == "vendor":
             continue
-        seen.add(name)
-        todo.extend(IMPORT_RE.findall((JS / name).read_text("utf-8")))
-    return seen
+        source = path.read_text("utf-8")
+        assert "this.ui." not in source, path.name
+        assert "pywebview" not in source, path.name
+        # 白板应用专有的接口（缩略图、文档页、诊断）不写死在手写板里
+        assert not re.search(r'["`]/api/', source), path.name
+        assert "dataset.shell" not in source, path.name
 
 
-def test_the_handwriting_pad_does_not_import_the_app_interface():
-    modules = reachable("inkpad.js")
-    assert not modules & APP_ONLY, sorted(modules & APP_ONLY)
-
-
-def test_the_handwriting_pad_does_not_touch_the_app_interface_directly():
-    for name in ("inkpad.js", "app-eraser.js"):
-        source = (JS / name).read_text("utf-8")
-        assert "this.ui." not in source, name
-        assert "pywebview" not in source, name
+def test_the_app_loads_the_sdk_from_inksync():
+    app_js = ROOT / "whiteboard" / "web" / "static" / "js"
+    for path in app_js.glob("*.js"):
+        for target in IMPORT_RE.findall(path.read_text("utf-8")):
+            assert target.startswith("./") or target.startswith("/inksync/"), (path.name, target)

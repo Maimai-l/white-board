@@ -16,7 +16,7 @@
 // 没接的：不透明度（笔迹格式里还没有这个字段）、直尺和套索（白板没有这两个功能，
 // 对应的按钮已经从布局里去掉）。撤销和重做都接到白板自己的历史栈上。
 
-import { clamp } from "./util.js";
+import { clamp } from "/inksync/util.js";
 
 // 去掉套索和直尺之后的布局，其余数值原样取自 vendor 里的 PK_LAYOUT。
 const LAYOUT = {

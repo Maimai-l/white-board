@@ -22,7 +22,11 @@ def _is_lab(dest):
     return dest.replace(os.sep, "/").startswith("whiteboard/web/static/lab/")
 
 
-datas = [(os.path.join(ROOT, "whiteboard", "web"), "whiteboard/web")]
+datas = [
+    (os.path.join(ROOT, "whiteboard", "web"), "whiteboard/web"),
+    # 手写板的前端文件随 inksync 分发（inksync.serve_sdk 从包里的 web/ 提供）
+    (os.path.join(ROOT, "packages", "inksync", "inksync", "web"), "inksync/web"),
+]
 # 同版本的 iPad 外壳：CI 的 ipad 任务先构建好放在这里，安装页和 /ipad/Whiteboard.ipa
 # 从资源目录里取（见 whiteboard/ipadshell.py）。本地打包没有它时照常打，安装页会
 # 提示去 Release 下载。

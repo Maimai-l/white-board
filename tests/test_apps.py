@@ -57,7 +57,7 @@ def test_the_sdk_path_points_at_the_embed_module(tmp_path):
         async with make_client(tmp_path) as (client, _config):
             response = await client.get("/sdk/inkpad.js", allow_redirects=False)
             assert response.status == 302
-            assert response.headers["Location"] == "/static/js/embed.js"
+            assert response.headers["Location"] == "/inksync/inkpad.js"
             module = await client.get("/sdk/inkpad.js")
             assert "export function createInkPad" in await module.text()
 

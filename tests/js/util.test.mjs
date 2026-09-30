@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { isComposing, isTextField } from "../../whiteboard/web/static/js/util.js";
+import { isComposing, isTextField } from "../../packages/inksync/inksync/web/util.js";
 
 function node(tagName, attrs = {}, extra = {}) {
   return { nodeType: 1, tagName, getAttribute: (name) => attrs[name] ?? null, isContentEditable: false, ...extra };

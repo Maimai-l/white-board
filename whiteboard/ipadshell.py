@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional
 
 from . import __version__, resources
 
-# 网页认得的接口版本范围，必须与 web/static/js/input.js 的 SHELL_BRIDGE 一致
+# 网页认得的接口版本范围，必须与 inksync 前端 input.js（packages/inksync/inksync/web）的 SHELL_BRIDGE 一致
 # （tests/test_ipadshell.py 会核对）。外壳据此判断自己要不要提示更新。
 BRIDGE = (1, 1)
 

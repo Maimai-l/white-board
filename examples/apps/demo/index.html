@@ -31,6 +31,10 @@
     <a href="/?home=whiteboard">白板</a>
   </header>
   <main>
+    <div class="bar">
+      <button data-question="1" aria-pressed="true">第 1 题</button>
+      <button data-question="2" aria-pressed="false">第 2 题</button>
+    </div>
     <div id="pad"></div>
     <div class="bar">
       <button data-tool="pen" aria-pressed="true">钢笔</button>
@@ -42,15 +46,23 @@
     <label>答案 <input id="answer" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
   </main>
   <script type="module">
-    import { createInkPad } from "/sdk/inkpad.js";
+    import { createInkPad } from "/inksync/inkpad.js";
 
-    // 每道题一块白板：board 相同就是同一块，Mac 上可以在「示例」文件夹里看到
+    // 每道题一块白板：白板 id 相同就是同一块，保存在白板应用里这个应用自己的空间
+    function question(n) {
+      return {
+        name: `示例 第 ${n} 题`,
+        canvas: { mode: "fixed", width: 800, height: 1100 },
+        background: { pattern: "blank" },
+        layers: [{ src: "/apps/demo/question.svg", x: 0, y: 0, width: 800 }],
+        data: { question: n },
+      };
+    }
+
     const pad = createInkPad(document.getElementById("pad"), {
-      app: "demo",
-      board: "demo-q1",
-      name: "示例 第 1 题",
-      folder: "示例",
-      underlay: { src: "/apps/demo/question.svg", width: 800 },
+      space: "demo",
+      board: "q1",
+      create: question(1),
     });
 
     const names = { online: "已同步", syncing: "同步中", offline: "未连接" };
@@ -60,9 +72,19 @@
       document.getElementById("redo").disabled = !redo;
     });
 
+    // 换题：同一块手写板、同一条连接，切到另一块白板
+    for (const button of document.querySelectorAll("[data-question]")) {
+      button.addEventListener("click", async () => {
+        const n = Number(button.dataset.question);
+        await pad.open(`q${n}`, { create: question(n) });
+        for (const other of document.querySelectorAll("[data-question]")) {
+          other.setAttribute("aria-pressed", String(other === button));
+        }
+      });
+    }
     for (const button of document.querySelectorAll("[data-tool]")) {
       button.addEventListener("click", () => {
-        pad.setTool({ ...pad.tool, tool: button.dataset.tool });
+        pad.setTool({ tool: button.dataset.tool });
         for (const other of document.querySelectorAll("[data-tool]")) {
           other.setAttribute("aria-pressed", String(other === button));
         }

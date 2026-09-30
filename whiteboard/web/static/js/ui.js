@@ -9,15 +9,15 @@
 // 早先关掉过笔具盘的机器回来用的（选择记在本机）。
 
 import { icon } from "./icons.js";
-import { loadFingerDraw } from "./input.js";
+import { loadFingerDraw } from "./boards.js";
 import { loadPicker } from "./pkpicker.js";
-import { inShell } from "./shell.js";
+import { inShell } from "/inksync/shell.js";
 import { ToolDock } from "./toolpicker.js";
 import { boardLabel, iconButton } from "./ui-common.js";
 import { installBoards } from "./ui-boards.js";
 import { installDialogs } from "./ui-dialogs.js";
 import { installSettings } from "./ui-settings.js";
-import { el, clamp } from "./util.js";
+import { el, clamp } from "/inksync/util.js";
 
 export const COLORS = [
   "#1b1b1f", "#5f6368", "#e53935", "#fb8c00", "#fdd835",

@@ -1,12 +1,12 @@
-// 白板应用：在手写板（inkpad.js）上加白板选择界面、设置、导入导出、更新和快捷键。
+// 白板应用：在手写板（inksync 的 pad.js）上加白板选择界面、设置、导入导出、更新和快捷键。
 //
 // 书写、橡皮擦、撤销、同步和视口都在 InkPad 里；这里只把它的事件接到界面上，
 // 再加上只有白板应用才有的功能。其他应用嵌入手写板时不需要这个文件。
 
-import { InkPad, deviceClientId } from "./inkpad.js";
-import { penAltitude } from "./input.js";
+import { InkPad, deviceClientId } from "/inksync/pad.js";
+import { penAltitude } from "/inksync/input.js";
 import { Recorder, mountRecorderPanel } from "./recorder.js";
-import { Renderer } from "./renderer.js";
+import { Renderer } from "/inksync/renderer.js";
 import { UI } from "./ui.js";
 import {
   buildPath,
@@ -17,13 +17,16 @@ import {
   splitStroke,
   strokeHit,
   strokeRadius,
-} from "./stroke.js";
-import { debounce, isTextField } from "./util.js";
-import { downloadDataURL, downloadURL, exportDataURL, uploadThumb } from "./exporter.js";
-import { reportError, reportUncaughtErrors } from "./report.js";
+} from "/inksync/stroke.js";
+import { debounce, isTextField } from "/inksync/util.js";
+import { downloadDataURL, downloadURL, exportDataURL } from "/inksync/exporter.js";
+import { boardView, docOf, loadFingerDraw, saveFingerDraw, uploadThumb } from "./boards.js";
+import { reportError, reportUncaughtErrors, setReportURL } from "/inksync/report.js";
 
 export { reportError };
 
+// iPad 上没有控制台：页面报错送到 Mac 的终端日志里
+setReportURL("/api/debug");
 reportUncaughtErrors();
 
 function resolveRole() {
@@ -52,6 +55,9 @@ class App extends InkPad {
     super({
       role,
       clientId: deviceClientId(),
+      // 白板应用的页面跟随 Mac 上的当前白板
+      target: { space: "", follow: true },
+      fingerDraw: loadFingerDraw(),
       stage: document.getElementById("stage"),
       base: document.getElementById("base"),
       live: document.getElementById("live"),
@@ -84,9 +90,13 @@ class App extends InkPad {
       this.ui.setUndoEnabled(undo);
       this.ui.setRedoEnabled(redo);
     });
-    this.on("meta", (meta) => this.ui.setMeta(meta));
-    this.on("boards", ({ boards, current, folders }) => this.ui.setBoards(boards, current, folders));
+    this.on("meta", (meta) => this.ui.setMeta(boardView(meta)));
     this.on("info", (info) => this.ui.setInfo(info));
+    this.on("shell", (shell) => {
+      root.dataset.shell = shell.active ? "active" : "inactive";
+    });
+    // 服务端升级了（例如 Mac 上装了新版本）：等手上没有进行中的书写，再重新载入页面
+    this.on("outdated", ({ server }) => this.reloadWhenIdle(server));
     this.on("strokestart", () => {
       root.dataset.drawing = "1";
       this.ui.strokeStarted();
@@ -107,7 +117,37 @@ class App extends InkPad {
       else this.ui.hideLocked();
     });
     this.on("change", () => this.uploadThumbSoon());
-    this.on("perms", (perms) => this.ui.setPerms(new Set(perms)));
+  }
+
+  /** 白板应用的扩展消息：白板列表（也随快照一起来）和权限。 */
+  onMessage(msg) {
+    super.onMessage(msg);
+    if (msg.t === "boards" && msg.board && msg.board.id === this.state.id) {
+      this.state.meta = msg.board;
+      this.emit("meta", msg.board);
+    }
+    if (Array.isArray(msg.boards)) {
+      this.ui.setBoards(msg.boards.map(boardView), this.state.id, msg.folders);
+    }
+    if (msg.t === "perms") this.ui.setPerms(new Set(msg.perms || []));
+  }
+
+  reloadWhenIdle(build) {
+    try {
+      if (sessionStorage.getItem("inksync.reloaded") === build) return; // 同一个版本只重新载入一次
+      sessionStorage.setItem("inksync.reloaded", build);
+    } catch (err) {
+      return;
+    }
+    const attempt = () => {
+      if (this.input.draw || this.input.erase) {
+        setTimeout(attempt, 1000);
+        return;
+      }
+      this.persist();
+      setTimeout(() => location.reload(), 300);
+    };
+    attempt();
   }
 
   bindKeys() {
@@ -296,7 +336,10 @@ class App extends InkPad {
             return "检查失败";
         }
       },
-      onFingerDraw: (enabled) => this.input.setFingerDraw(enabled),
+      onFingerDraw: (enabled) => {
+        this.input.setFingerDraw(enabled);
+        saveFingerDraw(enabled);
+      },
       onToolChange: (tool) => this.setTool(tool),
       onUndo: () => this.undo(),
       onRedo: () => this.redo(),
@@ -327,10 +370,17 @@ class App extends InkPad {
         await this.refreshNativeInfo();
         return granted;
       },
-      onMeta: (patch) => this.setMeta(patch),
+      onMeta: (patch) => {
+        // 设置面板给的是背景样式的名字；元数据里的背景是 {pattern, paper}
+        if (typeof patch.background === "string") {
+          const current = (this.state.meta && this.state.meta.background) || {};
+          patch = { ...patch, background: { ...(typeof current === "object" ? current : {}), pattern: patch.background } };
+        }
+        this.setMeta(patch);
+      },
       onNewDoc: (file, folder) => this.importDoc(file, folder),
       onExport: async () => {
-        if (this.state.kind === "doc") {
+        if (docOf(this.state.meta)) {
           await this.exportDoc();
           return;
         }

@@ -1,7 +1,7 @@
 // ui.js 和它拆出去的几个文件共用的小工具。
 
 import { icon } from "./icons.js";
-import { el } from "./util.js";
+import { el } from "/inksync/util.js";
 
 const KIND_NAMES = { board: "白板", note: "笔记", doc: "文档" };
 
