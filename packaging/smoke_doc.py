@@ -28,7 +28,9 @@ def main(base: str) -> int:
     )
     with urllib.request.urlopen(request, timeout=60) as response:
         board = json.load(response)["board"]
-    if board["kind"] != "doc" or not board["doc"]["pages"]:
+    # 元数据 v2：原件信息在 data.doc，每页是一个图片层
+    doc = (board.get("data") or {}).get("doc") or {}
+    if not doc.get("pages") or (board.get("canvas") or {}).get("mode") != "fixed" or not board.get("layers"):
         print("文档板建出来了但元数据不对：", board)
         return 1
 
@@ -44,7 +46,7 @@ def main(base: str) -> int:
         print("导出的不是 PDF")
         return 1
 
-    print(f"文档板可用：{len(board['doc']['pages'])} 页，位图 {len(page)} 字节，"
+    print(f"文档板可用：{len(doc['pages'])} 页，位图 {len(page)} 字节，"
           f"导出 {len(exported)} 字节")
     return 0
 
