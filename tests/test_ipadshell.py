@@ -149,7 +149,53 @@ def test_bonjour_fields_carry_host_port_version_and_name(monkeypatch):
         "port": "8849",
         "version": "1.3.0",
         "name": "工作室的 Mac",
+        # 外壳按 source 选服务；白板自己的入口是 iPad 界面
+        "source": "whiteboard",
+        "path": "/?role=ipad",
     }
+    other = netinfo.bonjour_fields(8900, "", source="qb", path="/", name="刷题")
+    assert (other["source"], other["path"], other["name"]) == ("qb", "/", "刷题")
+
+
+def test_other_services_can_advertise_themselves(monkeypatch):
+    """其他项目（例如刷题）用 advertise 注册同一种服务，外壳用 @qb 找到它。"""
+    from aiohttp import web
+
+    registered = []
+
+    class FakeDNSSD:
+        def register(self, name, regtype, port, txt):
+            registered.append((name, regtype, port, txt))
+            return "ref"
+
+        def deallocate(self, ref):
+            registered.append("gone")
+
+    monkeypatch.setattr(netinfo.sys, "platform", "darwin")
+    monkeypatch.setattr(netinfo, "_DNSSD", FakeDNSSD)
+    monkeypatch.setattr(netinfo, "local_hostname", lambda: "studio.local")
+    monkeypatch.setattr(netinfo, "computer_name", lambda: "Studio")
+
+    app = web.Application()
+    netinfo.advertise(app, 8900, "qb", path="/apps/qb/", name="刷题")
+
+    async def main():
+        for hook in app.on_startup:
+            await hook(app)
+        for hook in app.on_cleanup:
+            await hook(app)
+
+    asyncio.run(main())
+    fields = {"host": "studio.local", "port": "8900", "version": "", "name": "刷题",
+              "source": "qb", "path": "/apps/qb/"}
+    assert registered == [("刷题", "_whiteboard._tcp", 8900, netinfo.txt_record(fields)), "gone"]
+
+    import pytest
+
+    with pytest.raises(ValueError):
+        netinfo.advertise(web.Application(), 8900, "@QB")
+    with pytest.raises(ValueError):
+        netinfo.advertise(web.Application(), 8900, "qb", path="apps/qb")
 
 
 def test_bonjour_uses_the_system_responder_on_macos(monkeypatch):
@@ -179,7 +225,8 @@ def test_bonjour_uses_the_system_responder_on_macos(monkeypatch):
         await service.stop()
 
     asyncio.run(main())
-    fields = {"host": "studio.local", "port": "8849", "version": "1.3.0", "name": "Studio"}
+    fields = {"host": "studio.local", "port": "8849", "version": "1.3.0", "name": "Studio",
+              "source": "whiteboard", "path": "/?role=ipad"}
     assert calls == [
         ("register", "Studio", "_whiteboard._tcp", 8849, netinfo.txt_record(fields)),
         ("deallocate", "ref"),
@@ -300,3 +347,18 @@ def test_dnssd_binding_registers_on_macos():  # pragma: no cover - 只在 Mac �
     dnssd = netinfo._DNSSD()
     ref = dnssd.register("白板测试", "_whiteboard._tcp", 65000, netinfo.txt_record({"port": "65000"}))
     dnssd.deallocate(ref)
+
+
+def test_the_shell_reads_the_source_setting_and_txt_fields():
+    """外壳「设置」里的「来源」和 Swift 里读的是同一个 key；发现时读 TXT 的 source 和 path。"""
+    import plistlib
+
+    ipad = Path(__file__).resolve().parents[1] / "ipad" / "Whiteboard"
+    with open(ipad / "Settings.bundle" / "Root.plist", "rb") as handle:
+        keys = {item.get("Key") for item in plistlib.load(handle)["PreferenceSpecifiers"]}
+    swift = (ipad / "MacAddress.swift").read_text("utf-8")
+    assert "shell_source" in keys and '"shell_source"' in swift
+    discovery = (ipad / "MacDiscovery.swift").read_text("utf-8")
+    assert 'txt["source"]' in discovery and 'txt["path"]' in discovery
+    delegate = (ipad / "AppDelegate.swift").read_text("utf-8")
+    assert 'url.host == "open"' in delegate

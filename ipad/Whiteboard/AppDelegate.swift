@@ -25,11 +25,19 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     /// ``whiteboard-shell://connect?host=<主机名>.local&port=<端口>``：保存地址并连接。
+    /// ``whiteboard-shell://open?source=<服务名>``：改用这个来源，重新查找。
     func application(
         _ app: UIApplication,
         open url: URL,
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
+        if url.scheme == "whiteboard-shell", url.host == "open" {
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let source = items.first(where: { $0.name == "source" })?.value
+            ShellSettings.setWantedSource(source.flatMap(MacAddress.cleanSource))
+            shell.rediscover()
+            return true
+        }
         guard let mac = MacAddress(connectURL: url) else {
             shell.startIfIdle()
             return false

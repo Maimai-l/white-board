@@ -95,9 +95,27 @@ When the user asks to switch, the shell lists the Macs found even if there is on
 
 The Settings app page of the shell also shows “版本” (Version) and “当前 Mac” (Current Mac; “未连接” when no Mac is saved).
 
+#### Choosing a service by name
+
+Besides the whiteboard, other projects can register the same Bonjour service (section 8.4), for example an exercise app named `qb`. Each service carries a name in the TXT field `source`; the whiteboard's name is `whiteboard`.
+
+| Entry point | Behavior |
+|---|---|
+| iOS Settings app, shell page, field “来源” (Source) | `@qb` or `qb`: the shell connects only to services named `qb`. Empty: any service, as before. A saved address with another name is not used; on return to the foreground, the shell searches again if the current service has another name. |
+| `whiteboard-shell://open?source=qb` | Sets “来源” to `@qb`, forgets the saved address and searches. |
+
+| Services found | Result |
+|---|---|
+| One with the wanted name | Connects after 1 s, as above. |
+| Several with the wanted name | Lists them. |
+| None with the wanted name after 5 s, but others found | Lists all services found, so that the user can pick one. |
+| None at all | Shows the step 3 instructions. |
+
+Names follow `^[a-z0-9-]{1,32}$`; a leading `@` is ignored. Services from other projects are listed as `@<name> · <computer name>（<host>:<port>）`.
+
 Page loading:
 
-- The page URL is `http://<host>.local:<port>/?role=ipad`. `role=ipad` makes the server return the iPad interface (`detect_role` in `packages/inksync/inksync/ws.py`, used by `whiteboard/server.py`). The host and port come from the TXT record of the Bonjour service (section 8.4).
+- The page URL is `http://<host>.local:<port><path>`, where `path` comes from the TXT record and defaults to `/?role=ipad`. `role=ipad` makes the whiteboard server return the iPad interface (`detect_role` in `packages/inksync/inksync/ws.py`, used by `whiteboard/server.py`). The host and port come from the TXT record of the Bonjour service (section 8.4).
 - Each load ignores the local cache and times out after 8 s.
 - When loading fails, the shell shows the error and two buttons, “重试” (Retry) and “重新查找 Mac” (Find Mac again).
 - When a new navigation starts, the shell stops sending samples until the page completes the handshake again (section 5.2).
@@ -478,6 +496,10 @@ TXT record fields:
 | `port` | The port the server actually listens on (after moving to the next free port, the new value) |
 | `version` | Mac app version |
 | `name` | The computer name shown to users (`scutil --get ComputerName`; falls back to the host name without `.local`) |
+| `source` | Service name used to choose a service (section 4.1): `whiteboard` for the whiteboard app. Absent in versions before 1.1.0; the shell treats that as `whiteboard`. |
+| `path` | Page the shell opens after connecting: `/?role=ipad` for the whiteboard app. |
+
+Other projects register the same service with `inksync.netinfo.advertise(app, port, source, path)` (see packages/inksync/README.md). It uses the same code as the whiteboard: `DNSServiceRegister` on macOS and zeroconf elsewhere.
 
 > **Warning**
 > On macOS, registration must go through the system mDNSResponder. Do not start a second mDNS responder. The zeroconf-based `MDNSAdvertiser` listens on the mDNS port itself and is therefore off by default on macOS (`netinfo.mdns_default()`).
@@ -488,10 +510,10 @@ Verification on the Mac, in both window mode and `--headless` mode:
 
 ```sh
 dns-sd -B _whiteboard._tcp                    # lists this Mac
-dns-sd -L "<service name>" _whiteboard._tcp   # TXT record contains host, port, version, name
+dns-sd -L "<service name>" _whiteboard._tcp   # TXT record contains host, port, version, name, source, path
 ```
 
-On the shell side, `MacDiscovery` browses with `NWBrowser` (`.bonjourWithTXTRecord`, peer-to-peer off) and takes host and port directly from the TXT record. If `name` is missing or empty, it uses the service name. Results are sorted by name.
+On the shell side, `MacDiscovery` browses with `NWBrowser` (`.bonjourWithTXTRecord`, peer-to-peer off) and takes host, port, `source` and `path` directly from the TXT record. If `name` is missing or empty, it uses the service name. Results are sorted by name.
 
 ## 9. Phase 1 acceptance criteria
 

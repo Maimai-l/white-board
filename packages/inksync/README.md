@@ -35,6 +35,15 @@ Requires Python 3.10 or later and aiohttp 3.9 or later.
 
 `mount` also starts autosave (every 3 s) and saves and closes connections when the app shuts down.
 
+## Letting the iPad shell find the service
+
+```python
+from inksync.netinfo import advertise
+advertise(app, port=8900, source="qb", path="/")   # before web.run_app(app, port=8900)
+```
+
+The service registers `_whiteboard._tcp` with `source` and `path` in its TXT record. In the iOS Settings app, set the shell's “来源” (Source) field to `@qb`; the shell then connects to this service and opens `path`, with the same Apple Pencil input as the whiteboard. On systems other than macOS this needs zeroconf: `pip install "inksync[discovery] @ git+…"`.
+
 ## Modules
 
 | Module | Contents |
@@ -44,6 +53,7 @@ Requires Python 3.10 or later and aiohttp 3.9 or later.
 | `inksync.store` | `BoardStore`: `index.json`, `.wbz` read and write, read-only detection, backups before unlocking |
 | `inksync.models` | Validation of metadata, strokes, masks and underlays |
 | `inksync.codec` | Point encoding |
+| `inksync.netinfo` | `.local` host name, LAN addresses, Bonjour registration (`BonjourService`, `advertise`) |
 
 `BoardStore` has two hooks for files an app keeps next to the boards: `_delete_extras(board_id)` and `_import_extras(path, old_id, board_id, meta)`. The whiteboard app uses them for thumbnails and document-board originals (`whiteboard/store.py`).
 

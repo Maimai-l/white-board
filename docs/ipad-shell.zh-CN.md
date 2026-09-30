@@ -95,9 +95,27 @@ cd ipad && xcodegen generate
 
 「设置」App 中外壳的页面还显示「版本」和「当前 Mac」（未保存地址时为「未连接」）。
 
+#### 按名字选择服务
+
+除白板以外，其他项目也可以注册同一种 Bonjour 服务（8.4 节），例如名为 `qb` 的刷题应用。每个服务在 TXT 字段 `source` 中带有名字，白板的名字是 `whiteboard`。
+
+| 入口 | 行为 |
+|---|---|
+| 「设置」App 中外壳页面的「来源」输入框 | 填 `@qb` 或 `qb`：外壳只连接名为 `qb` 的服务。留空：任何服务，与以前相同。名字不同的已保存地址不会被使用；回到前台时，当前服务的名字不同则重新查找。 |
+| `whiteboard-shell://open?source=qb` | 把「来源」设为 `@qb`，忘掉已保存的地址并重新查找。 |
+
+| 找到的服务 | 结果 |
+|---|---|
+| 一个名字相符 | 与上文相同，等待 1 秒后连接。 |
+| 多个名字相符 | 列出这些服务。 |
+| 5 秒内没有名字相符的，但找到了其他服务 | 列出找到的全部服务，由用户选择。 |
+| 一个都没有 | 显示第 3 步的说明。 |
+
+名字须符合 `^[a-z0-9-]{1,32}$`，开头的 `@` 忽略。其他项目的服务显示为 `@<名字> · <电脑名称>（<主机名>:<端口>）`。
+
 页面的加载方式：
 
-- 页面地址为 `http://<主机名>.local:<端口>/?role=ipad`。`role=ipad` 使服务端返回 iPad 界面（`packages/inksync/inksync/ws.py` 的 `detect_role`，由 `whiteboard/server.py` 调用）。主机名和端口取自 Bonjour 服务的 TXT 记录（8.4 节）。
+- 页面地址为 `http://<主机名>.local:<端口><路径>`，路径取自 TXT 记录的 `path`，默认为 `/?role=ipad`。`role=ipad` 使白板服务端返回 iPad 界面（`packages/inksync/inksync/ws.py` 的 `detect_role`，由 `whiteboard/server.py` 调用）。主机名和端口取自 Bonjour 服务的 TXT 记录（8.4 节）。
 - 每次加载都忽略本地缓存，超时时间为 8 秒。
 - 加载失败时，外壳显示错误原因以及「重试」「重新查找 Mac」两个按钮。
 - 开始新的导航时，外壳停止发送采样点，直到页面重新完成握手（5.2 节）。
@@ -478,6 +496,10 @@ TXT 记录的字段：
 | `port` | 服务实际监听的端口（端口被占用而顺延时，为顺延后的值） |
 | `version` | Mac 端版本号 |
 | `name` | 显示给用户的电脑名称（`scutil --get ComputerName`；取不到时为去掉 `.local` 的主机名） |
+| `source` | 选择服务时使用的名字（4.1 节）：白板应用为 `whiteboard`。1.1.0 之前的版本没有这一项，外壳按 `whiteboard` 处理。 |
+| `path` | 外壳连接后打开的页面：白板应用为 `/?role=ipad`。 |
+
+其他项目用 `inksync.netinfo.advertise(app, port, source, path)` 注册同一种服务（见 packages/inksync/README.zh-CN.md）。它与白板使用相同的代码：macOS 上用 `DNSServiceRegister`，其他系统用 zeroconf。
 
 > **警告**
 > 在 macOS 上必须通过系统的 mDNSResponder 注册，不得启动第二个 mDNS 响应程序。基于 zeroconf 的 `MDNSAdvertiser` 会自行监听 mDNS 端口，因此在 macOS 上默认关闭（`netinfo.mdns_default()`）。
@@ -488,10 +510,10 @@ TXT 记录的字段：
 
 ```sh
 dns-sd -B _whiteboard._tcp                    # 能看到这台 Mac
-dns-sd -L "<服务名>" _whiteboard._tcp          # TXT 记录包含 host、port、version、name
+dns-sd -L "<服务名>" _whiteboard._tcp          # TXT 记录包含 host、port、version、name、source、path
 ```
 
-外壳一端，`MacDiscovery` 用 `NWBrowser`（`.bonjourWithTXTRecord`，关闭点对点）查找，直接从 TXT 记录中读取主机名和端口。`name` 缺失或为空时使用服务名。结果按名称排序。
+外壳一端，`MacDiscovery` 用 `NWBrowser`（`.bonjourWithTXTRecord`，关闭点对点）查找，直接从 TXT 记录中读取主机名、端口、`source` 和 `path`。`name` 缺失或为空时使用服务名。结果按名称排序。
 
 ## 9. 第一阶段的验收标准
 

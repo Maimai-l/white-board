@@ -9,5 +9,9 @@ description = "Sync server for the handwriting pad: board storage, operation log
 requires-python = ">=3.10"
 dependencies = ["aiohttp>=3.9"]
 
+[project.optional-dependencies]
+# 在 macOS 以外的系统上注册 Bonjour 服务（inksync.netinfo.advertise）
+discovery = ["zeroconf>=0.131"]
+
 [tool.setuptools]
 packages = ["inksync"]

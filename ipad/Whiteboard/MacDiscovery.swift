@@ -1,10 +1,11 @@
 import Foundation
 import Network
 
-/// 用 Bonjour 查找局域网内运行白板的 Mac（``_whiteboard._tcp``，docs/ipad-shell.md 8.4 节）。
+/// 用 Bonjour 查找局域网内可以连接的服务（``_whiteboard._tcp``，docs/ipad-shell.md 8.4 节）。
 ///
 /// 主机名和端口直接取自服务的 TXT 记录，不用再解析一次：Mac 端写进去的就是
-/// ``xxx.local`` 和实际监听的端口（端口被占用顺延时是顺延后的值）。
+/// ``xxx.local`` 和实际监听的端口（端口被占用顺延时是顺延后的值）。``source`` 和
+/// ``path`` 是服务名和入口路径，白板之外的服务（例如刷题）靠它们区分。
 final class MacDiscovery {
     static let serviceType = "_whiteboard._tcp"
 
@@ -54,7 +55,7 @@ final class MacDiscovery {
         if name == nil || name?.isEmpty == true, case let .service(serviceName, _, _, _) = result.endpoint {
             name = serviceName
         }
-        return MacAddress(host: host, port: port, name: name)
+        return MacAddress(host: host, port: port, name: name, source: txt["source"], path: txt["path"])
     }
 }
 

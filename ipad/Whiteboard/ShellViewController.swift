@@ -109,11 +109,19 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         if ShellSettings.takeRediscover() {
             ShellSettings.forget()
         }
-        if let saved = ShellSettings.savedMac() {
+        // 保存的服务不是「设置」里要的那个来源时，重新查找
+        if let saved = ShellSettings.savedMac(), ShellSettings.accepts(saved) {
             connect(to: saved, saved: true)
         } else {
             startDiscovery()
         }
+    }
+
+    /// 忘掉当前的服务并重新查找，例如「设置」里的来源改了，或者由 ``whiteboard-shell://open`` 打开。
+    func rediscover() {
+        loadViewIfNeeded()
+        ShellSettings.forget()
+        startDiscovery()
     }
 
     /// 回到前台：检查「设置」里的「重新查找 Mac」，以及外壳有没有更新。
@@ -122,6 +130,10 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         if ShellSettings.takeRediscover() {
             ShellSettings.forget()
             startDiscovery()
+            return
+        }
+        if let mac = current, !ShellSettings.accepts(mac) {
+            rediscover()
             return
         }
         if loaded, let mac = current {
@@ -152,8 +164,13 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         }
         discovery.start()
         let timeout = DispatchWorkItem { [weak self] in
-            guard let self = self, self.found.isEmpty else { return }
-            self.status.showNotFound(retry: { [weak self] in self?.startDiscovery() })
+            guard let self = self, self.candidates().isEmpty else { return }
+            if self.found.isEmpty {
+                self.status.showNotFound(retry: { [weak self] in self?.startDiscovery() })
+            } else {
+                // 没有「设置」里要的那个来源：把找到的服务都列出来，让用户自己选
+                self.showList()
+            }
         }
         searchTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
@@ -168,14 +185,27 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         settle = nil
     }
 
+    /// 找到的服务里符合「设置」中来源的那些；没设来源时就是全部。
+    private func candidates() -> [MacAddress] {
+        found.filter(ShellSettings.accepts)
+    }
+
     /// 找到一台就直接连；多台就列出来让用户点选。第一台出现之后稍等一下，
-    /// 看还有没有别的 Mac 跟着出现，免得有两台时直接连上了先报到的那一台。
+    /// 看还有没有别的服务跟着出现，免得有两台时直接连上了先报到的那一台。
     private func discovered(_ macs: [MacAddress]) {
         found = macs
         if macs.isEmpty {
             return
         }
-        if listing || switching || macs.count > 1 {
+        let matches = candidates()
+        if listing {
+            showList()
+            return
+        }
+        if matches.isEmpty {
+            return
+        }
+        if switching || matches.count > 1 {
             showList()
             return
         }
@@ -183,9 +213,10 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
             let work = DispatchWorkItem { [weak self] in
                 guard let self = self else { return }
                 self.settle = nil
-                if self.found.count == 1 && !self.switching {
-                    self.connect(to: self.found[0])
-                } else if !self.found.isEmpty {
+                let matches = self.candidates()
+                if matches.count == 1 && !self.switching {
+                    self.connect(to: matches[0])
+                } else if !matches.isEmpty {
                     self.showList()
                 }
             }
@@ -205,8 +236,10 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
             self.switching = false
             self.status.isHidden = true
         } : nil
+        // 有符合来源的就只列它们，一个都没有时列出全部
+        let matches = candidates()
         status.showList(
-            found,
+            matches.isEmpty ? found : matches,
             onPick: { [weak self] mac in
                 self?.switching = false
                 self?.connect(to: mac)

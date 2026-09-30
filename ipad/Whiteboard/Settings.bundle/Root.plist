@@ -34,6 +34,28 @@
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>FooterText</key>
+			<string>要连接的服务名称，例如 @qb。留空时连接找到的服务；找到多个时列出供选择。回到外壳时，当前服务不是这个来源就重新查找。</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSTextFieldSpecifier</string>
+			<key>Title</key>
+			<string>来源</string>
+			<key>Key</key>
+			<string>shell_source</string>
+			<key>DefaultValue</key>
+			<string></string>
+			<key>KeyboardType</key>
+			<string>Alphabet</string>
+			<key>AutocapitalizationType</key>
+			<string>None</string>
+			<key>AutocorrectionType</key>
+			<string>No</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>FooterText</key>
 			<string>打开后回到白板，外壳会忘掉当前这台 Mac，重新查找局域网内的 Mac。换到另一台 Mac 时使用。</string>
 		</dict>
 		<dict>
