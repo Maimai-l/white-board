@@ -38,8 +38,37 @@
 | `board` | 字符串或 null | 客户端上次显示的白板 id。 |
 | `since` | 整数 | 客户端收到的最后一个 `seq`。 |
 | `epoch` | 字符串或 null | 客户端收到的最后一个 `epoch`。 |
+| `pin` | 对象 | 可选。把连接固定在一块白板上，见[固定白板的连接](#固定白板的连接)。 |
 
 服务端以 `init` 或 `sync` 应答，见[序号、纪元与重连](#序号纪元与重连)。同一连接上的第二条 `hello` 被忽略。
+
+### 固定白板的连接
+
+连接分为跟随当前白板和固定在一块白板上两种。`hello` 中没有 `pin` 时，连接跟随当前白板：任一设备切换白板，它也随之切换。带有 `pin` 时，连接始终停留在指定的白板上。其他应用嵌入手写板时使用固定连接，例如每道题一块白板。
+
+| `pin` 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `board` | 字符串 | 白板 id，须符合 `^[A-Za-z0-9_-]{1,64}$`。 |
+| `app` | 字符串 | 应用名称，须符合 `^[a-z0-9-]{1,32}$`。新建白板时记入 `meta.app`。 |
+| `name` | 字符串 | 可选。新建白板的名称。 |
+| `kind` | 字符串 | 可选。新建白板的类型，`board` 或 `note`，默认为 `board`。 |
+| `folder` | 字符串 | 可选。新建白板所在的文件夹；文件夹不存在时自动建立。 |
+
+```jsonc
+{"t":"hello","role":"ipad","client":"k3m9x0a1b2c4","board":null,"since":0,"epoch":null,
+ "pin":{"board":"qb-9709-s23-12-q3","app":"qb","name":"9709 s23 P12 Q3","folder":"刷题"}}
+```
+
+| 规则 | 行为 |
+| --- | --- |
+| 白板不存在 | 服务端按给定的 `app`、`name`、`kind` 和 `folder` 新建白板，当前白板不变。 |
+| 白板存在且有 `meta.app` | 任何设备都可以固定到这块白板。 |
+| 白板存在但没有 `meta.app`（用户自己的白板） | 需要「管理白板」权限，与切换白板相同。 |
+| `pin` 无效或权限不足 | 服务端发送 `{"t":"error","reason":"pin"}` 并关闭连接。 |
+| 操作与 `live` | 作用于固定的白板，并发给所有正在显示这块白板的连接：固定在它上面的其他连接，以及它是当前白板时跟随的连接。 |
+| `switch` 与 `boards` | 不发给固定连接。 |
+| 固定的白板被删除 | 服务端发送 `{"t":"deleted","board":"<id>"}`。此后的操作只回执，不含 `op`，也不应用。 |
+| `unlock` | 作用于固定的白板。 |
 
 ### 客户端保活与重连
 
@@ -138,12 +167,14 @@
 | --- | --- | --- |
 | `init` | `hello` 的发送方 | `role`、`client`、`info`、`board`、`strokes`、`seq`、`epoch`、`locked`、`boards`、`folders` |
 | `sync` | `hello` 的发送方 | `role`、`client`、`info`、`board`、`ops`、`seq`、`epoch`、`locked`、`boards`、`folders` |
-| `switch` | 所有客户端 | `board`、`strokes`、`seq`、`epoch`、`locked`、`boards`、`folders` |
-| `boards` | 所有客户端 | `boards`、`folders`、`board` |
-| `op` | 除发送方以外的所有客户端 | `op`（含 `seq`）、`src`、`board` |
+| `switch` | 所有跟随当前白板的客户端 | `board`、`strokes`、`seq`、`epoch`、`locked`、`boards`、`folders` |
+| `boards` | 所有跟随当前白板的客户端 | `boards`、`folders`、`board` |
+| `op` | 显示同一块白板的客户端，发送方除外 | `op`（含 `seq`）、`src`、`board` |
 | `ack` | `op` 的发送方 | `cid`、`seq`、`op`（仅在操作被接受时） |
-| `live` | 除发送方以外的所有客户端 | 原 `live` 消息的字段，加上 `src` |
+| `live` | 显示同一块白板的客户端，发送方除外 | 原 `live` 消息的字段，加上 `src` |
 | `pong` | `ping` 的发送方 | `ts` |
+| `error` | 带有无效 `pin` 的 `hello` 的发送方 | `reason` 为 `pin` |
+| `deleted` | 固定在被删除白板上的客户端 | `board` |
 
 ```jsonc
 {"t":"init","role":"ipad","client":"k3m9x0a1b2c4","info":{...},"board":{...},"strokes":[...],

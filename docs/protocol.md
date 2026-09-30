@@ -38,8 +38,37 @@ The first message on a connection must be `hello`; the server ignores every othe
 | `board` | string or null | Board ID the client last showed. |
 | `since` | integer | Last `seq` the client received. |
 | `epoch` | string or null | Last `epoch` the client received. |
+| `pin` | object | Optional. Pins the connection to one board; see [Pinned connections](#pinned-connections). |
 
 The server answers with `init` or `sync`; see [Sequence numbers, epochs and reconnection](#sequence-numbers-epochs-and-reconnection). A second `hello` on the same connection is ignored.
+
+### Pinned connections
+
+A connection either follows the current board or is pinned to one board. Without `pin` in `hello`, it follows: when any device switches boards, it switches too. With `pin`, it stays on the named board. Other apps that embed a handwriting pad use pinned connections, for example one board per exercise.
+
+| `pin` field | Type | Description |
+| --- | --- | --- |
+| `board` | string | Board ID, `^[A-Za-z0-9_-]{1,64}$`. |
+| `app` | string | Name of the app, `^[a-z0-9-]{1,32}$`. Recorded in the board's `meta.app` when the board is created. |
+| `name` | string | Optional. Name of a new board. |
+| `kind` | string | Optional. `board` or `note` for a new board; default `board`. |
+| `folder` | string | Optional. Folder of a new board; the folder is created if it does not exist. |
+
+```jsonc
+{"t":"hello","role":"ipad","client":"k3m9x0a1b2c4","board":null,"since":0,"epoch":null,
+ "pin":{"board":"qb-9709-s23-12-q3","app":"qb","name":"9709 s23 P12 Q3","folder":"刷题"}}
+```
+
+| Rule | Behavior |
+| --- | --- |
+| Board does not exist | The server creates it with the given `app`, `name`, `kind` and `folder`. The current board does not change. |
+| Board exists and has `meta.app` | Any device may pin to it. |
+| Board exists without `meta.app` (a user's board) | Requires the `manage` permission, as switching boards does. |
+| Invalid `pin`, or permission missing | The server sends `{"t":"error","reason":"pin"}` and closes the connection. |
+| Operations and `live` | Apply to the pinned board and reach every connection showing that board: other connections pinned to it, and following connections when it is the current board. |
+| `switch` and `boards` | Not sent to pinned connections. |
+| The pinned board is deleted | The server sends `{"t":"deleted","board":"<id>"}`. Later operations are acknowledged without `op` and not applied. |
+| `unlock` | Applies to the pinned board. |
 
 ### Client keepalive and reconnection
 
@@ -138,12 +167,14 @@ Folders are identified by name; see [format.md](format.md#folders).
 | --- | --- | --- |
 | `init` | Sender of `hello` | `role`, `client`, `info`, `board`, `strokes`, `seq`, `epoch`, `locked`, `boards`, `folders` |
 | `sync` | Sender of `hello` | `role`, `client`, `info`, `board`, `ops`, `seq`, `epoch`, `locked`, `boards`, `folders` |
-| `switch` | All clients | `board`, `strokes`, `seq`, `epoch`, `locked`, `boards`, `folders` |
-| `boards` | All clients | `boards`, `folders`, `board` |
-| `op` | All clients except the sender | `op` (with `seq`), `src`, `board` |
+| `switch` | All following clients | `board`, `strokes`, `seq`, `epoch`, `locked`, `boards`, `folders` |
+| `boards` | All following clients | `boards`, `folders`, `board` |
+| `op` | Clients showing the same board, except the sender | `op` (with `seq`), `src`, `board` |
 | `ack` | Sender of `op` | `cid`, `seq`, `op` (only if accepted) |
-| `live` | All clients except the sender | The original `live` fields plus `src` |
+| `live` | Clients showing the same board, except the sender | The original `live` fields plus `src` |
 | `pong` | Sender of `ping` | `ts` |
+| `error` | Sender of `hello` with an invalid `pin` | `reason` = `pin` |
+| `deleted` | Clients pinned to a deleted board | `board` |
 
 ```jsonc
 {"t":"init","role":"ipad","client":"k3m9x0a1b2c4","info":{...},"board":{...},"strokes":[...],

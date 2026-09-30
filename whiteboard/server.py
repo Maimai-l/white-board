@@ -535,7 +535,7 @@ class _Session:
             log.exception("处理消息出错（%s）：%.200s", self.client_id, json.dumps(msg, default=str))
             if msg.get("t") == "op" and self.client is not None:
                 try:
-                    seq = self.hub.board().seq
+                    seq = self.hub.board(self.hub.board_of(self.client)).seq
                 except Exception:  # noqa: BLE001 - 出错的可能正是读白板这一步
                     seq = 0
                 await self.client.send({"t": "ack", "cid": msg.get("cid"), "seq": seq})
@@ -576,20 +576,29 @@ class _Session:
         if not isinstance(client_id, str) or not _CLIENT_ID_RE.match(client_id):
             client_id = models.new_id()
         role = detect_role("", msg.get("role"))
-        self.client = Client(client_id, self.ws, role, allowed=self.allowed)
+        pinned = None
+        if msg.get("pin") is not None:
+            pinned = self._pin(msg.get("pin"))
+            if pinned is None:
+                await self.ws.send_json({"t": "error", "reason": "pin"})
+                await self.ws.close()
+                return
+        self.client = Client(client_id, self.ws, role, allowed=self.allowed, pinned=pinned)
         self.client_id = client_id
         self.hub.clients[client_id] = self.client
         log.info(
-            "连接建立：%s（%s%s，在线 %d）",
+            "连接建立：%s（%s%s%s，在线 %d）",
             client_id,
             role,
             "" if self.client.allowed else "，只能写字",
+            f"，固定在 {pinned}" if pinned else "",
             len(self.hub.clients),
         )
 
         board_id = msg.get("board")
         since = msg.get("since")
-        runtime = self.hub.board()
+        current = self.hub.board_of(self.client)
+        runtime = self.hub.board(current)
         config: Config = self.app[CONFIG_KEY]
         common = {
             "role": role,
@@ -614,7 +623,7 @@ class _Session:
 
         # 断线重连：白板没换、epoch 一致且历史够长时只补差量，避免整块白板重传。
         same_epoch = msg.get("epoch") == runtime.epoch
-        if board_id == self.hub.current_id and same_epoch and isinstance(since, int) and since >= 0:
+        if board_id == current and same_epoch and isinstance(since, int) and since >= 0:
             ops = runtime.ops_since(since)
             if ops is not None:
                 await self.client.send({"t": "sync", "ops": ops, **common})
@@ -624,9 +633,44 @@ class _Session:
 
     # ------------------------------------------------------------- 操作
 
+    def _pin(self, raw: Any) -> Optional[str]:
+        """握手里的 ``pin``：找到或新建指定的白板，返回它的 id；不允许时返回 None。
+
+        应用自己建的白板（meta 里有 ``app``）只要能写字就能打开；用户自己的白板
+        要有「管理白板」权限，和在界面上切换白板相同。
+        """
+        if not isinstance(raw, dict):
+            return None
+        board_id, app = raw.get("board"), raw.get("app")
+        if not isinstance(board_id, str) or not models.PINNED_ID_RE.match(board_id):
+            return None
+        if not isinstance(app, str) or not models.APP_RE.match(app):
+            return None
+        existing = self.hub.store.get_meta(board_id)
+        if existing is not None and not existing.get("app") and "manage" not in self.allowed:
+            log.warning("拒绝固定到白板 %s：不是应用建立的白板，且没有管理权限", board_id)
+            return None
+        name = raw.get("name") if isinstance(raw.get("name"), str) else ""
+        folder = raw.get("folder") if isinstance(raw.get("folder"), str) else ""
+        kind = raw.get("kind") if isinstance(raw.get("kind"), str) else "board"
+        self.hub.pin_board(board_id, app, name=name, kind=kind, folder=folder)
+        return board_id
+
+    def _board_id(self) -> Optional[str]:
+        """这条连接所在的白板；固定的白板已被删除时返回 None。"""
+        board_id = self.hub.board_of(self.client)
+        if self.client.pinned and self.hub.store.get_meta(board_id) is None:
+            return None
+        return board_id
+
     async def _op(self, msg: Dict[str, Any]) -> None:
         raw = msg.get("op")
-        runtime = self.hub.board()
+        board_id = self._board_id()
+        if board_id is None:
+            # 固定的白板已被删除：回执但不应用，否则会把一块已删除的白板重新写回磁盘
+            await self.client.send({"t": "ack", "cid": msg.get("cid"), "seq": 0})
+            return
+        runtime = self.hub.board(board_id)
         if isinstance(raw, dict):
             kind = raw.get("op")
             if kind == "meta" and not self._may("settings"):
@@ -640,16 +684,20 @@ class _Session:
             await self.client.send({"t": "ack", "cid": cid, "seq": runtime.seq})
             return
         await self.client.send({"t": "ack", "cid": cid, "seq": op["seq"], "op": op})
-        await self.hub.broadcast(
-            {"t": "op", "op": op, "src": self.client.id, "board": self.hub.current_id},
+        await self.hub.broadcast_board(
+            board_id,
+            {"t": "op", "op": op, "src": self.client.id, "board": board_id},
             exclude=self.client.id,
         )
 
     async def _live(self, msg: Dict[str, Any]) -> None:
-        """书写过程中的实时点，不落盘，只转发给对端。"""
+        """书写过程中的实时点，不落盘，只转发给看着同一块白板的连接。"""
+        board_id = self._board_id()
+        if board_id is None:
+            return
         msg = dict(msg)
         msg["src"] = self.client.id
-        await self.hub.broadcast(msg, exclude=self.client.id)
+        await self.hub.broadcast_board(board_id, msg, exclude=self.client.id)
 
     # --------------------------------------------------------- 白板管理
 
@@ -747,14 +795,25 @@ class _Session:
         board_id = msg.get("board")
         if isinstance(board_id, str) and self.hub.delete_board(board_id):
             await self._broadcast_switch()
+            # 固定在这块白板上的连接不跟随切换，单独告诉它们白板已被删除
+            pinned = [c for c in list(self.hub.clients.values()) if c.pinned == board_id]
+            for client in pinned:
+                await client.send({"t": "deleted", "board": board_id})
 
     async def _unlock(self, msg: Dict[str, Any]) -> None:
         """用户看过提示、确认要编辑一块读不全的白板。只对当前这块，要管理权限。"""
         if not self._may("manage"):
             return
-        if self.hub.unlock():
+        board_id = self._board_id()
+        if board_id is None or not self.hub.unlock(board_id):
+            return
+        if board_id == self.hub.current_id:
             # 所有设备一起解除只读，发整块 switch：白板没换，客户端不会丢视角和撤销栈
             await self._broadcast_switch()
+        pinned = [c for c in list(self.hub.clients.values()) if c.pinned == board_id]
+        snapshot = self.hub.snapshot(board_id)
+        for client in pinned:
+            await client.send({"t": "switch", **snapshot})
 
     async def _ping(self, msg: Dict[str, Any]) -> None:
         await self.client.send({"t": "pong", "ts": msg.get("ts")})

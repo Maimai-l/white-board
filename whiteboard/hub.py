@@ -7,7 +7,9 @@
 * **单调序号**。每个被接受的操作拿到一个递增 ``seq``；客户端记住自己收到
   的最后一个 ``seq``，断线重连时带上它，服务端补发缺失的操作；缺口太大
   （超出历史窗口）则直接补发整块白板。
-* **同一块白板**。Mac 端选择白板，iPad 跟随，符合点对点的使用方式。
+* **两种连接**。默认的连接「跟随」当前白板：Mac 端选择白板，iPad 跟着切换，
+  符合点对点的使用方式。握手时指定了白板的连接是「固定」的：只收发那一块白板，
+  不随切换改变。其他应用（例如刷题页面）嵌入手写板时用这种连接，每道题一块白板。
 """
 
 from __future__ import annotations
@@ -175,16 +177,26 @@ class Client:
     ``allowed`` 是连接建立时按 TCP 对端地址定下来的权限集合：本机全给，别的设备
     只有 Mac 上一项项放开的那些。``role`` 是客户端自己报的，只用来决定界面长相，
     不能拿来当权限判断。
+
+    ``pinned`` 是固定连接所在白板的 id；为 None 时这条连接跟随当前白板。
     """
 
-    __slots__ = ("id", "ws", "role", "allowed", "connected_at")
+    __slots__ = ("id", "ws", "role", "allowed", "connected_at", "pinned")
 
-    def __init__(self, client_id: str, ws: Any, role: str, allowed: "FrozenSet[str]" = frozenset()):
+    def __init__(
+        self,
+        client_id: str,
+        ws: Any,
+        role: str,
+        allowed: "FrozenSet[str]" = frozenset(),
+        pinned: Optional[str] = None,
+    ):
         self.id = client_id
         self.ws = ws
         self.role = role
         self.allowed = allowed
         self.connected_at = time.time()
+        self.pinned = pinned
 
     async def send(self, message: Dict[str, Any]) -> None:
         try:
@@ -225,6 +237,40 @@ class Hub:
             "boards": self.store.list_metas(),
             "folders": self.store.folders(),
         }
+
+    def board_of(self, client: Client) -> str:
+        """这条连接所在的白板：固定连接是它指定的那块，其余是当前白板。"""
+        return client.pinned or self.current_id
+
+    def pin_board(
+        self,
+        board_id: str,
+        app: str,
+        name: str = "",
+        kind: str = "board",
+        folder: str = "",
+    ) -> Dict[str, Any]:
+        """固定连接指定的白板：已有就原样返回，没有就新建。新建不改变当前白板。
+
+        新建的白板在 meta 里记下建立它的应用（``app``），权限判断据此区分
+        「应用自己的白板」和用户的白板（见 server._Session._hello）。
+        """
+        meta = self.store.get_meta(board_id)
+        if meta is not None:
+            return meta
+        meta = self.store.create_board(
+            name,
+            make_current=False,
+            id=board_id,
+            kind=kind if kind in ("board", "note") else "board",
+            app=app,
+        )
+        clean = models.sanitize_folder(folder)
+        if clean:
+            self.move_board(board_id, clean)
+            meta = self.store.get_meta(board_id) or meta
+        log.info("应用 %s 新建白板 %s", app, board_id)
+        return meta
 
     def select_board(self, board_id: str) -> bool:
         if not self.store.get_meta(board_id) or board_id == self.current_id:
@@ -378,11 +424,28 @@ class Hub:
         message: Dict[str, Any],
         exclude: Optional[str] = None,
     ) -> None:
-        targets = [
-            client
-            for client in list(self.clients.values())
-            if client.id != exclude
-        ]
+        """发给跟随当前白板的连接。切换白板、白板列表这类消息只和它们有关。"""
+        await self._send_all(
+            [c for c in list(self.clients.values()) if c.id != exclude and c.pinned is None], message
+        )
+
+    async def broadcast_board(
+        self,
+        board_id: str,
+        message: Dict[str, Any],
+        exclude: Optional[str] = None,
+    ) -> None:
+        """发给所有正在看 ``board_id`` 的连接：跟随当前白板的，以及固定在它上面的。"""
+        await self._send_all(
+            [
+                c
+                for c in list(self.clients.values())
+                if c.id != exclude and self.board_of(c) == board_id
+            ],
+            message,
+        )
+
+    async def _send_all(self, targets: List[Client], message: Dict[str, Any]) -> None:
         if targets:
             await asyncio.gather(*(client.send(message) for client in targets))
 

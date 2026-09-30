@@ -131,6 +131,7 @@ A `.wbz` file is `zlib.compress(json_utf8, 6)` of the object below.
 | `created` | number | Creation time, Unix seconds. |
 | `updated` | number | Time of the last accepted operation, Unix seconds. Renaming and moving to a folder do not change it. |
 | `doc` | object | Only when `kind` is `doc`. See [Document boards](#document-boards). |
+| `app` | string | Optional. `^[a-z0-9-]{1,32}$`. The app that created the board through a pinned connection (see [protocol.md](protocol.md#pinned-connections)). Omitted for boards created in the whiteboard itself. |
 
 The obsolete fields `cols`, `rows` and `unit` from older files are dropped on read. A `doc` board without a valid `doc` object is read as `kind` = `board`.
 
