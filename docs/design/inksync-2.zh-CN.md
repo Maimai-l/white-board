@@ -1,6 +1,6 @@
 # inksync 2.0 需求与规格
 
-状态：草案，第二版，待确认。确认后再开始实现；实现完成时本文转为正式文档并补英文版。
+状态：已在 inksync 2.0.0 中实现。实现与本文的差别见第 12 节。对外接口的正式说明见 [packages/inksync/README.zh-CN.md](../../packages/inksync/README.zh-CN.md)（另有英文版）。
 
 本文说明手写同步组件（服务端 inksync 与前端手写板）重新划分边界的需求和规格。白板应用和刷题项目（qb）都是这个组件的使用者。
 
@@ -545,3 +545,14 @@ SDK 不再设置 `<html data-shell>`，改为提供 `shell` 属性和 `shell` �
 | 审查意见 | 原因 |
 | --- | --- |
 | 为 1.0.1 的嵌入接口和带 `pin` 的连接保留兼容 | 没有使用者（2.1 节）。 |
+
+## 12. 实现与规格的差别
+
+| 规格 | 实现 | 原因 |
+| --- | --- | --- |
+| `FileStorage(root, index_fields=(), convert_meta=None)`；索引行只含部分字段（4.5 节） | `FileStorage(root, convert_meta=None)`；索引行保存完整元数据，`list_boards` 返回完整元数据 | 元数据最大约 16 KB 加图片层列表，2 万块白板时内存和启动时间仍在目标内（启动约 0.45 秒）；使用者不必事先声明字段，白板应用的类型标签和文档名直接取自元数据。 |
+| 视图位置存入 IndexedDB，随白板缓存清理（6.5 节） | 存入 `localStorage` 的 `<存储前缀>views`，最多 200 块，按最后使用时间清理 | 视图在每次平移后写入，同步的 `localStorage` 比 IndexedDB 事务简单；上限相同，写满的问题（P13）同样解决。 |
+| 版本变更备份失败时停止启动（4.6 节） | 只有需要从 1.x 转换时，备份失败才停止启动；其他版本变更备份失败时照常启动，下次再试 | 不做转换时数据不被改写，停止启动只会让用户无法使用。 |
+| `locked` 事件 `{board, locked}` | `{board, locked, unlock}`，`caps.unlock` 为 true 时调用 `unlock()` | 与 1.0.1 相同，白板应用的「仍然编辑」使用它。 |
+| 不提供 `/sdk/inkpad.js` | 白板应用把 `/sdk/inkpad.js` 跳转到 `/inksync/inkpad.js` | 旧地址给出明确的去处；1.x 的选项仍需按 docs/embed.zh-CN.md 修改。 |
+

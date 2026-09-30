@@ -213,7 +213,7 @@ Choose the eraser in the eraser panel; the choice is remembered on the device. N
 | Object (default) | Deletes the stroke it touches. If the pixel eraser has already split a stroke into separate pieces, deletes only the touched piece. | 6, at any angle |
 | Pixel | Removes the swept area and keeps the rest. | Set by the Pencil's altitude angle when the Pencil lands |
 
-The pixel eraser's diameter follows `ERASER_CURVE` in `static/js/input-erase.js`, measured from native PencilKit. Values between the points are interpolated linearly.
+The pixel eraser's diameter follows `ERASER_CURVE` in `packages/inksync/inksync/web/input-erase.js`, measured from native PencilKit. Values between the points are interpolated linearly.
 
 | Altitude angle | 90° | 80° | 68°–37° | 35° | 32° | 28° | ≤ 25° |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -291,7 +291,7 @@ The first icon in the top-right group (白板) opens the board chooser: full-scr
 | Between two boards | Reorders. Other cards move aside only after the pointer rests in one place. |
 | Near the top or bottom edge | Scrolls the list. |
 
-- The order is stored in `index.json` on the Mac, so it is the same on every device and survives restarts. Folders are sorted by name and are not reordered by dragging.
+- The order is stored in `space.json` on the Mac, so it is the same on every device and survives restarts. Folders are sorted by name and are not reordered by dragging.
 - Dragging uses pointer events, not browser drag and drop, which iOS Safari does not implement. Timings and spring curves are at the top of `static/js/dragsort.js`.
 - `static/lab/drag.html` is a standalone copy for tuning those values on an iPad. It is available only when running from source; the packaged app excludes `static/lab/`.
 
@@ -354,7 +354,10 @@ The default storage directory is `~/Library/Application Support/Whiteboard/board
 ```
 boards-data/
   boards/<id>.wbz        one file per board
-  index.json             board list, order and folder names
+  index.sqlite           index of the board list (rebuildable)
+  space.json             order, folder names and the current board
+  spaces/<app name>/     boards of installed apps, same layout
+  apps/<app name>/       installed apps (see docs/embed.md)
   thumbs/<id>.png        chooser thumbnails
   docs/<id>.<ext>        original file of a document board
   backups/upgrade/       copies made before a new version first runs
@@ -364,7 +367,9 @@ boards-data/
 | Path | Details |
 | --- | --- |
 | `boards/<id>.wbz` | Points are quantized, delta-coded and varint-packed; the file is zlib-compressed. Format: [docs/format.md](docs/format.md). |
-| `index.json` | Rebuilt from the `.wbz` files if deleted. Folders that contain boards are recovered; empty folders are not. |
+| `index.sqlite` | Rebuilt from the `.wbz` files at the next start if deleted. At startup files are checked against the index by modification time, so files changed or added while the app was closed are picked up. |
+| `space.json` | Order, folder names and the current board. If deleted, the order falls back to last update; folders that contain boards are recovered, empty folders are not. |
+| `spaces/<app name>/` | Kept when the app (`apps/<app name>/`) is removed, and back when an app of the same name is installed again. |
 | `thumbs/<id>.png` | Uploaded by the Mac. Document boards have none; their first page is used. |
 | `docs/<id>.<ext>` | Read-only; deleted together with the board. |
 
@@ -381,7 +386,9 @@ Details: [docs/format.md](docs/format.md).
 
 ### Backups
 
-On the first launch after a version change, `boards/` and `index.json` are copied to `backups/upgrade/<time>_<old version>_to_<new version>/` before anything else is touched. The latest 5 copies are kept.
+On the first launch after a version change, `boards/`, `index.sqlite`, `space.json` and `spaces/` (whichever exist) are copied to `backups/upgrade/<time>_<old version>_to_<new version>/` before anything else is touched. The latest 5 copies are kept.
+
+When upgrading from 1.x to 2.0 the storage directory must be converted first (see [docs/format.md](docs/format.md#reading-1x-files)); if the backup fails then, the app does not start and shows the reason. Opening a directory converted by 2.0 with 1.x is not supported; to go back to 1.x, use the copy in `backups/upgrade/`.
 
 To check your boards before upgrading, run `python tools/check_boards.py`.
 
@@ -427,41 +434,47 @@ After three consecutive interruptions, the page shows a notice about Scribble. *
 ### Source tree
 
 ```
-packages/inksync/   sync server, installable on its own (see its README)
+packages/inksync/   sync component, installable on its own (interface in its README)
   inksync/
-    ws.py       WebSocket protocol; mount() for any aiohttp app
-    hub.py      operation log, broadcast, autosave, read-only boards
-    store.py    board persistence (zlib + compact point encoding)
+    server.py   WebSocket protocol v2; mount(), Spaces, serve_sdk()
+    hub.py      runtime of one space: operations, broadcast, saving, unloading, events
+    storage.py  board files, the SQLite index, space.json
+    policy.py   Principal, Policy, creation rate limits
     codec.py    quantization, delta coding and varint packing for points
-    models.py   data models and validation of network input
+    models.py   metadata v2, validation of strokes and operations
+    netinfo.py  .local host name, LAN addresses, Bonjour registration
+    web/        the pad's front end (native ES modules, no build step)
+      inkpad.js                    public entry point createInkPad
+      pad.js, eraser.js            drawing, erasing, undo, sync, cache, view; no interface
+      input.js, input-erase.js,    pointer routing and drawing; the eraser;
+        input-gesture.js,          pan / zoom / momentum; fallback for the
+        shell-fallback.js          0.9.43 shell
+      stroke.js, boardstate.js,    geometry, ordering and spatial index,
+        renderer.js, layers.js,    rendering, image layers,
+        net.js, cache.js, ...      sync, local cache, export
 whiteboard/
-  server.py     aiohttp routes; mounts the inksync protocol at /ws
-  hub.py, store.py   inksync plus document boards and thumbnails
+  server.py     aiohttp routes; mounts inksync at /ws, app spaces and permission rules
+  hub.py, store.py   the whiteboard extension: following, folders, order, document
+                boards, thumbnails, 1.x page compatibility and data migration
   config.py     settings file; command-line values that apply to one run only
   backup.py     copies the boards before a new version first touches them
   docs.py       document boards: reading, rendering and exporting PDFs / images
   inkpdf.py     ink as PDF vector paths
   freehand.py   Python port of perfect-freehand, for export
   profile.py    .mobileconfig and icon generation (PNG written in pure Python)
-  netinfo.py    .local host name, LAN addresses, mDNS, Bonjour for the shell
+  netinfo.py, codec.py   point to the modules of the same name in inksync (old import paths)
   ipadshell.py  the shell's install page, version endpoint and IPA download
   updater.py    update check, download, verification and replacement
   resources.py  paths and logging for source and packaged runs
   runner.py     runs the server in a background thread
   app.py        pywebview window and native file dialogs
   web/          front end (native ES modules, no build step)
-    static/js/
-      inkpad.js, app-eraser.js      handwriting pad: drawing, erasing, undo,
-                                    sync, cache, view; no interface
+    static/js/                      interface; the pad is loaded from /inksync/
       app.js                        whiteboard app on top of the pad: chooser,
                                     settings, import / export, updates
-      input.js, input-erase.js,     pointer routing and drawing; the eraser;
-        input-gesture.js,           pan / zoom / momentum; fallback for the
-        shell-fallback.js           0.9.43 shell
+      boards.js                     board kind, folder and document in the interface
       ui.js, ui-*.js                toolbar and tool picker; board chooser,
                                     dialogs, settings
-      stroke.js, boardstate.js,     geometry, ordering and spatial index,
-        renderer.js, net.js, ...    rendering, sync, cache, export
     static/lab/                     tuning pages (source runs only)
 ipad/           the iPad shell (Swift, project generated by XcodeGen)
 tools/          check_boards.py (check boards before upgrading) and research scripts
@@ -477,7 +490,9 @@ tools/          check_boards.py (check boards before upgrading) and research scr
 | [docs/ipad-shell.md](docs/ipad-shell.md) | iPad shell design |
 | [docs/recording.md](docs/recording.md) | Input recording |
 | [docs/release-checklist.md](docs/release-checklist.md) | Release checklist |
-| [docs/embed.md](docs/embed.md) | Embedding the handwriting pad in other apps |
+| [docs/embed.md](docs/embed.md) | Hosting apps in the whiteboard app and embedding the pad |
+| [packages/inksync/README.md](packages/inksync/README.md) | The inksync interface: storing and syncing boards on your own server |
+| [docs/design/inksync-2.zh-CN.md](docs/design/inksync-2.zh-CN.md) | inksync 2.0 requirements and spec (Chinese) |
 
 Input recording captures problems that need a real Pencil (pressure, tilt, coalesced samples within a frame, timing around lift-off) on the iPad for replay on a development machine. Open the diagnostics panel and use 录制输入 (Record input) in the bottom-left cell.
 
@@ -497,7 +512,7 @@ WB_BROWSER=webkit python -m pytest tests/test_browser.py    # end-to-end on WebK
 
 | Workflow | Runs |
 | --- | --- |
-| `tests.yml` | Python tests with Chromium, front-end unit tests with Node, a smoke subset on WebKit |
+| `tests.yml` | Python tests with Chromium, front-end unit tests with Node, a smoke subset on WebKit; inksync installed and tested on its own on Python 3.10 |
 | `build-macos.yml` | Builds the iPad shell and the macOS app on `v*` tags (publishes a Release), on pull requests that touch the app or its packaging, and manually |
 | `ipad-check.yml` | Compiles the iPad shell when `ipad/` changes |
 

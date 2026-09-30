@@ -17,7 +17,8 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 
 ### Upgrade
 
-- [ ] Install the prerelease and open it for the first time. The storage directory contains `backups/upgrade/<time>_<old version>_to_<new version>/` with `boards/` and `index.json` inside.
+- [ ] Install the prerelease and open it for the first time. The storage directory contains `backups/upgrade/<time>_<old version>_to_<new version>/` with `boards/` inside, plus whichever of `index.json` (when upgrading from 1.x), `index.sqlite`, `space.json` and `spaces/` exist.
+- [ ] When upgrading from 1.x: the storage directory has `index.sqlite` and `space.json`, and `index.json` is renamed to `index.v1.json`; boards created by apps in 1.x are in `spaces/<app name>/` and open read-only from that app's entry in the board chooser.
 - [ ] “关于” (About) shows the new version number, including the `-rc` suffix.
 - [ ] All existing boards are present, with the same content, folders, and order as before the upgrade. Opening several of them shows no read-only notice.
 

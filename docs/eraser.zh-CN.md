@@ -229,7 +229,7 @@ python3 tools/compare_native_eraser.py <解压后的 InkProbe sessions 目录>
 
 遮罩变更每个动画帧发送一次，格式为 `{"op": "mask", "masks": [{id, m}]}`，内容是笔画当前的完整遮罩而不是增量。见 [protocol.zh-CN.md](protocol.zh-CN.md)。
 
-- 客户端忽略回传的自身 `mask` 操作（`inkpad.js` `applyOp` 中的 `context.mine`）。本地遮罩已经是最新的，回执到达时通常已包含更新的段。
+- 客户端忽略回传的自身 `mask` 操作（`pad.js` `applyOp` 中的 `context.mine`）。本地遮罩已经是最新的，回执到达时通常已包含更新的段。
 - 服务端只在遮罩超过 `MAX_MASK_SEGMENTS` 时改写遮罩，该上限高于客户端上限。
 - 过长的笔画在提交时切分为几条，因为服务端会丢弃超过 `MAX_POINTS_PER_STROKE`（20000）的点列。见 [protocol.zh-CN.md](protocol.zh-CN.md)。
 

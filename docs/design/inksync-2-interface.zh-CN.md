@@ -1,6 +1,6 @@
 # inksync 2.0 接口
 
-本文是 inksync 2.0 对外接口的约定，供使用 inksync 的项目（例如刷题项目 qb）在 2.0 实现期间并行开发。接口在 inksync 2.0.0 发布时生效。实现期间如有变动，会更新本文并在第 9 节记录。
+本文是 inksync 2.0 对外接口的约定，供使用 inksync 的项目（例如刷题项目 qb）开发时参照。接口已在 inksync 2.0.0 中实现；正式文档是 [packages/inksync/README.zh-CN.md](../../packages/inksync/README.zh-CN.md)，内容与本文第 1 至 7 节相同。变动记录在第 9 节。
 
 设计依据见 [inksync-2.zh-CN.md](inksync-2.zh-CN.md)。
 
@@ -16,6 +16,8 @@
 
 ```bash
 pip install "inksync[discovery] @ git+https://github.com/Maimai-l/white-board.git@v2.0.0#subdirectory=packages/inksync"
+# 从本地仓库安装
+pip install ./packages/inksync
 ```
 
 需要 Python 3.10 或更高版本、aiohttp 3.9 或更高版本。`[discovery]` 在 macOS 以外的系统上注册 Bonjour 服务时需要。
@@ -49,7 +51,7 @@ class QbPolicy(DefaultPolicy):
 
 
 app = web.Application()
-hub = Hub(FileStorage(ROOT / "data" / "ink", index_fields=("paper", "question")), policy=QbPolicy())
+hub = Hub(FileStorage(ROOT / "data" / "ink"), policy=QbPolicy())
 mount(app, hub, path="/ws", authenticate=authenticate)
 serve_sdk(app, prefix="/inksync/")
 app.router.add_static("/static/", ROOT / "static")
@@ -108,12 +110,12 @@ from inksync.netinfo import advertise, is_local_request
 
 在 `prefix` 下提供前端文件，入口为 `<prefix>inkpad.js`。所有响应带 `Cache-Control: no-cache`。前端版本与服务端相同。
 
-### 3.4 `FileStorage(root, index_fields=())`
+### 3.4 `FileStorage(root, convert_meta=None)`
 
 | 参数 | 说明 |
 | --- | --- |
-| `root` | 存储目录。其中 `boards/<id>.wbz` 是白板文件，`index.sqlite` 是索引（可随时重建），`space.json` 是空间级数据。 |
-| `index_fields` | 需要列入索引的 `data` 字段名，可用点号取嵌套字段。只有索引中的字段能用于 `hub.list_boards` 的结果。 |
+| `root` | 存储目录。其中 `boards/<id>.wbz` 是白板文件，`index.sqlite` 是索引（可随时重建），`space.json` 是空间级数据（`storage.kv`）。 |
+| `convert_meta` | 可选。读到 1.x 白板文件时调用，参数是已经换成 2.0 字段的元数据，返回补充之后的元数据。 |
 
 ### 3.5 `Hub(storage, policy=None, autosave=3.0, idle_unload=120.0)`
 
@@ -123,14 +125,20 @@ from inksync.netinfo import advertise, is_local_request
 | --- | --- |
 | `hub.on(event, callback)` | `"created"`、`"saved"`、`"deleted"`：`callback(board_id, meta)`。`"changed"`：`callback(board_id, meta, op)`，每个被接受的操作一次。回调在事件循环线程中调用，不能阻塞。返回取消订阅的函数。 |
 | `hub.board_meta(board_id)` | 元数据，不存在时为 None。 |
-| `hub.list_boards(offset=0, limit=100, prefix="", order="updated")` | 索引行列表：`id`、`name`、`created`、`updated`、`canvas`（只含 `mode`）以及 `index_fields` 中的字段（放在 `data` 下）。`order` 为 `updated`、`created` 或 `name`，均为从新到旧或按名称升序。 |
+| `hub.list_boards(offset=0, limit=100, prefix="", order="updated")` | 元数据列表（取自内存中的索引，不读白板文件）。`order` 为 `updated`、`created`（从新到旧）、`name`（升序），或一个白板 id 的列表（列表中的在前，按列表顺序）。`limit` 为 None 时不限。 |
 | `hub.count(prefix="")` | 白板数。 |
 | `await hub.strokes(board_id)` | 当前全部笔画的副本，按层叠顺序排列，格式见 5.3 节。白板不存在时为 None。 |
 | `await hub.create_board(board_id, spec)` | 由服务端新建白板，`spec` 与前端 `create` 相同。已存在时抛出 `ValueError`。 |
 | `await hub.edit_meta(board_id, patch)` | 由服务端修改元数据，规则见 5.2 节；不受 `Policy` 和 `protected_data_keys` 限制。已连接的前端立即收到新的元数据。 |
-| `await hub.delete_board(board_id)` | 删除白板。显示它的前端收到 `deleted` 事件。 |
+| `await hub.delete_board(board_id)` | 删除白板，返回是否删除。显示它的前端收到 `deleted` 事件；之后针对它的操作被拒绝（`rejected: "deleted"`），白板不会被重新写回。 |
+| `await hub.import_file(path)` | 把存储目录之外的 `.wbz` 复制成一块新白板，返回 `(meta, 原元数据, 原 id)`。 |
+| `await hub.flush()` | 等待进行中的保存，再保存全部改动。 |
 | `hub.connections()` | 当前连接的只读列表，每项有 `id`、`principal`、`board`、`readonly`、`device`。 |
 | `await hub.refresh()` | 规则的判断依据变化后调用：重新计算每个连接的 `caps` 并通知前端。 |
+| `await hub.reauthenticate(authenticate)` | 身份的判断方式变化后调用：按保存的请求重新计算每个连接的身份，返回身份有变化的连接，然后 `refresh()`。 |
+| `hub.register(name, handler)` | 注册一种扩展消息，`handler(conn, msg)` 是协程函数；`await conn.send(msg)` 向这条连接发消息。 |
+
+保存在工作线程中进行：事件循环线程只复制内容，编码和写盘不阻塞同步。没有连接、已经保存、超过 `idle_unload` 秒没用的白板从内存中释放，再次打开时重新读入。
 
 ### 3.6 `Spaces(factory)`
 
@@ -193,7 +201,7 @@ class Principal:
 | 成员 | 说明 |
 | --- | --- |
 | `open(board, {create, readonly})` | 在同一连接上切换到另一块白板，撤销记录清空。上一块白板尚未送达的书写会继续送达上一块白板。返回 Promise，白板载入后完成；失败时拒绝并触发 `error`。 |
-| `setTool(tool)` | 切换工具，格式同 `tool` 选项。 |
+| `setTool(tool)` | 切换工具，格式同 `tool` 选项；只给出的字段被替换（例如 `setTool({ tool: "eraser" })` 保留颜色和粗细）。 |
 | `undo()`、`redo()` | 撤销、重做本设备在当前白板上的修改。 |
 | `clear()` | 清空当前白板（可撤销）。 |
 | `fit()` | `fixed` 画布显示整个画布；其他显示全部笔迹。 |
@@ -228,7 +236,7 @@ class Principal:
 | `change` | `{board}` | 当前白板的笔迹变化（本机或其他设备）。 |
 | `op` | `{board, op}` | 本机发出一个操作。 |
 | `strokestart`、`strokeend` | 笔画 | 本机一笔开始、结束。 |
-| `locked` | `{board, locked}` | 白板进入或解除只读。 |
+| `locked` | `{board, locked, unlock}` | 白板进入或解除只读。`caps.unlock` 为 true 时，调用 `unlock()` 请求服务端允许编辑。 |
 | `caps` | `caps` | 权限变化。 |
 | `deleted` | `{board}` | 当前白板被删除。 |
 | `error` | `{reason, detail}` | 服务端拒绝：`board`（不存在且没有 `create`）、`create`（`create` 不合法）、`denied`（规则拒绝）、`rate`（新建过于频繁）、`space`、`version`。 |
@@ -250,7 +258,7 @@ class Principal:
 
 - 一个页面可以有多块手写板，每块只接收起点位于自身区域内的笔画，外壳的采样也是如此。
 - 手写板只在自身区域内拦截触摸手势；页面其他位置的输入框、按钮和滚动照常工作。外壳关闭了系统的手写文字输入，页面输入框用键盘输入。
-- 离线时的书写保存在 IndexedDB，重连后送达。每个存储前缀最多缓存 200 块白板的内容，超出时删除最久未用的；有未送达书写的白板不删除。
+- 离线时的书写保存在 IndexedDB，重连后送达。每个存储前缀一个库，最多缓存 200 块白板的内容，超出时删除最久未用的；有未送达书写的白板不删除。视图位置（缩放和平移）存在 `localStorage` 的 `<storage>views` 中，同样最多 200 块。
 - SDK 在页面上只安装一个全局对象 `window.whiteboardShell`（外壳调用它）。
 
 ## 5. 数据格式
@@ -324,14 +332,15 @@ class Principal:
 | 新建速率 | 由 `Policy.create_limit` 决定 |
 | 白板数量 | 不设上限 |
 
-## 8. 并行开发建议
+## 8. 使用建议
 
-- 2.0 发布前，页面可以用 `transport: "local"` 开发界面：接口与联网时相同，只是不同步。
-- 身份：建议用 Cookie 或页面地址中的令牌，在 `authenticate` 中解析。白板 id 中包含用户标识，并在 `can_open`、`can_create` 中核对，可以防止用户打开他人的白板。
-- 批改：用 `hub.on("changed")` 或 `hub.on("saved")` 得知答案变化，用 `hub.strokes()` 读取笔画。
+- 身份：建议用 Cookie 或页面地址中的令牌，在 `authenticate` 中解析。白板 id 中包含用户标识，并在 `can_open`、`can_create` 中核对，可以防止用户打开他人的白板。完整示例见 [examples/qb-server](../../examples/qb-server/server.py)。
+- 批改：用 `hub.on("changed")` 或 `hub.on("saved")` 得知答案变化，用 `hub.strokes()` 读取笔画，用 `hub.edit_meta()` 写入分数；分数所在的 `data` 键列入 `protected_data_keys`，前端不能修改。
+- 不连接服务端时，页面可以用 `transport: "local"` 开发界面：接口与联网时相同，只是不同步。
 
 ## 9. 变更记录
 
 | 日期 | 变更 |
 | --- | --- |
 | 2026-09-30 | 初版。 |
+| 2026-09-30 | 随 2.0.0 实现更新：`FileStorage` 去掉 `index_fields`，`list_boards` 返回完整元数据，`order` 可以是白板 id 列表；`Hub` 增加 `delete_board`、`import_file`、`flush`、`reauthenticate`、`register`；`setTool` 只替换给出的字段；`locked` 事件带 `unlock`；视图位置存在 `localStorage`；第 8 节改为使用建议。 |

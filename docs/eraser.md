@@ -229,7 +229,7 @@ The eraser processes the same samples as drawing.
 
 Mask changes are sent once per animation frame as `{"op": "mask", "masks": [{id, m}]}`, with the stroke's full current mask rather than a delta. See [protocol.md](protocol.md).
 
-- A client ignores `mask` operations that echo its own changes (`context.mine` in `inkpad.js` `applyOp`). The local mask is already current, and by the time the acknowledgement arrives it usually contains newer segments.
+- A client ignores `mask` operations that echo its own changes (`context.mine` in `pad.js` `applyOp`). The local mask is already current, and by the time the acknowledgement arrives it usually contains newer segments.
 - The server rewrites a mask only when it exceeds `MAX_MASK_SEGMENTS`, which is above the client limit.
 - Very long strokes are split into several strokes at commit time, because the server drops point lists longer than `MAX_POINTS_PER_STROKE` (20000). See [protocol.md](protocol.md).
 

@@ -7,6 +7,31 @@ One section per version, titled with the version number. When a release is publi
 > **Note**
 > The update dialog displays content line by line, so every entry must fit on a single line.
 
+## 2.0.0
+
+The inksync sync component is redesigned so that other projects can use the handwriting pad on their own servers. Using the whiteboard app does not change.
+
+### Before upgrading
+
+- The first start converts the storage directory: it creates `index.sqlite` and `space.json` and renames `index.json` to `index.v1.json`. The data before conversion is backed up to `backups/upgrade/`; if the backup fails, the app does not start and shows the reason.
+- Downgrading is not supported. 1.x can no longer use a converted storage directory; to go back to 1.x, restore from `backups/upgrade/`.
+- Boards created by apps in 1.x move into each app's space (`spaces/<app name>/`) and no longer appear among your own boards.
+- The iPad shell does not need an update. Open 1.x pages keep working and switch to the new version after reloading.
+
+### New
+
+- No limit on the number of boards: the board list comes from a SQLite index, so starting and creating boards do not slow down as boards accumulate (about 0.5 s to start with 20,000 boards).
+- The board chooser shows one entry per installed app; its boards can be browsed page by page and viewed read-only (requires the Manage boards permission).
+- Embedded pads: the canvas can be infinite, fixed-width, or fixed in both width and height; pads can have several image layers and store the app's own data; one pad can switch boards (`open`). Interface: packages/inksync/README.md.
+- Access rules in inksync are defined by the host (`Policy`), so boards can be separated per user; `examples/qb-server` is a complete example.
+- The pad's front end ships with inksync and is served by `serve_sdk` at `/inksync/inkpad.js`.
+
+### Improved
+
+- Boards are saved and loaded on a background thread, so saving a large board does not delay sync; boards unused for a while are released from memory.
+- Local caches are separated per project and hold at most 200 boards each, instead of growing without limit.
+- After the server is upgraded, open pages reload when idle.
+
 ## 1.0.1
 
 ### New

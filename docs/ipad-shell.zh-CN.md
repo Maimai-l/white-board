@@ -115,7 +115,7 @@ cd ipad && xcodegen generate
 
 页面的加载方式：
 
-- 页面地址为 `http://<主机名>.local:<端口><路径>`，路径取自 TXT 记录的 `path`，默认为 `/?role=ipad`。`role=ipad` 使白板服务端返回 iPad 界面（`packages/inksync/inksync/ws.py` 的 `detect_role`，由 `whiteboard/server.py` 调用）。主机名和端口取自 Bonjour 服务的 TXT 记录（8.4 节）。
+- 页面地址为 `http://<主机名>.local:<端口><路径>`，路径取自 TXT 记录的 `path`，默认为 `/?role=ipad`。`role=ipad` 使白板服务端返回 iPad 界面（`whiteboard/server.py` 的 `detect_role`）。主机名和端口取自 Bonjour 服务的 TXT 记录（8.4 节）。
 - 每次加载都忽略本地缓存，超时时间为 8 秒。
 - 加载失败时，外壳显示错误原因以及「重试」「重新查找 Mac」两个按钮。
 - 开始新的导航时，外壳停止发送采样点，直到页面重新完成握手（5.2 节）。
@@ -501,6 +501,8 @@ TXT 记录的字段：
 
 其他项目用 `inksync.netinfo.advertise(app, port, source, path)` 注册同一种服务（见 packages/inksync/README.zh-CN.md）。它与白板使用相同的代码：macOS 上用 `DNSServiceRegister`，其他系统用 zeroconf。
 
+其他项目对外壳的依赖只有三项，在 inksync 2.x 中保持不变：TXT 记录的 `source` 和 `path`；第 5 节的外壳与网页之间的接口（由 inksync 的前端处理，页面不需要代码）；`GET /ipad/version`。最后一项可以不提供：请求失败时外壳不提示更新。
+
 > **警告**
 > 在 macOS 上必须通过系统的 mDNSResponder 注册，不得启动第二个 mDNS 响应程序。基于 zeroconf 的 `MDNSAdvertiser` 会自行监听 mDNS 端口，因此在 macOS 上默认关闭（`netinfo.mdns_default()`）。
 
@@ -592,7 +594,7 @@ Q2 的结论与措施：
 
 - 0.9.43 版的录像 `20260927-211825` 中，三笔都只收到落笔后约 30 ms 的采样点，此后没有 `move`，也没有 `up`。网页调用 `preventDefault` 后，WebKit 内部用于推迟其他手势的识别器会使 WKWebView 内部挂接的识别器失败。
 - 外壳改为在窗口的 `sendEvent` 中读取采样点（4.2 节）。只有估计属性更新仍使用手势识别器，挂在 WKWebView 的父视图上。
-- 0.9.43 版外壳需要重新安装才能修正；在此之前，网页用 Safari 的 pen 事件补充缺失部分（`whiteboard/web/static/js/shell-fallback.js`）。补充后的笔画精度与 Safari 相同，但笔画完整：
+- 0.9.43 版外壳需要重新安装才能修正；在此之前，网页用 Safari 的 pen 事件补充缺失部分（`packages/inksync/inksync/web/shell-fallback.js`）。补充后的笔画精度与 Safari 相同，但笔画完整：
 
   | 情况 | 网页的处理 |
   |---|---|

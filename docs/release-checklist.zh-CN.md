@@ -17,7 +17,8 @@ CI 只在 Linux 上的 Chromium 和 WebKit 中运行。Apple Pencil 输入、iPa
 
 ### 升级
 
-- [ ] 安装预发布版并首次打开。存储目录中出现 `backups/upgrade/<时间>_<旧版本>_to_<新版本>/`，其中包含 `boards/` 与 `index.json`。
+- [ ] 安装预发布版并首次打开。存储目录中出现 `backups/upgrade/<时间>_<旧版本>_to_<新版本>/`，其中包含 `boards/` 以及存在的 `index.json`（从 1.x 升级时）、`index.sqlite`、`space.json`、`spaces/`。
+- [ ] 从 1.x 升级时：存储目录中出现 `index.sqlite` 与 `space.json`，`index.json` 改名为 `index.v1.json`；1.x 中应用建立的白板移入 `spaces/<应用名>/`，在白板选择界面对应应用的一项中能以只读方式打开。
 - [ ] 「关于」中显示新版本号，带 `-rc` 后缀。
 - [ ] 原有白板全部存在，内容、文件夹与顺序均与升级前一致。打开其中若干块，均不出现只读提示。
 
