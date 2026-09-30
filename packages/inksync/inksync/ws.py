@@ -7,8 +7,8 @@
     mount(app, Hub(BoardStore("data")))      # /ws
     web.run_app(app, port=8848)
 
-权限默认全部给（manage、settings、clear、export）；传入 ``permissions`` 可以按请求
-收紧，例如只给本机。
+权限默认只给本机（manage、settings、clear、export 全部），局域网上的其他设备只能写字；
+传入 ``permissions`` 可以按请求放开。
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import Any, Callable, Dict, FrozenSet, Optional
 
 from aiohttp import WSMsgType, web
 
-from . import __version__, models
+from . import __version__, models, netinfo
 from .hub import Client, Hub
 
 log = logging.getLogger(__name__)
@@ -44,33 +44,54 @@ def detect_role(user_agent: str, override: Optional[str] = None) -> str:
 
 
 
+def local_only(request: web.Request) -> FrozenSet[str]:
+    """默认的权限：本机全部给，其他设备只能写字（见 netinfo.is_local_request）。"""
+    return frozenset(PERMISSIONS) if netinfo.is_local_request(request) else frozenset()
+
+
+# 固定连接能不能打开或新建某块白板：(权限, 应用名, 白板 id, 已有的 meta 或 None) -> bool
+PinPolicy = Callable[[FrozenSet[str], str, str, Optional[Dict[str, Any]]], bool]
+
+
+def default_pin_policy(allowed: FrozenSet[str], app: str, board_id: str, existing: Optional[Dict[str, Any]]) -> bool:
+    """应用自己的白板（或新建）只要能写字就行；用户自己的白板要「管理白板」权限。"""
+    return existing is None or bool(existing.get("app")) or "manage" in allowed
+
+
 def websocket_handler(
     get_hub: Callable[[web.Request], Hub],
     permissions: Optional[Callable[[web.Request], FrozenSet[str]]] = None,
     info: Optional[Callable[[web.Request], Dict[str, Any]]] = None,
+    pin_policy: Optional[PinPolicy] = None,
 ):
     """返回处理 ``/ws`` 的 aiohttp 处理函数。
 
     ``get_hub`` 取这条请求对应的 Hub；``permissions`` 按请求决定这条连接的权限
-    （默认全部给）；``info`` 返回握手时发给客户端的 ``info`` 字段（默认只有版本号）。
+    （默认 :func:`local_only`）；``info`` 返回握手时发给客户端的 ``info`` 字段（默认只有
+    版本号）；``pin_policy`` 决定固定连接能打开哪些白板（默认 :func:`default_pin_policy`）。
     """
+    decide = permissions or local_only
 
     async def handle_ws(request: web.Request) -> web.WebSocketResponse:
-        allowed = permissions(request) if permissions else frozenset(PERMISSIONS)
         details = info(request) if info else {"version": __version__}
-        return await serve_ws(request, get_hub(request), allowed, details)
+        return await serve_ws(request, get_hub(request), frozenset(decide(request)), details, pin_policy)
 
     return handle_ws
 
 
 async def serve_ws(
-    request: web.Request, hub: Hub, allowed: FrozenSet[str], info: Dict[str, Any]
+    request: web.Request,
+    hub: Hub,
+    allowed: FrozenSet[str],
+    info: Dict[str, Any],
+    pin_policy: Optional[PinPolicy] = None,
 ) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=20.0, max_msg_size=MAX_WS_MESSAGE)
     await ws.prepare(request)
 
-    # 权限在握手之前就按对端地址定下来，之后客户端说什么都改不了它。
-    session = Session(hub, ws, allowed=allowed, info=info)
+    # 权限在握手之前就按对端地址定下来，客户端说什么都改不了它；Mac 上改了权限设置
+    # 时由 Hub.refresh_permissions 按同一个请求重新计算。
+    session = Session(hub, ws, allowed=allowed, info=info, request=request, pin_policy=pin_policy)
     try:
         async for msg in ws:
             if msg.type != WSMsgType.TEXT:
@@ -98,11 +119,15 @@ class Session:
         ws: web.WebSocketResponse,
         allowed: FrozenSet[str] = frozenset(PERMISSIONS),
         info: Optional[Dict[str, Any]] = None,
+        request: Any = None,
+        pin_policy: Optional[PinPolicy] = None,
     ):
         self.hub = hub
         self.ws = ws
         self.allowed = allowed
         self.info = info if info is not None else {"version": __version__}
+        self.request = request
+        self.pin_policy = pin_policy or default_pin_policy
         self.client = None
         self.client_id = "-"
 
@@ -178,7 +203,7 @@ class Session:
                 await self.ws.send_json({"t": "error", "reason": "pin"})
                 await self.ws.close()
                 return
-        self.client = Client(client_id, self.ws, role, allowed=self.allowed, pinned=pinned)
+        self.client = Client(client_id, self.ws, role, allowed=self.allowed, pinned=pinned, request=self.request)
         self.client_id = client_id
         self.hub.clients[client_id] = self.client
         log.info(
@@ -213,10 +238,10 @@ class Session:
         if board_id == current and same_epoch and isinstance(since, int) and since >= 0:
             ops = runtime.ops_since(since)
             if ops is not None:
-                await self.client.send({"t": "sync", "ops": ops, **common})
+                await self.client.send(self.hub.visible(self.client, {"t": "sync", "ops": ops, **common}))
                 return
 
-        await self.client.send({"t": "init", "strokes": runtime.stroke_list(), **common})
+        await self.client.send(self.hub.visible(self.client, {"t": "init", "strokes": runtime.stroke_list(), **common}))
         if created:
             # 新建的白板要出现在其他设备的白板列表里
             await self._broadcast_boards()
@@ -237,13 +262,17 @@ class Session:
         if not isinstance(app, str) or not models.APP_RE.match(app):
             return None, False
         existing = self.hub.store.get_meta(board_id)
-        if existing is not None and not existing.get("app") and "manage" not in self.allowed:
-            log.warning("拒绝固定到白板 %s：不是应用建立的白板，且没有管理权限", board_id)
+        if not self.pin_policy(self.allowed, app, board_id, existing):
+            log.warning("拒绝固定到白板 %s（应用 %s）", board_id, app)
             return None, False
         name = raw.get("name") if isinstance(raw.get("name"), str) else ""
         folder = raw.get("folder") if isinstance(raw.get("folder"), str) else ""
         kind = raw.get("kind") if isinstance(raw.get("kind"), str) else "board"
-        self.hub.pin_board(board_id, app, name=name, kind=kind, folder=folder, underlay=raw.get("underlay"))
+        try:
+            self.hub.pin_board(board_id, app, name=name, kind=kind, folder=folder, underlay=raw.get("underlay"))
+        except ValueError as exc:  # 应用的白板数量到了上限
+            log.warning("拒绝新建白板 %s：%s", board_id, exc)
+            return None, False
         return board_id, existing is None
 
     def _board_id(self) -> Optional[str]:
@@ -423,9 +452,14 @@ def mount(
     path: str = "/ws",
     permissions: Optional[Callable[[web.Request], FrozenSet[str]]] = None,
     info: Optional[Callable[[web.Request], Dict[str, Any]]] = None,
+    pin_policy: Optional[PinPolicy] = None,
 ) -> None:
-    """把同步协议挂到 ``app`` 的 ``path`` 上，并接管 Hub 的自动保存与关闭。"""
-    app.router.add_get(path, websocket_handler(lambda _request: hub, permissions, info))
+    """把同步协议挂到 ``app`` 的 ``path`` 上，并接管 Hub 的自动保存与关闭。
+
+    权限默认只给本机（:func:`local_only`）。之后改了权限规则，调用
+    ``hub.refresh_permissions(lambda client: permissions(client.request))`` 让已连接的设备生效。
+    """
+    app.router.add_get(path, websocket_handler(lambda _request: hub, permissions, info, pin_policy))
 
     async def _on_startup(_app: web.Application) -> None:
         hub.start_autosave()

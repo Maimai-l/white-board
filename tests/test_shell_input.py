@@ -259,8 +259,13 @@ def test_stroke_is_closed_when_the_shell_never_sends_up(browser, server):
     ipad.evaluate(FIRE, ["pointerdown", 300, 301, "pen", 7, 0.3])
     send(ipad, batches[:3])  # 之后外壳再没送过采样
     ipad.evaluate(FIRE, ["pointermove", 360, 340, "pen", 7, 0.3])
-    ipad.evaluate(FIRE, ["pointerup", 417, 379, "pen", 7, 0])
-    assert ipad.evaluate("() => whiteboard.input.draw !== null")
+    # 抬笔和检查放在同一次调用里：网页 150 ms 后就会替外壳收尾，分两次调用的话
+    # 机器一忙，检查时这一笔可能已经收完了
+    still_open = ipad.evaluate(
+        f"(args) => {{ ({FIRE})(args); return whiteboard.input.draw !== null; }}",
+        ["pointerup", 417, 379, "pen", 7, 0],
+    )
+    assert still_open
     ipad.wait_for_function("() => whiteboard.state.strokes.length === 1", timeout=2000)
     assert ipad.evaluate("() => whiteboard.input.draw") is None
     assert ipad.evaluate("() => whiteboard.input.stats.shellOrphan") == 1

@@ -87,6 +87,38 @@ def is_own_address(remote: Optional[str]) -> bool:
     return bool(own and str(address) == own)
 
 
+def is_local_request(request) -> bool:
+    """这个 HTTP / WebSocket 请求是不是来自本机。
+
+    * 带代理转发头（``X-Forwarded-For`` / ``Forwarded``）的一律不算：经过本机上的反向
+      代理转来的请求，对端地址都是回环，但真正的来源是别的设备；
+    * 回环地址、本机的主局域网地址算（:func:`is_own_address`）；
+    * 对端地址等于本服务接收这条连接的地址也算：机器连自己时两端是同一个地址，
+      不论走的是哪块网卡、IPv4 还是 IPv6。
+    """
+    headers = getattr(request, "headers", {}) or {}
+    if "X-Forwarded-For" in headers or "Forwarded" in headers:
+        return False
+    remote = getattr(request, "remote", None)
+    if is_own_address(remote):
+        return True
+    transport = getattr(request, "transport", None)
+    sockname = transport.get_extra_info("sockname") if transport is not None else None
+    return is_same_host(remote, sockname[0] if sockname else None)
+
+
+def is_same_host(remote: Optional[str], local: Optional[str]) -> bool:
+    """对端地址和本端地址相同（回环除外：回环已经在 is_own_address 里判断过）。"""
+    if not remote or not local:
+        return False
+    try:
+        a = ipaddress.ip_address(remote.split("%")[0])
+        b = ipaddress.ip_address(local.split("%")[0])
+    except ValueError:
+        return False
+    return not a.is_loopback and a == b
+
+
 def candidate_urls(port: int) -> List[str]:
     urls = [f"http://{local_hostname()}:{port}/"]
     ip = lan_ip()

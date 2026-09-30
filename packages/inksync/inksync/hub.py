@@ -27,6 +27,8 @@ log = logging.getLogger(__name__)
 
 # 保留的操作历史条数，决定断线多久之后需要全量补齐。
 OPS_HISTORY = 4000
+# 每个应用最多能通过固定连接建多少块白板，防止被不停地新建
+MAX_APP_BOARDS = 5000
 AUTOSAVE_INTERVAL = 3.0
 
 
@@ -181,7 +183,7 @@ class Client:
     ``pinned`` 是固定连接所在白板的 id；为 None 时这条连接跟随当前白板。
     """
 
-    __slots__ = ("id", "ws", "role", "allowed", "connected_at", "pinned")
+    __slots__ = ("id", "ws", "role", "allowed", "connected_at", "pinned", "request")
 
     def __init__(
         self,
@@ -190,6 +192,7 @@ class Client:
         role: str,
         allowed: "FrozenSet[str]" = frozenset(),
         pinned: Optional[str] = None,
+        request: Any = None,
     ):
         self.id = client_id
         self.ws = ws
@@ -197,6 +200,8 @@ class Client:
         self.allowed = allowed
         self.connected_at = time.time()
         self.pinned = pinned
+        # 建立连接的那个请求：权限改动之后按它重新计算（Hub.refresh_permissions）
+        self.request = request
 
     async def send(self, message: Dict[str, Any]) -> None:
         try:
@@ -259,6 +264,8 @@ class Hub:
         meta = self.store.get_meta(board_id)
         if meta is not None:
             return meta
+        if sum(1 for m in self.store.list_metas() if m.get("app") == app) >= MAX_APP_BOARDS:
+            raise ValueError(f"应用 {app} 的白板已达上限 {MAX_APP_BOARDS}")
         meta = self.store.create_board(
             name,
             make_current=False,
@@ -434,7 +441,44 @@ class Hub:
 
     async def _send_all(self, targets: List[Client], message: Dict[str, Any]) -> None:
         if targets:
-            await asyncio.gather(*(client.send(message) for client in targets))
+            await asyncio.gather(*(client.send(self.visible(client, message)) for client in targets))
+
+    def visible(self, client: Client, message: Dict[str, Any]) -> Dict[str, Any]:
+        """没有「管理白板」权限的连接看不到完整的白板列表，只看得到自己所在的那块。
+
+        列表里有每块白板的 id 和名字；拿到 id 就能访问那块白板的文档页等内容。
+        """
+        if "boards" not in message or "manage" in client.allowed:
+            return message
+        own = self.board_of(client)
+        return dict(
+            message,
+            boards=[meta for meta in message.get("boards") or [] if meta.get("id") == own],
+            folders=[],
+        )
+
+    async def refresh_permissions(self, compute) -> None:
+        """权限设置改了：按 ``compute(client)`` 重新计算每条连接的权限，有变化就通知它。"""
+        for client in list(self.clients.values()):
+            try:
+                allowed = frozenset(compute(client))
+            except Exception:  # noqa: BLE001 - 算不出来就收回全部权限
+                log.exception("重新计算 %s 的权限出错", client.id)
+                allowed = frozenset()
+            if allowed == client.allowed:
+                continue
+            client.allowed = allowed
+            log.info("连接 %s 的权限改为：%s", client.id, ", ".join(sorted(allowed)) or "只能写字")
+            await client.send({"t": "perms", "perms": sorted(allowed)})
+            # 拿到或失去「管理白板」时，白板列表也跟着变
+            await client.send(
+                self.visible(client, {
+                    "t": "boards",
+                    "boards": self.store.list_metas(),
+                    "folders": self.store.folders(),
+                    "board": dict(self.board(self.board_of(client)).meta),
+                })
+            )
 
     # ------------------------------------------------------------ 自动保存
 

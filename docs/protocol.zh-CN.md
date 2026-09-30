@@ -63,7 +63,8 @@
 | 规则 | 行为 |
 | --- | --- |
 | 白板不存在 | 服务端按给定的 `app`、`name`、`kind` 和 `folder` 新建白板，当前白板不变。 |
-| 白板存在且有 `meta.app` | 任何设备都可以固定到这块白板。 |
+| 白板存在且有 `meta.app` | 任何设备都可以固定到这块白板。在白板应用中，没有 `manage` 的设备只能固定到（或新建）`apps/` 中已安装应用的白板。 |
+| 应用白板上限 | 每个应用最多 5000 块白板（`inksync.hub.MAX_APP_BOARDS`），超出后拒绝新建。 |
 | 白板存在但没有 `meta.app`（用户自己的白板） | 需要「管理白板」权限，与切换白板相同。 |
 | `pin` 无效或权限不足 | 服务端发送 `{"t":"error","reason":"pin"}` 并关闭连接。 |
 | 新建了白板 | 跟随当前白板的连接收到带有新列表的 `boards`。 |
@@ -178,6 +179,7 @@
 | `pong` | `ping` 的发送方 | `ts` |
 | `error` | 带有无效 `pin` 的 `hello` 的发送方 | `reason` 为 `pin` |
 | `deleted` | 固定在被删除白板上的客户端 | `board` |
+| `perms` | 权限发生变化的客户端 | `perms`：新的权限清单 |
 
 ```jsonc
 {"t":"init","role":"ipad","client":"k3m9x0a1b2c4","info":{...},"board":{...},"strokes":[...],
@@ -331,19 +333,22 @@
 
 在当前白板上书写（`add`、`restore`、`remove`、`mask`、`live`）不需要权限。
 
+没有 `manage` 时，连接只看得到自己所在的白板：`init`、`sync`、`switch` 和 `boards` 消息中的 `boards` 只包含这一块，`folders` 为空。读取非当前白板的 `GET /api/doc/{board}/{页码}` 同样需要 `manage`。
+
 ### 权限的授予
 
-权限根据 TCP 对端地址确定，不依据 `role` 或 `?role=`，因为这两项由客户端自行填写。
+权限根据 TCP 连接确定（`netinfo.is_local_request`），不依据 `role` 或 `?role=`，因为这两项由客户端自行填写。
 
 | 对端 | 权限 |
 | --- | --- |
-| 回环地址，或 Mac 自身的局域网地址 | 全部四项 |
+| 本机：回环地址、Mac 的局域网地址，或对端地址等于服务端接收该连接的地址（任意网卡，IPv4 或 IPv6） | 全部四项 |
+| 带有 `X-Forwarded-For` 或 `Forwarded` 的请求 | 即使来自回环地址也按其他设备处理：请求经过了代理 |
 | 其他设备 | 仅限在 Mac 的「白板设置」中开启的项目；默认没有任何权限 |
 | 无法获取地址 | 无 |
 
 - 该设置以 `remote_permissions` 保存在 `config.json` 中。
-- WebSocket 连接的权限在连接建立时确定。修改设置后，对新的连接和新载入的页面生效。
-- 页面通过 `<html>` 上的 `data-perms` 获得权限清单。客户端只据此隐藏入口，权限由服务端执行检查。
+- 修改设置立即生效：服务端重新计算所有已建立连接的权限，向权限有变化的连接发送 `{"t":"perms","perms":[…]}` 和更新后的 `boards` 消息，页面随之显示或隐藏入口。
+- 页面载入时也会通过 `<html>` 上的 `data-perms` 获得权限清单。客户端只据此隐藏入口，权限由服务端执行检查。
 - 检查更新和选择存储目录使用本机的 pywebview 接口，其他设备无法使用。
 
 ### 设备角色
@@ -373,9 +378,9 @@
 | GET | `/api/thumb/{board}` | `manage` | 缩略图 PNG。未上传缩略图时：文档板返回原件首页，其他白板返回空白 PNG。 |
 | POST | `/api/thumb/{board}` | `manage` | 上传缩略图。请求体为 PNG，最大 512 KB。 |
 | POST | `/api/debug` | — | 客户端诊断信息，写入服务端日志。请求体为 JSON 对象；记录前 20 个键，最多 1000 个字符。 |
-| POST | `/api/recording` | — | 将输入录制保存到 `recordings/`。请求体为带 `events` 数组的 JSON 对象，最大 32 MB。见 [recording.md](recording.md)。 |
+| POST | `/api/recording` | — | 将输入录制保存到 `recordings/`。请求体为带 `events` 数组的 JSON 对象，最大 32 MB。保留最新的 50 个文件，总共不超过 256 MB。见 [recording.md](recording.md)。 |
 | POST | `/api/doc?name=<文件名>&folder=<文件夹>` | `manage` | 由 PDF 或图片新建文档板。请求体为文件本身，最大 256 MB。 |
-| GET | `/api/doc/{board}/{页码}?w=<宽度>` | — | 渲染后的页面图像 |
+| GET | `/api/doc/{board}/{页码}?w=<宽度>` | 当前白板不需要，其他白板需要 `manage` | 渲染后的页面图像 |
 | GET | `/api/apps` | — | `apps`（已安装的应用名称）、`ipad_home` |
 | GET | `/apps/{应用}/{路径}` | — | 已安装应用的静态文件；目录返回其中的 `index.html`。见 [embed.zh-CN.md](embed.zh-CN.md)。 |
 | GET | `/sdk/inkpad.js` | — | 跳转到 `/static/js/embed.js`，即提供 `createInkPad` 的模块。 |

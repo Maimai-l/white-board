@@ -13,6 +13,7 @@
 //   interrupted {count}        笔迹连续被系统打断（通常是「随手写」）
 //   change    白板内容变了（写、擦、撤销、清空）
 //   deleted   {board}：固定的白板被删除
+//   perms     权限列表：Mac 上改了这台设备的权限
 //   error     {reason}：服务端拒绝了连接（例如 pin 无效）
 //
 // 协议见 docs/protocol.md；「固定白板的连接」一节说明 ``pin`` 选项。
@@ -548,6 +549,9 @@ export class InkPad {
         break;
       case "deleted":
         this.emit("deleted", { board: msg.board });
+        break;
+      case "perms":
+        this.emit("perms", msg.perms || []);
         break;
       case "error":
         this.emit("error", { reason: msg.reason });

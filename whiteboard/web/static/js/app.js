@@ -107,6 +107,7 @@ class App extends InkPad {
       else this.ui.hideLocked();
     });
     this.on("change", () => this.uploadThumbSoon());
+    this.on("perms", (perms) => this.ui.setPerms(new Set(perms)));
   }
 
   bindKeys() {

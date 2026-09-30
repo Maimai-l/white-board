@@ -63,7 +63,8 @@ A connection either follows the current board or is pinned to one board. Without
 | Rule | Behavior |
 | --- | --- |
 | Board does not exist | The server creates it with the given `app`, `name`, `kind` and `folder`. The current board does not change. |
-| Board exists and has `meta.app` | Any device may pin to it. |
+| Board exists and has `meta.app` | Any device may pin to it. In the whiteboard app, a device without `manage` may pin to (or create) boards only of an app installed in `apps/`. |
+| App board limit | At most 5000 boards per app (`inksync.hub.MAX_APP_BOARDS`); further new boards are refused. |
 | Board exists without `meta.app` (a user's board) | Requires the `manage` permission, as switching boards does. |
 | Invalid `pin`, or permission missing | The server sends `{"t":"error","reason":"pin"}` and closes the connection. |
 | A new board was created | Following connections receive `boards` with the updated list. |
@@ -178,6 +179,7 @@ Folders are identified by name; see [format.md](format.md#folders).
 | `pong` | Sender of `ping` | `ts` |
 | `error` | Sender of `hello` with an invalid `pin` | `reason` = `pin` |
 | `deleted` | Clients pinned to a deleted board | `board` |
+| `perms` | A client whose permissions changed | `perms`: the new list |
 
 ```jsonc
 {"t":"init","role":"ipad","client":"k3m9x0a1b2c4","info":{...},"board":{...},"strokes":[...],
@@ -331,19 +333,22 @@ Permissions decide what a connection or request may do; the role only decides th
 
 Writing on the current board (`add`, `restore`, `remove`, `mask`, `live`) needs no permission.
 
+Without `manage`, a connection sees only its own board: `boards` in `init`, `sync`, `switch` and `boards` messages contains just that board, and `folders` is empty. `GET /api/doc/{board}/{page}` for a board other than the current one also needs `manage`.
+
 ### Granting permissions
 
-Permissions are derived from the TCP peer address, not from `role` or `?role=`, which the client chooses freely.
+Permissions are derived from the TCP connection (`netinfo.is_local_request`), not from `role` or `?role=`, which the client chooses freely.
 
 | Peer | Permissions |
 | --- | --- |
-| Loopback address, or the Mac's own LAN address | All four |
+| This machine: a loopback address, the Mac's LAN address, or a peer address equal to the address the server accepted the connection on (any interface, IPv4 or IPv6) | All four |
+| A request with `X-Forwarded-For` or `Forwarded` | Treated as another device, even from loopback: it came through a proxy |
 | Any other device | Only those enabled on the Mac in “白板设置” (Board settings); none by default |
 | Address unknown | None |
 
 - The setting is stored in `config.json` as `remote_permissions`.
-- A WebSocket connection's permissions are fixed when it opens. A changed setting applies to new connections and page loads.
-- The page receives its permission list in `data-perms` on `<html>`. The client uses it only to hide entries; the server enforces permissions.
+- A changed setting applies at once: the server recomputes the permissions of every open connection, sends `{"t":"perms","perms":[…]}` and an updated `boards` message to each connection whose permissions changed, and the page shows or hides its entries.
+- The page also receives its permission list in `data-perms` on `<html>` when it loads. The client uses it only to hide entries; the server enforces permissions.
 - Checking for updates and choosing the storage directory use the local pywebview interface and are not available to other devices.
 
 ### Device roles
@@ -373,9 +378,9 @@ The role (`mac` or `ipad`) selects the interface layout.
 | GET | `/api/thumb/{board}` | `manage` | Thumbnail PNG. Without an uploaded thumbnail: the first page of a document board, otherwise a blank PNG. |
 | POST | `/api/thumb/{board}` | `manage` | Upload a thumbnail. Body: PNG, at most 512 KB. |
 | POST | `/api/debug` | — | Client diagnostics written to the server log. Body: JSON object; the first 20 keys, up to 1000 characters. |
-| POST | `/api/recording` | — | Save an input recording to `recordings/`. Body: JSON object with an `events` array, at most 32 MB. See [recording.md](recording.md). |
+| POST | `/api/recording` | — | Save an input recording to `recordings/`. Body: JSON object with an `events` array, at most 32 MB. The newest 50 files, up to 256 MB in total, are kept. See [recording.md](recording.md). |
 | POST | `/api/doc?name=<file name>&folder=<folder>` | `manage` | Create a document board from a PDF or image. Body: the file, at most 256 MB. |
-| GET | `/api/doc/{board}/{page}?w=<width>` | — | Rendered page image |
+| GET | `/api/doc/{board}/{page}?w=<width>` | — for the current board, `manage` otherwise | Rendered page image |
 | GET | `/api/apps` | — | `apps` (installed app names), `ipad_home` |
 | GET | `/apps/{app}/{path}` | — | Static files of an installed app; a directory returns its `index.html`. See [embed.md](embed.md). |
 | GET | `/sdk/inkpad.js` | — | Redirects to `/static/js/embed.js`, the module that provides `createInkPad`. |

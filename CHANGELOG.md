@@ -21,6 +21,12 @@ One section per version, titled with the version number. When a release is publi
 
 ### Fixes
 
+- Permission changes on the Mac apply at once to devices already connected; their toolbar entries update without reloading.
+- Devices without “管理白板” (Manage boards) no longer receive the full board list or document pages of other boards.
+- A request that came through a proxy is no longer treated as the Mac itself; the Mac is recognised on every network interface and on IPv6.
+- Input recordings keep only the newest 50 files (256 MB in total).
+- The `inksync` package grants permissions only to the local machine by default. Devices that can only write may create boards only for installed apps, up to 5000 per app.
+
 - A PDF or image dropped onto the window while a folder is open in the board chooser now goes into that folder.
 - Image export of a document board now removes ink erased with the pixel eraser and keeps flat ends on split strokes, as PDF export already did.
 
