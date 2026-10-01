@@ -1,4 +1,4 @@
-"""Hub 的保存、删除、释放与并发（docs/design/inksync-2.zh-CN.md 4.3 节）。"""
+"""Hub 的保存、删除、释放与并发（docs/design/inksync-redesign.zh-CN.md 4.3 节）。"""
 
 from __future__ import annotations
 

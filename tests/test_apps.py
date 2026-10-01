@@ -111,7 +111,7 @@ def test_image_layers_must_be_same_origin_paths():
         "nope",
     ):
         assert models.sanitize_layers([bad]) is None, bad
-    # 1.x 的底图读进来是第一层
+    # 1.0.x 的底图读进来是第一层
     meta = models.sanitize_meta({"id": "b1", "kind": "board", "underlay": {"src": "/apps/qb/a.png", "width": 500}})
     assert meta["layers"] == [{"src": "/apps/qb/a.png", "x": 0.0, "y": 0.0, "width": 500.0}]
     assert models.sanitize_meta({"id": "b1", "kind": "board", "underlay": {"src": "http://x", "width": 5}})["layers"] == []

@@ -1,8 +1,8 @@
-"""存储兼容性：1.x 写出来的存储目录，2.0 必须读出同样的内容。
+"""存储兼容性：1.0.x 写出来的存储目录，1.1 必须读出同样的内容。
 
-夹具在 tests/fixtures/compat/，由 1.x 的代码生成，见 make_compat.py。
-2.0 的元数据换了字段（docs/design/inksync-2.zh-CN.md 4.6 节），所以元数据按
-``models.to_v1`` 换回 1.x 的字段再比对：换过去再换回来一样，说明没有丢任何信息。
+夹具在 tests/fixtures/compat/，由 1.0.x 的代码生成，见 make_compat.py。
+1.1 的元数据换了字段（docs/design/inksync-redesign.zh-CN.md 4.6 节），所以元数据按
+``models.to_v1`` 换回 1.0.x 的字段再比对：换过去再换回来一样，说明没有丢任何信息。
 笔画、文件夹、排序和当前白板必须完全一样。
 """
 
@@ -50,7 +50,7 @@ def test_board_loads_the_same(data_dir, board_id):
 
 @pytest.mark.parametrize("board_id", BOARD_IDS)
 def test_board_saves_back_unchanged(data_dir, board_id):
-    """读出来原样存回去：文件升到 v2，笔画数据一个字节不变，元数据换回 1.x 字段后不变。"""
+    """读出来原样存回去：文件升到 v2，笔画数据一个字节不变，元数据换回 1.0.x 字段后不变。"""
     store = BoardStore(data_dir)
     meta, strokes = store.load_board(board_id)
     store.save_board(meta, strokes)

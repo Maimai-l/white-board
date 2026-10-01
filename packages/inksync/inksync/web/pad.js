@@ -1,6 +1,6 @@
 // 手写板的核心：书写、橡皮擦、撤销、同步、离线缓存和视口，不含任何界面。
 //
-// 对外的接口是 inkpad.js 的 createInkPad（docs/design/inksync-2-interface.zh-CN.md）；
+// 对外的接口是 inkpad.js 的 createInkPad（docs/design/inksync-interface.zh-CN.md）；
 // 白板应用（app.js）直接继承这个类，在上面加白板选择界面、设置、导入导出和更新。
 // 和界面有关的事情一律以事件通知出去：
 //
@@ -49,7 +49,7 @@ const REMOTE_LIVE_TTL = 5000;
 export function deviceClientId(storage = "inksync:") {
   try {
     const key = `${storage}client`;
-    // 1.x 存在 whiteboard.client：默认空间沿用它，服务端日志里还是同一台设备
+    // 1.0.x 存在 whiteboard.client：默认空间沿用它，服务端日志里还是同一台设备
     let id = localStorage.getItem(key) || (storage === "inksync:" ? localStorage.getItem("whiteboard.client") : null);
     if (!id) id = uid(12);
     localStorage.setItem(key, id);

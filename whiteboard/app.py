@@ -508,7 +508,7 @@ def run(
     try:
         server.start()
     except backup.BackupError as exc:
-        # 1.x 的存储目录要转换格式，转换前的备份没做成：不启动，告诉用户原因
+        # 1.0.x 的存储目录要转换格式，转换前的备份没做成：不启动，告诉用户原因
         log.error("%s", exc)
         webview.create_window("白板", html=_error_page(str(exc)), width=520, height=260)
         webview.start()

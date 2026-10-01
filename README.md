@@ -388,7 +388,7 @@ Details: [docs/format.md](docs/format.md).
 
 On the first launch after a version change, `boards/`, `index.sqlite`, `space.json` and `spaces/` (whichever exist) are copied to `backups/upgrade/<time>_<old version>_to_<new version>/` before anything else is touched. The latest 5 copies are kept.
 
-When upgrading from 1.x to 2.0 the storage directory must be converted first (see [docs/format.md](docs/format.md#reading-1x-files)); if the backup fails then, the app does not start and shows the reason. Opening a directory converted by 2.0 with 1.x is not supported; to go back to 1.x, use the copy in `backups/upgrade/`.
+When upgrading from 1.0.x to 1.1 the storage directory must be converted first (see [docs/format.md](docs/format.md#reading-10x-files)); if the backup fails then, the app does not start and shows the reason. Opening a directory converted by 2.0 with 1.0.x is not supported; to go back to 1.0.x, use the copy in `backups/upgrade/`.
 
 To check your boards before upgrading, run `python tools/check_boards.py`.
 
@@ -455,7 +455,7 @@ packages/inksync/   sync component, installable on its own (interface in its REA
 whiteboard/
   server.py     aiohttp routes; mounts inksync at /ws, app spaces and permission rules
   hub.py, store.py   the whiteboard extension: following, folders, order, document
-                boards, thumbnails, 1.x page compatibility and data migration
+                boards, thumbnails, 1.0.x page compatibility and data migration
   config.py     settings file; command-line values that apply to one run only
   backup.py     copies the boards before a new version first touches them
   docs.py       document boards: reading, rendering and exporting PDFs / images
@@ -492,7 +492,7 @@ tools/          check_boards.py (check boards before upgrading) and research scr
 | [docs/release-checklist.md](docs/release-checklist.md) | Release checklist |
 | [docs/embed.md](docs/embed.md) | Hosting apps in the whiteboard app and embedding the pad |
 | [packages/inksync/README.md](packages/inksync/README.md) | The inksync interface: storing and syncing boards on your own server |
-| [docs/design/inksync-2.zh-CN.md](docs/design/inksync-2.zh-CN.md) | inksync 2.0 requirements and spec (Chinese) |
+| [docs/design/inksync-redesign.zh-CN.md](docs/design/inksync-redesign.zh-CN.md) | inksync 0.2 requirements and spec (Chinese) |
 
 Input recording captures problems that need a real Pencil (pressure, tilt, coalesced samples within a frame, timing around lift-off) on the iPad for replay on a development machine. Open the diagnostics panel and use 录制输入 (Record input) in the bottom-left cell.
 

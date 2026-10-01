@@ -4,7 +4,7 @@
 
 手写板的同步组件：服务端保存白板、同步操作、按规则控制访问；前端手写板随包分发。它可以挂到任何 aiohttp 应用上，使用者自己的服务端就能保存和同步白板，不需要运行白板应用。
 
-本文是 inksync 2.0 的接口说明。协议细节见 [docs/protocol.zh-CN.md](../../docs/protocol.zh-CN.md)，文件格式见 [docs/format.zh-CN.md](../../docs/format.zh-CN.md)，完整的示例见 [examples/qb-server](../../examples/qb-server/server.py)。
+本文是 inksync 0.2 的接口说明。协议细节见 [docs/protocol.zh-CN.md](../../docs/protocol.zh-CN.md)，文件格式见 [docs/format.zh-CN.md](../../docs/format.zh-CN.md)，完整的示例见 [examples/qb-server](../../examples/qb-server/server.py)。
 
 ## 1. 组成
 
@@ -17,7 +17,7 @@
 安装：
 
 ```bash
-pip install "inksync[discovery] @ git+https://github.com/Maimai-l/white-board.git@v2.0.0#subdirectory=packages/inksync"
+pip install "inksync[discovery] @ git+https://github.com/Maimai-l/white-board.git@v1.1.0#subdirectory=packages/inksync"
 # 从本地仓库安装
 pip install ./packages/inksync
 ```
@@ -117,7 +117,7 @@ from inksync.netinfo import advertise, is_local_request
 | 参数 | 说明 |
 | --- | --- |
 | `root` | 存储目录。其中 `boards/<id>.wbz` 是白板文件，`index.sqlite` 是索引（可随时重建），`space.json` 是空间级数据（`storage.kv`）。 |
-| `convert_meta` | 可选。读到 1.x 白板文件时调用，参数是已经换成 2.0 字段的元数据，返回补充之后的元数据。 |
+| `convert_meta` | 可选。读到 1.0.x 白板文件时调用，参数是已经换成当前字段的元数据，返回补充之后的元数据。 |
 
 ### 3.5 `Hub(storage, policy=None, autosave=3.0, idle_unload=120.0)`
 

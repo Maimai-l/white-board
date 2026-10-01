@@ -1,4 +1,4 @@
-// 手写板的对外接口（docs/design/inksync-2-interface.zh-CN.md 第 4 节）。
+// 手写板的对外接口（docs/design/inksync-interface.zh-CN.md 第 4 节）。
 //
 //   import { createInkPad } from "/inksync/inkpad.js";
 //   const pad = createInkPad(document.querySelector("#answer"), {
@@ -49,7 +49,7 @@ function detectRole() {
  * 在 ``container`` 里建一块手写板，尺寸跟随容器。
  *
  * @param {HTMLElement} container
- * @param {object} options  见 docs/design/inksync-2-interface.zh-CN.md 4.1 节
+ * @param {object} options  见 docs/design/inksync-interface.zh-CN.md 4.1 节
  */
 export function createInkPad(container, options = {}) {
   if (!container) throw new Error("createInkPad：缺少容器元素");

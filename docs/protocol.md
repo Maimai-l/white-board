@@ -2,7 +2,7 @@ English | [简体中文](protocol.zh-CN.md)
 
 # Sync Protocol
 
-Clients and the server synchronize boards over one WebSocket at `/ws` that carries JSON text messages; a few HTTP endpoints serve pages, thumbnails and document boards. This document describes protocol version 2 (inksync 2.0 and later).
+Clients and the server synchronize boards over one WebSocket at `/ws` that carries JSON text messages; a few HTTP endpoints serve pages, thumbnails and document boards. This document describes protocol version 2 (inksync 0.2 and later).
 
 The client draws locally first and then sends the operation. The server numbers, forwards and saves operations and never blocks local drawing.
 
@@ -54,7 +54,7 @@ The server replies with `init` or `sync`; see [Sequence numbers, epochs and reco
 
 | Handshake failure | Server reply |
 | --- | --- |
-| `v` is not 2 | `{"t":"error","reason":"version","supported":[2]}`, then the connection is closed. A `hello` without `v` comes from a 1.x page and is accepted only in the whiteboard app's user space; see [1.x pages](#1x-pages). |
+| `v` is not 2 | `{"t":"error","reason":"version","supported":[2]}`, then the connection is closed. A `hello` without `v` comes from a 1.0.x page and is accepted only in the whiteboard app's user space; see [1.0.x pages](#10x-pages). |
 | Unknown space | `{"t":"error","reason":"space"}`, then the connection is closed. |
 | The board cannot be opened | `{"t":"error","reason":…}`, then the connection is closed. Reasons below. |
 
@@ -172,7 +172,7 @@ The server does not validate or store `live` messages.
 | `error` | Sender of a handshake or `open` | `reason`, optionally `detail`, `board`, `supported` |
 
 ```jsonc
-{"t":"init","v":2,"server":{"name":"inksync","version":"2.0.0","protocol":2,"build":"2.0.0"},
+{"t":"init","v":2,"server":{"name":"inksync","version":"0.2.0","protocol":2,"build":"1.1.0"},
  "client":"k3m9x0a1b2c4","info":{...},"board":{...},"strokes":[...],"seq":42,"epoch":"a1b2c3d4e5f6",
  "locked":null,"caps":{"write":true,"clear":true,"meta":false,"unlock":false},"readonly":false}
 {"t":"sync","v":2,"server":{...},"client":"k3m9x0a1b2c4","info":{...},"board":{...},"ops":[...],
@@ -489,16 +489,16 @@ Registration rules:
 - zeroconf must be used through its asynchronous API. The synchronous API blocks the asyncio event loop, raises `EventLoopBlocked` and delays server startup until it times out.
 - zeroconf is not used on macOS, because it would start a second mDNS responder beside the system one.
 
-## 1.x pages
+## 1.0.x pages
 
-1.x pages still open during an upgrade (a `hello` without `v`) keep working in the whiteboard app 2.0's user space until they are reloaded.
+1.0.x pages still open during an upgrade (a `hello` without `v`) keep working in the whiteboard app 1.1's user space until they are reloaded.
 
-| A 1.x page sends | 2.0 does |
+| A 1.0.x page sends | 1.1 does |
 | --- | --- |
 | `hello` without `v` | Treated as `follow: true`; the current board is opened. |
 | `hello` with `pin` (the 1.0.1 embedded pad) | `{"t":"error","reason":"pin"}`: app boards are now separate spaces, and the 1.0.1 embedding interface has no users. |
 | `op` without `board` | Applied to the connection's current board. |
 
-Messages to 1.x pages are converted back to the 1.x form: snapshots carry `role`; metadata (including in `op` and `ack`) is converted back to `kind`, `folder`, `doc`, `underlay` and a string `background`; `ack` has no `board` or `rejected`; `locked` becomes a full `switch`; `caps` and `deleted` are not sent.
+Messages to 1.0.x pages are converted back to the 1.0.x form: snapshots carry `role`; metadata (including in `op` and `ack`) is converted back to `kind`, `folder`, `doc`, `underlay` and a string `background`; `ack` has no `board` or `rejected`; `locked` becomes a full `switch`; `caps` and `deleted` are not sent.
 
-After a server upgrade, 2.0 pages receive the `outdated` event (the front end's build differs from `server.build` in the snapshot). The whiteboard app then reloads the page when no stroke is in progress, once per build. This compatibility is removed in 2.1.
+After a server upgrade, 1.1 pages receive the `outdated` event (the front end's build differs from `server.build` in the snapshot). The whiteboard app then reloads the page when no stroke is in progress, once per build. This compatibility is removed in 2.1.

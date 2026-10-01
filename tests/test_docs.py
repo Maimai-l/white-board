@@ -323,7 +323,7 @@ def test_render_rejects_bad_index(tmp_path):
 
 
 def v1(meta):
-    """1.x 文件里的元数据读进来之后的样子：核心的转换，加上白板应用的钩子。"""
+    """1.0.x 文件里的元数据读进来之后的样子：核心的转换，加上白板应用的钩子。"""
     return models.sanitize_meta(models.convert_v1_meta(models.sanitize_meta({"id": "d1", **meta})))
 
 

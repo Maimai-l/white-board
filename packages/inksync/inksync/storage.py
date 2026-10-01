@@ -1,4 +1,4 @@
-"""白板的磁盘存储（2.0）。
+"""白板的磁盘存储（文件格式 2）。
 
 一个存储目录对应一个空间::
 
@@ -6,7 +6,7 @@
     <root>/index.sqlite      索引：每块白板的元数据，可以随时从白板文件重建
     <root>/space.json        空间级的小数据（kv），不属于索引，重建索引时不受影响
 
-方法分两类（docs/design/inksync-2.zh-CN.md 4.5 节）：
+方法分两类（docs/design/inksync-redesign.zh-CN.md 4.5 节）：
 
 * 索引部分（``get_meta``、``list`` 等）只在事件循环线程中调用。查询只读内存；
   写入交给一个专用线程按顺序写进 SQLite，调用方不等待。
@@ -200,7 +200,7 @@ class _Index:
 class FileStorage:
     """默认的存储实现。见模块说明。
 
-    ``convert_meta`` 在读到 1.x 的白板文件时调用，参数是已经换成 2.0 字段的元数据，
+    ``convert_meta`` 在读到 1.0.x 的白板文件时调用，参数是已经换成当前字段的元数据，
     返回补充之后的元数据（白板应用用它为文档板生成页面图片层）。
     """
 
@@ -212,7 +212,7 @@ class FileStorage:
         self.convert_meta = convert_meta
         self.allow_src = allow_src
         self.kv = KeyValue(self.root / "space.json")
-        # 1.x 的 index.json（首次以 2.0 打开 1.x 存储目录时读出来，交给使用者迁移）
+        # 1.0.x 的 index.json（首次以 inksync 0.2 打开 1.0.x 存储目录时读出来，交给使用者迁移）
         self.legacy_index: Optional[Dict[str, Any]] = None
         self._metas: Dict[str, Dict[str, Any]] = {}
         self._mtimes: Dict[str, float] = {}
@@ -230,7 +230,7 @@ class FileStorage:
                 raw = json.loads(legacy.read_text("utf-8"))
                 self.legacy_index = raw if isinstance(raw, dict) else None
             except (OSError, ValueError) as exc:
-                log.warning("1.x 的 index.json 读不出来：%s", exc)
+                log.warning("1.0.x 的 index.json 读不出来：%s", exc)
         try:
             rows = self._index.load()
         except sqlite3.DatabaseError as exc:

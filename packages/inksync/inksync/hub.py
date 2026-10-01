@@ -8,7 +8,7 @@
   的最后一个 ``seq``，断线重连时带上它，服务端补发缺失的操作；缺口太大
   （超出历史窗口）则直接补发整块白板。
 * **保存不阻塞同步**。事件循环线程中只复制内容，编码和写盘在工作线程中进行；
-  用改动计数判断保存期间是否又有新改动（docs/design/inksync-2.zh-CN.md 4.3 节）。
+  用改动计数判断保存期间是否又有新改动（docs/design/inksync-redesign.zh-CN.md 4.3 节）。
 * **每条连接同一时间显示一块白板**，可以切换；操作带着自己所属的白板，
   切换之前没送达的操作照样落到原来那块。
 
@@ -264,7 +264,7 @@ class Hub:
         self.policy = policy or DefaultPolicy()
         self.autosave = autosave
         self.idle_unload = idle_unload
-        # 1.x 页面（hello 里没有 v）是否接受，见 docs/design/inksync-2.zh-CN.md 7.3 节
+        # 1.0.x 页面（hello 里没有 v）是否接受，见 docs/design/inksync-redesign.zh-CN.md 7.3 节
         self.accept_v1 = accept_v1
         self.name = ""
         self.conns: Dict[str, Conn] = {}
@@ -832,7 +832,7 @@ class Hub:
         if self._task is None:
             self._task = asyncio.get_running_loop().create_task(self._loop())
 
-    # 1.x 的名字
+    # 1.0.x 的名字
     start_autosave = start
 
     async def close_connections(self) -> None:

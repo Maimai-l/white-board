@@ -1,4 +1,4 @@
-// 白板应用对白板元数据的理解（inksync 2.0 的元数据，见 whiteboard/models.py）：
+// 白板应用对白板元数据的理解（inksync 0.2 的元数据，见 whiteboard/models.py）：
 //
 //   data.folder  所在的文件夹
 //   data.doc     文档板的原件信息 {type, name, ext, pages}

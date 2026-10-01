@@ -388,7 +388,7 @@ boards-data/
 
 版本变更后首次启动时，应用先将 `boards/`、`index.sqlite`、`space.json` 和 `spaces/`（存在的才复制）复制到 `backups/upgrade/<时间>_<旧版本>_to_<新版本>/`，然后才处理其他文件。只保留最近 5 份。
 
-从 1.x 升级到 2.0 时，存储目录要先转换（见 [docs/format.zh-CN.md](docs/format.zh-CN.md#读取-1x-的文件)），这时备份失败就不启动，并显示原因。不支持用 1.x 打开 2.0 转换过的存储目录；需要回到 1.x 时，使用 `backups/upgrade/` 中的副本。
+从 1.0.x 升级到 1.1 时，存储目录要先转换（见 [docs/format.zh-CN.md](docs/format.zh-CN.md#读取-10x-的文件)），这时备份失败就不启动，并显示原因。不支持用 1.0.x 打开 2.0 转换过的存储目录；需要回到 1.0.x 时，使用 `backups/upgrade/` 中的副本。
 
 升级前可以执行 `python tools/check_boards.py` 检查白板。
 
@@ -455,7 +455,7 @@ packages/inksync/   同步组件，可单独安装（接口见其 README）
 whiteboard/
   server.py     aiohttp 路由；在 /ws 挂载 inksync，应用空间与权限规则
   hub.py、store.py   白板应用的扩展：跟随、文件夹、顺序、文档板、缩略图、
-                1.x 页面兼容与数据迁移
+                1.0.x 页面兼容与数据迁移
   config.py     配置文件；只对本次运行有效的命令行参数
   backup.py     新版本首次处理白板前的备份
   docs.py       文档板：读取、渲染、导出 PDF / 图片
@@ -492,7 +492,7 @@ tools/          check_boards.py（升级前检查白板）及研究用脚本
 | [docs/release-checklist.zh-CN.md](docs/release-checklist.zh-CN.md) | 发布检查清单 |
 | [docs/embed.zh-CN.md](docs/embed.zh-CN.md) | 在白板应用中托管应用并嵌入手写板 |
 | [packages/inksync/README.zh-CN.md](packages/inksync/README.zh-CN.md) | inksync 的接口：在自己的服务端上保存和同步白板 |
-| [docs/design/inksync-2.zh-CN.md](docs/design/inksync-2.zh-CN.md) | inksync 2.0 的需求与规格 |
+| [docs/design/inksync-redesign.zh-CN.md](docs/design/inksync-redesign.zh-CN.md) | inksync 0.2 的需求与规格 |
 
 输入录制用于在 iPad 上记录只有真实 Pencil 才能产生的问题（压感、倾角、一帧内合并的采样点、抬笔前后的时序），并在开发机上回放。打开诊断面板，使用左下角的「录制输入」。
 

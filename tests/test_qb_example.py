@@ -1,4 +1,4 @@
-"""examples/qb-server：只用 inksync 公开接口的刷题服务端（docs/design/inksync-2.zh-CN.md 第 8 节 A1）。"""
+"""examples/qb-server：只用 inksync 公开接口的刷题服务端（docs/design/inksync-redesign.zh-CN.md 第 8 节 A1）。"""
 
 from __future__ import annotations
 
@@ -115,6 +115,6 @@ def test_login_and_whoami(tmp_path, monkeypatch):
             assert who == {"id": "42"}
             assert (await client.get("/inksync/inkpad.js")).status == 200
             version = await (await client.get("/inksync/version.js")).text()
-            assert 'VERSION = "2.0.0"' in version
+            assert 'VERSION = "0.2.0"' in version
 
     run(main())

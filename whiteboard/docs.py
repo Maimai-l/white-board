@@ -133,7 +133,7 @@ def layout(pages: Sequence[Sequence[float]], gap: float = PAGE_GAP) -> List[Dict
 
 
 def doc_of(meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """文档板的原件信息（2.0 在 ``data.doc``，1.x 在 ``doc``）；不是文档板时返回 None。"""
+    """文档板的原件信息（1.1 在 ``data.doc``，1.0.x 在 ``doc``）；不是文档板时返回 None。"""
     from . import models
 
     doc = models.doc_of(meta)

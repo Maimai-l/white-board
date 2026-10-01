@@ -1,8 +1,8 @@
-# inksync 2.0 接口
+# inksync 0.2 接口
 
-本文是 inksync 2.0 对外接口的约定，供使用 inksync 的项目（例如刷题项目 qb）开发时参照。接口已在 inksync 2.0.0 中实现；正式文档是 [packages/inksync/README.zh-CN.md](../../packages/inksync/README.zh-CN.md)，内容与本文第 1 至 7 节相同。变动记录在第 9 节。
+本文是 inksync 0.2 对外接口的约定，供使用 inksync 的项目（例如刷题项目 qb）开发时参照。接口已在 inksync 0.2.0 中实现；正式文档是 [packages/inksync/README.zh-CN.md](../../packages/inksync/README.zh-CN.md)，内容与本文第 1 至 7 节相同。变动记录在第 9 节。
 
-设计依据见 [inksync-2.zh-CN.md](inksync-2.zh-CN.md)。
+设计依据见 [inksync-redesign.zh-CN.md](inksync-redesign.zh-CN.md)。
 
 ## 1. 组成
 
@@ -15,7 +15,7 @@
 安装：
 
 ```bash
-pip install "inksync[discovery] @ git+https://github.com/Maimai-l/white-board.git@v2.0.0#subdirectory=packages/inksync"
+pip install "inksync[discovery] @ git+https://github.com/Maimai-l/white-board.git@v1.1.0#subdirectory=packages/inksync"
 # 从本地仓库安装
 pip install ./packages/inksync
 ```
@@ -115,7 +115,7 @@ from inksync.netinfo import advertise, is_local_request
 | 参数 | 说明 |
 | --- | --- |
 | `root` | 存储目录。其中 `boards/<id>.wbz` 是白板文件，`index.sqlite` 是索引（可随时重建），`space.json` 是空间级数据（`storage.kv`）。 |
-| `convert_meta` | 可选。读到 1.x 白板文件时调用，参数是已经换成 2.0 字段的元数据，返回补充之后的元数据。 |
+| `convert_meta` | 可选。读到 1.0.x 白板文件时调用，参数是已经换成当前字段的元数据，返回补充之后的元数据。 |
 
 ### 3.5 `Hub(storage, policy=None, autosave=3.0, idle_unload=120.0)`
 
@@ -343,4 +343,5 @@ class Principal:
 | 日期 | 变更 |
 | --- | --- |
 | 2026-09-30 | 初版。 |
-| 2026-09-30 | 随 2.0.0 实现更新：`FileStorage` 去掉 `index_fields`，`list_boards` 返回完整元数据，`order` 可以是白板 id 列表；`Hub` 增加 `delete_board`、`import_file`、`flush`、`reauthenticate`、`register`；`setTool` 只替换给出的字段；`locked` 事件带 `unlock`；视图位置存在 `localStorage`；第 8 节改为使用建议。 |
+| 2026-09-30 | 随 inksync 0.2.0 实现更新：`FileStorage` 去掉 `index_fields`，`list_boards` 返回完整元数据，`order` 可以是白板 id 列表；`Hub` 增加 `delete_board`、`import_file`、`flush`、`reauthenticate`、`register`；`setTool` 只替换给出的字段；`locked` 事件带 `unlock`；视图位置存在 `localStorage`；第 8 节改为使用建议。 |
+| 2026-10-01 | 版本号更正：本接口属于 inksync 0.2.0，随白板应用 1.1.0 发布（此前误写为 2.0.0）。 |

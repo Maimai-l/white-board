@@ -4734,7 +4734,7 @@ def test_an_embedded_pad_syncs_between_devices(browser, server):
     assert meta["id"] == "q1" and meta["name"] == "示例 第 1 题" and meta["data"] == {"question": 1}
     assert meta["canvas"] == {"mode": "fixed", "width": 800, "height": 1100}
     assert meta["layers"] == [{"src": "/apps/demo/question.svg", "x": 0, "y": 0, "width": 800}]
-    assert pad.evaluate("() => pad.caps.write && pad.version === '2.0.0'")
+    assert pad.evaluate("() => pad.caps.write && pad.version === '0.2.0'")
 
     draw_embedded(pad, [(100, 300), (160, 340), (230, 300), (300, 360)])
     pad.wait_for_function("() => pad.snapshot().strokes.length === 1 && pad.status === 'online'")
@@ -4970,14 +4970,14 @@ def test_permission_changes_update_a_connected_page(browser, server, monkeypatch
     page.wait_for_function("() => !document.querySelector('#topright button[title=\"白板\"]')")
 
 
-# ---------------------------------------------------------------- 1.x 页面（docs/design/inksync-2.zh-CN.md 7.3 节）
+# ---------------------------------------------------------------- 1.0.x 页面（docs/design/inksync-redesign.zh-CN.md 7.3 节）
 
 LEGACY_WEB = Path(__file__).resolve().parent / "fixtures" / "web-1.0.1"
 
 
 @pytest.fixture
 def legacy_server(tmp_path, monkeypatch):
-    """2.0 的服务端，另外在 /v1/ 下提供 1.0.1 的前端文件：模拟升级时还开着的旧页面。"""
+    """1.1 的服务端，另外在 /v1/ 下提供 1.0.1 的前端文件：模拟升级时还开着的旧页面。"""
     from aiohttp import web
 
     import whiteboard.runner as runner
@@ -5013,7 +5013,7 @@ def test_a_1x_page_keeps_working_against_the_2_0_server(browser, legacy_server):
     old = browser.new_page(viewport={"width": 1200, "height": 800})
     old.goto(f"http://127.0.0.1:{port}/v1/?role=mac")
     old.wait_for_function("() => window.whiteboard && whiteboard.net.status === 'online'")
-    assert old.evaluate("() => whiteboard.state.meta.background") == "grid"  # 1.x 的字段
+    assert old.evaluate("() => whiteboard.state.meta.background") == "grid"  # 1.0.x 的字段
     _mac, ipad = open_pages(browser, port)
 
     # 两边互相看得到对方写的内容
@@ -5022,7 +5022,7 @@ def test_a_1x_page_keeps_working_against_the_2_0_server(browser, legacy_server):
     draw(ipad, [(300, 420), (360, 460), (420, 420)])
     wait_strokes(old, 2)
 
-    # 旧页面上新建笔记：新页面跟着切过去；旧页面看到的是 1.x 的元数据
+    # 旧页面上新建笔记：新页面跟着切过去；旧页面看到的是 1.0.x 的元数据
     old.evaluate("() => whiteboard.net.send({ t: 'newboard', kind: 'note' })")
     ipad.wait_for_function("() => whiteboard.state.meta.canvas.mode === 'column'")
     old.wait_for_function("() => whiteboard.state.kind === 'note' && whiteboard.state.meta.kind === 'note'")

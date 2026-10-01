@@ -1,10 +1,10 @@
 """白板应用的数据模型：inksync 的模型，加上白板应用自己的字段。
 
-白板应用的字段放在元数据的 ``data`` 里（docs/design/inksync-2.zh-CN.md 7.1、7.2 节）：
+白板应用的字段放在元数据的 ``data`` 里（docs/design/inksync-redesign.zh-CN.md 7.1、7.2 节）：
 
 * ``data.folder``：所在的文件夹名；
 * ``data.doc``：文档板的原件信息 ``{type, name, ext, pages}``；
-* ``data.app``：1.0.1 中建立这块白板的应用（2.0 起应用白板在各自的空间里）。
+* ``data.app``：1.0.1 中建立这块白板的应用（1.1 起应用白板在各自的空间里）。
 
 ``kind_of`` 把画布和这些字段换回界面上的三种类型：大白板、笔记、文档板。
 """
@@ -123,7 +123,7 @@ def doc_canvas(doc: Dict[str, Any], gap: float = DOC_PAGE_GAP) -> Dict[str, Any]
 
 
 def convert_v1_meta(meta: Dict[str, Any]) -> Dict[str, Any]:
-    """读到 1.x 文件时的补充（``FileStorage`` 的 ``convert_meta`` 钩子）：规整文件夹名，
+    """读到 1.0.x 文件时的补充（``FileStorage`` 的 ``convert_meta`` 钩子）：规整文件夹名，
     文档板加上页面图片层。"""
     data = dict(meta.get("data") or {})
     if "folder" in data:
@@ -148,7 +148,7 @@ def spec_for_kind(kind: str) -> Dict[str, Any]:
 
 
 def to_v1(meta: Dict[str, Any]) -> Dict[str, Any]:
-    """2.0 的元数据换回 1.x 页面认得的字段（docs/design/inksync-2.zh-CN.md 7.3 节）。"""
+    """1.1 的元数据换回 1.0.x 页面认得的字段（docs/design/inksync-redesign.zh-CN.md 7.3 节）。"""
     if not isinstance(meta, dict):
         return meta
     background = meta.get("background")

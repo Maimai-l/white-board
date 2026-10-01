@@ -110,7 +110,7 @@ export class BoardState {
     return canvas && (canvas.mode === "column" || canvas.mode === "fixed") ? canvas : { mode: "infinite" };
   }
 
-  /** 1.x 的叫法：column 是笔记，fixed 是固定大小，其余是大白板。 */
+  /** 1.0.x 的叫法：column 是笔记，fixed 是固定大小，其余是大白板。 */
   get kind() {
     const mode = this.canvas.mode;
     return mode === "column" ? "note" : mode === "fixed" ? "fixed" : "board";

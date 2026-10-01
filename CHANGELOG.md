@@ -7,16 +7,17 @@ One section per version, titled with the version number. When a release is publi
 > **Note**
 > The update dialog displays content line by line, so every entry must fit on a single line.
 
-## 2.0.0
+## 1.1.0
 
 The inksync sync component is redesigned so that other projects can use the handwriting pad on their own servers. Using the whiteboard app does not change.
 
 ### Before upgrading
 
 - The first start converts the storage directory: it creates `index.sqlite` and `space.json` and renames `index.json` to `index.v1.json`. The data before conversion is backed up to `backups/upgrade/`; if the backup fails, the app does not start and shows the reason.
-- Downgrading is not supported. 1.x can no longer use a converted storage directory; to go back to 1.x, restore from `backups/upgrade/`.
-- Boards created by apps in 1.x move into each app's space (`spaces/<app name>/`) and no longer appear among your own boards.
-- The iPad shell does not need an update. Open 1.x pages keep working and switch to the new version after reloading.
+- Downgrading is not supported. 1.0.x can no longer use a converted storage directory; to go back to 1.0.x, restore from `backups/upgrade/`.
+- Boards created by apps in 1.0.x move into each app's space (`spaces/<app name>/`) and no longer appear among your own boards.
+- The iPad shell does not need an update. Open 1.0.x pages keep working and switch to the new version after reloading.
+- The inksync sync component is version 0.2.0 (previously 0.1.0) and its interface is not compatible with 0.1; pages that embed the pad must be changed as described in docs/embed.md.
 
 ### New
 

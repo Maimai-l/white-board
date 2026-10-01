@@ -80,15 +80,15 @@ await pad.open("9709-s23-12-q4", { create: { name: "9709 s23 P12 Q4" } });   // 
 
 该设置保存在配置文件的 `ipad_home` 中。应用被删除后，iPad 重新打开白板。
 
-## 从 1.x 升级
+## 从 1.0.x 升级
 
-| 1.x | 2.0 |
+| 1.0.x | 1.1 |
 | --- | --- |
-| `import … from "/sdk/inkpad.js"` | `import … from "/inksync/inkpad.js"`。旧地址 `/sdk/inkpad.js` 跳转到新地址，但 1.x 的选项需要按下表修改。 |
+| `import … from "/sdk/inkpad.js"` | `import … from "/inksync/inkpad.js"`。旧地址 `/sdk/inkpad.js` 跳转到新地址，但 1.0.x 的选项需要按下表修改。 |
 | `app: "qb"` | `space: "qb"`。 |
 | `name`、`kind`、`folder`、`underlay` 选项 | 放入 `create`：`name`；`canvas`；`layers`（`underlay: {src, width}` 对应 `layers: [{src, x: 0, y: 0, width}]`）。应用的白板没有文件夹，需要分组时写入 `data`。 |
 | `pad.state`、`pad.net.status` | `pad.snapshot()`、`pad.status`。返回的对象只有接口说明中列出的成员。 |
 | `setTool({...pad.tool, tool})` | `setTool({tool})`，未给出的字段保留。 |
 | `locked` 事件的 `unlock()` | 不变，是否可用看 `pad.caps.unlock`。 |
 
-1.x 中应用建立的白板在首次以 2.0 启动时移入各自应用的空间，白板 id 不变。
+1.0.x 中应用建立的白板在首次以 1.1 启动时移入各自应用的空间，白板 id 不变。

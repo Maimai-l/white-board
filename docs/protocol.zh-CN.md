@@ -2,7 +2,7 @@
 
 # 同步协议
 
-客户端与服务端通过 `/ws` 上的一条 WebSocket 同步白板，消息为 JSON 文本；另有若干 HTTP 接口提供页面、缩略图和文档板。本文描述协议版本 2（inksync 2.0 起）。
+客户端与服务端通过 `/ws` 上的一条 WebSocket 同步白板，消息为 JSON 文本；另有若干 HTTP 接口提供页面、缩略图和文档板。本文描述协议版本 2（inksync 0.2 起）。
 
 客户端先在本地绘制，再发送操作。服务端负责编号、转发和保存操作，不阻塞本地绘制。
 
@@ -54,7 +54,7 @@
 
 | 握手失败 | 服务端的应答 |
 | --- | --- |
-| `v` 不是 2 | `{"t":"error","reason":"version","supported":[2]}`，然后关闭连接。没有 `v` 的 `hello` 是 1.x 页面，只在白板应用的用户空间中接受，见 [1.x 页面](#1x-页面)。 |
+| `v` 不是 2 | `{"t":"error","reason":"version","supported":[2]}`，然后关闭连接。没有 `v` 的 `hello` 是 1.0.x 页面，只在白板应用的用户空间中接受，见 [1.0.x 页面](#10x-页面)。 |
 | 空间不存在 | `{"t":"error","reason":"space"}`，然后关闭连接。 |
 | 打开白板失败 | `{"t":"error","reason":…}`，然后关闭连接。原因见下表。 |
 
@@ -172,7 +172,7 @@
 | `error` | 握手或 `open` 的发送方 | `reason`，可选 `detail`、`board`、`supported` |
 
 ```jsonc
-{"t":"init","v":2,"server":{"name":"inksync","version":"2.0.0","protocol":2,"build":"2.0.0"},
+{"t":"init","v":2,"server":{"name":"inksync","version":"0.2.0","protocol":2,"build":"1.1.0"},
  "client":"k3m9x0a1b2c4","info":{...},"board":{...},"strokes":[...],"seq":42,"epoch":"a1b2c3d4e5f6",
  "locked":null,"caps":{"write":true,"clear":true,"meta":false,"unlock":false},"readonly":false}
 {"t":"sync","v":2,"server":{...},"client":"k3m9x0a1b2c4","info":{...},"board":{...},"ops":[...],
@@ -489,16 +489,16 @@ iPad 通过 `<主机名>.local` 访问 Mac；程序还可以注册两个 DNS-SD 
 - 必须使用 zeroconf 的异步 API。同步 API 会阻塞 asyncio 事件循环，抛出 `EventLoopBlocked`，并使服务端启动一直等待到超时。
 - macOS 上不使用 zeroconf，因为它会在系统的 mDNS 响应程序之外再启动一个响应程序。
 
-## 1.x 页面
+## 1.0.x 页面
 
-升级时仍打开着的 1.x 页面（`hello` 中没有 `v`）在白板应用 2.0 的用户空间中照常工作，直到页面重新载入。
+升级时仍打开着的 1.0.x 页面（`hello` 中没有 `v`）在白板应用 1.1 的用户空间中照常工作，直到页面重新载入。
 
-| 1.x 页面发送 | 2.0 的处理 |
+| 1.0.x 页面发送 | 1.1 的处理 |
 | --- | --- |
 | 没有 `v` 的 `hello` | 按 `follow: true` 处理，打开当前白板。 |
 | 带 `pin` 的 `hello`（1.0.1 的嵌入手写板） | `{"t":"error","reason":"pin"}`：应用白板已改为独立空间，1.0.1 的嵌入接口没有使用者。 |
 | 没有 `board` 的 `op` | 按连接当前的白板处理。 |
 
-发给 1.x 页面的消息换回 1.x 的形式：快照带 `role`；元数据（包括 `op` 和 `ack` 中的）换回 `kind`、`folder`、`doc`、`underlay` 和字符串形式的 `background`；`ack` 不带 `board` 和 `rejected`；`locked` 换成整块 `switch`；`caps` 和 `deleted` 不发。
+发给 1.0.x 页面的消息换回 1.0.x 的形式：快照带 `role`；元数据（包括 `op` 和 `ack` 中的）换回 `kind`、`folder`、`doc`、`underlay` 和字符串形式的 `background`；`ack` 不带 `board` 和 `rejected`；`locked` 换成整块 `switch`；`caps` 和 `deleted` 不发。
 
-2.0 的页面在服务端升级之后收到 `outdated` 事件（前端的构建号与快照中的 `server.build` 不同），白板应用据此在没有进行中的书写时重新载入页面，同一构建号只重新载入一次。这一兼容在 2.1 移除。
+1.1 的页面在服务端升级之后收到 `outdated` 事件（前端的构建号与快照中的 `server.build` 不同），白板应用据此在没有进行中的书写时重新载入页面，同一构建号只重新载入一次。这一兼容在 2.1 移除。
