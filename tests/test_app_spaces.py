@@ -1,4 +1,4 @@
-"""已安装应用的空间（docs/design/inksync-2.zh-CN.md 7.4 节）：每个应用的白板单独保存，
+"""已安装应用的空间（docs/design/inksync-redesign.zh-CN.md 7.4 节）：每个应用的白板单独保存，
 不进入用户的白板列表；只能写字的设备可以打开和新建，Mac 可以分页查看。"""
 
 from __future__ import annotations

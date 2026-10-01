@@ -1,11 +1,11 @@
 """换版本之前备份白板。
 
 新版本第一次启动时（以及降级回旧版本时），在它碰任何白板文件之前，先把
-``boards/``、索引（1.x 的 ``index.json``，2.0 的 ``index.sqlite``）、``space.json``
+``boards/``、索引（1.0.x 的 ``index.json``，1.1 的 ``index.sqlite``）、``space.json``
 和各应用空间 ``spaces/`` 原样复制一份到 ``backups/upgrade/``。新版本里要是有
 没发现的问题把白板写坏了，还能从这里找回来。
 
-1.x 的存储目录第一次由 2.0 打开时要转换格式（docs/design/inksync-2.zh-CN.md 4.6 节），
+1.0.x 的存储目录第一次由 1.1 打开时要转换格式（docs/design/inksync-redesign.zh-CN.md 4.6 节），
 这时备份失败就不启动（:class:`BackupError`），不做任何转换。
 
 ``docs/``（文档板的原件）不备份：程序从不改写它们，而且可能很大。
@@ -35,14 +35,14 @@ class BackupError(RuntimeError):
 
 
 def needs_conversion(data_dir: Path) -> bool:
-    """1.x 的存储目录：有 index.json，还没有 2.0 的 index.sqlite。"""
+    """1.0.x 的存储目录：有 index.json，还没有 1.1 的 index.sqlite。"""
     return (data_dir / "index.json").exists() and not (data_dir / "index.sqlite").exists()
 
 
 def backup_if_upgraded(config: Config, version: str) -> Optional[Path]:
     """版本和上次运行时不一样就备份一次，返回备份目录；不需要备份时返回 None。
 
-    备份失败时不记下新版本号，下次启动再试；存储目录还需要从 1.x 转换时抛
+    备份失败时不记下新版本号，下次启动再试；存储目录还需要从 1.0.x 转换时抛
     :class:`BackupError`，调用方不能继续启动。其余情况只记日志。
     """
     data_dir = config.data_dir

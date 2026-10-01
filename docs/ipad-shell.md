@@ -501,7 +501,7 @@ TXT record fields:
 
 Other projects register the same service with `inksync.netinfo.advertise(app, port, source, path)` (see packages/inksync/README.md). It uses the same code as the whiteboard: `DNSServiceRegister` on macOS and zeroconf elsewhere.
 
-Other projects depend on the shell for three things only, and they stay unchanged across inksync 2.x: `source` and `path` in the TXT record; the shell-to-page interface in section 5 (handled by the inksync front end, so the page needs no code); and `GET /ipad/version`. The last one is optional: when the request fails, the shell does not offer an update.
+Other projects depend on the shell for three things only, and they stay unchanged from inksync 0.2 onward: `source` and `path` in the TXT record; the shell-to-page interface in section 5 (handled by the inksync front end, so the page needs no code); and `GET /ipad/version`. The last one is optional: when the request fails, the shell does not offer an update.
 
 > **Warning**
 > On macOS, registration must go through the system mDNSResponder. Do not start a second mDNS responder. The zeroconf-based `MDNSAdvertiser` listens on the mDNS port itself and is therefore off by default on macOS (`netinfo.mdns_default()`).

@@ -16,7 +16,7 @@
 
 const STORE = "kv";
 export const MAX_BOARDS = 200;
-// 1.x 的库名（白板应用和嵌入的手写板共用一个）
+// 1.0.x 的库名（白板应用和嵌入的手写板共用一个）
 const LEGACY_DB = "whiteboard";
 
 function idbRequest(request) {
@@ -145,9 +145,9 @@ export class Cache {
   }
 
   /**
-   * 1.x 的缓存迁进来（只对默认空间的库做一次）：白板内容照搬，待发操作标上
-   * 1.x 缓存的 ``last`` 白板——1.x 的待发操作总是发往连接当时所在的白板。
-   * 迁完删掉 1.x 的库；出错时保留 1.x 数据，下次再试。
+   * 1.0.x 的缓存迁进来（只对默认空间的库做一次）：白板内容照搬，待发操作标上
+   * 1.0.x 缓存的 ``last`` 白板——1.0.x 的待发操作总是发往连接当时所在的白板。
+   * 迁完删掉 1.0.x 的库；出错时保留 1.0.x 数据，下次再试。
    */
   async _migrate() {
     if (!indexedDB.databases) return;

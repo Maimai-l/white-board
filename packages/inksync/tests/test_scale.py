@@ -1,4 +1,4 @@
-"""很多块白板时的开销（docs/design/inksync-2.zh-CN.md 2.3 节 N2、N3）。"""
+"""很多块白板时的开销（docs/design/inksync-redesign.zh-CN.md 2.3 节 N2、N3）。"""
 
 from __future__ import annotations
 

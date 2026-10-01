@@ -4,7 +4,7 @@ English | [简体中文](README.zh-CN.md)
 
 The sync component of the handwriting pad. The server stores boards, syncs operations and controls access by rules; the front-end pad ships inside the package. It mounts on any aiohttp application, so a host project's own server can store and sync boards without running the whiteboard app.
 
-This document is the inksync 2.0 interface reference. Protocol details are in [docs/protocol.md](../../docs/protocol.md), the file format in [docs/format.md](../../docs/format.md), and a complete example in [examples/qb-server](../../examples/qb-server/server.py).
+This document is the inksync 0.2 interface reference. Protocol details are in [docs/protocol.md](../../docs/protocol.md), the file format in [docs/format.md](../../docs/format.md), and a complete example in [examples/qb-server](../../examples/qb-server/server.py).
 
 ## 1. Parts
 
@@ -17,7 +17,7 @@ This document is the inksync 2.0 interface reference. Protocol details are in [d
 Installing:
 
 ```bash
-pip install "inksync[discovery] @ git+https://github.com/Maimai-l/white-board.git@v2.0.0#subdirectory=packages/inksync"
+pip install "inksync[discovery] @ git+https://github.com/Maimai-l/white-board.git@v1.1.0#subdirectory=packages/inksync"
 # from a local checkout
 pip install ./packages/inksync
 ```
@@ -117,7 +117,7 @@ Serves the front-end files under `prefix`; the entry point is `<prefix>inkpad.js
 | Argument | Description |
 | --- | --- |
 | `root` | The storage directory. `boards/<id>.wbz` are board files, `index.sqlite` is the index (can be rebuilt at any time), and `space.json` holds space-level data (`storage.kv`). |
-| `convert_meta` | Optional. Called when a 1.x board file is read, with metadata already converted to 2.0 fields; returns the completed metadata. |
+| `convert_meta` | Optional. Called when a 1.0.x board file is read, with metadata already converted to the current fields; returns the completed metadata. |
 
 ### 3.5 `Hub(storage, policy=None, autosave=3.0, idle_unload=120.0)`
 

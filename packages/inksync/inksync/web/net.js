@@ -1,4 +1,4 @@
-// 同步通道（手写板的「传输」），协议 v2（docs/design/inksync-2-interface.zh-CN.md）。
+// 同步通道（手写板的「传输」），协议 v2（docs/design/inksync-interface.zh-CN.md）。
 //
 // 手写板只通过下面这组成员使用传输，自定义传输实现同样的成员即可：
 //

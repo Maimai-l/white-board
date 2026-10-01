@@ -6,7 +6,7 @@ A `.wbz` file stores one board. Its content is zlib-compressed UTF-8 JSON; each 
 
 Board content is always vector data. Thumbnails and exported images are separate files and are never read back as content.
 
-This document describes file format 2 (inksync 2.0 and later). Files in format 1 (1.x) are still read; see [Reading 1.x files](#reading-1x-files).
+This document describes file format 2 (inksync 0.2 and later). Files in format 1 (1.0.x) are still read; see [Reading 1.0.x files](#reading-10x-files).
 
 ## Storage directory
 
@@ -24,7 +24,7 @@ A storage directory holds one space (inksync's `FileStorage`). The whiteboard ap
 ├── backups/upgrade/<...>/       data copied after a version change; see [Backups](#backups)
 ├── backups/locked/<id>-<time>.wbz   read-only board files copied before unlocking
 ├── recordings/<time>[-<name>].json  input recordings; see recording.md
-└── index.v1.json                the 1.x index, renamed after migration and no longer read or written
+└── index.v1.json                the 1.0.x index, renamed after migration and no longer read or written
 ```
 
 | Platform | Default storage directory |
@@ -374,7 +374,7 @@ A board that is not fully readable opens as a read-only board.
 - The server rejects all operations on it, including `meta` (see [protocol.md](protocol.md#read-only-boards)).
 - Autosave does not write the file, so the partial content never overwrites the original.
 - Renaming and moving to a folder rewrite only `meta` in the file; the rest of the file, including fields this version does not recognize, is kept. If the file cannot be read, the change fails.
-- 1.x reads a file with `v` = 2 as `newer` and opens it read-only, but 1.x renaming and filing rewrite `meta` in such files and lose `canvas`, `layers` and `data`. Downgrading from 2.0 to 1.x is therefore not supported; restore from `backups/upgrade/` if needed.
+- 1.0.x reads a file with `v` = 2 as `newer` and opens it read-only, but 1.0.x renaming and filing rewrite `meta` in such files and lose `canvas`, `layers` and `data`. Downgrading from 1.1 to 1.0.x is therefore not supported; restore from `backups/upgrade/` if needed.
 - Selecting the board again reads the file again.
 - A board in the index whose file cannot be read stays in the board list and opens read-only.
 
@@ -399,13 +399,13 @@ The application writes two kinds of backups inside the storage directory.
 - `thumbs/` is not backed up: thumbnails are regenerated.
 - No upgrade backup is taken when `boards/` is empty.
 - An upgrade backup is first written to `.partial-<name>` and renamed when complete.
-- If the upgrade backup fails, startup continues and the backup is retried at the next start. Exception: a storage directory still in the 1.x format (with `index.json` and without `index.sqlite`) must be converted first; then a failed backup stops the start and the reason is shown.
+- If the upgrade backup fails, startup continues and the backup is retried at the next start. Exception: a storage directory still in the 1.0.x format (with `index.json` and without `index.sqlite`) must be converted first; then a failed backup stops the start and the reason is shown.
 
-## Reading 1.x files
+## Reading 1.0.x files
 
-When 2.0 reads a file with `v` = 1, it converts the metadata to the 2.0 fields in memory; the file is written back with `v: 2` at the next save or metadata change. Strokes are unchanged.
+When 1.1 reads a file with `v` = 1, it converts the metadata to the new fields in memory; the file is written back with `v: 2` at the next save or metadata change. Strokes are unchanged.
 
-| 1.x field | 2.0 |
+| 1.0.x field | 1.1 |
 | --- | --- |
 | `kind: "board"` | `canvas: {"mode": "infinite"}` |
 | `kind: "note"` | `canvas: {"mode": "column", "width": 1000}` |
@@ -414,7 +414,7 @@ When 2.0 reads a file with `v` = 1, it converts the metadata to the 2.0 fields i
 | `underlay: {src, width}` | the first item of `layers` |
 | `folder`, `app`, `doc` | moved into `data` |
 
-The first time 2.0 opens a 1.x storage directory, it backs up the data (see [Backups](#backups)), creates `index.sqlite`, moves the folder list, order and current board from `index.json` into `space.json`, moves boards with `app` into `spaces/<app name>/boards/`, and finally renames `index.json` to `index.v1.json`.
+The first time 1.1 opens a 1.0.x storage directory, it backs up the data (see [Backups](#backups)), creates `index.sqlite`, moves the folder list, order and current board from `index.json` into `space.json`, moves boards with `app` into `spaces/<app name>/boards/`, and finally renames `index.json` to `index.v1.json`.
 
 ## Reading a file
 

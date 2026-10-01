@@ -1,6 +1,6 @@
-# inksync 2.0 需求与规格
+# inksync 0.2 需求与规格
 
-状态：已在 inksync 2.0.0 中实现。实现与本文的差别见第 12 节。对外接口的正式说明见 [packages/inksync/README.zh-CN.md](../../packages/inksync/README.zh-CN.md)（另有英文版）。
+状态：已在 inksync 0.2.0 中实现。实现与本文的差别见第 12 节。对外接口的正式说明见 [packages/inksync/README.zh-CN.md](../../packages/inksync/README.zh-CN.md)（另有英文版）。
 
 本文说明手写同步组件（服务端 inksync 与前端手写板）重新划分边界的需求和规格。白板应用和刷题项目（qb）都是这个组件的使用者。
 
@@ -83,8 +83,8 @@ inksync（包版本 0.1.0，随白板应用 1.0.1 发布）是从白板应用中
 - 不改变笔画的几何与绘制算法，不增加新的工具种类（见第 1 节的更正）。
 - 不做多人同时编辑同一笔画的冲突合并；现有「笔画整条增删、遮罩整份替换」的模型不变。
 - 不做服务端识别手写文字。
-- 服务端把白板渲染成图片（批改用）列为后续工作，不在 2.0 范围内。2.0 提供读取笔画的接口，使用者可以自行渲染。
-- 不支持从 2.0 降级到 1.x（见 4.6 节）。
+- 服务端把白板渲染成图片（批改用）列为后续工作，不在 1.1 范围内。1.1 提供读取笔画的接口，使用者可以自行渲染。
+- 不支持从 1.1 降级到 1.0.x（见 4.6 节）。
 
 ## 3. 总体结构
 
@@ -100,7 +100,7 @@ inksync（Python 包，同时分发前端）
 └── web/      前端 SDK（ES 模块），入口 inkpad.js
 
 白板应用（使用者之一）
-├── 扩展 whiteboard.boards   跟随当前白板、白板列表、文件夹、排序、新建与删除、1.x 页面兼容
+├── 扩展 whiteboard.boards   跟随当前白板、白板列表、文件夹、排序、新建与删除、1.0.x 页面兼容
 ├── 扩展 whiteboard.docs     文档板：导入、页面图片、导出、页面读取权限
 ├── 空间：""（用户白板）和每个已安装应用一个空间
 └── 界面 app.js / ui*.js     在 SDK 的内部类上构建
@@ -198,7 +198,7 @@ await hub.refresh() / await hub.reauthenticate()
 | 载入 | 第一次被打开时在工作线程中从存储读入。同一块白板同时只有一个载入任务，其他请求等待同一个结果。 |
 | 保存 | 每 `autosave` 秒一轮。对每块 `version` 大于已保存版本的白板：在事件循环线程中记下 `version`，复制元数据字典和每个笔画字典（浅复制；笔画的点列在创建后不再修改，遮罩在 `mask` 操作中整体赋值或删除，均只改笔画字典本身）；在工作线程中编码、压缩、写入白板文件；完成后回到事件循环线程，把已保存版本设为记下的 `version`，并更新索引。写盘期间到达的操作使 `version` 继续增加，下一轮再保存。同一块白板同时最多一个保存任务。保存失败时已保存版本不变，下一轮重试。 |
 | 删除 | 先把白板 id 加入已删除集合，等待该白板进行中的保存结束，再删除文件和索引行。工作线程写文件前检查已删除集合，命中则放弃写入。已删除白板上收到的操作只回执（不含 `op`），不应用，也不会重新载入这块白板。 |
-| 释放 | 没有连接（只读连接也算连接）、已全部保存、没有进行中的载入或保存、最后使用超过 `idle_unload` 秒的白板，释放笔画和操作历史，只保留 `(epoch, seq)`。再次载入时沿用这对值，因此停留在 `seq` 的客户端得到空的 `sync`；落后的客户端因操作历史已释放而得到完整的 `init`。服务进程重启后 `epoch` 更新，与 1.x 相同。 |
+| 释放 | 没有连接（只读连接也算连接）、已全部保存、没有进行中的载入或保存、最后使用超过 `idle_unload` 秒的白板，释放笔画和操作历史，只保留 `(epoch, seq)`。再次载入时沿用这对值，因此停留在 `seq` 的客户端得到空的 `sync`；落后的客户端因操作历史已释放而得到完整的 `init`。服务进程重启后 `epoch` 更新，与 1.0.x 相同。 |
 | 关闭 | 停止接受新连接，等待进行中的保存完成，再保存所有仍有改动的白板。 |
 | 事件回调 | 在事件循环线程中调用；回调抛出的异常只记录日志。 |
 
@@ -225,14 +225,14 @@ await hub.refresh() / await hub.reauthenticate()
 | `name` | 字符串，最长 64 个字符。 |
 | `created`、`updated` | 服务端维护。 |
 | `canvas` | `{"mode":"infinite"}`（默认）；`{"mode":"column","width":W}`：宽度固定，向下延伸；`{"mode":"fixed","width":W,"height":H}`：宽高固定。W、H 在 1 到 100000 之间。可书写范围：`column` 为 `0 ≤ x ≤ W, y ≥ 0`；`fixed` 为 `0 ≤ x ≤ W, 0 ≤ y ≤ H`。新建后不可修改（已有笔画的位置依赖它）。 |
-| `background` | `pattern`：`blank`、`grid`、`lines`、`dots` 之一，默认 `grid`；`paper`：`#rrggbb`，默认与 1.x 相同的纸色。 |
-| `layers` | 图片层数组，最多 1000 项，按顺序绘制。每项 `{src, x, y, width, height?, z?, sheet?}`。`height` 省略时按图片比例计算。`z` 为 `below`（默认，笔迹下方）或 `above`（笔迹上方，不接收输入）。`sheet` 为 true 时这一层画成一张带阴影的纸，层与层之间的空白处用画布外的颜色（与 1.x 文档板的页面相同），此时 `background.pattern` 不绘制。`src` 须通过 `Policy.allow_src`，最长 512 个字符；可以包含 `{w}`，见下文。 |
+| `background` | `pattern`：`blank`、`grid`、`lines`、`dots` 之一，默认 `grid`；`paper`：`#rrggbb`，默认与 1.0.x 相同的纸色。 |
+| `layers` | 图片层数组，最多 1000 项，按顺序绘制。每项 `{src, x, y, width, height?, z?, sheet?}`。`height` 省略时按图片比例计算。`z` 为 `below`（默认，笔迹下方）或 `above`（笔迹上方，不接收输入）。`sheet` 为 true 时这一层画成一张带阴影的纸，层与层之间的空白处用画布外的颜色（与 1.0.x 文档板的页面相同），此时 `background.pattern` 不绘制。`src` 须通过 `Policy.allow_src`，最长 512 个字符；可以包含 `{w}`，见下文。 |
 | `data` | JSON 对象，序列化后不超过 16 KB，经 `Policy.validate_data` 校验。 |
 
 - 可修改字段：`name`、`background`、`layers`、`data`。客户端通过 `meta` 操作修改，经 `Policy.can_edit_meta` 许可；服务端通过 `hub.edit_meta` 修改。`canvas`、`id`、`created` 不可修改。
 - `meta` 操作中的 `data` 按键合并：出现的键被替换，值为 `null` 的键被删除，未出现的键不变。`layers` 和 `background` 整体替换。
 - 未知字段被丢弃。服务端不解释 `data` 的内容。
-- 前端据 `canvas` 限制书写范围和视图：`column` 与 1.x 的笔记相同（接近页宽时吸附）；`fixed` 下落点在范围外的笔画不开始，视图不能移出范围，`fit()` 显示整个画布。
+- 前端据 `canvas` 限制书写范围和视图：`column` 与 1.0.x 的笔记相同（接近页宽时吸附）；`fixed` 下落点在范围外的笔画不开始，视图不能移出范围，`fit()` 显示整个画布。
 
 图片层的加载（前端）：
 
@@ -281,7 +281,7 @@ class Storage(Protocol):
 
 读取 `v` 为 1 的文件时，在内存中转换元数据：
 
-| 1.x 字段 | 2.0 |
+| 1.0.x 字段 | 1.1 |
 | --- | --- |
 | `kind: board` | `canvas: {"mode":"infinite"}` |
 | `kind: note` | `canvas: {"mode":"column","width":1000}` |
@@ -292,15 +292,15 @@ class Storage(Protocol):
 
 之后调用 `convert_meta` 钩子；白板应用在其中为文档板生成每页一个 `sheet` 图片层。文件在下次保存或修改元数据时以 `v: 2` 写回。
 
-首次以 2.0 打开一个 1.x 存储目录：
+首次以 1.1 打开一个 1.0.x 存储目录：
 
-1. 白板应用现有的升级备份（`backup.backup_if_upgraded`）把 `boards/` 和 `index.json` 复制到 `backups/upgrade/`。2.0 把这一步改为：备份失败时停止启动，并告诉用户原因（例如磁盘空间不足），不做任何转换。备份范围增加 `spaces/`、`space.json` 和 `index.sqlite`（以后的版本升级使用）。
+1. 白板应用现有的升级备份（`backup.backup_if_upgraded`）把 `boards/` 和 `index.json` 复制到 `backups/upgrade/`。1.1 把这一步改为：备份失败时停止启动，并告诉用户原因（例如磁盘空间不足），不做任何转换。备份范围增加 `spaces/`、`space.json` 和 `index.sqlite`（以后的版本升级使用）。
 2. 建立 `index.sqlite`。
 3. `index.json` 中的文件夹名单、排序和当前白板迁入 `space.json`（白板应用的扩展通过 `storage.legacy_index` 读取）。
 4. 带 `app` 字段的白板移入对应应用的空间 `spaces/<应用名>/boards/`（按 2.1 节，目前没有这样的白板；这一步保证规则完整）。
-5. `index.json` 改名为 `index.v1.json`，2.0 不再读写它。
+5. `index.json` 改名为 `index.v1.json`，1.1 不再读写它。
 
-降级：1.x 读取 `v: 2` 的文件时以只读方式打开（`reason: "newer"`），但 1.x 的改名和移动文件夹仍会改写这些文件的元数据，丢失 `canvas`、`layers` 和 `data`。因此不支持降级；需要回到 1.x 时，从 `backups/upgrade/` 恢复。更新说明中写明这一点。
+降级：1.0.x 读取 `v: 2` 的文件时以只读方式打开（`reason: "newer"`），但 1.0.x 的改名和移动文件夹仍会改写这些文件的元数据，丢失 `canvas`、`layers` 和 `data`。因此不支持降级；需要回到 1.0.x 时，从 `backups/upgrade/` 恢复。更新说明中写明这一点。
 
 ## 5. 协议规格（v2）
 
@@ -312,9 +312,9 @@ class Storage(Protocol):
 | --- | --- | --- |
 | `hello` | `v`（2）、`client`、`space`、`board`、`since`、`epoch`、`create`、`readonly`、`follow`、`device` | 第一条消息，见 5.2 节。`device` 只用于日志。 |
 | `open` | `board`、`since`、`epoch`、`create`、`readonly` | 在同一连接上切换到另一块白板。 |
-| `op` | `cid`、`op`、`board` | 与 1.x 相同，另加 `board`：操作所属的白板。省略时为连接当前的白板。 |
-| `live` | 与 1.x 相同 | 作用于连接当前的白板；只读连接发送的被忽略。 |
-| `ping` | `ts` | 与 1.x 相同。 |
+| `op` | `cid`、`op`、`board` | 与 1.0.x 相同，另加 `board`：操作所属的白板。省略时为连接当前的白板。 |
+| `live` | 与 1.0.x 相同 | 作用于连接当前的白板；只读连接发送的被忽略。 |
+| `ping` | `ts` | 与 1.0.x 相同。 |
 | `unlock` | — | 经 `Policy.can_unlock` 许可。 |
 
 服务端发往客户端：
@@ -323,17 +323,17 @@ class Storage(Protocol):
 | --- | --- | --- |
 | `init` | `v`、`server`、`client`、`board`、`strokes`、`seq`、`epoch`、`locked`、`caps`、`readonly`、`info` | 完整快照。 |
 | `sync` | 同上，以 `ops` 代替 `strokes` | 断线续传。 |
-| `op` | 与 1.x 相同 | 发给显示该白板的其他连接。 |
+| `op` | 与 1.0.x 相同 | 发给显示该白板的其他连接。 |
 | `ack` | `cid`、`seq`、`op`（被接受时）、`board`、`rejected`（被拒绝时的原因） | 见 5.3 节。 |
-| `live`、`pong` | 与 1.x 相同 | |
+| `live`、`pong` | 与 1.0.x 相同 | |
 | `locked` | `board`、`locked` | 白板进入或解除只读，发给显示该白板的所有连接。 |
 | `caps` | `caps` | 权限变化。 |
 | `deleted` | `board` | 所显示的白板被删除。 |
 | `error` | `reason`，可选 `detail` | `version`、`space`、`board`、`create`、`denied`、`rate`。 |
 
-- `server` 为 `{"name":"inksync","version":"2.0.0","protocol":2,"build":"…"}`。`info` 由使用者的 `info(request)` 钩子提供。
-- 协议版本：`hello` 中 `v` 大于服务端支持的版本时，回复 `{"t":"error","reason":"version","supported":[2]}`。没有 `v` 的 `hello` 只在设置了 1.x 兼容的空间中接受（7.3 节），否则同样回复 `version` 错误。
-- 操作的种类、字段与 1.x 相同（`add`、`restore`、`remove`、`mask`、`clear`、`meta`），只有 `meta` 操作的可修改字段按 4.4 节扩展。
+- `server` 为 `{"name":"inksync","version":"0.2.0","protocol":2,"build":"…"}`。`info` 由使用者的 `info(request)` 钩子提供。
+- 协议版本：`hello` 中 `v` 大于服务端支持的版本时，回复 `{"t":"error","reason":"version","supported":[2]}`。没有 `v` 的 `hello` 只在设置了 1.0.x 兼容的空间中接受（7.3 节），否则同样回复 `version` 错误。
+- 操作的种类、字段与 1.0.x 相同（`add`、`restore`、`remove`、`mask`、`clear`、`meta`），只有 `meta` 操作的可修改字段按 4.4 节扩展。
 
 ### 5.2 打开白板
 
@@ -341,7 +341,7 @@ class Storage(Protocol):
 | --- | --- |
 | 有 `board`，没有 `follow` | 打开这块白板。已存在时经 `can_open` 许可；不存在且有 `create` 时，依次检查 `can_create`、`create_limit`、字段校验后新建；不存在且没有 `create` 时回复 `error`（`reason: "board"`）。已存在的白板不被 `create` 修改。 |
 | 有 `follow: true` 或没有 `board` | 调用扩展设置的 `set_hello` 处理函数，由它决定打开哪块白板；`board`、`since`、`epoch` 作为续传依据交给它。没有设置处理函数时回复 `error`（`reason: "board"`）。 |
-| 续传 | 打开的白板与 `board` 相同、`epoch` 相同、历史包含 `since` 之后的全部操作时回复 `sync`，否则回复 `init`。与 1.x 相同。 |
+| 续传 | 打开的白板与 `board` 相同、`epoch` 相同、历史包含 `since` 之后的全部操作时回复 `sync`，否则回复 `init`。与 1.0.x 相同。 |
 | `readonly: true` | 连接只读，`caps.write` 为 false。 |
 
 白板应用的跟随连接发送 `follow: true` 和上次显示的白板，扩展打开当前白板；当前白板没有变化时客户端得到 `sync`。
@@ -351,7 +351,7 @@ class Storage(Protocol):
 | 情况 | `ack` |
 | --- | --- |
 | 已接受 | `{"t":"ack","cid":…,"board":…,"seq":…,"op":…}` |
-| 重复或没有改动 | `{"t":"ack","cid":…,"board":…,"seq":…}`（与 1.x 相同） |
+| 重复或没有改动 | `{"t":"ack","cid":…,"board":…,"seq":…}`（与 1.0.x 相同） |
 | 不合法 | 同上，另加 `"rejected":"invalid"` |
 | 权限不足、连接只读 | 同上，另加 `"rejected":"denied"` |
 | 白板只读（`locked`） | 同上，另加 `"rejected":"locked"` |
@@ -372,7 +372,7 @@ class Storage(Protocol):
 
 ### 5.6 按连接改写消息
 
-`hub.set_encoder(encoder)` 设置一个函数 `encoder(conn, msg) -> msg`，Hub 发给每个连接的每条消息（包括 `op`、`ack` 中携带的元数据）都先经过它。白板应用用它实现 1.x 页面兼容（7.3 节）和按权限过滤白板列表。
+`hub.set_encoder(encoder)` 设置一个函数 `encoder(conn, msg) -> msg`，Hub 发给每个连接的每条消息（包括 `op`、`ack` 中携带的元数据）都先经过它。白板应用用它实现 1.0.x 页面兼容（7.3 节）和按权限过滤白板列表。
 
 ## 6. 前端规格
 
@@ -391,7 +391,7 @@ class Storage(Protocol):
 | `readonly` | 只读打开。 |
 | `tool` | 初始工具 `{tool, color, width, eraserMode}`。 |
 | `fingerDraw` | 手指是否书写。只作用于这块手写板，不写入任何全局设置。 |
-| `transport` | 省略、`"local"`、`{url}` 或函数，与 1.x 相同。 |
+| `transport` | 省略、`"local"`、`{url}` 或函数，与 1.0.x 相同。 |
 | `storage` | 本地存储名称前缀，默认为 `inksync:<space>`。 |
 | `report` | 报错上报地址；默认不上报。 |
 | `undoLimit` | 撤销步数，默认 200。 |
@@ -402,10 +402,10 @@ class Storage(Protocol):
 | 成员 | 说明 |
 | --- | --- |
 | `open(board, {create, readonly})` | 在同一连接上切换白板，撤销记录清空。原白板未送达的操作留在待发队列中，照常送达原白板。 |
-| `setTool(tool)`、`undo()`、`redo()`、`clear()`、`fit()`、`zoom(factor)` | 与 1.x 相同。 |
+| `setTool(tool)`、`undo()`、`redo()`、`clear()`、`fit()`、`zoom(factor)` | 与 1.0.x 相同。 |
 | `setMeta(patch)` | 修改 `name`、`background`、`layers`、`data`（`data` 按 4.4 节合并）。 |
 | `exportPNG({layers = false, scale = 1})` | 笔迹导出为 PNG data URL；`layers` 为 true 时包含图片层（图片须同源）。 |
-| `snapshot()`、`load(board)` | 与 1.x 相同。 |
+| `snapshot()`、`load(board)` | 与 1.0.x 相同。 |
 | `on(event, listener)` | 返回取消订阅的函数。 |
 | `destroy()` | 写入缓存、断开、移除。 |
 | 只读属性 | `board`（当前元数据）、`status`、`tool`、`caps`、`locked`、`shell`、`version`。 |
@@ -420,8 +420,8 @@ class Storage(Protocol):
 | IndexedDB | 库名为 `storage` 选项的值。每块白板的缓存记录最后使用时间。 |
 | 清理 | 每个库最多保留 200 块白板的缓存，超出时删除最久未用的；待发队列中有项目的白板不删除。 |
 | 视图位置 | 存入同一个 IndexedDB 库，随白板缓存一起清理；不再写 `localStorage`。 |
-| 客户端 id | 每个库一个设备 id，保存在 `localStorage` 的 `<storage>:client`；每块手写板的连接 id 为设备 id 加随机后缀（与 1.x 相同）。 |
-| 1.x 数据迁移 | 由 SDK 执行（不依赖白板应用的页面）：第一次打开前缀为 `inksync:`（默认空间）的库时，读取 1.x 的 `whiteboard` 库，把白板缓存迁入，把 `pending` 中的操作标上 1.x 缓存的 `last` 白板（1.x 的待发操作总是发往连接当时所在的白板，即 `last`）后放入待发队列；然后删除 `localStorage` 中的 `whiteboard.view.*` 和 `whiteboard.fingerDraw`，最后删除 `whiteboard` 库。迁移只执行一次，失败时保留 1.x 数据并在下次重试。 |
+| 客户端 id | 每个库一个设备 id，保存在 `localStorage` 的 `<storage>:client`；每块手写板的连接 id 为设备 id 加随机后缀（与 1.0.x 相同）。 |
+| 1.0.x 数据迁移 | 由 SDK 执行（不依赖白板应用的页面）：第一次打开前缀为 `inksync:`（默认空间）的库时，读取 1.0.x 的 `whiteboard` 库，把白板缓存迁入，把 `pending` 中的操作标上 1.0.x 缓存的 `last` 白板（1.0.x 的待发操作总是发往连接当时所在的白板，即 `last`）后放入待发队列；然后删除 `localStorage` 中的 `whiteboard.view.*` 和 `whiteboard.fingerDraw`，最后删除 `whiteboard` 库。迁移只执行一次，失败时保留 1.0.x 数据并在下次重试。 |
 
 ### 6.4 iPad 外壳接口
 
@@ -447,11 +447,11 @@ SDK 不再设置 `<html data-shell>`，改为提供 `shell` 属性和 `shell` �
 | 白板列表 | `boards` 消息由扩展发给跟随连接，内容与 1.0.1 相同（完整列表，界面据此搜索、按文件夹计数、按类型显示标签）。用户空间只包含用户自己建立的白板，数量与 1.0.1 相同；应用白板在各自的空间中，不进入这份列表，因此不需要分页。可见范围与 1.0.1 相同：没有 manage 权限的连接只收到自己所在的那一块，文件夹名单为空（经 `set_encoder` 过滤）。 |
 | 类型标签 | 索引行包含 `canvas.mode`；`index_fields` 包含 `folder` 和 `doc.name`，界面据此显示类型和文档名。 |
 | 文件夹 | 白板所在的文件夹存 `data.folder`；文件夹名单（含空文件夹）存 `space.json`。`folder` 在 `protected_data_keys` 中，只能通过扩展消息 `folder`（需要 manage）修改，与 1.0.1 相同。 |
-| 排序 | 白板 id 的列表，存 `space.json`，拖动排序只改这一项。`list` 按这份列表排序（4.5 节）。迁移时取自 1.x `index.json` 的顺序。 |
+| 排序 | 白板 id 的列表，存 `space.json`，拖动排序只改这一项。`list` 按这份列表排序（4.5 节）。迁移时取自 1.0.x `index.json` 的顺序。 |
 | 权限 | 四项权限映射到 `Policy`；`perms` 作为扩展消息发送。 |
 | 缩略图 | 保持现有 HTTP 接口，由 `hub.on("deleted")` 删除缩略图。 |
 | 本地文件 | 「打开方式」导入 `.wbz` 使用 `hub.import_file`；判断文件是否属于本存储目录的逻辑保留在白板应用中。 |
-| 服务器信息 | `/api/info` 中的客户端列表取自 `hub.connections()`（`device` 代替 1.x 的 `role`）。录制目录等仍由白板应用的配置提供。 |
+| 服务器信息 | `/api/info` 中的客户端列表取自 `hub.connections()`（`device` 代替 1.0.x 的 `role`）。录制目录等仍由白板应用的配置提供。 |
 
 ### 7.2 扩展 `whiteboard.docs`
 
@@ -459,14 +459,14 @@ SDK 不再设置 `<html data-shell>`，改为提供 `shell` 属性和 `shell` �
 - 页面读取权限：请求的白板是某个跟随连接当前显示的白板，或请求方有 manage 权限时允许。与 1.0.1 相同，判断改由扩展提供（它保存当前白板）。
 - 需要改为读取 `data.doc` / `canvas` 的现有代码：`server.py` 的 `_doc_thumb`、`handle_doc_page`、`handle_doc_export`，`store.py` 的 `_import_extras` 与 `register_doc`，`docs.bounds`，`ui-boards.js` 的类型标签，`exporter.js` 与 `app.js` 中按 `kind === "doc"` 的分支，`boardstate.js` 的 `doc`、`pages`、`limits`，`renderer.js` 的文档页绘制（改为通用的 `sheet` 图片层），`docpages.js`（改为通用的图片层加载，4.4 节）。导出使用 `hub.strokes`。
 
-### 7.3 1.x 页面兼容
+### 7.3 1.0.x 页面兼容
 
-白板应用在 2.0 期间为用户空间开启 1.x 兼容：
+白板应用在 1.1 期间为用户空间开启 1.0.x 兼容：
 
 - 接受没有 `v` 的 `hello`（不带 `pin`），视为 `follow: true`。
-- 对这些连接，`set_encoder` 把发出的消息改写为 1.x 的形式：快照使用 `init`、`sync`、`switch`，带 `role`、`boards`、`folders`；所有消息（包括 `op`、`ack`）中的元数据转换回 1.x 字段（`kind`、`folder`、`doc`、`underlay`、字符串形式的 `background`）；`ack` 去掉 `board` 和 `rejected`；`locked` 消息改为 1.x 的 `switch`。
-- 1.x 客户端发出的 `op` 没有 `board`，按连接当前的白板处理，与 1.x 相同。
-- 带 `pin` 的 1.x `hello` 回复 `{"t":"error","reason":"pin"}`（没有使用者，见 2.1 节）。
+- 对这些连接，`set_encoder` 把发出的消息改写为 1.0.x 的形式：快照使用 `init`、`sync`、`switch`，带 `role`、`boards`、`folders`；所有消息（包括 `op`、`ack`）中的元数据转换回 1.0.x 字段（`kind`、`folder`、`doc`、`underlay`、字符串形式的 `background`）；`ack` 去掉 `board` 和 `rejected`；`locked` 消息改为 1.0.x 的 `switch`。
+- 1.0.x 客户端发出的 `op` 没有 `board`，按连接当前的白板处理，与 1.0.x 相同。
+- 带 `pin` 的 1.0.x `hello` 回复 `{"t":"error","reason":"pin"}`（没有使用者，见 2.1 节）。
 - 2.1 移除该兼容。
 
 ### 7.4 已安装应用的空间
@@ -474,7 +474,7 @@ SDK 不再设置 `<html data-shell>`，改为提供 `shell` 属性和 `shell` �
 - 每个已安装应用一个空间，存储在 `<存储目录>/spaces/<应用名>/`。只有已安装的应用名能解析为空间；运行中安装的应用立即可用，卸载时关闭该空间（数据保留）。
 - 应用白板的 `create` 由应用页面给出；白板应用的规则：没有 manage 权限的设备可以打开和新建（受速率限制），不能修改元数据。
 - Mac 的白板选择界面中，每个应用空间显示为一个条目，点开后分页读取该空间的白板（`GET /api/spaces/<名称>/boards?offset=&limit=`，需要 manage），选中后以只读连接查看。
-- 与 1.0.1 的差别：1.0.1 中应用白板出现在用户白板列表中，Mac 选中后 iPad 会跟随切换到它。2.0 中应用白板只在应用自己的页面中书写，Mac 只查看，iPad 不跟随。截至本文没有应用白板存在，这一变化不影响任何已有数据。
+- 与 1.0.1 的差别：1.0.1 中应用白板出现在用户白板列表中，Mac 选中后 iPad 会跟随切换到它。1.1 中应用白板只在应用自己的页面中书写，Mac 只查看，iPad 不跟随。截至本文没有应用白板存在，这一变化不影响任何已有数据。
 
 ## 8. 验收
 
@@ -483,10 +483,10 @@ SDK 不再设置 `<html data-shell>`，改为提供 `shell` 属性和 `shell` �
 | A1 | `examples/qb-server/`：只使用 inksync 公开接口的最小服务端（固定画布、题图层、`data`、按 Cookie 中的用户 id 限制白板前缀的规则、`advertise`），以及一个页面。自动测试覆盖：新建、书写、同步到第二个客户端、`open` 切换白板（切换前的离线操作仍送达原白板）、离线后重连、只读打开、规则拒绝与 `rejected` 事件。 |
 | A2 | inksync 的测试移到 `packages/inksync/tests/`，CI 在只安装 inksync 的虚拟环境中运行，并检查 inksync 没有引用 `whiteboard`。 |
 | A3 | 白板应用现有的 Python、浏览器和 WebKit 测试全部通过。 |
-| A4 | 用 1.0.1 的存储目录和 1.0.1 页面留下的 IndexedDB 数据启动 2.0：内容、文件夹（含空文件夹）、排序、当前白板、文档板（显示、导出）、待发队列均保留；备份失败时不启动转换。 |
+| A4 | 用 1.0.1 的存储目录和 1.0.1 页面留下的 IndexedDB 数据启动 1.1：内容、文件夹（含空文件夹）、排序、当前白板、文档板（显示、导出）、待发队列均保留；备份失败时不启动转换。 |
 | A5 | 并发测试：保存进行中持续写入，保存后不丢操作；保存进行中删除白板，白板不复活；释放后重新打开，停留在最新 `seq` 的客户端得到 `sync`；关闭时所有已回执的操作已写盘。 |
 | A6 | 性能测试：第 2.3 节 N1 至 N3。 |
-| A7 | 1.x 页面（1.0.1 的前端文件）连接 2.0 白板应用：书写、跟随切换、改名、文件夹、文档板显示均正常。 |
+| A7 | 1.0.x 页面（1.0.1 的前端文件）连接 1.1 白板应用：书写、跟随切换、改名、文件夹、文档板显示均正常。 |
 
 ## 9. 实施顺序
 
@@ -495,11 +495,11 @@ SDK 不再设置 `<html data-shell>`，改为提供 `shell` 属性和 `shell` �
 1. 服务端内部：`Storage` 拆分为索引部分和文件部分，内存索引与 SQLite、`space.json`；工作线程载入与保存（版本计数、删除标记）；白板释放；`Policy` 与 `Principal`。协议和元数据暂不改变。
 2. 拆分：把跟随、白板列表、文件夹、排序、管理消息和文档板移到白板应用的扩展；`set_hello`、`set_encoder`、`register`；白板应用改用 `mount`；inksync 测试独立运行。
 3. 元数据 v2 与文件 v2：`canvas`、`background`、`layers`、`data`，读取 v1 文件，升级步骤（4.6 节）；前端按 `canvas` 和 `layers` 绘制、加载和限制范围，文档板改为 `sheet` 图片层。
-4. 协议 v2：`v`、`space`、`open`、`follow`、`create`、`readonly`、`caps`、`locked`、`op` 的 `board`、`rejected`，以及 1.x 页面兼容。
-5. 前端：SDK 移入包、`serve_sdk`、接口对象、按白板的待发队列、本地存储前缀与清理、1.x 数据迁移、`outdated`、去掉白板应用专有的请求和全局状态。
+4. 协议 v2：`v`、`space`、`open`、`follow`、`create`、`readonly`、`caps`、`locked`、`op` 的 `board`、`rejected`，以及 1.0.x 页面兼容。
+5. 前端：SDK 移入包、`serve_sdk`、接口对象、按白板的待发队列、本地存储前缀与清理、1.0.x 数据迁移、`outdated`、去掉白板应用专有的请求和全局状态。
 6. 白板应用的应用空间和选择界面。
 7. `examples/qb-server/` 与验收测试。
-8. 文档（中英文）、更新说明（含不支持降级），发布 2.0.0。
+8. 文档（中英文）、更新说明（含不支持降级），发布 1.1.0。
 
 ## 10. 已做的取舍
 
@@ -512,8 +512,8 @@ SDK 不再设置 `<html data-shell>`，改为提供 `shell` 属性和 `shell` �
 | 画布是否可修改 | 不可修改 | 已有笔画的位置以画布为前提。 |
 | 释放白板后是否换纪元 | 不换，保留 `(epoch, seq)` | 换纪元会使每个闲置超过 2 分钟的客户端重新下载整块白板。 |
 | 待发队列按连接还是按白板 | 按白板，`op` 带 `board` | 允许在一条连接上切换白板而不丢失或错投未送达的操作。 |
-| 1.x 页面兼容保留多久 | 只在 2.0 | 2.0 起有 `outdated` 事件，之后的升级不再需要兼容层。 |
-| 是否支持降级到 1.x | 不支持 | 1.x 会改写 2.0 文件的元数据；需要时从升级备份恢复。 |
+| 1.0.x 页面兼容保留多久 | 只在 1.1 | 1.1 起有 `outdated` 事件，之后的升级不再需要兼容层。 |
+| 是否支持降级到 1.0.x | 不支持 | 1.0.x 会改写 1.1 文件的元数据；需要时从升级备份恢复。 |
 
 ## 11. 第二版修改记录
 
@@ -523,7 +523,7 @@ SDK 不再设置 `<html data-shell>`，改为提供 `shell` 属性和 `shell` �
 | --- | --- |
 | 工作线程保存时，清除改动标记会丢失保存期间到达的操作 | 改为版本计数（4.3 节「保存」）；元数据也复制。 |
 | 保存进行中删除白板，白板文件会被重新写出并复活 | 删除标记与等待（4.3 节「删除」）。 |
-| 待发队列不区分白板，`open` 会把 A 的操作发到 B | 待发队列按白板记录，`op` 带 `board`（5.1、6.3 节）；1.x 待发操作归入 `last` 白板。 |
+| 待发队列不区分白板，`open` 会把 A 的操作发到 B | 待发队列按白板记录，`op` 带 `board`（5.1、6.3 节）；1.0.x 待发操作归入 `last` 白板。 |
 | 空间级数据（空文件夹、排序、当前白板）放在可重建的索引中会丢失 | 改存 `space.json`，同步写入（4.5 节）。 |
 | `Storage.save` 在工作线程中修改内存索引 | 存储接口拆分为只在事件循环线程调用的索引部分和工作线程调用的文件部分（4.5 节）。载入也移到工作线程。 |
 | 释放后换纪元导致闲置客户端整块重下 | 保留 `(epoch, seq)`（4.3 节「释放」）。 |
@@ -534,7 +534,7 @@ SDK 不再设置 `<html data-shell>`，改为提供 `shell` 属性和 `shell` �
 | 多空间的创建、关闭，运行中安装应用 | `Spaces`（4.1 节）；与 1.0.1 的行为差别写明（7.4 节）。 |
 | 跟随连接重连时的续传；解除只读后没有通知 | `follow` 与 `set_hello`（5.2 节）；`locked` 消息（5.1 节）。 |
 | 与现有升级备份不一致；备份范围；降级 | 合并到 `backup_if_upgraded`，失败时停止；不支持降级（4.6 节）。 |
-| 1.x 页面兼容缺少对 `op`、`ack` 中元数据的改写 | `set_encoder`（5.6、7.3 节）。 |
+| 1.0.x 页面兼容缺少对 `op`、`ack` 中元数据的改写 | `set_encoder`（5.6、7.3 节）。 |
 | SDK 仍有全局对象；`/ipad/version`；`advertise` | 列为外壳接口的一部分（6.4 节）。 |
 | 被拒绝的操作被静默丢弃 | `rejected` 回执与事件（5.3 节）。 |
 | 背景只能选四种样式、图片层只能在笔迹下方 | `background.paper`、`layers[].z`（4.4 节）。 |
@@ -552,7 +552,7 @@ SDK 不再设置 `<html data-shell>`，改为提供 `shell` 属性和 `shell` �
 | --- | --- | --- |
 | `FileStorage(root, index_fields=(), convert_meta=None)`；索引行只含部分字段（4.5 节） | `FileStorage(root, convert_meta=None)`；索引行保存完整元数据，`list_boards` 返回完整元数据 | 元数据最大约 16 KB 加图片层列表，2 万块白板时内存和启动时间仍在目标内（启动约 0.45 秒）；使用者不必事先声明字段，白板应用的类型标签和文档名直接取自元数据。 |
 | 视图位置存入 IndexedDB，随白板缓存清理（6.5 节） | 存入 `localStorage` 的 `<存储前缀>views`，最多 200 块，按最后使用时间清理 | 视图在每次平移后写入，同步的 `localStorage` 比 IndexedDB 事务简单；上限相同，写满的问题（P13）同样解决。 |
-| 版本变更备份失败时停止启动（4.6 节） | 只有需要从 1.x 转换时，备份失败才停止启动；其他版本变更备份失败时照常启动，下次再试 | 不做转换时数据不被改写，停止启动只会让用户无法使用。 |
+| 版本变更备份失败时停止启动（4.6 节） | 只有需要从 1.0.x 转换时，备份失败才停止启动；其他版本变更备份失败时照常启动，下次再试 | 不做转换时数据不被改写，停止启动只会让用户无法使用。 |
 | `locked` 事件 `{board, locked}` | `{board, locked, unlock}`，`caps.unlock` 为 true 时调用 `unlock()` | 与 1.0.1 相同，白板应用的「仍然编辑」使用它。 |
-| 不提供 `/sdk/inkpad.js` | 白板应用把 `/sdk/inkpad.js` 跳转到 `/inksync/inkpad.js` | 旧地址给出明确的去处；1.x 的选项仍需按 docs/embed.zh-CN.md 修改。 |
+| 不提供 `/sdk/inkpad.js` | 白板应用把 `/sdk/inkpad.js` 跳转到 `/inksync/inkpad.js` | 旧地址给出明确的去处；1.0.x 的选项仍需按 docs/embed.zh-CN.md 修改。 |
 

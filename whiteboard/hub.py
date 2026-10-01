@@ -1,14 +1,14 @@
 """白板应用的用户空间：在 inksync 的 Hub 上加白板应用自己的功能。
 
-* **跟随当前白板**：白板应用的页面以 ``follow`` 连接（1.x 页面的连接也按跟随处理），
+* **跟随当前白板**：白板应用的页面以 ``follow`` 连接（1.0.x 页面的连接也按跟随处理），
   打开「当前白板」；Mac 上选择、新建、删除白板之后，所有跟随的连接一起切换。
 * **白板列表、文件夹、排序**：``boards`` 消息，以及 ``sel``、``newboard``、``delboard``、
   ``rename``、``folder``、``order``、``newfolder``、``delfolder``、``renamefolder``
   这些扩展消息（docs/protocol.md「白板管理」）。
 * **权限**：四项权限（manage、settings、clear、export）映射到 inksync 的规则；
   ``perms`` 消息告诉页面它现在有哪些权限。
-* **1.x 页面**：升级时仍开着的旧页面照常工作，发给它们的消息换回 1.x 的形式
-  （docs/design/inksync-2.zh-CN.md 7.3 节）。
+* **1.0.x 页面**：升级时仍开着的旧页面照常工作，发给它们的消息换回 1.0.x 的形式
+  （docs/design/inksync-redesign.zh-CN.md 7.3 节）。
 
 除 ``board``、``save_all`` 这类同步的读写外，改动都是协程，在事件循环线程上调用。
 """
@@ -136,7 +136,7 @@ class Hub:
             msg = {**msg, **self.boards_payload(conn)}
         if not conn.legacy:
             return msg
-        # 1.x 页面：元数据换回 1.x 的字段，1.x 不认识的消息不发
+        # 1.0.x 页面：元数据换回 1.0.x 的字段，1.0.x 不认识的消息不发
         if kind in ("caps", "deleted"):
             return None
         if kind == "locked":

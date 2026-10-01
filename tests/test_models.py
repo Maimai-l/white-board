@@ -18,7 +18,7 @@ def test_meta_drops_legacy_board_size():
 
 
 def v1(meta):
-    """读 1.x 文件时的元数据：核心的转换，加上白板应用的钩子。"""
+    """读 1.0.x 文件时的元数据：核心的转换，加上白板应用的钩子。"""
     return models.sanitize_meta(models.convert_v1_meta(models.sanitize_meta(dict(meta, kind="board"))))
 
 

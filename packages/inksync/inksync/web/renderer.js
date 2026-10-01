@@ -72,7 +72,7 @@ function drawPattern(ctx, kind, scale, tx, ty, width, height) {
   ctx.restore();
 }
 
-/** 背景样式：``meta.background`` 是 ``{pattern, paper}``（1.x 是字符串）。 */
+/** 背景样式：``meta.background`` 是 ``{pattern, paper}``（1.0.x 是字符串）。 */
 export function backgroundOf(meta) {
   const background = meta && meta.background;
   if (typeof background === "string") return { pattern: background, paper: PAPER };

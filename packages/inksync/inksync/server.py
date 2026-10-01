@@ -8,7 +8,7 @@
     serve_sdk(app, prefix="/inksync/")
     web.run_app(app, port=8900)
 
-协议见 docs/design/inksync-2-interface.zh-CN.md 与 docs/protocol.md。
+协议见 docs/design/inksync-interface.zh-CN.md 与 docs/protocol.md。
 """
 
 from __future__ import annotations

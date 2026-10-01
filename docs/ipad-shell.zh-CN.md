@@ -501,7 +501,7 @@ TXT 记录的字段：
 
 其他项目用 `inksync.netinfo.advertise(app, port, source, path)` 注册同一种服务（见 packages/inksync/README.zh-CN.md）。它与白板使用相同的代码：macOS 上用 `DNSServiceRegister`，其他系统用 zeroconf。
 
-其他项目对外壳的依赖只有三项，在 inksync 2.x 中保持不变：TXT 记录的 `source` 和 `path`；第 5 节的外壳与网页之间的接口（由 inksync 的前端处理，页面不需要代码）；`GET /ipad/version`。最后一项可以不提供：请求失败时外壳不提示更新。
+其他项目对外壳的依赖只有三项，从 inksync 0.2 起保持不变：TXT 记录的 `source` 和 `path`；第 5 节的外壳与网页之间的接口（由 inksync 的前端处理，页面不需要代码）；`GET /ipad/version`。最后一项可以不提供：请求失败时外壳不提示更新。
 
 > **警告**
 > 在 macOS 上必须通过系统的 mDNSResponder 注册，不得启动第二个 mDNS 响应程序。基于 zeroconf 的 `MDNSAdvertiser` 会自行监听 mDNS 端口，因此在 macOS 上默认关闭（`netinfo.mdns_default()`）。

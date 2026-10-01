@@ -7,10 +7,10 @@
     mount(app, Hub(FileStorage("data")), path="/ws")
     serve_sdk(app, prefix="/inksync/")
 
-接口见 docs/design/inksync-2-interface.zh-CN.md。
+接口见 docs/design/inksync-interface.zh-CN.md。
 """
 
-__version__ = "2.0.0"
+__version__ = "0.2.0"
 
 from .hub import Hub  # noqa: E402
 from .policy import DefaultPolicy, Policy, Principal  # noqa: E402

@@ -11,7 +11,7 @@
 ``n`` 是服务端分配的层叠序号，客户端按 ``n`` 升序绘制，撤销「擦除」时
 用原始 ``n`` 复原，保证前后关系不会错乱。
 
-白板元数据（2.0，见 docs/design/inksync-2-interface.zh-CN.md 第 5 节）::
+白板元数据（文件格式 2，见 docs/design/inksync-interface.zh-CN.md 第 5 节）::
 
     {"id", "name", "created", "updated",
      "canvas": {"mode": "infinite" | "column" | "fixed", "width", "height"},
@@ -53,9 +53,9 @@ MAX_CANVAS = 100000.0
 MAX_LAYERS = 1000
 MAX_SRC = 512
 MAX_DATA_BYTES = 16 * 1024
-# 1.x 笔记的页宽，2.0 里是 column 画布的宽度
+# 1.0.x 笔记的页宽，现在是 column 画布的宽度
 NOTE_WIDTH = 1000.0
-# 1.x 文档板的页间距，和 whiteboard/docs.py 的 PAGE_GAP 相同
+# 1.0.x 文档板的页间距，和 whiteboard/docs.py 的 PAGE_GAP 相同
 DOC_PAGE_GAP = 24.0
 
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -64,7 +64,7 @@ _ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 # 白板 id：同时是文件名，只允许字母、数字、- 和 _
 BOARD_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 SPACE_RE = re.compile(r"^[a-z0-9-]{0,32}$")
-# 1.x 固定连接用的名字，保留给白板应用的兼容层
+# 1.0.x 固定连接用的名字，保留给白板应用的兼容层
 PINNED_ID_RE = BOARD_ID_RE
 
 # 可以通过 meta 操作修改的字段
@@ -122,7 +122,7 @@ def sanitize_canvas(raw: Any) -> Optional[Dict[str, Any]]:
 
 
 def sanitize_background(raw: Any) -> Dict[str, Any]:
-    """背景。1.x 的字符串形式（"grid"）照样接受。"""
+    """背景。1.0.x 的字符串形式（"grid"）照样接受。"""
     if isinstance(raw, str):
         raw = {"pattern": raw}
     if not isinstance(raw, dict):
@@ -315,11 +315,11 @@ def apply_meta_patch(meta: Dict[str, Any], patch: Any,
     return merged
 
 
-# ------------------------------------------------------------------ 1.x 元数据
+# ------------------------------------------------------------------ 1.0.x 元数据
 
 
 def doc_extent(pages: Any, gap: float = DOC_PAGE_GAP) -> Optional[Dict[str, float]]:
-    """1.x 文档板各页自上而下排列（横向按最宽的一页居中）之后的外框。"""
+    """1.0.x 文档板各页自上而下排列（横向按最宽的一页居中）之后的外框。"""
     if not isinstance(pages, list) or not pages:
         return None
     sizes = []
@@ -335,7 +335,7 @@ def doc_extent(pages: Any, gap: float = DOC_PAGE_GAP) -> Optional[Dict[str, floa
 
 
 def convert_v1_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """1.x 的元数据换成 2.0 的字段（见 docs/design/inksync-2.zh-CN.md 4.6 节）。
+    """1.0.x 的元数据换成现在的字段（见 docs/design/inksync-redesign.zh-CN.md 4.6 节）。
 
     白板应用自己的字段（folder、app、doc）移进 ``data``；文档页的图片层由白板应用
     的 ``convert_meta`` 钩子补上，这里只定画布。

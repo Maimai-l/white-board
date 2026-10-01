@@ -80,15 +80,15 @@ When at least one app is installed, the Mac's whiteboard settings show iPad Home
 
 The setting is stored as `ipad_home` in the config file. After the app is removed, the iPad opens the whiteboard again.
 
-## Upgrading from 1.x
+## Upgrading from 1.0.x
 
-| 1.x | 2.0 |
+| 1.0.x | 1.1 |
 | --- | --- |
-| `import … from "/sdk/inkpad.js"` | `import … from "/inksync/inkpad.js"`. The old address `/sdk/inkpad.js` redirects there, but 1.x options must be changed as below. |
+| `import … from "/sdk/inkpad.js"` | `import … from "/inksync/inkpad.js"`. The old address `/sdk/inkpad.js` redirects there, but 1.0.x options must be changed as below. |
 | `app: "qb"` | `space: "qb"`. |
 | `name`, `kind`, `folder`, `underlay` options | Go into `create`: `name`; `canvas`; `layers` (`underlay: {src, width}` becomes `layers: [{src, x: 0, y: 0, width}]`). App boards have no folders; put grouping into `data`. |
 | `pad.state`, `pad.net.status` | `pad.snapshot()`, `pad.status`. The returned object has only the members listed in the interface reference. |
 | `setTool({...pad.tool, tool})` | `setTool({tool})`; fields not given are kept. |
 | `unlock()` in the `locked` event | Unchanged; whether it is allowed is `pad.caps.unlock`. |
 
-Boards created by apps in 1.x move into their app's space the first time 2.0 starts, keeping their ids.
+Boards created by apps in 1.0.x move into their app's space the first time 1.1 starts, keeping their ids.

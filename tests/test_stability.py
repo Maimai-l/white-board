@@ -499,10 +499,10 @@ def test_converting_a_1x_store_refuses_to_start_without_a_backup(tmp_path, monke
 
     monkeypatch.setattr(backup, "_copy", fail)
     with pytest.raises(backup.BackupError, match="没有启动"):
-        backup.backup_if_upgraded(config, "2.0.0")
+        backup.backup_if_upgraded(config, "1.1.0")
     assert (config.data_dir / "index.json").exists() and not (config.data_dir / "index.sqlite").exists()
     monkeypatch.undo()
-    assert backup.backup_if_upgraded(config, "2.0.0") is not None
+    assert backup.backup_if_upgraded(config, "1.1.0") is not None
 
 
 def test_only_the_latest_backups_are_kept(tmp_path):

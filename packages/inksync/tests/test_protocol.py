@@ -233,7 +233,7 @@ def test_version_and_space_errors(tmp_path):
             assert await ws.receive_json() == {"t": "error", "reason": "version", "supported": [2]}
             await ws.close()
             ws = await client.ws_connect("/ws")
-            await ws.send_json({"t": "hello", "client": "pad-one", "board": "q"})   # 1.x
+            await ws.send_json({"t": "hello", "client": "pad-one", "board": "q"})   # 1.0.x
             assert (await ws.receive_json())["reason"] == "version"
             await ws.close()
             ws, reply = await hello(client, "q", {}, space="other")

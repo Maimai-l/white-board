@@ -7,7 +7,7 @@
 
 这里的方法都在事件循环线程（或测试的主线程）中同步调用，只处理没有载入内存的
 白板；已经载入的白板必须经过 :class:`whiteboard.hub.Hub`，否则自动保存会拿内存里
-的内容覆盖回去。首次以 2.0 打开 1.x 存储目录时的迁移也在这里（见 ``_migrate``）。
+的内容覆盖回去。首次以 1.1 打开 1.0.x 存储目录时的迁移也在这里（见 ``_migrate``）。
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ class BoardStore:
     # ------------------------------------------------------------ 迁移
 
     def _migrate(self) -> None:
-        """首次以 2.0 打开 1.x 存储目录（docs/design/inksync-2.zh-CN.md 4.6 节）。
+        """首次以 1.1 打开 1.0.x 存储目录（docs/design/inksync-redesign.zh-CN.md 4.6 节）。
 
         备份由 ``backup.backup_if_upgraded`` 在这之前完成。"""
         legacy = self.core.legacy_index
@@ -82,7 +82,7 @@ class BoardStore:
             old.replace(self.data_dir / "index.v1.json")
         except OSError as exc:
             log.warning("index.json 改名失败：%s", exc)
-        log.info("已迁移 1.x 的索引：%d 块白板，%d 个文件夹", len(order), len(folders))
+        log.info("已迁移 1.0.x 的索引：%d 块白板，%d 个文件夹", len(order), len(folders))
 
     def _move_app_boards(self) -> None:
         """1.0.1 中带 app 的白板移进对应应用的空间。"""
