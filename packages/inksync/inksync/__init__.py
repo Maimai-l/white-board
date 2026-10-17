@@ -10,8 +10,9 @@
 接口见 docs/design/inksync-interface.zh-CN.md。
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
+from .guard import guard_middleware  # noqa: E402
 from .hub import Hub  # noqa: E402
 from .policy import DefaultPolicy, Policy, Principal  # noqa: E402
 from .server import Spaces, mount, serve_sdk  # noqa: E402
@@ -25,6 +26,7 @@ __all__ = [
     "Policy",
     "Principal",
     "Spaces",
+    "guard_middleware",
     "mount",
     "serve_sdk",
     "__version__",

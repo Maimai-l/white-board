@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, FrozenSet, Optional
 
 from aiohttp import web
-from inksync import DefaultPolicy, FileStorage, Principal, Spaces, mount, serve_sdk
+from inksync import DefaultPolicy, FileStorage, Principal, Spaces, guard_middleware, mount, serve_sdk
 from inksync.hub import Hub as CoreHub
 from inksync import server as inksync_server
 from inksync.server import MAX_WS_MESSAGE  # noqa: F401
@@ -643,7 +643,9 @@ async def revalidate_static(request: web.Request, handler):
 def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Application:
     store = store or BoardStore(config.data_dir)
     app = web.Application(
-        client_max_size=MAX_THUMB_BYTES + 4096, middlewares=[revalidate_static]
+        client_max_size=MAX_THUMB_BYTES + 4096,
+        # 先挡住浏览器里其他网页发来的请求：本机来的请求有全部权限（见 inksync.guard）
+        middlewares=[guard_middleware(allowed_hosts=config.allowed_hosts), revalidate_static],
     )
     app[CONFIG_KEY] = config
     # 前端据构建号判断页面是不是旧的（服务端升级之后 iPad 上还开着的页面会重新载入）

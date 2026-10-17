@@ -7,6 +7,14 @@ One section per version, titled with the version number. When a release is publi
 > **Note**
 > The update dialog displays content line by line, so every entry must fit on a single line.
 
+## 1.1.1
+
+### Fixes
+
+- Security: other web pages open in the Mac's browser could connect to the whiteboard server with a script and read, change or delete boards with this machine's permissions. The server now checks every request's source (`Origin` and `Host`) and refuses such requests. The whiteboard window, the iPad, the Home Screen icon and installed apps are not affected.
+- To open the whiteboard under an address other than an IP address, `*.local`, `localhost` or this machine's host name (for example a VPN domain), add it to `allowed_hosts` in the config file.
+- inksync 0.2.1: `mount` performs the same check by default, with new `allowed_origins` and `allowed_hosts` arguments and `guard_middleware`.
+
 ## 1.1.0
 
 The inksync sync component is redesigned so that other projects can use the handwriting pad on their own servers. Using the whiteboard app does not change.

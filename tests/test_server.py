@@ -974,3 +974,55 @@ def test_opening_the_gate_lets_other_devices_manage(tmp_path, remote):
             await ws.close()
 
     run(main())
+
+
+def test_requests_from_other_web_pages_are_refused(tmp_path):
+    """浏览器里其他网页发来的请求（跨站 POST、WebSocket 握手、DNS 重绑定）一律拒绝，
+    而且不产生任何改动；白板自己的页面和不带 Origin 的脚本照常工作。"""
+    import aiohttp
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            before = hub.core.count()
+            own = f"http://{client.host}:{client.port}"
+            evil = {"Origin": "http://evil.example"}
+
+            response = await client.post("/api/doc?name=a.pdf", data=_doc_bytes(), headers=evil)
+            assert response.status == 403
+            assert hub.core.count() == before
+            with pytest.raises(aiohttp.WSServerHandshakeError) as caught:
+                await client.ws_connect("/ws", headers=evil)
+            assert caught.value.status == 403
+            rebinding = {"Host": f"evil.example:{client.port}", "Origin": f"http://evil.example:{client.port}"}
+            assert (await client.get("/api/info", headers=rebinding)).status == 403
+            assert (await client.post("/api/doc?name=a.pdf", data=_doc_bytes(), headers=rebinding)).status == 403
+            assert hub.core.count() == before
+
+            assert (await client.post("/api/doc?name=a.pdf", data=_doc_bytes(), headers={"Origin": own})).status == 200
+            assert hub.core.count() == before + 1
+            ws = await client.ws_connect("/ws", headers={"Origin": own})
+            assert (await hello(ws))["t"] in ("init", "sync")
+            await ws.close()
+            assert (await client.get("/api/info")).status == 200
+
+    run(main())
+
+
+def test_allowed_hosts_from_config(tmp_path):
+    """配置文件里的 allowed_hosts：例如用 VPN 分配的域名打开白板。"""
+
+    async def main():
+        config = Config(path=tmp_path / "config.json")
+        config.data_dir = tmp_path / "data"
+        config.values["allowed_hosts"] = ["mac.example.ts.net", 3, ""]
+        assert config.allowed_hosts == ["mac.example.ts.net"]
+        client = TestClient(TestServer(create_app(config, BoardStore(config.data_dir))))
+        await client.start_server()
+        try:
+            assert (await client.get("/api/info", headers={"Host": "mac.example.ts.net:8848"})).status == 200
+            assert (await client.get("/api/info", headers={"Host": "other.example.net"})).status == 403
+        finally:
+            await client.close()
+
+    run(main())

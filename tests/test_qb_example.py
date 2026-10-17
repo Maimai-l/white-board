@@ -115,6 +115,6 @@ def test_login_and_whoami(tmp_path, monkeypatch):
             assert who == {"id": "42"}
             assert (await client.get("/inksync/inkpad.js")).status == 200
             version = await (await client.get("/inksync/version.js")).text()
-            assert 'VERSION = "0.2.0"' in version
+            assert 'VERSION = "0.2.1"' in version
 
     run(main())

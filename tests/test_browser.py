@@ -4734,7 +4734,7 @@ def test_an_embedded_pad_syncs_between_devices(browser, server):
     assert meta["id"] == "q1" and meta["name"] == "示例 第 1 题" and meta["data"] == {"question": 1}
     assert meta["canvas"] == {"mode": "fixed", "width": 800, "height": 1100}
     assert meta["layers"] == [{"src": "/apps/demo/question.svg", "x": 0, "y": 0, "width": 800}]
-    assert pad.evaluate("() => pad.caps.write && pad.version === '0.2.0'")
+    assert pad.evaluate("() => pad.caps.write && pad.version === '0.2.1'")
 
     draw_embedded(pad, [(100, 300), (160, 340), (230, 300), (300, 360)])
     pad.wait_for_function("() => pad.snapshot().strokes.length === 1 && pad.status === 'online'")

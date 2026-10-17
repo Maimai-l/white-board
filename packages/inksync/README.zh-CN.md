@@ -90,7 +90,7 @@ web.run_app(app, port=PORT)
 from inksync import (
     FileStorage, Hub, Spaces,              # 存储、单个空间、多个空间
     Policy, DefaultPolicy, Principal,      # 规则与身份
-    mount, serve_sdk,                      # 挂载同步接口、提供前端文件
+    mount, serve_sdk, guard_middleware,    # 挂载同步接口、提供前端文件、检查请求来源
     __version__,
 )
 from inksync.netinfo import advertise, is_local_request
@@ -98,15 +98,24 @@ from inksync.netinfo import advertise, is_local_request
 
 其他模块和名称属于内部实现。
 
-### 3.2 `mount(app, target, path="/ws", authenticate=None, info=None)`
+### 3.2 `mount(app, target, path="/ws", authenticate=None, info=None, allowed_origins=(), allowed_hosts=None)`
 
 | 参数 | 说明 |
 | --- | --- |
 | `target` | 一个 `Hub`（单个空间，空间名为空串），或一个 `Spaces`（多个空间）。 |
 | `authenticate` | `request -> Principal`。连接建立时调用一次。默认：`id` 为 None，`local` 按 `is_local_request` 判断。 |
 | `info` | `request -> dict`，随快照发给前端（前端的 `info` 属性）。默认为空对象。 |
+| `allowed_origins` | 除同源页面之外，还接受哪些网页来源的握手，例如 `["chrome-extension://<插件 id>"]`。可以传入之后还会修改的列表或集合。 |
+| `allowed_hosts` | 除 IP 地址、`localhost`、`*.local` 和本机主机名之外，还接受哪些 `Host`，例如 `["qb.example.com"]`；`"*"` 表示不检查。 |
 
 `mount` 负责：启动时开始自动保存；关闭时断开所有连接；清理时等待保存完成。
+
+握手前先检查请求来源（`inksync.guard`），不符合的返回 403：
+
+- `Origin`：有这个头时，必须与本服务同源或列在 `allowed_origins` 中；`null` 一律拒绝。浏览器在 WebSocket 握手中总会带上它，所以浏览器里打开的其他网页连不上。没有这个头的请求（脚本、命令行工具）照常处理。
+- `Host`：必须是 IP 地址、`localhost`、`*.local`、本机主机名，或列在 `allowed_hosts` 中。这一项防止 DNS 重绑定：恶意域名解析到本机地址后，它的页面与本服务同源，只有 `Host` 还是那个域名。
+
+服务端其他会修改数据的 HTTP 路由应当做同样的检查：`app = web.Application(middlewares=[guard_middleware()])`，参数与 `mount` 的后两项相同。
 
 ### 3.3 `serve_sdk(app, prefix="/inksync/")`
 

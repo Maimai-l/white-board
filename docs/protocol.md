@@ -35,6 +35,8 @@ Lost `live` messages need no recovery: the `op` sent when the stroke ends carrie
 
 ### Handshake
 
+The WebSocket handshake is checked first; a request that fails gets 403 and no connection: an `Origin` header, when present, must be the server's own origin (or on the host's allow list), and `Host` must be an IP address, `localhost`, `*.local` or this machine's host name (see [Request sources](#request-sources)).
+
 The first message on a connection must be `hello`; until then the server ignores every other message.
 
 | `hello` field | Type | Description |
@@ -361,6 +363,15 @@ If the message was an `op`, the server still sends an `ack`. The client resends 
 ## Permissions and device roles
 
 Permissions decide what a connection or request may do; the role only decides the interface layout.
+
+### Request sources
+
+Requests from this machine have every permission, and any web page open in the Mac's browser can send requests to `127.0.0.1`. To tell the whiteboard's own pages from other sites, every HTTP request and WebSocket handshake is checked first; a request that fails gets 403:
+
+| Header | Rule | Prevents |
+| --- | --- | --- |
+| `Origin` | Requests without it are handled as before (they do not come from a web page); when present, it must be the server's own origin or on the allow list; `null` is always refused. | Scripts on other pages connecting to `/ws` or POSTing to `/api/…`. Browsers always send `Origin` with both. |
+| `Host` | Must be an IP address, `localhost`, `*.local`, this machine's host name, or on the allow list (in the whiteboard app, `allowed_hosts` in the config file). | DNS rebinding: once a malicious domain resolves to 127.0.0.1, its page is same-origin with the server, and only `Host` still carries that domain. |
 
 ### Identity and policy (inksync)
 

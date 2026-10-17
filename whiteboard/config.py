@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +61,9 @@ class Config:
             "last_version": "",
             # iPad 打开时进入的应用（存储目录 apps/ 下的文件夹名）；空串是白板本身
             "ipad_home": "",
+            # 除 IP、localhost、*.local 和本机主机名之外，还接受哪些地址打开白板
+            # （例如 VPN 分配的域名）。只能在配置文件里改，见 inksync.guard
+            "allowed_hosts": [],
         }
         # 只在这一次运行里有效、不写进配置文件的值：命令行给的端口和存储目录，
         # 以及端口被占用时实际顺延到的那个端口。以前这些都直接写进配置，
@@ -185,6 +188,13 @@ class Config:
         if value and not IPAD_HOME_RE.match(value):
             raise ValueError(f"应用名不合法：{value}")
         self.values["ipad_home"] = value
+
+    @property
+    def allowed_hosts(self) -> List[str]:
+        value = self.values.get("allowed_hosts", [])
+        if not isinstance(value, list):
+            return []
+        return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
     @property
     def skip_version(self) -> str:

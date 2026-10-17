@@ -341,6 +341,7 @@ iPad 使用**笔具盘**；其他设备使用**普通工具栏**。满足以下�
 | 导出白板 | 下载整块白板，包括原件 | `/api/export` |
 
 - 权限根据 TCP 对端地址判断。回环地址和 Mac 自身的局域网地址拥有全部权限。不使用 User-Agent 和 WebSocket 握手中的 `role`，因为客户端可以任意填写这两项。WebSocket 的权限在连接建立时确定。
+- 每个请求还要检查来源：浏览器里其他网页发来的请求（带着其他网站的 `Origin`），以及 `Host` 不是 IP 地址、`localhost`、`*.local` 或本机主机名的请求，一律返回 403。否则 Mac 上打开的任意网页都能以本机的身份读取或删除白板。用其他域名（例如 VPN 分配的域名）打开白板时，把它加到配置文件（`~/Library/Application Support/Whiteboard/config.json`）的 `allowed_hosts` 中，例如 `"allowed_hosts": ["mac.example.ts.net"]`，然后重启应用。详见 [docs/protocol.zh-CN.md](docs/protocol.zh-CN.md#请求来源)。
 - 书写始终允许：页面、WebSocket、页面图像、描述文件和诊断上报不需要权限。
 - 页面通过 `data-perms` 属性获得已授予的权限，只显示允许的入口。这只影响显示；权限由服务端检查。
 - 检查更新和选择存储目录通过本机的 pywebview 接口进行，其他设备无法访问。因此「关于」和「连接 iPad」只出现在 Mac 窗口中。

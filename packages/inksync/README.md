@@ -90,7 +90,7 @@ Page:
 from inksync import (
     FileStorage, Hub, Spaces,              # storage, one space, many spaces
     Policy, DefaultPolicy, Principal,      # rules and identity
-    mount, serve_sdk,                      # mount the sync endpoint, serve the front end
+    mount, serve_sdk, guard_middleware,    # mount the sync endpoint, serve the front end, check request sources
     __version__,
 )
 from inksync.netinfo import advertise, is_local_request
@@ -98,15 +98,24 @@ from inksync.netinfo import advertise, is_local_request
 
 Other modules and names are internal.
 
-### 3.2 `mount(app, target, path="/ws", authenticate=None, info=None)`
+### 3.2 `mount(app, target, path="/ws", authenticate=None, info=None, allowed_origins=(), allowed_hosts=None)`
 
 | Argument | Description |
 | --- | --- |
 | `target` | A `Hub` (one space, whose name is the empty string) or a `Spaces` (many spaces). |
 | `authenticate` | `request -> Principal`. Called once when a connection is established. Default: `id` is None and `local` follows `is_local_request`. |
 | `info` | `request -> dict`, sent to the front end with the snapshot (the pad's `info` property). Default: an empty object. |
+| `allowed_origins` | Web origins accepted besides same-origin pages, for example `["chrome-extension://<extension id>"]`. May be a list or set that is changed later. |
+| `allowed_hosts` | `Host` values accepted besides IP addresses, `localhost`, `*.local` and this machine's host name, for example `["qb.example.com"]`; `"*"` disables the check. |
 
 `mount` starts autosave on startup, closes all connections on shutdown, and waits for saves to finish on cleanup.
+
+Before the handshake the request's source is checked (`inksync.guard`); a request that fails gets 403:
+
+- `Origin`: when present, it must be the server's own origin or listed in `allowed_origins`; `null` is always refused. Browsers always send it in WebSocket handshakes, so other web pages open in a browser cannot connect. Requests without it (scripts, command-line tools) are handled as before.
+- `Host`: must be an IP address, `localhost`, `*.local`, this machine's host name, or listed in `allowed_hosts`. This prevents DNS rebinding: once a malicious domain resolves to this machine, its page is same-origin with the server, and only `Host` still carries that domain.
+
+Other HTTP routes of the server that change data should be checked the same way: `app = web.Application(middlewares=[guard_middleware()])`, taking the same last two arguments as `mount`.
 
 ### 3.3 `serve_sdk(app, prefix="/inksync/")`
 

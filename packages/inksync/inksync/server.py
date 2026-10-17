@@ -19,11 +19,11 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Iterable, Optional, Union
 
 from aiohttp import WSMsgType, web
 
-from . import __version__, models
+from . import __version__, guard, models
 from .hub import Conn, Hub
 from .policy import Principal, local_principal
 
@@ -326,16 +326,25 @@ def mount(
     path: str = "/ws",
     authenticate: Optional[Authenticate] = None,
     info: Optional[Info] = None,
+    allowed_origins: Iterable[str] = (),
+    allowed_hosts: guard.AllowedHosts = None,
 ) -> Spaces:
     """把同步协议挂到 ``app`` 的 ``path`` 上，并接管自动保存与关闭。返回空间集合。
 
     ``target`` 为一个 Hub（单个空间，名称为空串）或 :class:`Spaces`。
     ``authenticate`` 默认只判断请求是否来自本机。
+    握手请求先经 :mod:`inksync.guard` 检查：``Origin`` 须与本服务同源或列在
+    ``allowed_origins`` 中，``Host`` 须是 IP、``localhost``、``*.local`` 或列在
+    ``allowed_hosts`` 中（``"*"`` 表示不查）。``allowed_origins`` 可以传入之后还会修改的
+    列表或集合。
     """
     spaces = target if isinstance(target, Spaces) else _Single(target)
     auth = authenticate or local_principal
 
-    async def handle(request: web.Request) -> web.WebSocketResponse:
+    async def handle(request: web.Request) -> web.StreamResponse:
+        reason = guard.check(request, allowed_origins, allowed_hosts)
+        if reason:
+            return guard.reject(request, reason)
         return await serve_ws(request, spaces, auth, info)
 
     app.router.add_get(path, handle)
