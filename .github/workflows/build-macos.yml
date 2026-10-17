@@ -160,7 +160,7 @@ jobs:
           path: Whiteboard-*.zip
           if-no-files-found: error
 
-  # Edge / Chrome 插件（速写小窗口，docs/sketch.md）：解压后在扩展页面「加载解压缩的扩展」。
+  # Edge / Chrome 插件（工具栏弹出的速写，docs/sketch.md）：解压后在扩展页面「加载解压缩的扩展」。
   # 每次构建都单独出一个产物；打 tag 时随 Release 发布。插件只嵌入白板应用的 /sketch 页面，
   # 版本号只用来区分文件
   extension:

@@ -5148,7 +5148,7 @@ def test_the_qb_example_end_to_end(browser, qb_server):
     assert other.evaluate("() => pad.snapshot().strokes.length") == 0
 
 
-# ---------------------------------------------------------------- 速写（/sketch，Edge 插件的速写小窗口）
+# ---------------------------------------------------------------- 速写（/sketch，Edge 插件的弹出页）
 
 def open_sketch(browser, port, viewport=(380, 760)):
     """速写页面：默认是窄长的页面（各种窗口大小另有用例）。可以读写剪贴板。"""
@@ -5236,23 +5236,14 @@ def test_sketch_copies_a_png_of_the_ink(browser, server):
     assert image is not None and image["dark"] > 50, image
     # 只导出笔迹所在范围（加边距），按 2 倍分辨率：240×60 的笔迹，加上四周各 64 的边距
     assert 600 <= image["width"] <= 800 and 300 <= image["height"] <= 420, image
-    assert image["corner"] == [255, 255, 255, 255], "默认白色背景"
+    assert image["corner"][3] == 0, "透明背景"
 
-    sketch.check("#transparent")
+    # ⌘C（这里是 Ctrl+C）同样复制
+    sketch.evaluate("() => navigator.clipboard.writeText('')")
     sketch.keyboard.press("Control+c")
     sketch.wait_for_timeout(300)
     image = sketch.evaluate(READ_CLIPBOARD_PNG)
-    assert image["corner"][3] == 0, "透明背景"
-    assert image["dark"] > 50
-
-    sketch.wait_for_function("() => !document.getElementById('preview').hidden")
-    dragged = sketch.evaluate("""() => {
-      const data = new DataTransfer();
-      document.getElementById('preview').dispatchEvent(new DragEvent('dragstart', { dataTransfer: data, bubbles: true }));
-      return { files: Array.from(data.files).map((f) => [f.name, f.type, f.size]), uri: data.getData('text/uri-list').slice(0, 22) };
-    }""")
-    assert dragged["uri"] == "data:image/png;base64,"
-    assert len(dragged["files"]) == 1 and dragged["files"][0][1] == "image/png" and dragged["files"][0][2] > 100
+    assert image is not None and image["dark"] > 50, image
 
     sketch.click("#clear")
     sketch.wait_for_function("() => sketchPad.snapshot().strokes.length === 0")
@@ -5385,15 +5376,19 @@ def test_sketch_view_follows_ink_written_anywhere_on_the_ipad(browser, server, v
     assert left > 0 and right > 0, halves
 
 
-def test_sketch_page_fits_a_small_floating_window(browser, server):
-    """插件的小窗口（内容区约 380×286）和置顶的画中画：按钮全部可见，画布占大部分高度。"""
+def test_sketch_page_fits_the_toolbar_popup(browser, server):
+    """插件的工具栏弹出页（420×360）：只有画布、状态点、「清空」和「复制」，按钮全部可见，
+    画布占大部分高度，复制前后都不出现多余的控件。"""
     open_pages(browser, server.port)
-    sketch = open_sketch(browser, server.port, viewport=(380, 286))
+    sketch = open_sketch(browser, server.port, viewport=(420, 360))
     layout = sketch.evaluate("""() => {
       const box = (id) => document.getElementById(id).getBoundingClientRect();
-      return { copy: box('copy').bottom, clear: box('clear').right, pad: box('pad').height,
-               title: getComputedStyle(document.querySelector('header h1')).display };
+      return { copy: [box('copy').right, box('copy').bottom], pad: box('pad').height,
+               buttons: Array.from(document.querySelectorAll('button')).map((b) => b.id),
+               inputs: document.querySelectorAll('input, select, img').length,
+               state: document.getElementById('status').dataset.state };
     }""")
-    assert layout["copy"] <= 286 and layout["clear"] <= 380, layout
-    assert layout["pad"] >= 200, layout
-    assert layout["title"] == "none"
+    assert layout["copy"][0] <= 420 and layout["copy"][1] <= 360, layout
+    assert layout["pad"] >= 280, layout
+    assert layout["buttons"] == ["clear", "copy"] and layout["inputs"] == 0, layout
+    assert layout["state"] == "online"

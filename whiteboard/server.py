@@ -417,7 +417,7 @@ async def handle_sdk(request: web.Request) -> web.Response:
 
 
 async def handle_sketch_page(request: web.Request) -> web.Response:
-    """速写页面：Edge 插件的速写小窗口里嵌的就是它，也可以直接在浏览器里打开。"""
+    """速写页面：Edge 插件的弹出页里嵌的就是它，也可以直接在浏览器里打开。"""
     return web.FileResponse(WEB_DIR / "sketch.html", headers={"Cache-Control": "no-store"})
 
 

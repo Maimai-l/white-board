@@ -2,7 +2,8 @@
   "manifest_version": 3,
   "name": "白板速写",
   "version": "1.2.0",
-  "description": "在 iPad 上用 Apple Pencil 随手写，在 Mac 上的速写小窗口里复制或拖出 PNG。需要 Mac 上正在运行白板应用。",
+  "description": "在 iPad 上用 Apple Pencil 随手写，在工具栏弹出的速写里复制为 PNG。需要 Mac 上正在运行白板应用。",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzrD3p0Dena6dUCxgJM5svk84TcsqJiEVywmF2DAd639nIMqgTm3ThoSG4vAV5INSWieFOUiBuyMwsVoHENHngTAARaloFm8yOemoPrCFqv6a90lEI02pUDqPrl+FX3oAEQjVipR8N0UYQimLlmLpetgCCwuKT2HUz67+IRFLxb8PBq8o5HkkxGgAQc1uEsCrxSh7PbojDuD5gm755KgaPqXf3bRetQjoCdbP6UH6kW09+Xv2q7MZug0lzOsUAWNnAJMtd8G56V2wNm1+aiCKtGMr/KOQR0AnmuWxnJV0wPbscmabG0eA1kbkzojPzAHIoVpPJ5EF40dOdjv7kVLeOQIDAQAB",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -10,14 +11,12 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_title": "打开速写窗口（Alt+Shift+S）",
+    "default_title": "速写（Alt+Shift+S）",
+    "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png"
     }
-  },
-  "background": {
-    "service_worker": "background.js"
   },
   "permissions": [
     "storage"
@@ -30,7 +29,7 @@
       "suggested_key": {
         "default": "Alt+Shift+S"
       },
-      "description": "打开速写窗口"
+      "description": "打开速写"
     }
   }
 }

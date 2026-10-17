@@ -11,8 +11,8 @@
 
 ### 新功能
 
-- 速写：在 iPad 上用 Apple Pencil 随手写，在 Mac 上的速写小窗口里复制或拖出 PNG，粘贴到 Claude 等网页。打开速写时 iPad 自动切到一块空白的速写板，关闭小窗口后速写板被丢弃、iPad 回到原来的白板；速写内容不写入存储目录。见 docs/sketch.zh-CN.md。
-- Edge / Chrome 插件随 Release 发布（Whiteboard-sketch-extension-*.zip），快捷键 Alt+Shift+S 打开速写小窗口；小窗口总是显示全部笔迹，可以展开，也可以置顶（始终显示在其他窗口上方）。不装插件时，在浏览器中打开 http://127.0.0.1:8848/sketch 也可以使用。
+- 速写：在 iPad 上用 Apple Pencil 随手写，在 Mac 上从浏览器工具栏弹出的速写里复制 PNG（透明背景），粘贴到 Claude 等网页。打开速写时 iPad 自动切到一块空白的速写板，弹出页关闭后速写板被丢弃、iPad 回到原来的白板；速写内容不写入存储目录。见 docs/sketch.zh-CN.md。
+- Edge / Chrome 插件随 Release 发布（Whiteboard-sketch-extension-*.zip），快捷键 Alt+Shift+S 弹出速写；画面总是显示全部笔迹，只有「清空」和「复制」两个按钮，不需要设置端口。不装插件时，在浏览器中打开 http://127.0.0.1:8848/sketch 也可以使用。
 - inksync 0.3.0：临时白板（只在内存中，不写盘）、连接断开事件、导出透明背景的 PNG。
 
 ### 修复

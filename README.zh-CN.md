@@ -27,7 +27,7 @@
 - **三种白板**，其中文档板用于在 PDF 或图片上批注，并连同笔迹一起导出。
 - **离线书写。** 笔画暂存在本地和 IndexedDB 中，连接恢复后按顺序发送。
 - **权限。** 局域网内的任何设备都可以书写。管理白板、设置白板、清空白板和导出白板需要在 Mac 上分别授予。
-- **速写。** 在 iPad 上随手写，在 Mac 上 Edge 插件的速写小窗口里复制或拖出 PNG，粘贴到 Claude 等网页；关闭即丢弃，不保存。见 [docs/sketch.zh-CN.md](docs/sketch.zh-CN.md)。
+- **速写。** 在 iPad 上随手写，在 Mac 上从 Edge 工具栏弹出的速写里复制 PNG，粘贴到 Claude 等网页；关闭即丢弃，不保存。见 [docs/sketch.zh-CN.md](docs/sketch.zh-CN.md)。
 
 ## 运行要求
 
@@ -479,7 +479,7 @@ whiteboard/
                                     对话框、设置
     static/lab/                     参数调试页面（仅源码运行）
 ipad/           iPad 外壳（Swift，工程由 XcodeGen 生成）
-extensions/sketch/   Edge / Chrome 插件（速写小窗口），只嵌入 /sketch 页面
+extensions/sketch/   Edge / Chrome 插件（工具栏弹出的速写），只嵌入 /sketch 页面
 tools/          check_boards.py（升级前检查白板）及研究用脚本
 ```
 

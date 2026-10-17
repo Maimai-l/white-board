@@ -11,8 +11,8 @@ One section per version, titled with the version number. When a release is publi
 
 ### New
 
-- Sketch: write freely with Apple Pencil on the iPad, then copy or drag a PNG from a small sketch window on the Mac into Claude or other pages. Opening a sketch switches the iPad to a blank sketch board; after the window closes the sketch board is discarded and the iPad returns to its board. Sketches are never written to the storage directory. See docs/sketch.md.
-- The Edge / Chrome extension ships with each Release (Whiteboard-sketch-extension-*.zip); Alt+Shift+S opens the sketch window, which always shows all ink, can expand, and can stay on top of other windows. Without the extension, opening http://127.0.0.1:8848/sketch in a browser works too.
+- Sketch: write freely with Apple Pencil on the iPad, then copy a PNG from the sketch that pops up from the browser toolbar on the Mac (transparent background) into Claude or other pages. Opening a sketch switches the iPad to a blank sketch board; after the popup closes the sketch board is discarded and the iPad returns to its board. Sketches are never written to the storage directory. See docs/sketch.md.
+- The Edge / Chrome extension ships with each Release (Whiteboard-sketch-extension-*.zip); Alt+Shift+S pops up the sketch, which always shows all ink and has only Clear and Copy; no port setting is needed. Without the extension, opening http://127.0.0.1:8848/sketch in a browser works too.
 - inksync 0.3.0: temporary boards (in memory only, never written), a connection-closed event, and PNG export with a transparent background.
 
 ### Fixes
