@@ -132,7 +132,7 @@ from inksync.netinfo import advertise, is_local_request
 
 | 方法 | 说明 |
 | --- | --- |
-| `hub.on(event, callback)` | `"created"`、`"saved"`、`"deleted"`：`callback(board_id, meta)`。`"changed"`：`callback(board_id, meta, op)`，每个被接受的操作一次。回调在事件循环线程中调用，不能阻塞。返回取消订阅的函数。 |
+| `hub.on(event, callback)` | `"created"`、`"saved"`、`"deleted"`：`callback(board_id, meta)`。`"changed"`：`callback(board_id, meta, op)`，每个被接受的操作一次。`"detached"`：`callback(conn)`，连接断开时。回调在事件循环线程中调用，不能阻塞。返回取消订阅的函数。 |
 | `hub.board_meta(board_id)` | 元数据，不存在时为 None。 |
 | `hub.list_boards(offset=0, limit=100, prefix="", order="updated")` | 元数据列表（取自内存中的索引，不读白板文件）。`order` 为 `updated`、`created`（从新到旧）、`name`（升序），或一个白板 id 的列表（列表中的在前，按列表顺序）。`limit` 为 None 时不限。 |
 | `hub.count(prefix="")` | 白板数。 |
@@ -142,6 +142,9 @@ from inksync.netinfo import advertise, is_local_request
 | `await hub.delete_board(board_id)` | 删除白板，返回是否删除。显示它的前端收到 `deleted` 事件；之后针对它的操作被拒绝（`rejected: "deleted"`），白板不会被重新写回。 |
 | `await hub.import_file(path)` | 把存储目录之外的 `.wbz` 复制成一块新白板，返回 `(meta, 原元数据, 原 id)`。 |
 | `await hub.flush()` | 等待进行中的保存，再保存全部改动。 |
+| `hub.create_transient(board_id, spec=None)` | 新建一块临时白板：只在内存中，从不写盘，不进索引（`list_boards`、`count` 中没有），也不会被释放。连接可以像普通白板一样打开和书写；它的快照带 `transient: true`，前端据此不缓存。服务端重启或 `drop_transient` 之后就没有了。id 已存在时抛出 `ValueError`。 |
+| `hub.drop_transient(board_id)` | 丢弃临时白板及其内容，之后针对它的操作被拒绝（`deleted`）。显示它的连接不会收到通知，由调用方决定把它们移到哪里；对临时白板调用 `delete_board` 则会向它们发送 `deleted`。返回它是否存在。 |
+| `hub.is_transient(board_id)` | 是否是临时白板。 |
 | `hub.connections()` | 当前连接的只读列表，每项有 `id`、`principal`、`board`、`readonly`、`device`。 |
 | `await hub.refresh()` | 规则的判断依据变化后调用：重新计算每个连接的 `caps` 并通知前端。 |
 | `await hub.reauthenticate(authenticate)` | 身份的判断方式变化后调用：按保存的请求重新计算每个连接的身份，返回身份有变化的连接，然后 `refresh()`。 |
@@ -216,7 +219,7 @@ class Principal:
 | `fit()` | `fixed` 画布显示整个画布；其他显示全部笔迹。 |
 | `zoom(factor)` | 以中心为基准缩放。 |
 | `setMeta(patch)` | 修改 `name`、`background`、`layers`、`data`，规则见 5.2 节；需要 `caps.meta`。 |
-| `exportPNG({layers = false, scale = 1})` | 返回 Promise，结果为 PNG data URL。范围：`fixed` 为整个画布，其他为笔迹外框加边距。`layers` 为 true 时包含图片层。 |
+| `exportPNG({layers = false, scale = 1, background = true})` | 返回 Promise，结果为 PNG data URL。范围：`fixed` 为整个画布，其他为笔迹外框加边距。`layers` 为 true 时包含图片层。`background` 为 false 时不画纸张颜色和背景纹理（透明背景）。 |
 | `snapshot()` | `{meta, strokes}`，当前内容的副本。 |
 | `load({meta, strokes})` | 替换内容并清空撤销记录。只用于 `"local"`。 |
 | `on(event, listener)` | 订阅事件，返回取消订阅的函数。 |
@@ -355,3 +358,4 @@ class Principal:
 | 2026-09-30 | 随 inksync 0.2.0 实现更新：`FileStorage` 去掉 `index_fields`，`list_boards` 返回完整元数据，`order` 可以是白板 id 列表；`Hub` 增加 `delete_board`、`import_file`、`flush`、`reauthenticate`、`register`；`setTool` 只替换给出的字段；`locked` 事件带 `unlock`；视图位置存在 `localStorage`；第 8 节改为使用建议。 |
 | 2026-10-01 | 版本号更正：本接口属于 inksync 0.2.0，随白板应用 1.1.0 发布（此前误写为 2.0.0）。 |
 | 2026-10-17 | inksync 0.2.1：`mount` 增加 `allowed_origins`、`allowed_hosts`，握手前检查 `Origin` 和 `Host`；新增 `guard_middleware`。 |
+| 2026-10-17 | inksync 0.3.0：临时白板（`create_transient`、`drop_transient`、`is_transient`，快照中的 `transient`）；`detached` 事件；`exportPNG` 的 `background` 选项；修正 `exportPNG` 传入 `scale` 时边长上限失效的问题。 |

@@ -272,6 +272,8 @@ class Hub:
         self._retained: Dict[str, Tuple[str, int]] = {}
         self._loading: Dict[str, "asyncio.Future[Optional[BoardRuntime]]"] = {}
         self._deleted: set = set()
+        # 临时白板：只在内存中，不写盘、不进索引，见 create_transient
+        self._transient: set = set()
         self._io = ThreadPoolExecutor(max_workers=2, thread_name_prefix="inksync-io")
         self._handlers: Dict[str, Handler] = {}
         self._events: Dict[str, List[Callable[..., Any]]] = {}
@@ -284,7 +286,8 @@ class Hub:
 
     def on(self, event: str, callback: Callable[..., Any]) -> Callable[[], None]:
         """``created``、``saved``、``deleted``：``callback(board_id, meta)``；
-        ``changed``：``callback(board_id, meta, op)``。返回取消订阅的函数。"""
+        ``changed``：``callback(board_id, meta, op)``；``detached``：``callback(conn)``，连接断开时。
+        返回取消订阅的函数。"""
         self._events.setdefault(event, []).append(callback)
         return lambda: self._events.get(event, []).remove(callback) if callback in self._events.get(event, []) else None
 
@@ -327,7 +330,12 @@ class Hub:
         return self.storage.get_meta(board_id)
 
     def exists(self, board_id: str) -> bool:
+        if board_id in self._transient:
+            return True
         return board_id not in self._deleted and self.storage.exists(board_id)
+
+    def is_transient(self, board_id: str) -> bool:
+        return board_id in self._transient
 
     def list_boards(self, offset: int = 0, limit: Optional[int] = 100, prefix: str = "", order: Any = "updated"):
         return self.storage.list(offset=offset, limit=limit, prefix=prefix, order=order)
@@ -425,7 +433,7 @@ class Hub:
         else:
             meta = models.sanitize_meta(meta, self.policy.allow_src)
         board_id = meta["id"]
-        if self.storage.exists(board_id):
+        if self.storage.exists(board_id) or board_id in self._transient:
             raise ValueError(f"白板 {board_id} 已存在")
         self._deleted.discard(board_id)
         self._retained.pop(board_id, None)
@@ -436,6 +444,32 @@ class Hub:
         log.info("新建白板 %s（空间 %r）", board_id, self.name)
         self._emit("created", board_id, _copy_meta(meta))
         return _copy_meta(meta)
+
+    def create_transient(self, board_id: str, spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """新建一块临时白板：只在内存中，从不写盘，不进索引（``list_boards``、``count`` 中没有），
+        也不会被释放。服务端重启或 :meth:`drop_transient` 之后就没有了。其余与普通白板相同：
+        连接可以打开、书写、撤销，操作照常广播。已存在时抛 ValueError。"""
+        if not models.is_board_id(board_id):
+            raise ValueError("白板 id 不合法")
+        if self.exists(board_id):
+            raise ValueError(f"白板 {board_id} 已存在")
+        meta = models.new_board_meta(board_id, spec, self.policy.allow_src)
+        self._deleted.discard(board_id)
+        self._retained.pop(board_id, None)
+        self._transient.add(board_id)
+        self._runtimes[board_id] = BoardRuntime(dict(meta), [])
+        log.info("新建临时白板 %s（空间 %r）", board_id, self.name)
+        return _copy_meta(meta)
+
+    def drop_transient(self, board_id: str) -> bool:
+        """丢掉一块临时白板及其全部内容。之后针对它的操作被拒绝（``deleted``）。
+        显示它的连接不会收到通知，由调用方决定把它们移到哪里。"""
+        if board_id not in self._transient:
+            return False
+        self._transient.discard(board_id)
+        self._runtimes.pop(board_id, None)
+        log.info("丢弃临时白板 %s（空间 %r）", board_id, self.name)
+        return True
 
     async def edit_meta(self, board_id: str, patch: Dict[str, Any], touch: bool = True,
                         quiet: bool = False) -> Optional[Dict[str, Any]]:
@@ -468,7 +502,8 @@ class Hub:
                 return None
             runtime.meta = merged
             runtime.version += 1
-            self.storage.put_meta(runtime.meta)
+            if board_id not in self._transient:
+                self.storage.put_meta(runtime.meta)
             return _copy_meta(runtime.meta)
         op, _reason = runtime.apply({"op": "meta", "meta": patch}, self.policy.allow_src, touch=touch)
         if op is None:
@@ -478,6 +513,14 @@ class Hub:
 
     async def delete_board(self, board_id: str) -> bool:
         """删除白板。显示它的连接收到 ``deleted``；之后针对它的操作只回执，不应用。"""
+        if board_id in self._transient:
+            meta = self.board_meta(board_id) or {"id": board_id}
+            self.drop_transient(board_id)
+            self._emit("deleted", board_id, meta)
+            for conn in self.connections():
+                if conn.board == board_id:
+                    await conn.send({"t": "deleted", "board": board_id})
+            return True
         if not self.storage.exists(board_id) or board_id in self._deleted:
             return False
         self._deleted.add(board_id)
@@ -532,7 +575,7 @@ class Hub:
     def forget(self, board_id: str) -> None:
         """把一块白板从内存中移除（例如锁住的白板再次打开前重新读取）。有改动时不移除。"""
         runtime = self._runtimes.get(board_id)
-        if runtime is not None and not runtime.dirty and runtime.saving is None:
+        if runtime is not None and not runtime.dirty and runtime.saving is None and board_id not in self._transient:
             self._runtimes.pop(board_id, None)
 
     # ------------------------------------------------------------ 连接与快照
@@ -551,6 +594,8 @@ class Hub:
             "caps": dict(conn.caps),
             "readonly": conn.readonly,
         }
+        if runtime.meta["id"] in self._transient:
+            common["transient"] = True
         # 断线重连：白板没换、epoch 一致且历史够长时只补差量，避免整块白板重传。
         if (
             reply == "init"
@@ -613,6 +658,7 @@ class Hub:
         # 只有登记的还是自己时才注销，否则会把新连接从广播名单里摘掉。
         if self.conns.get(conn.id) is conn:
             self.conns.pop(conn.id, None)
+        self._emit("detached", conn)
 
     # ------------------------------------------------------------ 操作
 
@@ -621,7 +667,7 @@ class Hub:
         board_id = board_id if isinstance(board_id, str) else conn.board
         ack: Dict[str, Any] = {"t": "ack", "cid": cid, "board": board_id, "seq": 0}
 
-        if board_id is None or board_id in self._deleted or not self.storage.exists(board_id):
+        if board_id is None or not self.exists(board_id):
             ack["rejected"] = "deleted"
             await conn.send(ack)
             return
@@ -668,7 +714,7 @@ class Hub:
 
     async def _after_op(self, board_id: str, runtime: BoardRuntime, op: Dict[str, Any],
                         source: Optional[Conn]) -> None:
-        if op["op"] == "meta":
+        if op["op"] == "meta" and board_id not in self._transient:
             self.storage.put_meta(runtime.meta)
         await self.broadcast_board(
             board_id,
@@ -772,7 +818,7 @@ class Hub:
         """自动保存的一轮：开始保存有改动的白板，释放长期未用的白板。"""
         stamp = time.monotonic()
         for board_id, runtime in list(self._runtimes.items()):
-            if runtime.saving is not None or runtime.locked:
+            if runtime.saving is not None or runtime.locked or board_id in self._transient:
                 continue
             if runtime.dirty:
                 try:
@@ -797,7 +843,7 @@ class Hub:
                     runtime.saving.result()
                 except Exception:  # noqa: BLE001
                     pass
-            if not runtime.dirty or runtime.locked or board_id in self._deleted:
+            if not runtime.dirty or runtime.locked or board_id in self._deleted or board_id in self._transient:
                 continue
             version, meta, strokes = self._copy_for_save(runtime)
             try:
@@ -859,7 +905,9 @@ class Hub:
 
     def idle(self) -> bool:
         """没有连接，内存中也没有未保存的改动。"""
-        return not self.conns and not any(r.dirty or r.saving for r in self._runtimes.values())
+        return not self.conns and not any(
+            (r.dirty or r.saving) for board_id, r in self._runtimes.items() if board_id not in self._transient
+        )
 
 
 __all__ = ["BoardRuntime", "Conn", "Hub", "OPS_HISTORY", "AUTOSAVE_INTERVAL", "BoardFileError"]

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>速写</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/icon.png">
+<style>
+  :root {
+    --bg: #f2f2f7; --panel: #ffffff; --text: #1c1c1e; --muted: #6e6e73; --line: #d1d1d6;
+    --accent: #3a62d7; --accent-text: #ffffff; --danger: #c4372b;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1c1c1e; --panel: #2c2c2e; --text: #f2f2f7; --muted: #a1a1a6; --line: #3a3a3c; --accent: #6b8cff; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-size: 13px; }
+  header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+  header h1 { flex: 1; margin: 0; font-size: 14px; font-weight: 600; }
+  #status { color: var(--muted); }
+  #status::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--muted); vertical-align: 1px; }
+  #status[data-state="online"]::before { background: #34c759; }
+  #status[data-state="offline"]::before { background: var(--danger); }
+  #pad { flex: 1; min-height: 120px; margin: 0 12px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
+  #notice { margin: 8px 12px 0; color: var(--muted); line-height: 1.5; }
+  #notice:empty { display: none; }
+  #notice[data-kind="error"] { color: var(--danger); }
+  footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px 12px; }
+  button { padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; cursor: pointer; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
+  label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+  #preview { width: 64px; height: 40px; margin-left: auto; border: 1px solid var(--line); border-radius: 6px; object-fit: contain; background: repeating-conic-gradient(#e5e5ea 0% 25%, #fff 0% 50%) 50% / 10px 10px; cursor: grab; }
+  #preview[hidden] { display: none; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>速写</h1>
+    <span id="status">连接中</span>
+  </header>
+  <div id="pad"></div>
+  <p id="notice"></p>
+  <footer>
+    <button id="copy" class="primary" disabled title="复制为 PNG 图片（⌘C）">复制</button>
+    <button id="clear" disabled>清空</button>
+    <label><input id="transparent" type="checkbox">透明背景</label>
+    <img id="preview" alt="拖到其他网页" title="拖到其他网页" draggable="true" hidden>
+  </footer>
+  <script type="module" src="/static/js/sketch.js"></script>
+</body>
+</html>

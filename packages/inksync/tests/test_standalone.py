@@ -38,4 +38,4 @@ def test_public_names():
         "BoardFileError", "DefaultPolicy", "FileStorage", "Hub", "Policy", "Principal", "Spaces",
         "guard_middleware", "mount", "serve_sdk", "__version__",
     }
-    assert inksync.__version__ == "0.2.1"
+    assert inksync.__version__ == "0.3.0"

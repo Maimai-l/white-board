@@ -10,7 +10,7 @@
 接口见 docs/design/inksync-interface.zh-CN.md。
 """
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 from .guard import guard_middleware  # noqa: E402
 from .hub import Hub  # noqa: E402

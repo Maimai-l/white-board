@@ -51,7 +51,8 @@ function renderArea(state, area, targetMax, options = {}) {
   const width = Math.max(1, area.x1 - area.x0);
   const height = Math.max(1, area.y1 - area.y0);
   const scale = Math.min(options.scale || 2, targetMax / Math.max(width, height));
-  return Renderer.renderToCanvas(state, { scale: Math.max(0.05, scale), bounds: area, ...options });
+  // 限制后的 scale 放在最后：调用方给的 scale 只是上限，不能把边长上限覆盖掉
+  return Renderer.renderToCanvas(state, { ...options, bounds: area, scale: Math.max(0.05, scale) });
 }
 
 /** 笔迹（和背景纹理）导出成 PNG data URL，不含图片层。 */
@@ -61,12 +62,13 @@ export function exportDataURL(state) {
 
 /**
  * 导出 PNG data URL。``layers`` 为 true 时包含图片层（图片须同源，否则画布被污染、
- * 导出失败）；``scale`` 是每个白板单位对应的像素数上限（默认 1）。
+ * 导出失败）；``scale`` 是每个白板单位对应的像素数上限（默认 1）；``background`` 为
+ * false 时不画纸张颜色和背景纹理，导出透明背景（有图片层时仍铺纸色）。
  */
-export async function exportImage(state, { layers = false, scale = 1 } = {}) {
+export async function exportImage(state, { layers = false, scale = 1, background = true } = {}) {
   const images = layers ? await loadAll(state.layers) : null;
   const area = exportArea(state);
-  return renderArea(state, area, MAX_EXPORT_PIXELS, { scale, images, background: true }).toDataURL("image/png");
+  return renderArea(state, area, MAX_EXPORT_PIXELS, { scale, images, background: !!background }).toDataURL("image/png");
 }
 
 export function thumbBlob(state) {

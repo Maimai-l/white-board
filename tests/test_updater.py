@@ -70,6 +70,10 @@ def test_pick_asset_matches_architecture():
     # 架构对不上又有多个包：宁可不更新
     assert updater.pick_asset(release(names=("a-arm64.zip", "b-arm64.zip")), "x86_64") is None
     assert updater.pick_asset(release(names=()), "arm64") is None
+    # 发布里还有浏览器插件的 zip：不影响挑选，Intel Mac 上也照样拿到唯一的应用包
+    with_extension = ("Whiteboard-1.2.0-macos-arm64.zip", "Whiteboard-sketch-extension-1.2.0.zip")
+    assert updater.pick_asset(release(names=with_extension), "arm64")["name"] == with_extension[0]
+    assert updater.pick_asset(release(names=with_extension), "x86_64")["name"] == with_extension[0]
 
 
 def test_check_reports_status_for_every_outcome():

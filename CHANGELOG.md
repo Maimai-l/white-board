@@ -7,6 +7,18 @@ One section per version, titled with the version number. When a release is publi
 > **Note**
 > The update dialog displays content line by line, so every entry must fit on a single line.
 
+## 1.2.0
+
+### New
+
+- Sketch: write freely with Apple Pencil on the iPad, then copy or drag a PNG from the Edge side panel on the Mac into Claude or other pages. Opening a sketch switches the iPad to a blank sketch board; after the side panel closes the sketch board is discarded and the iPad returns to its board. Sketches are never written to the storage directory. See docs/sketch.md.
+- The Edge / Chrome side panel extension ships with each Release (Whiteboard-sketch-extension-*.zip); shortcut Alt+Shift+S. Without the extension, opening http://127.0.0.1:8848/sketch in a browser works too.
+- inksync 0.3.0: temporary boards (in memory only, never written), a connection-closed event, and PNG export with a transparent background.
+
+### Fixes
+
+- With a resolution multiplier, PNG export ignored its maximum image size: ink spread far apart produced an image beyond the browser's limit, and the export came out empty.
+
 ## 1.1.1
 
 ### Fixes

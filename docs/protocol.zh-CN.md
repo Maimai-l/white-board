@@ -204,6 +204,7 @@ WebSocket 握手请求先检查来源，不符合的返回 403、不建立连接
 | `locked` | 对象或 null | 正常白板为 `null`；否则为只读原因，见[只读白板](#只读白板)。 |
 | `caps` | 对象 | 这条连接在这块白板上能做什么：`write`（书写）、`clear`（清空）、`meta`（改元数据）、`unlock`（解除只读）。 |
 | `readonly` | 布尔值 | 连接是否只读。 |
+| `transient` | 布尔值 | 只在临时白板的快照中出现，值为 `true`：白板只在服务端内存中，前端不缓存它的内容、视图和待发操作。见[速写](sketch.zh-CN.md)。 |
 
 白板应用的 `info`：
 
@@ -454,6 +455,9 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 | GET | `/apps/{应用}/{路径}` | — | 已安装应用的静态文件；目录返回其中的 `index.html`。见 [embed.zh-CN.md](embed.zh-CN.md)。 |
 | GET | `/sdk/inkpad.js` | — | 1.0.1 的地址，跳转到 `/inksync/inkpad.js`。 |
 | GET | `/api/export/{board}` | `export` | 笔迹合并到原件之后的文档板 |
+| GET | `/sketch` | — | 速写页面，见 [sketch.zh-CN.md](sketch.zh-CN.md)。 |
+| POST | `/api/sketch` | `manage` | 开始或继续速写：没有速写板 `sketch` 时新建一块空白的临时白板，跟随的连接切过去。响应为 `{"board": <meta>, "id": "sketch"}`。 |
+| DELETE | `/api/sketch` | `manage` | 结束速写：丢弃速写板，还在上面的跟随连接回到当前白板，其他连接收到 `deleted`。响应为 `{"ended": <布尔值>}`。 |
 
 缺少权限时返回 `403`。
 

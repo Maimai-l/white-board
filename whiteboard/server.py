@@ -21,7 +21,7 @@ from inksync.server import MAX_WS_MESSAGE  # noqa: F401
 
 from . import __version__, ipadshell, models, netinfo, profile, resources, updater
 from .config import REMOTE_PERMISSIONS, Config
-from .hub import Hub, perms_of
+from .hub import SKETCH_ID, Hub, perms_of
 from .store import BoardStore
 
 log = logging.getLogger(__name__)
@@ -380,6 +380,8 @@ async def handle_thumb_post(request: web.Request) -> web.Response:
     board_id = request.match_info["board_id"]
     if not hub.core.exists(board_id):
         raise web.HTTPNotFound()
+    if hub.core.is_transient(board_id):
+        return web.json_response({"ok": True, "skipped": True})  # 速写板不存任何东西
     body = await _read_body(request, MAX_THUMB_BYTES)
     try:
         hub.store.save_thumb(board_id, body)
@@ -412,6 +414,25 @@ def list_apps(config: Config) -> list:
 async def handle_sdk(request: web.Request) -> web.Response:
     """嵌入用的手写板模块（1.0.1 的地址）。跳转到 inksync 提供的入口。"""
     raise web.HTTPFound("/inksync/inkpad.js")
+
+
+async def handle_sketch_page(request: web.Request) -> web.Response:
+    """速写页面：Edge 侧边栏插件里嵌的就是它，也可以直接在浏览器里打开。"""
+    return web.FileResponse(WEB_DIR / "sketch.html", headers={"Cache-Control": "no-store"})
+
+
+async def handle_sketch_start(request: web.Request) -> web.Response:
+    """开始（或继续）速写：跟随的设备切到速写板。需要「管理白板」权限，因为它会让 iPad 换白板。"""
+    require(request, "manage")
+    hub: Hub = request.app[HUB_KEY]
+    meta = await hub.start_sketch()
+    return web.json_response({"board": meta, "id": SKETCH_ID})
+
+
+async def handle_sketch_end(request: web.Request) -> web.Response:
+    require(request, "manage")
+    hub: Hub = request.app[HUB_KEY]
+    return web.json_response({"ended": await hub.end_sketch()})
 
 
 async def handle_apps(request: web.Request) -> web.Response:
@@ -680,6 +701,9 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app.router.add_get("/api/export/{board_id}", handle_doc_export)
     app.router.add_get("/sdk/inkpad.js", handle_sdk)
     app.router.add_get("/api/apps", handle_apps)
+    app.router.add_get("/sketch", handle_sketch_page)
+    app.router.add_post("/api/sketch", handle_sketch_start)
+    app.router.add_delete("/api/sketch", handle_sketch_end)
     app.router.add_get("/api/spaces/{name}/boards", handle_space_boards)
     app.router.add_get("/apps/{name}", handle_app_file)
     app.router.add_get("/apps/{name}/{tail:.*}", handle_app_file)

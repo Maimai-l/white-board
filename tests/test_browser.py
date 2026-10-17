@@ -4734,7 +4734,7 @@ def test_an_embedded_pad_syncs_between_devices(browser, server):
     assert meta["id"] == "q1" and meta["name"] == "示例 第 1 题" and meta["data"] == {"question": 1}
     assert meta["canvas"] == {"mode": "fixed", "width": 800, "height": 1100}
     assert meta["layers"] == [{"src": "/apps/demo/question.svg", "x": 0, "y": 0, "width": 800}]
-    assert pad.evaluate("() => pad.caps.write && pad.version === '0.2.1'")
+    assert pad.evaluate("() => pad.caps.write && pad.version === '0.3.0'")
 
     draw_embedded(pad, [(100, 300), (160, 340), (230, 300), (300, 360)])
     pad.wait_for_function("() => pad.snapshot().strokes.length === 1 && pad.status === 'online'")
@@ -5146,3 +5146,197 @@ def test_the_qb_example_end_to_end(browser, qb_server):
     other = open_qb(browser, port, "7")
     assert other.evaluate("() => pad.board.id") == "u7-q1"
     assert other.evaluate("() => pad.snapshot().strokes.length") == 0
+
+
+# ---------------------------------------------------------------- 速写（/sketch，Edge 侧边栏插件）
+
+def open_sketch(browser, port, viewport=(380, 760)):
+    """速写页面：Edge 侧边栏里就是这样一个窄页面。可以读写剪贴板。"""
+    context = browser.new_context(viewport={"width": viewport[0], "height": viewport[1]})
+    if ENGINE == "chromium":
+        context.grant_permissions(["clipboard-read", "clipboard-write"], origin=f"http://127.0.0.1:{port}")
+    page = context.new_page()
+    page.goto(f"http://127.0.0.1:{port}/sketch")
+    page.wait_for_function("() => window.sketchPad && sketchPad.status === 'online'")
+    return page
+
+
+READ_CLIPBOARD_PNG = """
+async () => {
+  const items = await navigator.clipboard.read();
+  const item = items.find((i) => i.types.includes('image/png'));
+  if (!item) return null;
+  const blob = await item.getType('image/png');
+  const bitmap = await createImageBitmap(blob);
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0);
+  const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data;
+  let dark = 0;
+  for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 200 && data[i] < 80) dark += 1;
+  return { width: bitmap.width, height: bitmap.height, dark, corner: Array.from(data.slice(0, 4)), size: blob.size };
+}
+"""
+
+CACHED_KEYS = """
+async () => {
+  const names = (await indexedDB.databases()).map((d) => d.name).filter((n) => n && n.startsWith('inksync'));
+  const keys = [];
+  for (const name of names) {
+    const db = await new Promise((ok, fail) => { const r = indexedDB.open(name); r.onsuccess = () => ok(r.result); r.onerror = fail; });
+    if (!db.objectStoreNames.contains('kv')) { db.close(); continue; }
+    const all = await new Promise((ok) => { const r = db.transaction('kv').objectStore('kv').getAllKeys(); r.onsuccess = () => ok(r.result); });
+    const last = await new Promise((ok) => { const r = db.transaction('kv').objectStore('kv').get('last'); r.onsuccess = () => ok(r.result); });
+    keys.push(...all.map((k) => `${name}/${k}`), `${name}/last=${last}`);
+    db.close();
+  }
+  return keys;
+}
+"""
+
+
+def test_ipad_follows_a_sketch_and_returns(browser, server):
+    """打开速写页面：iPad 和 Mac 窗口切到速写板；iPad 上写的内容实时出现在速写页面；
+    关闭速写页面后都回到原来的白板，iPad 的本地缓存里没有速写板。"""
+    server.hub.sketch_grace = 0.3
+    mac, ipad = open_pages(browser, server.port)
+    original = ipad.evaluate("() => whiteboard.state.id")
+    sketch = open_sketch(browser, server.port)
+    for page in (mac, ipad):
+        page.wait_for_function("() => whiteboard.state.id === 'sketch'")
+
+    draw(ipad, [(300, 300), (360, 340), (430, 310), (500, 380)])
+    draw(ipad, [(320, 420), (480, 420)], pointer_id=2)
+    sketch.wait_for_function("() => sketchPad.snapshot().strokes.length === 2")
+    mac.wait_for_function("() => whiteboard.state.strokes.length === 2")
+    sketch.wait_for_function("() => !document.getElementById('copy').disabled")
+
+    sketch.close()
+    for page in (mac, ipad):
+        page.wait_for_function(f"() => whiteboard.state.id === {original!r}", timeout=10000)
+    assert ipad.evaluate("() => whiteboard.state.strokes.length") == 0
+    ipad.wait_for_timeout(300)
+    keys = ipad.evaluate(CACHED_KEYS)
+    assert not [k for k in keys if "sketch" in k], keys
+    assert not server.hub.sketch_active
+
+
+@pytest.mark.skipif(ENGINE != "chromium", reason="剪贴板读写只在 Chromium 上测")
+def test_sketch_copies_a_png_of_the_ink(browser, server):
+    mac, ipad = open_pages(browser, server.port)
+    sketch = open_sketch(browser, server.port)
+    ipad.wait_for_function("() => whiteboard.state.id === 'sketch'")
+    assert sketch.evaluate("() => document.getElementById('copy').disabled"), "空白时不能复制"
+
+    draw(ipad, [(300, 300), (420, 360), (540, 300)])
+    sketch.wait_for_function("() => sketchPad.snapshot().strokes.length === 1")
+    sketch.click("#copy")
+    sketch.wait_for_function("() => document.getElementById('notice').textContent.includes('已复制')")
+    image = sketch.evaluate(READ_CLIPBOARD_PNG)
+    assert image is not None and image["dark"] > 50, image
+    # 只导出笔迹所在范围（加边距），按 2 倍分辨率：240×60 的笔迹，加上四周各 64 的边距
+    assert 600 <= image["width"] <= 800 and 300 <= image["height"] <= 420, image
+    assert image["corner"] == [255, 255, 255, 255], "默认白色背景"
+
+    sketch.check("#transparent")
+    sketch.keyboard.press("Control+c")
+    sketch.wait_for_timeout(300)
+    image = sketch.evaluate(READ_CLIPBOARD_PNG)
+    assert image["corner"][3] == 0, "透明背景"
+    assert image["dark"] > 50
+
+    sketch.wait_for_function("() => !document.getElementById('preview').hidden")
+    dragged = sketch.evaluate("""() => {
+      const data = new DataTransfer();
+      document.getElementById('preview').dispatchEvent(new DragEvent('dragstart', { dataTransfer: data, bubbles: true }));
+      return { files: Array.from(data.files).map((f) => [f.name, f.type, f.size]), uri: data.getData('text/uri-list').slice(0, 22) };
+    }""")
+    assert dragged["uri"] == "data:image/png;base64,"
+    assert len(dragged["files"]) == 1 and dragged["files"][0][1] == "image/png" and dragged["files"][0][2] > 100
+
+    sketch.click("#clear")
+    sketch.wait_for_function("() => sketchPad.snapshot().strokes.length === 0")
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 0")
+    assert sketch.evaluate("() => document.getElementById('copy').disabled")
+
+
+def test_sketch_page_starts_over_when_the_sketch_is_ended_elsewhere(browser, server):
+    """速写在别处结束（或服务端重启）：速写页面自动开一块新的空白速写板，iPad 再次跟过来。"""
+    mac, ipad = open_pages(browser, server.port)
+    original = ipad.evaluate("() => whiteboard.state.id")
+    sketch = open_sketch(browser, server.port)
+    ipad.wait_for_function("() => whiteboard.state.id === 'sketch'")
+    draw(ipad, [(300, 300), (400, 380)])
+    sketch.wait_for_function("() => sketchPad.snapshot().strokes.length === 1")
+
+    mac.evaluate("() => fetch('/api/sketch', { method: 'DELETE' })")
+    sketch.wait_for_function("() => sketchPad.snapshot().strokes.length === 0 && sketchPad.status === 'online'", timeout=10000)
+    ipad.wait_for_function("() => whiteboard.state.id === 'sketch' && whiteboard.state.strokes.length === 0", timeout=10000)
+    assert server.hub.current_id == original
+
+
+def test_sketch_page_explains_missing_permission(browser, server, monkeypatch):
+    """没有「管理白板」权限的设备打开速写页面：说明原因，不连接。"""
+    from whiteboard import server as server_module
+
+    monkeypatch.setattr(server_module, "permissions", lambda request: frozenset())
+    context = browser.new_context(viewport={"width": 380, "height": 700})
+    page = context.new_page()
+    page.goto(f"http://127.0.0.1:{server.port}/sketch")
+    page.wait_for_function("() => document.getElementById('notice').textContent.includes('管理白板')")
+    assert page.evaluate("() => window.sketchPad === undefined")
+    assert not server.hub.sketch_active
+
+
+@pytest.mark.skipif(ENGINE != "chromium", reason="断网用 Chromium 模拟")
+def test_ipad_offline_ink_from_a_finished_sketch_does_not_leak(browser, server):
+    """iPad 在速写中断网并继续写；断网期间速写结束；iPad 恢复网络后回到原来的白板，
+    断网时写的笔画不会出现在原来的白板上。"""
+    server.hub.sketch_grace = 0.2
+    mac, ipad = open_pages(browser, server.port)
+    original = ipad.evaluate("() => whiteboard.state.id")
+    sketch = open_sketch(browser, server.port)
+    ipad.wait_for_function("() => whiteboard.state.id === 'sketch'")
+    draw(ipad, [(300, 300), (360, 340)])
+    sketch.wait_for_function("() => sketchPad.snapshot().strokes.length === 1")
+
+    # 断网：Playwright 的离线模拟不会断开已经建立的 WebSocket，这里同时关掉它；离线期间重连失败
+    ipad.context.set_offline(True)
+    ipad.evaluate("() => whiteboard.net.ws && whiteboard.net.ws.close()")
+    ipad.wait_for_function("() => whiteboard.net.status === 'offline'", timeout=15000)
+    draw(ipad, [(400, 400), (480, 450)], pointer_id=2)
+    assert ipad.evaluate("() => whiteboard.state.strokes.length") == 2
+    sketch.close()
+    mac.wait_for_function(f"() => whiteboard.state.id === {original!r}", timeout=10000)
+
+    ipad.context.set_offline(False)
+    ipad.wait_for_function(
+        f"() => whiteboard.net.status === 'online' && whiteboard.state.id === {original!r}", timeout=20000
+    )
+    ipad.wait_for_function("() => whiteboard.net.outbox.length === 0", timeout=10000)
+    mac.wait_for_timeout(500)
+    assert ipad.evaluate("() => whiteboard.state.strokes.length") == 0
+    assert mac.evaluate("() => whiteboard.state.strokes.length") == 0
+    assert server.hub.core.board(original).stroke_list() == []
+
+
+@pytest.mark.skipif(ENGINE != "chromium", reason="剪贴板读写只在 Chromium 上测")
+def test_a_sprawling_sketch_is_exported_within_size_limits(browser, server):
+    """笔画相隔很远（无限画布）：导出的图片包含全部笔迹，但边长不超过 4096 像素。"""
+    mac, ipad = open_pages(browser, server.port)
+    sketch = open_sketch(browser, server.port)
+    for page in (mac, ipad):
+        page.wait_for_function("() => whiteboard.state.id === 'sketch'")
+    strokes = [
+        {"id": f"far-{i}", "tool": "pen", "color": "#000000", "w": 4,
+         "p": [x, y, 0.6, x + 300, y + 200, 0.6]}
+        for i, (x, y) in enumerate([(-6000, -4000), (6000, 4000), (0, 0)])
+    ]
+    for item in strokes:
+        ipad.evaluate("(s) => whiteboard.net.sendOp({ op: 'add', strokes: [s] })", item)
+    sketch.wait_for_function("() => sketchPad.snapshot().strokes.length === 3", timeout=10000)
+    sketch.click("#copy")
+    sketch.wait_for_function("() => document.getElementById('notice').textContent.includes('已复制')")
+    image = sketch.evaluate(READ_CLIPBOARD_PNG)
+    assert image["width"] <= 4096 and image["height"] <= 4096, image
+    assert image["width"] > 1000 and image["dark"] > 30, image

@@ -204,6 +204,7 @@ The server does not validate or store `live` messages.
 | `locked` | object or null | `null` for a normal board; otherwise the read-only reason. See [Read-only boards](#read-only-boards). |
 | `caps` | object | What this connection may do on this board: `write`, `clear`, `meta` (edit metadata), `unlock`. |
 | `readonly` | boolean | Whether the connection is read-only. |
+| `transient` | boolean | Present, as `true`, only in snapshots of temporary boards: the board exists only in the server's memory, and front ends do not cache its content, view or pending operations. See [Sketch](sketch.md). |
 
 The whiteboard app's `info`:
 
@@ -454,6 +455,9 @@ The role (`mac` or `ipad`) selects the interface layout.
 | GET | `/apps/{app}/{path}` | — | Static files of an installed app; a directory returns its `index.html`. See [embed.md](embed.md). |
 | GET | `/sdk/inkpad.js` | — | The 1.0.1 address; redirects to `/inksync/inkpad.js`. |
 | GET | `/api/export/{board}` | `export` | Document board with ink merged into the original |
+| GET | `/sketch` | — | The sketch page; see [sketch.md](sketch.md). |
+| POST | `/api/sketch` | `manage` | Start or continue a sketch: when there is no sketch board `sketch`, create a blank temporary board, and switch following connections to it. Response: `{"board": <meta>, "id": "sketch"}`. |
+| DELETE | `/api/sketch` | `manage` | End the sketch: discard the sketch board; following connections still on it return to the current board, other connections receive `deleted`. Response: `{"ended": <boolean>}`. |
 
 A missing permission returns `403`.
 

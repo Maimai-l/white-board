@@ -653,6 +653,8 @@ export class InkPad {
     }
     this.checkVersion(msg.server);
     if (msg.caps) this.setCaps(msg.caps);
+    // 临时白板（服务端只在内存中保存）：本地也不缓存它的内容、视图和待发操作
+    this.transient = msg.transient === true;
     this.setLocked(msg.board.id, msg.locked);
     const switched = this.state.id !== msg.board.id;
     this.net.boardId = msg.board.id;
@@ -729,7 +731,7 @@ export class InkPad {
     if (!options.keepView) this.restoreView(meta.id);
     this.renderer.requestFull();
     if (!options.fromCache) this.saveCache();
-    if (this.target.follow) this.cache.setLast(meta.id);
+    if (this.target.follow && !this.transient) this.cache.setLast(meta.id);
   }
 
   applyOp(op, context = {}) {
@@ -863,7 +865,7 @@ export class InkPad {
   }
 
   persistView() {
-    if (!this.state.id) return;
+    if (!this.state.id || this.transient) return;
     this.views.set(this.state.id, this.viewport);
   }
 
@@ -921,6 +923,10 @@ export class InkPad {
 
   persist() {
     if (!this.state.meta) return;
+    if (this.transient) {
+      this.cache.savePending(this.net.outbox.filter((item) => item.board && item.board !== this.state.id));
+      return;
+    }
     const started = performance.now();
     const payload = {
       meta: this.state.meta,

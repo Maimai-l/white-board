@@ -182,6 +182,11 @@ jobs:
             echo "args=--generate-notes" >> "$GITHUB_OUTPUT"
           fi
 
+      # Edge / Chrome 侧边栏插件（速写）：解压后在扩展页面「加载解压缩的扩展」
+      - name: 打包浏览器插件
+        run: |
+          (cd extensions && zip -r -X "../dist/Whiteboard-sketch-extension-${GITHUB_REF_NAME#v}.zip" sketch)
+
       - name: 发布 Release
         env:
           GH_TOKEN: ${{ github.token }}

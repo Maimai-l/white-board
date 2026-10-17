@@ -103,8 +103,11 @@ def arch_tag(machine: Optional[str] = None) -> str:
 
 
 def pick_asset(release: Dict[str, Any], machine: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """挑与本机架构匹配的 zip；只有一个 zip 时就用它。"""
-    assets = [a for a in release.get("assets", []) if str(a.get("name", "")).endswith(".zip")]
+    """挑与本机架构匹配的应用 zip；只有一个时就用它。浏览器插件的 zip（名字里有 ``extension``）不算。"""
+    assets = [
+        a for a in release.get("assets", [])
+        if str(a.get("name", "")).endswith(".zip") and "extension" not in str(a.get("name", "")).lower()
+    ]
     if not assets:
         return None
     tag = arch_tag(machine)

@@ -134,7 +134,7 @@ The runtime of one space. All methods are called on the event loop thread.
 
 | Method | Description |
 | --- | --- |
-| `hub.on(event, callback)` | `"created"`, `"saved"`, `"deleted"`: `callback(board_id, meta)`. `"changed"`: `callback(board_id, meta, op)`, once per accepted operation. Callbacks run on the event loop thread and must not block. Returns a function that unsubscribes. |
+| `hub.on(event, callback)` | `"created"`, `"saved"`, `"deleted"`: `callback(board_id, meta)`. `"changed"`: `callback(board_id, meta, op)`, once per accepted operation. `"detached"`: `callback(conn)`, when a connection closes. Callbacks run on the event loop thread and must not block. Returns a function that unsubscribes. |
 | `hub.board_meta(board_id)` | The metadata, or None when the board does not exist. |
 | `hub.list_boards(offset=0, limit=100, prefix="", order="updated")` | A list of metadata, taken from the in-memory index without reading board files. `order` is `updated`, `created` (newest first), `name` (ascending), or a list of board ids (listed boards first, in list order). `limit=None` means no limit. |
 | `hub.count(prefix="")` | The number of boards. |
@@ -144,6 +144,9 @@ The runtime of one space. All methods are called on the event loop thread.
 | `await hub.delete_board(board_id)` | Deletes a board and returns whether it was deleted. Front ends showing it receive the `deleted` event; later operations on it are rejected (`rejected: "deleted"`) and the board is never written back. |
 | `await hub.import_file(path)` | Copies a `.wbz` from outside the storage directory into a new board. Returns `(meta, original metadata, original id)`. |
 | `await hub.flush()` | Waits for saves in progress, then saves all changes. |
+| `hub.create_transient(board_id, spec=None)` | Creates a temporary board: in memory only, never written to disk, not in the index (absent from `list_boards` and `count`), never unloaded. Connections open and write on it like any board; its snapshots carry `transient: true`, so front ends do not cache it. It is gone after a restart or `drop_transient`. Raises `ValueError` when the id exists. |
+| `hub.drop_transient(board_id)` | Discards a temporary board and its content; later operations on it are rejected (`deleted`). Connections showing it are not notified (the caller decides where to move them); `delete_board` on a temporary board notifies them with `deleted`. Returns whether it existed. |
+| `hub.is_transient(board_id)` | Whether the board is a temporary board. |
 | `hub.connections()` | A read-only list of current connections, each with `id`, `principal`, `board`, `readonly`, `device`. |
 | `await hub.refresh()` | Call after the facts the rules depend on change: recomputes `caps` for every connection and notifies the front ends. |
 | `await hub.reauthenticate(authenticate)` | Call after the way identity is determined changes: recomputes each connection's identity from its saved request, returns the connections whose identity changed, then calls `refresh()`. |
@@ -218,7 +221,7 @@ Creates a pad in `container` and returns it. The pad fills the container and fol
 | `fit()` | A `fixed` canvas shows the whole canvas; other canvases show all ink. |
 | `zoom(factor)` | Zooms around the center. |
 | `setMeta(patch)` | Edits `name`, `background`, `layers`, `data` by the rules of section 5.2; requires `caps.meta`. |
-| `exportPNG({layers = false, scale = 1})` | Returns a Promise of a PNG data URL. Extent: the whole canvas for `fixed`, otherwise the ink bounds plus a margin. With `layers: true` the image layers are included. |
+| `exportPNG({layers = false, scale = 1, background = true})` | Returns a Promise of a PNG data URL. Extent: the whole canvas for `fixed`, otherwise the ink bounds plus a margin. With `layers: true` the image layers are included. With `background: false` the paper color and pattern are left out (transparent background). |
 | `snapshot()` | `{meta, strokes}`, a copy of the current content. |
 | `load({meta, strokes})` | Replaces the content and clears undo history. Only for `"local"`. |
 | `on(event, listener)` | Subscribes to an event; returns a function that unsubscribes. |

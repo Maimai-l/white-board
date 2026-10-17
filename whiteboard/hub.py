@@ -7,6 +7,9 @@
   这些扩展消息（docs/protocol.md「白板管理」）。
 * **权限**：四项权限（manage、settings、clear、export）映射到 inksync 的规则；
   ``perms`` 消息告诉页面它现在有哪些权限。
+* **速写**：``/sketch`` 页面（以及装在 Edge 侧边栏里的插件）开始一次速写时，用一块
+  临时白板 ``sketch``（只在内存中，不存盘），跟随的连接一起切过去；速写页面关闭后
+  白板丢弃，跟随的连接回到原来的当前白板。当前白板的记录始终不变。
 * **1.0.x 页面**：升级时仍开着的旧页面照常工作，发给它们的消息换回 1.0.x 的形式
   （docs/design/inksync-redesign.zh-CN.md 7.3 节）。
 
@@ -15,6 +18,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, List, Optional
@@ -28,6 +32,11 @@ from . import models
 from .store import BoardStore
 
 log = logging.getLogger(__name__)
+
+SKETCH_ID = "sketch"
+SKETCH_SPEC = {"name": "速写", "canvas": {"mode": "infinite"}, "background": {"pattern": "blank"}}
+# 速写页面断开之后等多久再结束：刷新页面、网络抖一下都不应该把速写丢掉
+SKETCH_GRACE = 3.0
 
 
 def perms_of(who: Principal) -> FrozenSet[str]:
@@ -44,7 +53,7 @@ class WhiteboardPolicy(Policy):
         self.hub = hub
 
     def can_open(self, who, board_id, meta):
-        return "manage" in perms_of(who) or board_id == self.hub.current_id
+        return "manage" in perms_of(who) or board_id == self.hub.follow_target()
 
     def can_create(self, who, board_id, spec):
         return "manage" in perms_of(who)
@@ -68,8 +77,12 @@ class WhiteboardPolicy(Policy):
 class Hub:
     """白板应用的用户空间，见模块说明。``core`` 是底下的 inksync Hub。"""
 
-    def __init__(self, store: BoardStore, autosave: float = AUTOSAVE_INTERVAL):
+    def __init__(self, store: BoardStore, autosave: float = AUTOSAVE_INTERVAL, sketch_grace: float = SKETCH_GRACE):
         self.store = store
+        # 跟随的连接现在是否应该在速写板上（Mac 上选了别的白板就不再跟着速写）
+        self.sketch_follow = False
+        self.sketch_grace = sketch_grace
+        self._sketch_check: Optional[asyncio.Task] = None
         self.core = CoreHub(store.core, policy=WhiteboardPolicy(self), autosave=autosave, accept_v1=True)
         self.core.name = ""
         self.core.closable = False
@@ -87,6 +100,7 @@ class Hub:
             ("renamefolder", self._on_rename_folder),
         ):
             self.core.register(name, handler)
+        self.core.on("detached", self._on_detached)
 
     # ------------------------------------------------------------ 查询
 
@@ -100,6 +114,14 @@ class Hub:
 
     def board(self, board_id: Optional[str] = None) -> BoardRuntime:
         return self.core.board(board_id or self.current_id)
+
+    @property
+    def sketch_active(self) -> bool:
+        return self.core.is_transient(SKETCH_ID)
+
+    def follow_target(self) -> str:
+        """跟随的连接应该显示哪块白板：速写进行中且没有被打断时是速写板，否则是当前白板。"""
+        return SKETCH_ID if self.sketch_follow and self.sketch_active else self.current_id
 
     def followers(self) -> List[Conn]:
         return [c for c in self.core.connections() if c.ext.get("follow")]
@@ -128,7 +150,7 @@ class Hub:
     async def _hello(self, conn: Conn, msg: Dict[str, Any]) -> Optional[str]:
         """白板应用的页面总是跟随当前白板。"""
         conn.ext["follow"] = True
-        return self.current_id
+        return self.follow_target()
 
     def _encode(self, conn: Conn, msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         kind = msg.get("t")
@@ -166,7 +188,9 @@ class Hub:
     # ------------------------------------------------------------ 广播
 
     async def broadcast_switch(self) -> None:
-        """所有跟随的连接切到当前白板（整块快照）。"""
+        """所有跟随的连接切到当前白板（整块快照）。速写进行中时，这表示用户在 Mac 上选了
+        别的白板：跟随的连接离开速写板，速写页面本身不受影响。"""
+        self.sketch_follow = False
         current = self.current_id
         for conn in self.followers():
             await self.core.open(conn, current, reply="switch")
@@ -184,6 +208,55 @@ class Hub:
             if conn.ext.get("follow"):
                 board = self.core.board_meta(conn.board) if conn.board else None
                 await conn.send({"t": "boards", **self.boards_payload(conn), "board": board})
+
+    # ------------------------------------------------------------ 速写
+
+    async def start_sketch(self) -> Dict[str, Any]:
+        """开始（或继续）一次速写：没有速写板就建一块空白的，跟随的连接都切过去。"""
+        if self._sketch_check is not None:
+            self._sketch_check.cancel()
+            self._sketch_check = None
+        if not self.sketch_active:
+            self.core.create_transient(SKETCH_ID, SKETCH_SPEC)
+        self.sketch_follow = True
+        for conn in self.followers():
+            if conn.board != SKETCH_ID:
+                await self.core.open(conn, SKETCH_ID, reply="switch")
+        return self.core.board_meta(SKETCH_ID) or {}
+
+    async def end_sketch(self) -> bool:
+        """结束速写：丢弃速写板，还在上面的跟随连接回到当前白板，其他连接收到 ``deleted``。"""
+        if self._sketch_check is not None and self._sketch_check is not asyncio.current_task():
+            self._sketch_check.cancel()
+        self._sketch_check = None
+        if not self.sketch_active:
+            return False
+        viewers = [c for c in self.core.connections() if c.board == SKETCH_ID]
+        self.core.drop_transient(SKETCH_ID)
+        self.sketch_follow = False
+        current = self.current_id
+        for conn in viewers:
+            if conn.ext.get("follow"):
+                await self.core.open(conn, current, reply="switch")
+            else:
+                await conn.send({"t": "deleted", "board": SKETCH_ID})
+        return True
+
+    def sketch_owners(self) -> List[Conn]:
+        """正在显示速写板、但不是跟随连接的连接：速写页面自己。"""
+        return [c for c in self.core.connections() if c.board == SKETCH_ID and not c.ext.get("follow")]
+
+    def _on_detached(self, conn: Conn) -> None:
+        if conn.board != SKETCH_ID or conn.ext.get("follow") or not self.sketch_active:
+            return
+        if self._sketch_check is None or self._sketch_check.done():
+            self._sketch_check = asyncio.get_running_loop().create_task(self._maybe_end_sketch())
+
+    async def _maybe_end_sketch(self) -> None:
+        await asyncio.sleep(self.sketch_grace)
+        if not self.sketch_owners():
+            await self.end_sketch()
+        self._sketch_check = None
 
     # ------------------------------------------------------------ 白板管理
 
