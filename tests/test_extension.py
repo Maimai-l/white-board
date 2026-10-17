@@ -113,12 +113,15 @@ def test_panel_embeds_the_sketch_and_copies_from_inside(extension_context, serve
 
         draw(ipad, [(300, 300), (420, 360), (540, 300)])
         frame.wait_for_function("() => sketchPad.snapshot().strokes.length === 1")
+        frame.evaluate("() => { window.copied = null; addEventListener('sketch-copied', (e) => { window.copied = e.detail; }); }")
         frame.click("#copy")
         frame.wait_for_function("() => document.getElementById('notice').textContent.length > 0")
         notice = frame.evaluate("() => document.getElementById('notice').textContent")
         assert "已复制" in notice, notice
-        types = frame.evaluate("async () => (await navigator.clipboard.read()).flatMap((i) => i.types)")
-        assert "image/png" in types
+        # 剪贴板写入成功之后页面才发出 sketch-copied（带写入的 PNG 大小）。这里不读回剪贴板：
+        # 较新的 Chromium 不允许嵌入的其他来源的页面读剪贴板；读回像素的检查在 test_browser.py 中
+        copied = frame.evaluate("() => window.copied")
+        assert copied is not None and copied["size"] > 100, copied
 
         # 关掉侧边栏（这里是关掉面板页面）：iPad 回到原来的白板
         panel.close()
