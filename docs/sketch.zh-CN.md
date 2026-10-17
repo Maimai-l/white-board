@@ -34,7 +34,7 @@ Edge 侧边栏（插件 extensions/sketch）── 复制或拖出 PNG ──> �
 
 ## 安装插件（Edge）
 
-1. 下载 Release 中的 `Whiteboard-sketch-extension-<版本>.zip` 并解压；从源码运行时直接使用仓库中的 `extensions/sketch/`。
+1. 下载 Release 中的 `Whiteboard-sketch-extension-<版本>.zip`（手动构建时在构建页面的产物 `Whiteboard-sketch-extension` 中）并解压；从源码运行时直接使用仓库中的 `extensions/sketch/`。
 2. 在 Edge 中打开 `edge://extensions`，打开「开发人员模式」。
 3. 点「加载解压缩的扩展」，选择解压后的 `sketch` 文件夹。
 4. 如需修改快捷键，打开 `edge://extensions/shortcuts`。

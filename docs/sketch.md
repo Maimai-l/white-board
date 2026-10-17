@@ -34,7 +34,7 @@ The extension is optional: opening `http://127.0.0.1:8848/sketch` in any browser
 
 ## Installing the extension (Edge)
 
-1. Download `Whiteboard-sketch-extension-<version>.zip` from the Release and unzip it; when running from source, use `extensions/sketch/` in the repository.
+1. Download `Whiteboard-sketch-extension-<version>.zip` from the Release (for a manual build, from the build's `Whiteboard-sketch-extension` artifact) and unzip it; when running from source, use `extensions/sketch/` in the repository.
 2. Open `edge://extensions` in Edge and turn on Developer mode.
 3. Click Load unpacked and choose the unzipped `sketch` folder.
 4. To change the shortcut, open `edge://extensions/shortcuts`.

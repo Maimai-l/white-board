@@ -14,6 +14,7 @@ on:
       - "ipad/**"
       - "run.py"
       - "requirements.txt"
+      - "extensions/**"
       - ".github/workflows/build-macos.yml"
   workflow_dispatch:
     inputs:
@@ -159,8 +160,30 @@ jobs:
           path: Whiteboard-*.zip
           if-no-files-found: error
 
+  # Edge / Chrome 侧边栏插件（速写，docs/sketch.md）：解压后在扩展页面「加载解压缩的扩展」。
+  # 每次构建都单独出一个产物；打 tag 时随 Release 发布。插件只嵌入白板应用的 /sketch 页面，
+  # 版本号只用来区分文件
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 打包插件
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            value="${GITHUB_REF_NAME#v}"
+          else
+            value="${{ github.event.inputs.version || '0.0.0-dev' }}"
+          fi
+          python3 -c "import json; json.load(open('extensions/sketch/manifest.json'))"
+          (cd extensions && zip -r -X "../Whiteboard-sketch-extension-$value.zip" sketch)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Whiteboard-sketch-extension
+          path: Whiteboard-sketch-extension-*.zip
+          if-no-files-found: error
+
   release:
-    needs: [ipad, build]
+    needs: [ipad, build, extension]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
@@ -181,11 +204,6 @@ jobs:
           else
             echo "args=--generate-notes" >> "$GITHUB_OUTPUT"
           fi
-
-      # Edge / Chrome 侧边栏插件（速写）：解压后在扩展页面「加载解压缩的扩展」
-      - name: 打包浏览器插件
-        run: |
-          (cd extensions && zip -r -X "../dist/Whiteboard-sketch-extension-${GITHUB_REF_NAME#v}.zip" sketch)
 
       - name: 发布 Release
         env:
