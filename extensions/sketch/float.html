@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>速写</title>
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="float.css">
+</head>
+<body>
+  <nav id="bar">
+    <span class="title">速写</span>
+    <button id="expand" title="展开 / 收起">展开</button>
+    <button id="pin" title="置顶：始终显示在其他窗口上方" hidden>置顶</button>
+    <button id="gear" title="设置" aria-expanded="false">设置</button>
+  </nav>
+  <form id="settings" hidden>
+    <label>白板应用的端口 <input id="port" type="number" min="1" max="65535" step="1"></label>
+    <button id="save" type="submit">保存</button>
+  </form>
+  <iframe id="sketch" title="速写" allow="clipboard-write; clipboard-read" hidden></iframe>
+  <section id="offline" hidden>
+    <h1>白板应用没有运行</h1>
+    <p>速写要连接 Mac 上的白板应用。打开白板应用之后，这里会自动连接。</p>
+    <p class="muted" id="address"></p>
+    <button id="retry">重试</button>
+  </section>
+  <section id="pinned" hidden>
+    <p>速写已显示在置顶的浮窗中。关闭浮窗后回到这里。</p>
+  </section>
+  <script src="float.js"></script>
+</body>
+</html>

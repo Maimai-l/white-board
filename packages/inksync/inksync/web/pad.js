@@ -1013,7 +1013,8 @@ export class InkPad {
   }
 
   /** 回到内容：大白板把笔迹全装进视口；笔记按页宽铺满并回到内容开头。 */
-  fit() {
+  /** ``maxScale``：放大不超过这个倍数（例如速写窗口里一笔短线不放大到占满窗口）。 */
+  fit(options = {}) {
     const limits = this.state.limits;
     const bounds = contentBounds(this.state);
     if (limits && limits.y1 !== undefined) {
@@ -1026,6 +1027,11 @@ export class InkPad {
       }
     } else if (bounds) {
       this.viewport.fit(bounds, this.renderer.viewW, this.renderer.viewH);
+      const max = Number(options.maxScale);
+      if (max > 0 && this.viewport.scale > max) {
+        this.viewport.scale = max;
+        this.viewport.centerOn((bounds.x0 + bounds.x1) / 2, (bounds.y0 + bounds.y1) / 2, this.renderer.viewW, this.renderer.viewH);
+      }
     } else {
       this.viewport.scale = 1;
       this.viewport.centerOn(0, 0, this.renderer.viewW, this.renderer.viewH);

@@ -115,7 +115,7 @@ export function createInkPad(container, options = {}) {
     undo: () => core.undo(),
     redo: () => core.redo(),
     clear: () => core.clearBoard(),
-    fit: () => core.fit(),
+    fit: (opts = {}) => core.fit(opts || {}),
     zoom: (factor) => core.zoom(factor),
     setMeta: (patch) => core.setMeta(patch),
     exportPNG: (opts = {}) => exportImage(core.state, opts),

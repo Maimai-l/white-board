@@ -218,7 +218,7 @@ class Principal:
 | `setTool(tool)` | 切换工具，格式同 `tool` 选项；只给出的字段被替换（例如 `setTool({ tool: "eraser" })` 保留颜色和粗细）。 |
 | `undo()`、`redo()` | 撤销、重做本设备在当前白板上的修改。 |
 | `clear()` | 清空当前白板（可撤销）。 |
-| `fit()` | `fixed` 画布显示整个画布；其他显示全部笔迹。 |
+| `fit({maxScale})` | `fixed` 画布显示整个画布；其他显示全部笔迹。`maxScale` 可选：放大不超过这个倍数。 |
 | `zoom(factor)` | 以中心为基准缩放。 |
 | `setMeta(patch)` | 修改 `name`、`background`、`layers`、`data`，规则见 5.2 节；需要 `caps.meta`。 |
 | `exportPNG({layers = false, scale = 1, background = true})` | 返回 Promise，结果为 PNG data URL。范围：`fixed` 为整个画布，其他为笔迹外框加边距。`layers` 为 true 时包含图片层。`background` 为 false 时不画纸张颜色和背景纹理（透明背景）。 |

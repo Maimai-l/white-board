@@ -35,6 +35,19 @@
   label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
   #preview { width: 64px; height: 40px; margin-left: auto; border: 1px solid var(--line); border-radius: 6px; object-fit: contain; background: repeating-conic-gradient(#e5e5ea 0% 25%, #fff 0% 50%) 50% / 10px 10px; cursor: grab; }
   #preview[hidden] { display: none; }
+  /* 小浮窗（插件的小窗口、置顶的画中画）：去掉标题行，按钮缩小，提示浮在画布上 */
+  @media (max-height: 360px) {
+    header { position: absolute; top: 6px; right: 10px; padding: 0; z-index: 2; pointer-events: none; }
+    header h1 { display: none; }
+    #status { font-size: 11px; background: color-mix(in srgb, var(--bg) 80%, transparent); padding: 1px 6px; border-radius: 6px; }
+    #pad { margin: 6px 6px 0; border-radius: 8px; }
+    #notice { position: absolute; left: 12px; right: 12px; bottom: 44px; margin: 0; padding: 4px 8px; border-radius: 6px;
+              background: color-mix(in srgb, var(--panel) 92%, transparent); font-size: 12px; z-index: 2; }
+    footer { padding: 6px; gap: 6px; }
+    button { padding: 4px 9px; }
+    label { font-size: 12px; }
+    #preview { width: 48px; height: 30px; }
+  }
 </style>
 </head>
 <body>

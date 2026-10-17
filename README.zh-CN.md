@@ -27,7 +27,7 @@
 - **三种白板**，其中文档板用于在 PDF 或图片上批注，并连同笔迹一起导出。
 - **离线书写。** 笔画暂存在本地和 IndexedDB 中，连接恢复后按顺序发送。
 - **权限。** 局域网内的任何设备都可以书写。管理白板、设置白板、清空白板和导出白板需要在 Mac 上分别授予。
-- **速写。** 在 iPad 上随手写，在 Mac 的 Edge 侧边栏中复制或拖出 PNG，粘贴到 Claude 等网页；关闭即丢弃，不保存。见 [docs/sketch.zh-CN.md](docs/sketch.zh-CN.md)。
+- **速写。** 在 iPad 上随手写，在 Mac 上 Edge 插件的速写小窗口里复制或拖出 PNG，粘贴到 Claude 等网页；关闭即丢弃，不保存。见 [docs/sketch.zh-CN.md](docs/sketch.zh-CN.md)。
 
 ## 运行要求
 
@@ -479,7 +479,7 @@ whiteboard/
                                     对话框、设置
     static/lab/                     参数调试页面（仅源码运行）
 ipad/           iPad 外壳（Swift，工程由 XcodeGen 生成）
-extensions/sketch/   Edge / Chrome 侧边栏插件（速写），只嵌入 /sketch 页面
+extensions/sketch/   Edge / Chrome 插件（速写小窗口），只嵌入 /sketch 页面
 tools/          check_boards.py（升级前检查白板）及研究用脚本
 ```
 
@@ -493,7 +493,7 @@ tools/          check_boards.py（升级前检查白板）及研究用脚本
 | [docs/ipad-shell.zh-CN.md](docs/ipad-shell.zh-CN.md) | iPad 外壳设计 |
 | [docs/recording.zh-CN.md](docs/recording.zh-CN.md) | 输入录制 |
 | [docs/release-checklist.zh-CN.md](docs/release-checklist.zh-CN.md) | 发布检查清单 |
-| [docs/sketch.zh-CN.md](docs/sketch.zh-CN.md) | 速写与 Edge 侧边栏插件 |
+| [docs/sketch.zh-CN.md](docs/sketch.zh-CN.md) | 速写与 Edge 插件 |
 | [docs/embed.zh-CN.md](docs/embed.zh-CN.md) | 在白板应用中托管应用并嵌入手写板 |
 | [packages/inksync/README.zh-CN.md](packages/inksync/README.zh-CN.md) | inksync 的接口：在自己的服务端上保存和同步白板 |
 | [docs/design/inksync-redesign.zh-CN.md](docs/design/inksync-redesign.zh-CN.md) | inksync 0.2 的需求与规格 |

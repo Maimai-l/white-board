@@ -218,7 +218,7 @@ Creates a pad in `container` and returns it. The pad fills the container and fol
 | `setTool(tool)` | Switches the tool, in the format of the `tool` option. Only the given fields are replaced (for example, `setTool({ tool: "eraser" })` keeps the color and width). |
 | `undo()`, `redo()` | Undo and redo this device's changes on the current board. |
 | `clear()` | Clears the current board (undoable). |
-| `fit()` | A `fixed` canvas shows the whole canvas; other canvases show all ink. |
+| `fit({maxScale})` | A `fixed` canvas shows the whole canvas; other canvases show all ink. Optional `maxScale`: do not zoom in beyond this factor. |
 | `zoom(factor)` | Zooms around the center. |
 | `setMeta(patch)` | Edits `name`, `background`, `layers`, `data` by the rules of section 5.2; requires `caps.meta`. |
 | `exportPNG({layers = false, scale = 1, background = true})` | Returns a Promise of a PNG data URL. Extent: the whole canvas for `fixed`, otherwise the ink bounds plus a margin. With `layers: true` the image layers are included. With `background: false` the paper color and pattern are left out (transparent background). |

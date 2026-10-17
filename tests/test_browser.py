@@ -5148,10 +5148,10 @@ def test_the_qb_example_end_to_end(browser, qb_server):
     assert other.evaluate("() => pad.snapshot().strokes.length") == 0
 
 
-# ---------------------------------------------------------------- 速写（/sketch，Edge 侧边栏插件）
+# ---------------------------------------------------------------- 速写（/sketch，Edge 插件的速写小窗口）
 
 def open_sketch(browser, port, viewport=(380, 760)):
-    """速写页面：Edge 侧边栏里就是这样一个窄页面。可以读写剪贴板。"""
+    """速写页面：默认是窄长的页面（各种窗口大小另有用例）。可以读写剪贴板。"""
     context = browser.new_context(viewport={"width": viewport[0], "height": viewport[1]})
     if ENGINE == "chromium":
         context.grant_permissions(["clipboard-read", "clipboard-write"], origin=f"http://127.0.0.1:{port}")
@@ -5340,3 +5340,60 @@ def test_a_sprawling_sketch_is_exported_within_size_limits(browser, server):
     image = sketch.evaluate(READ_CLIPBOARD_PNG)
     assert image["width"] <= 4096 and image["height"] <= 4096, image
     assert image["width"] > 1000 and image["dark"] > 30, image
+
+
+INK_PIXELS = """
+() => {
+  // 速写页面上手写板画布中的深色像素：看得到 iPad 写的笔迹就不为零
+  const canvas = document.querySelector('#pad .inkpad-stage canvas');
+  const ctx = canvas.getContext('2d');
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  let dark = 0;
+  for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 200 && data[i] < 100) dark += 1;
+  return dark;
+}
+"""
+
+
+@pytest.mark.parametrize("viewport", [(360, 270), (380, 760), (900, 680)])
+def test_sketch_view_follows_ink_written_anywhere_on_the_ipad(browser, server, viewport):
+    """iPad 屏幕比速写窗口大得多：写在 iPad 右下角、左上角的笔迹都要出现在速写窗口里，
+    不论速写窗口是小浮窗、窄长的窗口还是展开的大窗口。"""
+    mac, ipad = open_pages(browser, server.port)
+    sketch = open_sketch(browser, server.port, viewport=viewport)
+    ipad.wait_for_function("() => whiteboard.state.id === 'sketch'")
+    draw(ipad, [(1000, 700), (1080, 760), (1150, 720)])
+    sketch.wait_for_function("() => sketchPad.snapshot().strokes.length === 1")
+    sketch.wait_for_function(f"({INK_PIXELS})() > 20", timeout=5000)
+    draw(ipad, [(40, 40), (120, 90)], pointer_id=2)
+    sketch.wait_for_function("() => sketchPad.snapshot().strokes.length === 2")
+    sketch.wait_for_timeout(600)
+    # 两笔都在视野里：一笔在右下角，一笔在左上角，视图缩到能同时看见两笔（缩小后笔画变细变淡）
+    halves = sketch.evaluate("""() => {
+      const canvas = document.querySelector('#pad .inkpad-stage canvas');
+      const ctx = canvas.getContext('2d');
+      const { width, height } = canvas;
+      const half = (x0, x1) => {
+        const data = ctx.getImageData(x0, 0, x1 - x0, height).data;
+        let dark = 0;
+        for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 200 && data[i] < 200) dark += 1;
+        return dark;
+      };
+      return [half(0, Math.floor(width / 2)), half(Math.floor(width / 2), width)];
+    }""")
+    left, right = halves
+    assert left > 0 and right > 0, halves
+
+
+def test_sketch_page_fits_a_small_floating_window(browser, server):
+    """插件的小窗口（内容区约 380×286）和置顶的画中画：按钮全部可见，画布占大部分高度。"""
+    open_pages(browser, server.port)
+    sketch = open_sketch(browser, server.port, viewport=(380, 286))
+    layout = sketch.evaluate("""() => {
+      const box = (id) => document.getElementById(id).getBoundingClientRect();
+      return { copy: box('copy').bottom, clear: box('clear').right, pad: box('pad').height,
+               title: getComputedStyle(document.querySelector('header h1')).display };
+    }""")
+    assert layout["copy"] <= 286 and layout["clear"] <= 380, layout
+    assert layout["pad"] >= 200, layout
+    assert layout["title"] == "none"

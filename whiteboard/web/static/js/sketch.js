@@ -2,12 +2,13 @@
 //
 // 打开页面时请求 POST /api/sketch：服务端建一块临时白板（只在内存中，不存盘），
 // 跟随当前白板的设备（iPad、Mac 窗口）一起切过去。这个页面关闭几秒后速写板被丢弃，
-// 那些设备回到原来的当前白板。Edge 侧边栏插件（extensions/sketch）嵌的就是这个页面。
+// 那些设备回到原来的当前白板。Edge 插件（extensions/sketch）的速写小窗口嵌的就是这个页面。
 
 import { createInkPad } from "/inksync/inkpad.js";
 
 const SKETCH = "sketch";
 const PREVIEW_DELAY = 250;
+const FIT_DELAY = 120;
 
 const $ = (id) => document.getElementById(id);
 const statusNames = { online: "已连接", syncing: "同步中", offline: "未连接", local: "本地" };
@@ -16,11 +17,29 @@ let pad = null;
 let previewTimer = 0;
 let previewURL = "";
 let restarting = null;
+let fitTimer = 0;
+let drawingHere = false;
 
+/**
+ * 视图始终显示全部笔迹：iPad 的屏幕比速写窗口大得多，各设备的视图又各自独立，
+ * 不这样做的话写在 iPad 右下角的笔迹会落在速写窗口的视野之外。最多放大到 1 倍。
+ */
+function scheduleFit() {
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => {
+    if (pad && !drawingHere) pad.fit({ maxScale: 1 });
+  }, FIT_DELAY);
+}
+
+let noticeTimer = 0;
+
+/** 提示一行字。成功的提示几秒后自动消失（小浮窗里它浮在画布上），出错的提示一直留着。 */
 function notice(text, kind = "") {
   const el = $("notice");
   el.textContent = text || "";
   el.dataset.kind = kind;
+  clearTimeout(noticeTimer);
+  if (text && kind !== "error") noticeTimer = setTimeout(() => (el.textContent = ""), 2500);
 }
 
 function strokeCount() {
@@ -111,6 +130,15 @@ async function main() {
     $("status").dataset.state = status;
   });
   for (const event of ["change", "op", "meta"]) pad.on(event, refresh);
+  for (const event of ["change", "meta"]) pad.on(event, scheduleFit);
+  pad.on("strokestart", () => {
+    drawingHere = true;
+  });
+  pad.on("strokeend", () => {
+    drawingHere = false;
+    scheduleFit();
+  });
+  new ResizeObserver(scheduleFit).observe($("pad"));
   pad.on("deleted", () => restart());
   pad.on("error", ({ reason }) => {
     if (reason === "board") restart();

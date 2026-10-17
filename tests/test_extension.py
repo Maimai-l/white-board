@@ -1,8 +1,9 @@
-"""Edge / Chrome 侧边栏插件（extensions/sketch）：在真实的 Chromium 中加载插件。
+"""Edge / Chrome 插件（extensions/sketch）：在真实的 Chromium 中加载插件。
 
-侧边栏本身无法用自动化打开，这里直接在标签页中打开插件的 panel.html：页面内容与侧边栏中
-完全相同。检查：清单文件合法、插件能加载；面板找到白板应用并嵌入速写页面；嵌入的页面
-连接、iPad 跟随、在嵌入的页面中复制图片；端口不对时显示「白板应用没有运行」，改端口后连上。
+插件打开一个速写小窗口（float.html）。检查：清单文件合法、插件能加载；点图标（这里直接调用
+后台的 toggleFloat）打开小窗口，再点一次不重复打开；小窗口找到白板应用并嵌入速写页面；嵌入的
+页面连接、iPad 跟随、在嵌入的页面中复制图片；展开 / 收起改变窗口大小；端口不对时显示「白板
+应用没有运行」，改端口后连上。置顶（文档画中画）在无头浏览器中打不开，需要在真机上检查。
 """
 
 from __future__ import annotations
@@ -26,14 +27,14 @@ EXTENSION = Path(__file__).resolve().parent.parent / "extensions" / "sketch"
 def test_manifest_is_complete():
     manifest = json.loads((EXTENSION / "manifest.json").read_text("utf-8"))
     assert manifest["manifest_version"] == 3
-    assert manifest["side_panel"]["default_path"] == "panel.html"
-    assert set(manifest["permissions"]) == {"sidePanel", "storage"}
+    assert "side_panel" not in manifest
+    assert set(manifest["permissions"]) == {"storage"}
     assert manifest["host_permissions"] == ["http://127.0.0.1/*"]
     assert manifest["commands"]["_execute_action"]["suggested_key"]["default"] == "Alt+Shift+S"
-    for path in [*manifest["icons"].values(), manifest["background"]["service_worker"], "panel.html", "panel.js", "panel.css"]:
+    for path in [*manifest["icons"].values(), manifest["background"]["service_worker"], "float.html", "float.js", "float.css"]:
         assert (EXTENSION / path).is_file(), path
-    # 面板只嵌白板应用的页面，不加载任何远程脚本（Manifest V3 也不允许）
-    html = (EXTENSION / "panel.html").read_text("utf-8")
+    # 小窗口只嵌白板应用的页面，不加载任何远程脚本（Manifest V3 也不允许）
+    html = (EXTENSION / "float.html").read_text("utf-8")
     assert "http" not in html.replace('allow="clipboard-write; clipboard-read"', "")
     assert 'allow="clipboard-write; clipboard-read"' in html
 
@@ -83,7 +84,7 @@ def extension_context(tmp_path):
 
 def open_panel(context, extension_id, port):
     page = context.new_page()
-    page.goto(f"chrome-extension://{extension_id}/panel.html")
+    page.goto(f"chrome-extension://{extension_id}/float.html")
     page.evaluate("(port) => chrome.storage.local.set({ port })", port)
     page.reload()
     return page
@@ -123,7 +124,7 @@ def test_panel_embeds_the_sketch_and_copies_from_inside(extension_context, serve
         copied = frame.evaluate("() => window.copied")
         assert copied is not None and copied["size"] > 100, copied
 
-        # 关掉侧边栏（这里是关掉面板页面）：iPad 回到原来的白板
+        # 关掉速写小窗口：iPad 回到原来的白板
         panel.close()
         ipad.wait_for_function(f"() => whiteboard.state.id === {original!r}", timeout=10000)
     finally:
@@ -138,10 +139,83 @@ def test_panel_waits_for_the_app_and_remembers_the_port(extension_context, serve
     assert f"127.0.0.1:{wrong}" in page.inner_text("#address")
     assert page.evaluate("() => document.getElementById('sketch').hidden")
 
-    page.click("#settings summary")
+    page.click("#gear")
     page.fill("#port", str(server.port))
     page.click("#save")
     sketch_frame(page)
     assert page.evaluate("async () => (await chrome.storage.local.get('port')).port") == server.port
     page.reload()
     sketch_frame(page)
+
+
+def test_icon_opens_one_small_window_that_can_expand(extension_context, server):
+    """点图标打开速写小窗口（右上角、iPad 横屏的比例），再点一次切回同一个窗口而不是再开一个；
+    展开之后变大，收起之后回到原来的大小。"""
+    _pw, context, extension_id = extension_context
+    worker = context.service_workers[0]
+    page = context.new_page()
+    page.goto(f"chrome-extension://{extension_id}/float.html")
+    page.evaluate("(port) => chrome.storage.local.set({ port })", server.port)
+    page.close()
+
+    first = worker.evaluate("() => toggleFloat()")
+    second = worker.evaluate("() => toggleFloat()")
+    assert first == second
+    floats = [p for p in context.pages if p.url.endswith("/float.html")]
+    assert len(floats) == 1
+    window = floats[0]
+    sketch_frame(window)
+    info = worker.evaluate("(id) => chrome.windows.get(id)", first)
+    assert info["type"] == "popup" and info["width"] < 500, info
+
+    window.click("#expand")
+    window.wait_for_function("() => document.getElementById('expand').textContent === '收起'")
+    expanded = worker.evaluate("(id) => chrome.windows.get(id)", first)
+    assert expanded["width"] > info["width"] + 200, expanded
+    window.click("#expand")
+    window.wait_for_function("() => document.getElementById('expand').textContent === '展开'")
+    back = worker.evaluate("(id) => chrome.windows.get(id)", first)
+    assert abs(back["width"] - info["width"]) <= 20, back
+
+    # 关掉之后再点图标，开一个新的
+    worker.evaluate("(id) => chrome.windows.remove(id)", first)
+    window.wait_for_event("close", timeout=5000)
+    third = worker.evaluate("() => toggleFloat()")
+    assert third != first
+
+
+def test_pinning_moves_the_sketch_into_an_always_on_top_window(extension_context, server):
+    """置顶：速写页面移进文档画中画浮窗（始终在其他窗口上方），本窗口不再连接；
+    iPad 照常写进去；关闭浮窗后本窗口重新嵌入速写页面。整个过程速写不中断。"""
+    pw, context, extension_id = extension_context
+    server.hub.sketch_grace = 1.0
+    path = chromium_path()
+    browser = pw.chromium.launch(executable_path=path) if path else pw.chromium.launch()
+    try:
+        _mac, ipad = open_pages(browser, server.port)
+        page = open_panel(context, extension_id, server.port)
+        sketch_frame(page)
+        ipad.wait_for_function("() => whiteboard.state.id === 'sketch'")
+        assert page.evaluate("() => !document.getElementById('pin').hidden")
+
+        page.click("#pin")
+        page.wait_for_function("() => documentPictureInPicture.window && document.getElementById('pin').textContent === '取消置顶'")
+        assert page.evaluate("() => !document.getElementById('sketch').getAttribute('src')"), "本窗口的速写页面已卸掉"
+        assert page.evaluate("() => documentPictureInPicture.window.document.querySelector('iframe').src").endswith("/sketch")
+        hub = server.hub
+        page.wait_for_timeout(1500)  # 本窗口那个速写页面的连接断开、宽限期过去
+        assert hub.sketch_active
+        assert len(hub.sketch_owners()) == 1, "同一时间只有浮窗里的那个速写页面"
+        assert ipad.evaluate("() => whiteboard.state.id") == "sketch"
+
+        draw(ipad, [(300, 300), (420, 360)])
+        page.wait_for_timeout(500)
+        assert len(hub.core.board("sketch").stroke_list()) == 1
+
+        page.evaluate("() => documentPictureInPicture.window.close()")
+        page.wait_for_function("() => document.getElementById('pin').textContent === '置顶'")
+        frame = sketch_frame(page)
+        frame.wait_for_function("() => sketchPad.snapshot().strokes.length === 1")
+        assert hub.sketch_active and ipad.evaluate("() => whiteboard.state.id") == "sketch"
+    finally:
+        browser.close()
