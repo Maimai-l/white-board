@@ -13,7 +13,7 @@ The pixel eraser follows these rules, all derived from native PencilKit measurem
 | Diameter depends only on the altitude angle | 6 to 81 screen px, see [Diameter curve](#diameter-curve) | `input-erase.js` `ERASER_CURVE` |
 | Pressure has no effect | Pressure 0.15 to 0.51 at the same angle gives the same diameter | `input-erase.js` `eraserRadius` |
 | Size is constant on screen | World radius = screen radius / `viewport.scale`, at every zoom level | `input-erase.js` `worldRadius` |
-| Width is fixed for the whole stroke | Taken once at pen-down | `input-erase.js` `startErase` |
+| Width follows the tilt within a stroke | Each sample moves 35% of the way to the current tilt's width (`ERASER_SMOOTH`) | `input-erase.js` `eraseAt` |
 | Mouse, finger, pen without tilt data | Diameter at 50° (16.5 px) | `input-erase.js` `eraserRadius` |
 | Object eraser | Fixed 6 px diameter (`ERASER_TIP`) | `input-erase.js` |
 | Erased area is stored as a mask | Capsule chains in the stroke's `m` field | `app-eraser.js` `erasePixels` |
@@ -114,7 +114,9 @@ For zoom-out, session c (zoom 0.25, 10.4°) gives 80.5 screen units against 81 f
 
 ## Width within a stroke
 
-The eraser width is set once at pen-down and does not change for the rest of the stroke, which matches native behavior.
+The eraser width is taken from the tilt at pen-down, then follows the tilt for the rest of the stroke: each sample moves the width 35% of the way (`ERASER_SMOOTH`) to the width for the current tilt. Pressing the pencil down or raising it while erasing changes the width without lifting.
+
+From 0.9.32 through 1.1.1 the width was fixed at pen-down instead, based on the native statistics below. 1.2.0 restores the per-sample behavior because changing the width without lifting is more useful in practice.
 
 | Native statistic (92 eraser strokes) | Value |
 | --- | --- |
@@ -123,10 +125,10 @@ The eraser width is set once at pen-down and does not change for the rest of the
 | Median in-stroke range | 0° |
 | Longest initial plateau observed | 648 identical readings in a 1450-sample stroke |
 
-- iPadOS Safari reports whole-degree `tiltX` / `tiltY` and no `altitudeAngle`. While writing, the angle varies between about 33° and 47°, across the steep part of the curve. A width that follows the angle per sample would vary by up to 2.7× within one stroke.
+- iPadOS Safari reports whole-degree `tiltX` / `tiltY` and no `altitudeAngle`. While writing, the angle varies between about 33° and 47°, across the steep part of the curve, so the width can vary by up to 2.7× within one stroke. The smoothing limits how fast it changes.
 - The hover cursor ring still follows the current tilt, because it is a preview.
 
-Fixing the width per stroke does not reduce accuracy:
+The two behaviors give nearly the same accuracy:
 
 | Session | IoU, width per sample | IoU, width per stroke |
 | --- | --- | --- |
@@ -220,7 +222,7 @@ The eraser processes the same samples as drawing.
 
 | Event | Handling |
 | --- | --- |
-| `pointerdown` | Sets the width for the stroke and erases at the down position. |
+| `pointerdown` | Sets the initial width from the current tilt and erases at the down position. |
 | `pointermove` | Erases along every sample from `getCoalescedEvents()`, or the event itself if there is only one. Each step sweeps the segment from the previous sample, not a single point. |
 | `pointerup` | Sweeps the last segment to the up position, unless it equals the last sample. |
 | `pointercancel` | Does not sweep a final segment, because the position does not reflect a user lift. |

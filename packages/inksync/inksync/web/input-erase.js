@@ -53,6 +53,7 @@ const ERASER_CURVE = [
   [25, 81],
   [0, 81],
 ];
+const ERASER_SMOOTH = 0.35; // 宽度跟着倾斜走的快慢：倾斜读数本来就抖，直接跳会很难看
 
 /** 查 ERASER_CURVE，按角度线性插值出直径。 */
 function eraserDiameter(deg) {
@@ -105,14 +106,8 @@ const methods = {
   },
 
   /**
-   * 橡皮的粗细在落笔那一刻定下来，整笔不再跟着倾斜走。
-   *
-   * 原生就是这样：92 条原生橡皮笔画里，65% 整笔只报一个倾角读数，九成笔内极差
-   * 在 2.36° 以内，中位数是 0。而我们原来每个采样点都重新平滑一次（那个平滑
-   * 已经去掉了），iPad 报的 ``tiltX`` / ``tiltY`` 又是整度的，写字时笔身
-   * 本来就在晃，于是同一笔里直径能差 2.7 倍——擦痕一节粗一节细，像一串香肠。
-   *
-   * 悬停时的光标圈照旧跟着倾斜走（``updateCursor``），那是预览，本来就该跟手。
+   * 落笔时按当时的倾角定下初始粗细；之后每个采样点都跟着倾角平滑变化（见 eraseAt），
+   * 写的过程中把笔压下去或立起来，不用抬笔就能改变擦除宽度。
    */
   startErase(event) {
     this.erase = {
@@ -142,14 +137,17 @@ const methods = {
   },
 
   /**
-   * 橡皮走到一个采样点：扫过上一点到这一点之间那一段。
+   * 橡皮走到一个采样点：更新粗细，扫过上一点到这一点之间那一段。
    *
-   * 粗细在落笔时定下，整笔不再变（见 startErase）。
+   * 粗细每个采样点按 ``ERASER_SMOOTH`` 向当前倾角对应的粗细靠拢一部分，
+   * 不直接跳到新值，倾斜读数的抖动不会直接变成擦痕宽度的跳变。
    *
    * 擦得快的时候两次采样之间能隔开一大段，判定要按扫过的这条线段来，
    * 只看当前这个点会留下一串没擦到的缝。
    */
   eraseAt(erase, event) {
+    // 平滑在屏幕尺度上做：倾斜读数给的本来就是屏幕上该有多粗
+    erase.radius += (this.eraserRadius(event) - erase.radius) * ERASER_SMOOTH;
     const [wx, wy] = this.toWorld(event);
     const radius = this.worldRadius(erase.radius);
     this.renderer.cursor = { x: wx, y: wy, r: radius };

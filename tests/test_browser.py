@@ -2103,7 +2103,7 @@ def test_eraser_width_follows_the_native_curve(browser, server):
     assert widths[0] * 2 < 8 and widths[-1] * 2 > 78  # 两端分别贴着笔尖和饱和值
 
     # 37° 以下这一段没有拖动样本，只在两个信得过的锚点之间连直线，所以这里不拿
-    # 具体数值当判据；真正保证手感的是「整笔粗细不变」，见下一条用例。
+    # 具体数值当判据。
 
     # 报不出倾斜的笔和鼠标按常握笔那一档给，不然一直是笔尖等于没法用
     middle = ipad.evaluate(
@@ -3724,17 +3724,12 @@ def test_a_very_long_stroke_still_reaches_the_other_device(browser, server):
     ipad.close()
 
 
-def test_eraser_width_is_decided_when_the_pen_lands(browser, server):
-    """橡皮的粗细在落笔那一刻定下来，整笔不再跟着倾斜走。
+def test_eraser_width_follows_the_tilt_within_a_stroke(browser, server):
+    """一笔之内改变笔身角度，擦除宽度跟着变，不用抬笔。
 
-    原生就是这样：92 条原生橡皮笔画里，65% 整笔只报一个倾角读数，九成笔内极差在
-    2.36° 以内，中位数是 0。
-
-    我们原来每个采样点都重新平滑一次。iPad 报的 tiltX / tiltY 是整度的，写字时
-    笔身本来就在晃，而曲线在 37° 以下很陡——一份真机录像里，写字的笔身角度在
-    33°～47° 之间来回晃，同一笔里直径差到 2.7 倍，擦痕一节粗一节细，像一串香肠。
-
-    悬停时的光标圈照旧跟着倾斜走，那是预览，本来就该跟手。
+    宽度每个采样点按 ERASER_SMOOTH 向当前倾角对应的宽度靠拢一部分：从立着（60°）
+    慢慢压到 20°，擦痕从笔尖那么细逐渐变到最粗，中间没有一下跳到位的台阶。
+    悬停时的光标圈同样跟着倾斜走。
     """
     mac, ipad = open_pages(browser, server.port)
     out = ipad.evaluate("""() => {
@@ -3746,31 +3741,38 @@ def test_eraser_width_is_decided_when_the_pen_lands(browser, server):
       whiteboard.state.add([{ id: 'band', tool: 'pen', color: '#000', w: 96, p, n: 1 }]);
       whiteboard.tool = { ...whiteboard.tool, tool: 'eraser', eraserMode: 'pixel' };
       input._rect = null;
+      // 前 20 个采样立着（60°），之后 40 个采样里匀速压到 20°，最后 20 个停在 20°
+      const deg = (k) => (k < 20 ? 60 : k < 60 ? 60 - (k - 20) : 20);
       const at = (k) => ({
         clientX: rect.left + 260 + k * 3, clientY: rect.top + 400,
         pointerType: 'pen', pointerId: 4, pressure: 0.5,
-        // 笔身在 33°～47° 之间晃，正是真机录像里写字的样子
-        altitudeAngle: ((40 + 7 * Math.sin(k / 3)) * Math.PI) / 180,
+        altitudeAngle: (deg(k) * Math.PI) / 180,
         azimuthAngle: 0.8, preventDefault() {}, getCoalescedEvents() { return [this]; },
       });
       input.onDown({ ...at(0), buttons: 1, isPrimary: true, button: 0 });
-      for (let k = 1; k < 60; k++) input.onMove(at(k));
-      input.onUp({ ...at(60), buttons: 0, isPrimary: true, button: 0 });
+      for (let k = 1; k < 80; k++) input.onMove(at(k));
+      input.onUp({ ...at(80), buttons: 0, isPrimary: true, button: 0 });
       const m = (whiteboard.state.byId.get('band') || {}).m || [];
-      const radii = [...new Set(m.map((c) => c[0]))];
-      // 悬停光标不受影响：它该跟着倾斜走。取曲线上确实有坡度的两个角度
-      const hover = (deg) => ({ ...at(0), altitudeAngle: (deg * Math.PI) / 180 });
-      whiteboard.input.updateCursor(hover(80));
+      const hover = (d) => ({ ...at(0), altitudeAngle: (d * Math.PI) / 180 });
+      const target = (d) => input.worldRadius(input.eraserRadius(hover(d)));
+      input.updateCursor(hover(80));
       const a = whiteboard.renderer.cursor.r;
-      whiteboard.input.updateCursor(hover(30));
+      input.updateCursor(hover(30));
       const b = whiteboard.renderer.cursor.r;
-      return { chains: m.length, radii, cursorMoves: a !== b };
+      return { radii: m.map((c) => c[0]), upright: target(60), flat: target(20), cursorMoves: a !== b };
     }""")
-    assert out["chains"] >= 1
-    # 整笔一个粗细，所以整笔也就一条链
-    assert len(out["radii"]) == 1, out["radii"]
-    assert out["chains"] == 1, out["chains"]
-    assert out["cursorMoves"], "悬停光标还是要跟着倾斜走"
+    radii = out["radii"]
+    assert len(radii) > 1, radii
+    # 笔一路往下压，宽度只增不减
+    assert radii == sorted(radii), radii
+    # 开头是立着的宽度，结尾到了压平的宽度
+    assert abs(radii[0] - out["upright"]) / out["upright"] < 0.1, (radii[0], out["upright"])
+    assert abs(radii[-1] - out["flat"]) / out["flat"] < 0.1, (radii[-1], out["flat"])
+    assert radii[-1] > radii[0] * 3, radii
+    # 逐步变化：曲线在 37°～35° 之间宽度翻倍，平滑之后相邻两段的比值也不超过 1.5
+    steps = [b / a for a, b in zip(radii, radii[1:])]
+    assert max(steps) < 1.5, steps
+    assert out["cursorMoves"], "悬停光标要跟着倾斜走"
     mac.close()
     ipad.close()
 
@@ -3826,14 +3828,12 @@ def test_the_diagnostics_panel_says_which_build_it_is(browser, server):
 
 
 def test_the_stylus_erases_as_evenly_as_the_mouse(browser, server):
-    """同一条路径，笔擦出来的痕迹要和鼠标一样匀，不能一节粗一节细。
+    """同一条路径、笔身角度不变时，笔擦出来的痕迹要和鼠标一样匀。
 
-    鼠标那条路橡皮半径是写死的常数（没有倾斜可依据），所以从来不会香肠；
-    只有笔会跟着倾角走。iPad 的 Safari 报的又是整度的 tiltX / tiltY，写字时笔身
-    本来就在晃，曲线在 37° 以下还很陡——三样凑在一起，一笔之内直径能差 2.7 倍。
-
-    粗细该由落笔时的倾角决定（笔压得平就该擦得宽，这是对的），但决定之后整笔
-    就不该再变。判据就是：两种输入都只攒出一条链、一个半径。
+    鼠标那条路橡皮半径是写死的常数（没有倾斜可依据）。笔的粗细在一笔之内跟着
+    倾角走（见 test_eraser_width_follows_the_tilt_within_a_stroke），但角度不变时
+    宽度也不能变：读数换算成整度的 tiltX / tiltY 之后，平滑不能让半径来回漂。
+    判据：两种输入都只攒出一条链、一个半径。
     """
     mac, ipad = open_pages(browser, server.port)
     run = """([pen]) => {
@@ -3851,8 +3851,8 @@ def test_the_stylus_erases_as_evenly_as_the_mouse(browser, server):
           buttons: 1, button: 0, isPrimary: true,
           preventDefault() {}, getCoalescedEvents() { return [this]; } };
         if (pen) {
-          // 笔身在 40° 上下晃 ±6°，换算成整度的 tiltX / tiltY——真机就是这样报的
-          const alt = 40 + 6 * Math.sin(k / 5);
+          // 笔身保持 50°，换算成整度的 tiltX / tiltY——真机就是这样报的
+          const alt = 50;
           ev.tiltX = Math.round(Math.atan(1 / Math.tan((alt * Math.PI) / 180)) * 180 / Math.PI);
           ev.tiltY = 0;
         }

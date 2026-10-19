@@ -17,6 +17,7 @@ One section per version, titled with the version number. When a release is publi
 
 ### Fixes
 
+- The pixel eraser's width again follows the Pencil's angle within a stroke, without lifting (since 0.9.32 it was fixed at pen-down for the whole stroke).
 - With a resolution multiplier, PNG export ignored its maximum image size: ink spread far apart produced an image beyond the browser's limit, and the export came out empty.
 
 ## 1.1.1
