@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.test_browser import FIRE, IPAD_UA, browser, open_pages, server  # noqa: F401
+from tests.test_browser import FIRE, IPAD_UA, browser, enable_pk_picker, open_pages, server  # noqa: F401
 
 HELLO = "(info) => whiteboardShell.hello(info)"
 ACTIVE = {"shellVersion": "1.3.0", "bridge": 1, "active": True}
@@ -352,5 +352,37 @@ def test_safari_pen_events_draw_when_the_shell_sends_nothing(browser, server):
     ipad.evaluate(FIRE, ["pointerdown", 600, 500, "pen", 8, 0.3])
     ipad.evaluate(FIRE, ["pointerup", 600, 500, "pen", 8, 0])
     ipad.wait_for_function("() => whiteboard.state.strokes.length === 2", timeout=1000)
+    mac.close()
+    ipad.close()
+
+
+@pytest.mark.parametrize("panel", ["width", "more"])
+def test_a_closed_picker_panel_does_not_block_the_pencil(browser, server, panel):
+    """笔具盘的面板关上之后，原来那块地方照常能写。
+
+    面板关上只是变透明，内容、大小和位置都还在。app.css 曾经无条件地让它吃事件，
+    于是它一直挡在上次打开的位置：外壳的落笔在那里被判成「落在界面控件上」整笔丢掉，
+    Safari 的事件也被它接走。真机上表现为笔具盘上方固定一块写不上字。
+    """
+    mac, ipad = open_pages(browser, server.port, picker=True)
+    enable_pk_picker(ipad)
+    ipad.evaluate(HELLO, ACTIVE)
+    opener = '#pk-host [data-tool="pen"]' if panel == "width" else "#pk-host button[data-act='more']"
+    ipad.click(opener)
+    ipad.wait_for_selector("#pk-host .pk-pop[data-open]")
+    ipad.click(opener)  # 再点一次关上
+    ipad.wait_for_function("() => !document.querySelector('#pk-host .pk-pop[data-open]')")
+    ipad.wait_for_timeout(400)  # 等淡出走完
+    x, y = ipad.evaluate(
+        "() => { const r = document.querySelector('#pk-host .pk-pop').getBoundingClientRect();"
+        " return [r.left + r.width / 2, r.top + r.height / 2]; }"
+    )
+    # 面板确实还留在那里（有尺寸），但命中的是画布
+    assert ipad.evaluate("() => document.querySelector('#pk-host .pk-pop').getBoundingClientRect().width") > 0
+    assert ipad.evaluate("([x, y]) => whiteboard.input.onStage(x, y)", [x, y])
+
+    send(ipad, shell_batches(ipad, stroke_id=31, x0=x - 40, y0=y, dx=2, dy=0, count=40))
+    ipad.wait_for_function("() => whiteboard.state.strokes.length === 1")
+    mac.wait_for_function("() => whiteboard.state.strokes.length === 1")
     mac.close()
     ipad.close()

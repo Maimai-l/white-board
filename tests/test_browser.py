@@ -4568,12 +4568,15 @@ def test_picker_redo_and_the_more_menu_switches(browser, server):
     draw(ipad, [(300, 520), (380, 560), (460, 520)], pointer_type="touch", pointer_id=5)
     wait_strokes(mac, 2)
 
-    # 自动最小化：打开之后一落笔工具盘就收起来
-    ipad.keyboard.press("Escape")
-    ipad.wait_for_timeout(500)  # vendor 会吞掉紧接着的点击
+    # 自动最小化：打开之后一落笔工具盘就收起来。点的必须是打开着的菜单里的开关：
+    # 关上的面板只是透明，不能再接点击（见 test_a_closed_picker_panel_does_not_block_the_pencil）
+    if not ipad.query_selector("#pk-host .pk-pop[data-open]"):
+        ipad.wait_for_timeout(500)  # vendor 会吞掉紧接着的点击
+        ipad.click("#pk-host button[data-act='more']")
+    ipad.click("#pk-host .pk-pop[data-open] [data-toggle='autoMin']")
+    ipad.wait_for_function("() => whiteboard.ui.pk.autoMin === true")
     ipad.click("#pk-host button[data-act='more']")
-    ipad.click("#pk-host .pk-pop [data-toggle='autoMin']")
-    ipad.keyboard.press("Escape")
+    ipad.wait_for_function("() => !document.querySelector('#pk-host .pk-pop[data-open]')")
     draw(ipad, [(300, 620), (380, 660)])
     ipad.wait_for_function("() => whiteboard.ui.pk.state === 'minimized'")
 

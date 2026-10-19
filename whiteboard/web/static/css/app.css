@@ -234,8 +234,10 @@ html, body {
   /* .pk-root 自带一层白底，那是给它自己的画布用的，这里必须透出白板 */
   background: transparent;
 }
+/* 面板只在打开时（data-open）吃事件。关上之后它只是变透明，内容、大小和位置都还在；
+   不加 [data-open] 的话，它会一直挡在上次打开的位置，那块画布就写不上字。 */
 #pk-host .pk-picker,
-#pk-host .pk-pop { pointer-events: auto; }
+#pk-host .pk-pop[data-open] { pointer-events: auto; }
 /* 白板选择界面或者设置抽屉开着：笔具盘整条收起来，见 ui.js 的 watchOverlays */
 #ui[data-overlay="1"] #pk-host { display: none; }
 /*
