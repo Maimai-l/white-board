@@ -356,21 +356,31 @@ def test_safari_pen_events_draw_when_the_shell_sends_nothing(browser, server):
     ipad.close()
 
 
-@pytest.mark.parametrize("panel", ["width", "more"])
+@pytest.mark.parametrize("panel", ["width", "more", "eraser"])
 def test_a_closed_picker_panel_does_not_block_the_pencil(browser, server, panel):
     """笔具盘的面板关上之后，原来那块地方照常能写。
 
     面板关上只是变透明，内容、大小和位置都还在。app.css 曾经无条件地让它吃事件，
     于是它一直挡在上次打开的位置：外壳的落笔在那里被判成「落在界面控件上」整笔丢掉，
-    Safari 的事件也被它接走。真机上表现为笔具盘上方固定一块写不上字。
+    Safari 的事件也被它接走，还会点中看不见的按钮。真机上表现为笔具盘上方固定一块
+    写不上字，橡皮也会被悄悄从对象模式切成像素模式。
     """
     mac, ipad = open_pages(browser, server.port, picker=True)
     enable_pk_picker(ipad)
     ipad.evaluate(HELLO, ACTIVE)
-    opener = '#pk-host [data-tool="pen"]' if panel == "width" else "#pk-host button[data-act='more']"
-    ipad.click(opener)
-    ipad.wait_for_selector("#pk-host .pk-pop[data-open]")
-    ipad.click(opener)  # 再点一次关上
+    if panel == "eraser":
+        # 橡皮的面板里是对象 / 像素二选一：关上之后不能再被笔误点切换
+        ipad.click('#pk-host [data-tool="eraser"]')
+        ipad.wait_for_timeout(500)  # vendor 会吞掉紧接着的点击
+        ipad.click('#pk-host [data-tool="eraser"]')
+        ipad.wait_for_selector("#pk-host .pk-pop[data-open]")
+        ipad.click('#pk-host [data-tool="pen"]')  # 换回钢笔，面板跟着关上
+        assert ipad.evaluate("() => whiteboard.tool.tool") == "pen"
+    else:
+        opener = '#pk-host [data-tool="pen"]' if panel == "width" else "#pk-host button[data-act='more']"
+        ipad.click(opener)
+        ipad.wait_for_selector("#pk-host .pk-pop[data-open]")
+        ipad.click(opener)  # 再点一次关上
     ipad.wait_for_function("() => !document.querySelector('#pk-host .pk-pop[data-open]')")
     ipad.wait_for_timeout(400)  # 等淡出走完
     x, y = ipad.evaluate(
@@ -384,5 +394,11 @@ def test_a_closed_picker_panel_does_not_block_the_pencil(browser, server, panel)
     send(ipad, shell_batches(ipad, stroke_id=31, x0=x - 40, y0=y, dx=2, dy=0, count=40))
     ipad.wait_for_function("() => whiteboard.state.strokes.length === 1")
     mac.wait_for_function("() => whiteboard.state.strokes.length === 1")
+
+    # 在那块地方点几下（Safari 的点击）：碰不到看不见的按钮，设置不会被悄悄改掉
+    before = ipad.evaluate("() => [whiteboard.tool.eraserMode, whiteboard.ui.pk.autoMin, whiteboard.input.fingerDraw]")
+    for px in range(-120, 121, 20):
+        ipad.mouse.click(x + px, y)
+    assert ipad.evaluate("() => [whiteboard.tool.eraserMode, whiteboard.ui.pk.autoMin, whiteboard.input.fingerDraw]") == before
     mac.close()
     ipad.close()
