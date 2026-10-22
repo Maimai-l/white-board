@@ -682,3 +682,37 @@ def test_pages_are_closed_before_their_document(tmp_path, monkeypatch):
     docs.render_page(path, 2, 300)
     docs.export(path, [wave(100, 100)], tmp_path / "out.pdf")
     assert live and all(count == 0 for count in live), live
+
+
+@pytest.mark.parametrize("page", [0, 1, 2])
+def test_mask_on_a_later_page_erases_the_right_part(tmp_path, page):
+    """第二页以后的笔画，擦掉的地方导出后照样是空的，没擦的地方照样在。
+
+    裁剪路径的外框原来在换算到页面坐标之后又被换算了一次。第一页的偏移是 0，看不出来；
+    从第二页起外框偏到了页面外面，裁剪整个反过来：擦掉的部分留下，没擦的部分消失。
+    白板上显示正常，导出的 PDF 里擦过的地方剩下一堆碎片。
+    """
+    import pypdfium2 as pdfium
+
+    src = make_pdf(tmp_path / "a.pdf", sizes=((595, 842),) * 3)
+    box = docs.layout(docs.probe(src)["pages"])[page]
+    ox, oy = box["x"], box["y"]
+    # 一笔粗横线，橡皮只擦掉中间一段
+    ink = stroke([(ox + 100 + i * 10, oy + 300) for i in range(41)], width=40.0)
+    chain = [20.0] + [v for i in range(11) for v in (ox + 250.0 + i * 10, oy + 300.0)]
+    out = tmp_path / "out.pdf"
+    docs.export_pdf(src, [dict(ink, m=[chain])], out)
+
+    scale = 2.0
+    pdf = pdfium.PdfDocument(str(out))
+    try:
+        image = pdf[page].render(scale=scale).to_pil().convert("L")
+    finally:
+        pdf.close()
+
+    def dark(x, y):
+        patch = image.crop((int(x * scale) - 2, int(y * scale) - 2, int(x * scale) + 3, int(y * scale) + 3))
+        return min(patch.tobytes()) < 128
+
+    assert all(not dark(x, 300) for x in (260, 300, 340)), "擦掉的地方导出后还有墨迹"
+    assert all(dark(x, 300) for x in (130, 200, 400, 470)), "没擦的地方导出后不见了"

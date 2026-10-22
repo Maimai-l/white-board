@@ -428,10 +428,12 @@ def content_stream(
             (cmd[0],) + tuple(v - (ox if i % 2 == 0 else oy) for i, v in enumerate(cmd[1:]))
             for cmd in path
         ]
-        cmds = shift(outline_path(points, tool, width, int(stroke.get("cut") or 0)))
+        outline = outline_path(points, tool, width, int(stroke.get("cut") or 0))
+        cmds = shift(outline)
         chains = stroke.get("m") or []
         if chains:
-            clips = [shift(clip) for clip in mask_clips(chains, _bounds(cmds))]
+            # 外框和遮罩都按世界坐标算，最后一起换算到页面上；外框不能先换算一次
+            clips = [shift(clip) for clip in mask_clips(chains, _bounds(outline))]
             writer.fill_clipped(cmds, clips, color, alpha)
         else:
             writer.fill(cmds, color, alpha)

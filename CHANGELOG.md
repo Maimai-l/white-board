@@ -17,6 +17,7 @@ One section per version, titled with the version number. When a release is publi
 
 ### Fixes
 
+- In PDF export, pixel-eraser masks on the second and later pages came out inverted: the erased parts were left as fragments and the parts not erased disappeared. The board itself always showed correctly; only the export was affected. The first page was not affected.
 - A fixed area above the iPad tool picker would not take ink: after a picker panel (pen width, eraser mode) or the More menu closed, it only became transparent and kept receiving touches in place, so Pencil strokes there were dropped and could tap invisible buttons, for example switching the eraser from object to pixel mode. Panels now receive touches only while open. (Present since 0.9.26.)
 - The pixel eraser's width again follows the Pencil's angle within a stroke, without lifting (since 0.9.32 it was fixed at pen-down for the whole stroke).
 - With a resolution multiplier, PNG export ignored its maximum image size: ink spread far apart produced an image beyond the browser's limit, and the export came out empty.
