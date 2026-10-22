@@ -22,7 +22,7 @@ iPad 外壳是一个可选的 iPad 原生应用。它用 WKWebView 加载 Mac �
 | 时间戳精度 | 整数毫秒 | `UITouch.timestamp`，单位为秒，带小数 |
 | 预测采样点 | 无 | `predictedTouches(for:)` |
 
-数据来源：Safari 的数据取自白板录像 `20260927-181756.json`，原生的数据取自 InkProbe 的四份会话（仓库根目录下的 `20260924-*.zip`）。两者取自同一台 iPad。
+数据来源：Safari 的数据取自白板录像 `20260927-181756.json`，原生的数据取自 InkProbe 的四份会话（`inkprobe-data` 分支上的 `20260924-*.zip`）。两者取自同一台 iPad。
 
 在同一份 Safari 输入上，Google Ink、ink-stroke-modeler、Xournal++、Krita 与当前实现的平滑算法画出的笔迹，在静态图和回放中都没有可辨别的差别。因此，书写质量受限于输入数据，而不是平滑算法。
 

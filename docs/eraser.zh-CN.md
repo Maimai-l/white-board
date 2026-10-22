@@ -142,7 +142,7 @@
 `tools/compare_native_eraser.py` 把原生擦除区域和白板擦除区域栅格化到同一张图上，输出 IoU、多擦比例和漏擦比例。
 
 ```sh
-python3 tools/compare_native_eraser.py <解压后的 InkProbe sessions 目录>
+python3 tools/compare_native_eraser.py <解压后的 InkProbe sessions 目录>  # 会话在 inkprobe-data 分支
 ```
 
 脚本为每个会话打印像素数，并在 sessions 目录中生成 `<名称>-diff.png`：灰色为两边都擦除，红色为仅原生擦除（漏擦），蓝色为仅白板擦除（多擦）。

@@ -22,7 +22,7 @@ Safari delivers fewer, coarser Pencil samples than UIKit on the same iPad.
 | Timestamp precision | integer milliseconds | `UITouch.timestamp`, seconds, fractional |
 | Predicted samples | none | `predictedTouches(for:)` |
 
-Data sources: Safari figures come from the board recording `20260927-181756.json`; native figures come from four InkProbe sessions (`20260924-*.zip` in the repository root). Both were taken on the same iPad.
+Data sources: Safari figures come from the board recording `20260927-181756.json`; native figures come from four InkProbe sessions (`20260924-*.zip` on the `inkprobe-data` branch). Both were taken on the same iPad.
 
 On the same Safari input, the smoothing algorithms of Google Ink, ink-stroke-modeler, Xournal++, Krita and the current implementation produce no visible difference, either in still images or in replay. Handwriting quality is therefore limited by the input data, not by the smoothing algorithm.
 

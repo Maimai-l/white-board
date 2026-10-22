@@ -142,7 +142,7 @@ The two behaviors give nearly the same accuracy:
 `tools/compare_native_eraser.py` rasterizes the native erased area and the whiteboard's erased area onto the same image and reports IoU, over-erase and under-erase.
 
 ```sh
-python3 tools/compare_native_eraser.py <unzipped InkProbe sessions directory>
+python3 tools/compare_native_eraser.py <unzipped InkProbe sessions directory>  # sessions: inkprobe-data branch
 ```
 
 For each session it prints the pixel counts and writes `<name>-diff.png` next to the sessions: gray = erased by both, red = erased only by native (under-erase), blue = erased only by the whiteboard (over-erase).

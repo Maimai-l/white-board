@@ -7,6 +7,9 @@ build/
 dist/
 *.egg-info/
 data/
+# 调试数据不进 stable / dev：InkProbe 会话在 inkprobe-data 分支，白板录像留在本地
+/*.zip
+recordings/
 ipad/Whiteboard/Assets.xcassets/AppIcon.appiconset/icon.png
 ipad/*.xcodeproj/
 ipad/build/
