@@ -1,6 +1,6 @@
-# Changelog style guide
+# Changelog and commit message style guide
 
-This guide applies to `CHANGELOG.md`. It does not cover commit messages or the design documents under `docs/`.
+Sections 1 to 8 apply to `CHANGELOG.md`. Section 9 applies to commit messages. The guide does not cover the design documents under `docs/`.
 
 ## 1. Purpose and readers
 
@@ -138,3 +138,17 @@ The app interface is in Chinese. Entries refer to controls by these English name
 ## 8. Example
 
 The sections of `CHANGELOG.md` from 1.0.0 onwards follow this guide; the 1.2.0 section shows every subsection in use except Removed.
+
+## 9. Commit messages
+
+A commit message records what a commit changes and why, for developers reading the history. It is not shown to users.
+
+- Write in English only, including quoted interface labels (use the names in section 7).
+- Subject line: at most 72 characters, imperative mood (`Fix`, `Add`, `Move`), starting with a capital letter, without a final period.
+- Leave one blank line after the subject. Wrap the body at 72 characters.
+- The body explains the problem, the cause and the change. State facts in complete sentences; do not narrate the investigation or use informal wording (section 2 applies).
+- Reference earlier commits by their short hash, and tests by name.
+- Keep trailers (`Co-Authored-By`, `Claude-Session`) as the last lines, after a blank line.
+
+`tests/test_release_notes.py` checks the language and the subject line of every commit after 01386ff that is present in the checkout. History before 01386ff was rewritten on 2026-10-22: the 0.9 series was combined into one commit, and earlier messages were translated into English.
+

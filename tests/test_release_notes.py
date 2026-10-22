@@ -2,6 +2,7 @@
 
 import importlib.util
 import re
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,4 +110,40 @@ def test_the_changelog_follows_the_style_guide():
                 problems.append(f"{where}：冒号后应以大写字母开头")
             if re.search(r"\b(?:\w+n't|can't|won't)\b|!", line):
                 problems.append(f"{where}：有缩写或感叹号")
+    assert not problems, "\n".join(problems)
+
+
+# 规范第 9 节从这个提交之后开始执行；它之前的历史已经改写成英文
+COMMIT_RULES_SINCE = "01386ff883bb4beff6fcb20ef8091ffd3440bb5a"
+
+
+def commits_to_check():
+    """01386ff 之后、本地检出里有的提交。CI 的浅克隆里通常只有最新的一个。"""
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True).stdout
+
+    if not git("rev-parse", "--git-dir").strip():
+        return []
+    shas = git("rev-list", "HEAD", "--not", COMMIT_RULES_SINCE).split()
+    if not shas and git("cat-file", "-t", COMMIT_RULES_SINCE).strip() != "commit":
+        shas = git("rev-list", "-n", "20", "HEAD").split()  # 截断的检出：只查检出里有的
+    if COMMIT_RULES_SINCE in shas:
+        shas = shas[: shas.index(COMMIT_RULES_SINCE)]
+    return [(sha, git("log", "-1", "--format=%B", sha)) for sha in shas]
+
+
+def test_new_commit_messages_follow_the_style_guide():
+    problems = []
+    for sha, message in commits_to_check():
+        subject = message.split("\n", 1)[0]
+        if subject.startswith("Merge "):
+            continue  # GitHub 生成的合并提交
+        if re.search(r"[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]", message):
+            problems.append(f"{sha[:7]}：提交说明里有中文")
+        if len(subject) > 72:
+            problems.append(f"{sha[:7]}：标题超过 72 个字符（{len(subject)}）：{subject!r}")
+        if subject.endswith("."):
+            problems.append(f"{sha[:7]}：标题不应以句号结尾：{subject!r}")
+        if subject[:1].islower():
+            problems.append(f"{sha[:7]}：标题应以大写字母开头：{subject!r}")
     assert not problems, "\n".join(problems)
