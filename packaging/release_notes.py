@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""从 CHANGELOG.zh-CN.md 里取出某个版本的那一节，写到 stdout（发 Release 时用）。
+"""从 CHANGELOG.md 里取出某个版本的那一节，写到 stdout（发 Release 时用）。
 
-应用界面是中文，更新对话框显示的是 Release 说明，所以取中文版。
+更新对话框显示的就是 Release 说明。更新日志只有英文版，写法见 docs/changelog-style.md。
+版本标题是 ``## 1.2.0 (2026-10-22)`` 或 ``## 1.2.0 (unreleased)``，括号里的部分可以省略。
 
     python packaging/release_notes.py 1.0.0-rc.1
 
@@ -15,13 +16,13 @@ import re
 import sys
 from pathlib import Path
 
-CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.zh-CN.md"
+CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
 
 
 def section(text: str, version: str) -> str | None:
     lines = text.splitlines()
     for i, line in enumerate(lines):
-        if re.match(rf"^##\s+v?{re.escape(version)}\s*$", line):
+        if re.match(rf"^##\s+v?{re.escape(version)}(\s+\([^)]*\))?\s*$", line):
             body = []
             for rest in lines[i + 1:]:
                 if re.match(r"^##\s", rest):

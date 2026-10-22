@@ -1,6 +1,6 @@
 # Changelog style guide
 
-Draft. This guide applies to `CHANGELOG.md`. It does not cover commit messages or the design documents under `docs/`.
+This guide applies to `CHANGELOG.md`. It does not cover commit messages or the design documents under `docs/`.
 
 ## 1. Purpose and readers
 
@@ -13,7 +13,7 @@ An entry describes an effect a user can observe or an action a user must take. R
 
 ## 2. Language
 
-- `CHANGELOG.md` is written in English only. It is the single source for the GitHub release notes and the in-app update dialog.
+- `CHANGELOG.md` is written in English only. It is the single source for the GitHub release notes and the in-app update dialog (`packaging/release_notes.py`). There is no translated changelog.
 - Use plain, formal English. Write complete sentences with a subject and a verb.
 - Do not use Chinese anywhere in the file, including interface labels. Refer to a control by its English name from the glossary in section 7. If a control has no entry yet, add one before using it.
 - Do not use contractions (`doesn't`, `can't`), exclamation marks, emoji, rhetorical questions, or first and second person (`we`, `our`, `you`). Describe the product, not the people who use it.
@@ -67,7 +67,7 @@ An entry describes an effect a user can observe or an action a user must take. R
 
 Start every entry with the area it affects, followed by a colon. Use one of:
 
-`iPad`, `Mac`, `Board`, `Eraser`, `Tool picker`, `Documents`, `Export`, `Sketch`, `Sync`, `Storage`, `Settings`, `Updates`, `Extension`, `inksync`.
+`iPad`, `Mac`, `Boards`, `Eraser`, `Tool picker`, `Documents`, `Export`, `Sketch`, `Sync`, `Storage`, `Settings`, `Updates`, `Extension`, `Embedding`, `inksync`.
 
 Add an area to this list before using a new one. Do not combine two areas in one prefix.
 
@@ -102,14 +102,15 @@ Add an area to this list before using a new one. Do not combine two areas in one
 
 ## 6. Review checklist
 
-Before a release, check each entry against the following:
+`tests/test_release_notes.py` checks the items marked (automatic) on every CI run. Before a release, check each entry against all items:
 
-- [ ] Area prefix from the list in section 4.2.
-- [ ] One line, at most 200 characters, ends with a period.
-- [ ] No Chinese characters (`grep -nP '[\x{4E00}-\x{9FFF}]' CHANGELOG.md` returns nothing).
+- [ ] Area prefix from the list in section 4.2. (automatic)
+- [ ] One line, at most 200 characters, ends with a period. (automatic)
+- [ ] No Chinese characters (`grep -nP '[\x{4E00}-\x{9FFF}]' CHANGELOG.md` returns nothing). (automatic)
 - [ ] No word from the table in section 2.
 - [ ] Fixed entries describe the symptom, not the cause or the code.
 - [ ] Incompatible changes are repeated under Upgrade notes.
+- [ ] Version headings and subsection names follow section 3. (automatic)
 
 ## 7. Glossary of interface labels
 
@@ -131,29 +132,9 @@ The app interface is in Chinese. Entries refer to controls by these English name
 | 复制 | Copy |
 | iPad 首页 | iPad home app |
 | 来源 | Source (iPad shell setting) |
+| 仍然编辑 | Edit anyway |
+| 打开方式 (Finder) | Open With |
 
 ## 8. Example
 
-The 1.2.0 section written according to this guide:
-
-```markdown
-## 1.2.0 (unreleased)
-
-### Added
-
-- Sketch: Write on the iPad with Apple Pencil and copy the result on the Mac as a PNG with a transparent background. See docs/sketch.md.
-- Sketch: Sketches are kept in memory only; closing the sketch discards it and returns the iPad to the previous board.
-- Extension: An Edge and Chrome extension opens the sketch from the toolbar or with Alt+Shift+S. It is published with each release.
-- inksync: Version 0.3.0 adds transient boards, a connection-closed event and PNG export with a transparent background.
-
-### Changed
-
-- Eraser: The pixel eraser width follows the Pencil angle during a stroke, as it did before 0.9.32.
-
-### Fixed
-
-- Tool picker: An area above the tool picker did not accept ink after a panel or the More menu had been opened and closed. Present since 0.9.26.
-- Tool picker: Writing in that area could change hidden settings, such as switching the eraser from Object to Pixel mode.
-- Export: Pixel-eraser masks on the second and later pages of a PDF appeared inverted. Present since 0.9.27.
-- Export: PNG export with a resolution multiplier ignored the maximum image size and could produce an empty image.
-```
+The sections of `CHANGELOG.md` from 1.0.0 onwards follow this guide; the 1.2.0 section shows every subsection in use except Removed.

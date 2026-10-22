@@ -112,4 +112,4 @@ git tag v1.0.0 && git push origin v1.0.0
 
 - CI（`.github/workflows/build-macos.yml`）构建 Mac 应用与 iPad 外壳，并将 `.zip` 与 `.ipa` 发布到 GitHub Release。
 - 应用内更新读取 `releases/latest`，其中不包括预发布版。正式版发布之后，现有用户才会收到更新提示。
-- Release 说明取自 `CHANGELOG.zh-CN.md` 中该版本的一节（`packaging/release_notes.py`），更新对话框显示的即为这段说明。预发布版没有单独一节时，使用对应正式版的一节；两者均不存在时，由 GitHub 自动生成说明。
+- Release 说明取自 `CHANGELOG.md`（只有英文版，写法见 `docs/changelog-style.md`）中该版本的一节（`packaging/release_notes.py`），更新对话框显示的即为这段说明。预发布版没有单独一节时，使用对应正式版的一节；两者均不存在时，由 GitHub 自动生成说明。

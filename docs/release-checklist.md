@@ -112,4 +112,4 @@ git tag v1.0.0 && git push origin v1.0.0
 
 - CI (`.github/workflows/build-macos.yml`) builds the Mac app and the iPad shell, then publishes the `.zip` and the `.ipa` to the GitHub Release.
 - The in-app updater reads `releases/latest`, which excludes prereleases. Existing users receive the update only after the release is published.
-- The release notes are the section of `CHANGELOG.zh-CN.md` for that version (`packaging/release_notes.py`). The update dialog shows these notes. A prerelease without its own section uses the section of the corresponding release version. If no section exists, GitHub generates the notes.
+- The release notes are the section of `CHANGELOG.md` for that version (`packaging/release_notes.py`). The update dialog shows these notes. A prerelease without its own section uses the section of the corresponding release version. If no section exists, GitHub generates the notes.
