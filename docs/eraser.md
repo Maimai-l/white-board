@@ -116,7 +116,7 @@ For zoom-out, session c (zoom 0.25, 10.4°) gives 80.5 screen units against 81 f
 
 The eraser width is taken from the tilt at pen-down, then follows the tilt for the rest of the stroke: each sample moves the width 35% of the way (`ERASER_SMOOTH`) to the width for the current tilt. Pressing the pencil down or raising it while erasing changes the width without lifting.
 
-From 0.9.32 through 1.1.1 the width was fixed at pen-down instead, based on the native statistics below. 1.2.0 restores the per-sample behavior because changing the width without lifting is more useful in practice.
+From 0.9.32 through 1.1.0 the width was fixed at pen-down instead, based on the native statistics below. 1.2.0 restores the per-sample behavior because changing the width without lifting is more useful in practice.
 
 | Native statistic (92 eraser strokes) | Value |
 | --- | --- |

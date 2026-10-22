@@ -80,7 +80,7 @@ Copy `examples/apps/demo/` into `apps/` in the storage directory first.
 
 - [ ] Apple Pencil: pressure and tilt apply, fast strokes do not break, stroke ends have no blob, and a palm resting on the screen leaves no mark (palm rejection).
 - [ ] One finger pans and two fingers zoom. With finger drawing turned on, one finger draws.
-- [ ] Pixel eraser: the eraser is narrow with the Pencil upright and wider with the Pencil tilted flat. The width stays constant within one drag.
+- [ ] Pixel eraser: the eraser is narrow with the Pencil upright and wider with the Pencil tilted flat. Tilting the Pencil during one drag changes the width gradually, without lifting.
 
 ### Sync
 

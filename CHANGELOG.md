@@ -2,7 +2,11 @@
 
 This file lists the notable changes to the board app and to inksync. The section of a version is used as its GitHub release notes and is shown in the in-app update dialog. Entries follow [docs/changelog-style.md](docs/changelog-style.md).
 
-## 1.2.0 (unreleased)
+## 1.2.0 (2026-10-22)
+
+### Upgrade notes
+
+- Settings: To open the board under an address other than an IP address, `*.local`, `localhost` or the Mac host name, add the address to `allowed_hosts` in the configuration file.
 
 ### Added
 
@@ -23,16 +27,10 @@ This file lists the notable changes to the board app and to inksync. The section
 - Export: Pixel-eraser masks on the second and later pages of a PDF appeared inverted. Present since 0.9.27.
 - Sketch: Copying a sketch with ink spread over a large area produced an empty image.
 
-## 1.1.1 (unreleased)
-
-### Upgrade notes
-
-- Settings: To open the board under an address other than an IP address, `*.local`, `localhost` or the Mac host name, add the address to `allowed_hosts` in the configuration file.
-
 ### Security
 
 - Sync: Web pages open in a browser on the Mac could connect to the board server and read, change or delete boards. The server now rejects requests from other origins.
-- inksync: Version 0.2.1 applies the same check in `mount` by default and adds the `allowed_origins` and `allowed_hosts` arguments and `guard_middleware`.
+- inksync: `mount` applies the same check by default and accepts the `allowed_origins` and `allowed_hosts` arguments. `guard_middleware` is added.
 
 ## 1.1.0 (2026-10-01)
 
