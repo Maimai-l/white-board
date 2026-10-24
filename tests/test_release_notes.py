@@ -113,23 +113,25 @@ def test_the_changelog_follows_the_style_guide():
     assert not problems, "\n".join(problems)
 
 
-# 规范第 9 节从这个提交之后开始执行；它之前的历史已经改写成英文
-COMMIT_RULES_SINCE = "01386ff883bb4beff6fcb20ef8091ffd3440bb5a"
+# 规范第 9 节对提交时间晚于这一刻的提交生效（2026-10-22 06:14:54 UTC，1.2.0 发布的那个提交）。
+# 按时间而不是按哈希：历史改写之后哈希会变，提交时间不变。
+COMMIT_RULES_AFTER = 1792649694
 
 
 def commits_to_check():
-    """01386ff 之后、本地检出里有的提交。CI 的浅克隆里通常只有最新的一个。"""
+    """提交时间晚于 COMMIT_RULES_AFTER、本地检出里有的提交。CI 的浅克隆里通常只有最新的一个。"""
     def git(*args):
         return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True).stdout
 
     if not git("rev-parse", "--git-dir").strip():
         return []
-    shas = git("rev-list", "HEAD", "--not", COMMIT_RULES_SINCE).split()
-    if not shas and git("cat-file", "-t", COMMIT_RULES_SINCE).strip() != "commit":
-        shas = git("rev-list", "-n", "20", "HEAD").split()  # 截断的检出：只查检出里有的
-    if COMMIT_RULES_SINCE in shas:
-        shas = shas[: shas.index(COMMIT_RULES_SINCE)]
-    return [(sha, git("log", "-1", "--format=%B", sha)) for sha in shas]
+    out = []
+    for line in git("log", "--format=%H %ct", "HEAD").splitlines():
+        sha, when = line.split()
+        if int(when) <= COMMIT_RULES_AFTER:
+            break
+        out.append((sha, git("log", "-1", "--format=%B", sha)))
+    return out
 
 
 def test_new_commit_messages_follow_the_style_guide():

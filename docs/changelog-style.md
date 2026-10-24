@@ -150,5 +150,5 @@ A commit message records what a commit changes and why, for developers reading t
 - Reference earlier commits by their short hash, and tests by name.
 - Keep trailers (`Co-Authored-By`, `Claude-Session`) as the last lines, after a blank line.
 
-`tests/test_release_notes.py` checks the language and the subject line of every commit after 01386ff that is present in the checkout. History before 01386ff was rewritten on 2026-10-22: the 0.9 series was combined into one commit, and earlier messages were translated into English.
+`tests/test_release_notes.py` checks the language and the subject line of every commit present in the checkout that was committed after 2026-10-22 06:14:54 UTC (the 1.2.0 release commit). The history up to that commit was rewritten: on 2026-10-22 the 0.9 series was combined into one commit and earlier messages were translated into English, and on 2026-10-24 the InkProbe session archives were removed from every commit (they are on the `inkprobe-data` branch).
 
