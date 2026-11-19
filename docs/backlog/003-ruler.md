@@ -27,8 +27,8 @@
 
 ## 进展
 
-- 2026-11-19 `claude/ruler`：行为做完，外观是一版朴素的占位（半透明长条、角度数字、
-  笔具盘里一个图标按钮），等设计稿确认后替换。外观只在 `whiteboard/web/static/js/ruler-view.js`
+- 2026-11-19 `claude/ruler`：行为做完，外观按设计稿（浅色半透明尺身、两侧刻度、白色角度标签、
+  笔具盘里橡皮右边立着的尺子）。外观只在 `whiteboard/web/static/js/ruler-view.js`
   和 `css/app.css` 的「尺子」一节；几何在 inksync 的 `ruler.js`，手指和笔的分派在
   `input-ruler.js`。验收测试在 `tests/e2e/test_ruler.py`，几何的白盒测试在
   `tests/js/ruler.test.mjs`。

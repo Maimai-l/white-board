@@ -6,7 +6,7 @@
 //
 // 接进来的东西：选工具、每支笔各自的颜色与粗细、点选中的笔弹出粗细面板、
 // 完整的取色器（色板 / 色轮 / RGB 滑块）、拖动换边、丢进角落缩成一个圆、
-// 撤销按钮、「更多」里的自动最小化与手指绘图开关，以及开关尺子的按钮。
+// 撤销按钮、「更多」里的自动最小化、手指绘图与形状识别开关，以及开关尺子的按钮。
 //
 // 拖动与松手按 iPadOS 的手感重写过：圆进入边的触发区要停留一会儿才变成长条，
 // 长条一出触发区立即变回圆；松手时按惯性推算停点，决定去哪个角（圆）或哪条边（长条）。
@@ -846,7 +846,10 @@ function makeClass(Base) {
     }
 
     /**
-     * 「更多」菜单里补上白板自己的一项：清空白板。
+     * 「更多」菜单里补上白板自己的两项：形状识别开关、清空白板。
+     *
+     * 形状识别那一行和上面两个开关是同一种写法（``data-toggle``），点它由 vendor
+     * 翻转 ``this.shapeLines`` 并改开关的样子，之后 _sync 把它带给白板。
      *
      * 以前这里还有一行「换回普通工具栏」。iPad 上这条笔具盘就是唯一的工具栏，
      * 那一行连同接它的代码都去掉了。
@@ -854,11 +857,13 @@ function makeClass(Base) {
     _popHTML(kind) {
       const html = super._popHTML(kind);
       if (kind !== "more") return html;
+      let rows =
+        `<button type="button" class="pk-row" data-toggle="shapeLines"><span>形状识别</span>` +
+        `<span class="pk-switch" role="switch" aria-checked="${!!this.shapeLines}"></span></button>`;
       // 清空白板是一项单独的权限，白板那边没给就别把这一行画出来
-      const rows =
-        this.allowClear === false
-          ? ""
-          : `<button type="button" class="pk-row" data-wb="clear"><span>清空白板</span></button>`;
+      if (this.allowClear !== false) {
+        rows += `<button type="button" class="pk-row" data-wb="clear"><span>清空白板</span></button>`;
+      }
       return html.replace(/<\/div>$/, rows + "</div>");
     }
 
@@ -892,6 +897,7 @@ function makeClass(Base) {
         color: cfg.color || "#000000",
         sizeIndex: typeof cfg.size === "number" ? cfg.size : 1,
         fingerDraws: !!this.fingerDraws,
+        shapeLines: !!this.shapeLines,
         // 橡皮那个面板里的「对象 / 像素」二选一，白板两种都做了，见 app-eraser.js 的 erasePixels
         eraserMode: (this.tools.eraser && this.tools.eraser.mode) === "pixel" ? "pixel" : "object",
       };
@@ -940,7 +946,7 @@ function makeClass(Base) {
     }
 
     /** 白板那边改了工具 / 颜色（比如从缓存恢复），推回工具盘。 */
-    applyState({ tool, color, sizeIndex, fingerDraws, eraserMode }) {
+    applyState({ tool, color, sizeIndex, fingerDraws, shapeLines, eraserMode }) {
       const art = TOOL_ART[tool] || "pen";
       this.current = art;
       const cfg = this.tools[art];
@@ -951,6 +957,7 @@ function makeClass(Base) {
         }
       }
       if (fingerDraws !== undefined) this.fingerDraws = !!fingerDraws;
+      if (shapeLines !== undefined) this.shapeLines = !!shapeLines;
       if (eraserMode !== undefined && this.tools.eraser) {
         this.tools.eraser.mode = eraserMode === "pixel" ? "pixel" : "object";
       }

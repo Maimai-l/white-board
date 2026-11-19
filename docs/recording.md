@@ -68,7 +68,7 @@ await whiteboard.recorder.replay(data, { speed: 4 })     // four times faster
 Replay performs these steps:
 
 1. Resets the board to `meta` and `before`, and sets the viewport to `viewport`.
-2. Sets finger drawing to `fingerDraw`.
+2. Sets finger drawing to `fingerDraw` and shape recognition to `shapeLines`.
 3. Switches the input source to the iPad shell when `source` is `shell`, and to the browser otherwise.
 4. Sets the stroke id prefix and counter to `ids`, so that new strokes receive the same ids as in the recording.
 5. Feeds each event: applies its `tool` and `viewport` if present, re-reads the canvas position, then calls the input controller (`onDown`, `onMove`, `onUp`, or `receiveShell` for shell batches).
@@ -129,6 +129,7 @@ A recording is a JSON object. Pointer event fields are stored with their origina
 | `stage` | array | Canvas `[left, top, width, height]` in CSS px, rounded to 0.01 |
 | `viewport` | object | `{scale, x, y}` at the start |
 | `fingerDraw` | boolean | Whether finger drawing is on |
+| `shapeLines` | boolean | Whether shape recognition (straight lines) is on; missing in older recordings, meaning off |
 | `source` | string | `browser` or `shell` |
 | `shell` | object or null | `{version, bridge}` when `source` is `shell` |
 | `ids` | object | `{prefix, counter}` for new stroke ids |

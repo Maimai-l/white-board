@@ -22,7 +22,15 @@ import {
 } from "/inksync/stroke.js";
 import { debounce, isTextField } from "/inksync/util.js";
 import { downloadDataURL, downloadURL, exportDataURL } from "/inksync/exporter.js";
-import { boardView, docOf, loadFingerDraw, saveFingerDraw, uploadThumb } from "./boards.js";
+import {
+  boardView,
+  docOf,
+  loadFingerDraw,
+  loadShapeLines,
+  saveFingerDraw,
+  saveShapeLines,
+  uploadThumb,
+} from "./boards.js";
 import { reportError, reportUncaughtErrors, setReportURL } from "/inksync/report.js";
 
 export { reportError };
@@ -60,6 +68,7 @@ class App extends InkPad {
       // 白板应用的页面跟随 Mac 上的当前白板
       target: { space: "", follow: true },
       fingerDraw: loadFingerDraw(),
+      shapeLines: loadShapeLines(),
       stage: document.getElementById("stage"),
       base: document.getElementById("base"),
       live: document.getElementById("live"),
@@ -395,6 +404,10 @@ class App extends InkPad {
       onFingerDraw: (enabled) => {
         this.input.setFingerDraw(enabled);
         saveFingerDraw(enabled);
+      },
+      onShapeLines: (enabled) => {
+        this.input.setShapeLines(enabled);
+        saveShapeLines(enabled);
       },
       onToolChange: (tool) => this.setTool(tool),
       onRuler: (shown) => this.showRuler(shown),

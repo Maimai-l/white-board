@@ -24,6 +24,7 @@ Whiteboard is a Mac app that serves a handwriting board to the local network. Th
 - **Vector ink.** Strokes are stored as points, not images. A 500-point stroke is usually under 2 KB. Outlines are drawn with [perfect-freehand](https://github.com/steveruizok/perfect-freehand).
 - **Apple Pencil input.** Pressure and tilt set the pen width, the palm is ignored while the Pencil is down, and fingers pan and zoom unless finger drawing is on.
 - **Ruler on the iPad.** Turn it on in the tool picker, move and rotate it with two fingers, and draw straight lines along its edge with the Pencil. The ruler stays on the iPad; the lines sync.
+- **Shape recognition.** With it turned on, a stroke whose pen stays still for half a second at the end becomes a straight line; one undo brings back the handwriting. It is off by default and turned on per device next to finger drawing.
 - **Two erasers.** The object eraser deletes the stroke it touches; the pixel eraser removes only the swept area and keeps the ink as vectors.
 - **Three board kinds**, including document boards for annotating a PDF or an image and exporting it with the ink.
 - **Offline writing.** Strokes queue locally and in IndexedDB and are sent in order when the connection returns.

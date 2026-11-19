@@ -71,3 +71,23 @@ export function saveFingerDraw(enabled) {
     /* 记不住就只在本次会话内生效 */
   }
 }
+
+const SHAPES_FLAG = "whiteboard.shapeLines";
+
+/** 「形状识别」（停住变直线）：和手指书写一样是每台设备自己的输入偏好，默认关。 */
+export function loadShapeLines() {
+  try {
+    return localStorage.getItem(SHAPES_FLAG) === "1";
+  } catch (err) {
+    console.warn("boards.js loadShapeLines：读不到 localStorage，按关闭处理", err);
+    return false;
+  }
+}
+
+export function saveShapeLines(enabled) {
+  try {
+    localStorage.setItem(SHAPES_FLAG, enabled ? "1" : "0");
+  } catch (err) {
+    console.warn("boards.js saveShapeLines：记不住，只在本次打开期间生效", err);
+  }
+}
