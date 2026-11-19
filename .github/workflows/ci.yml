@@ -22,6 +22,11 @@ concurrency:
 permissions:
   contents: read
 
+# 显式写 bash，GitHub 才会加上 -o pipefail：否则「脚本 | tee」里脚本失败了，这一步照样是绿的
+defaults:
+  run:
+    shell: bash
+
 jobs:
   plan:
     runs-on: ubuntu-latest

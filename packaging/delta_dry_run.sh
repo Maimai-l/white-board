@@ -16,21 +16,32 @@ mkdir -p "$work/old" "$work/new" "$work/feed" "$work/applied"
 ditto -x -k "$zip" "$work/old"
 ditto "$work/old/Whiteboard.app" "$work/new/Whiteboard.app"
 
+# generate_appcast 只给 Info.plist 里带着匹配的 SUPublicEDKey 的包签名，也只从带公钥的
+# 旧版本做增量包（旧版本没有公钥就验不了新版本）。分支上的构建没有正式公钥，
+# 所以两个版本都写入这次的临时公钥，再重新签名。
+python3 "$here/appcast.py" keygen "$work/keys"
+public_key="$(cat "$work/keys/public.key")"
+for side in old new; do
+  plutil -replace SUPublicEDKey -string "$public_key" "$work/$side/Whiteboard.app/Contents/Info.plist"
+  plutil -replace SUFeedURL -string "https://example.invalid/appcast.xml" "$work/$side/Whiteboard.app/Contents/Info.plist"
+done
+
 plist="$work/new/Whiteboard.app/Contents/Info.plist"
 old_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
 new_build="${old_build}9"   # 最后一段多一位数字：一定比旧的大
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $new_build" "$plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString dry-run-$new_build" "$plist"
 date -u > "$work/new/Whiteboard.app/Contents/Resources/dry-run.txt"
+"$here/sign_app.sh" "$work/old/Whiteboard.app" > /dev/null
 "$here/sign_app.sh" "$work/new/Whiteboard.app" > /dev/null
 
 ditto -c -k --keepParent "$work/old/Whiteboard.app" "$work/feed/Whiteboard-old.zip"
 ditto -c -k --keepParent "$work/new/Whiteboard.app" "$work/feed/Whiteboard-new.zip"
-
-python3 "$here/appcast.py" keygen "$work/keys"
 "$sparkle/bin/generate_appcast" --ed-key-file - --maximum-deltas 3 \
   --download-url-prefix "https://example.invalid/" "$work/feed" < "$work/keys/private.key"
 rm -f "$work/keys/private.key"
+echo "生成的 appcast："
+cat "$work/feed/appcast.xml"
 python3 "$here/appcast.py" verify "$work/feed" "$work/keys/public.key"
 
 delta="$(ls "$work/feed"/*.delta | head -n 1)"

@@ -109,3 +109,14 @@ def test_signatures_round_trip_with_a_generated_key(tmp_path):
 
     archive.write_bytes(b"zap")  # 内容被换掉：签名对不上
     assert appcast.verify(tmp_path, public) == 1
+
+
+def test_a_missing_signature_is_reported_as_missing(tmp_path, capsys):
+    """generate_appcast 遇到没有 SUPublicEDKey 的包时不签名：要说清是没签，而不是签错。"""
+    pytest.importorskip("cryptography")
+    appcast.keygen(tmp_path / "keys")
+    (tmp_path / "Whiteboard-1.2.0.zip").write_bytes(b"zip")
+    feed = FEED.split("<item>")[0] + "<item>" + FEED.split("<item>")[2].replace(' sparkle:edSignature="SIG3"', "")
+    (tmp_path / "appcast.xml").write_text(feed)
+    assert appcast.verify(tmp_path, (tmp_path / "keys" / "public.key").read_text()) == 1
+    assert "没有 EdDSA 签名" in capsys.readouterr().out

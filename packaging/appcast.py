@@ -230,6 +230,11 @@ def verify(folder: Path, public_key: str) -> int:
             if enclosure.length and enclosure.length != len(data):
                 print(f"{name}：长度 {len(data)}，appcast 里写的是 {enclosure.length}")
                 problems += 1
+            if not enclosure.signature:
+                # generate_appcast 不给 Info.plist 里没有 SUPublicEDKey（或公钥和私钥不配对）的包签名
+                print(f"{name}：没有 EdDSA 签名（应用的 SUPublicEDKey 缺失，或与签名用的私钥不配对）")
+                problems += 1
+                continue
             try:
                 key.verify(base64.b64decode(enclosure.signature), data)
                 checked += 1
