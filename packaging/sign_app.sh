@@ -26,5 +26,6 @@ codesign --force "${preserve[@]}" --sign "$identity" "$app"
 
 # Python 运行时里有符号链接，--strict 会拒绝；和 Sparkle 更新时的检查一样，不加 --strict
 codesign --verify --deep --verbose=2 "$app"
+# ad hoc 签名打印的是「# designated => cdhash H"…"」，证书签名打印「designated => identifier …」
 echo "designated requirement："
-codesign -d -r- "$app" 2>&1 | sed -n 's/^designated => /  /p'
+codesign -d -r- "$app" 2>&1 | grep 'designated =>' | sed 's/^/  /'
