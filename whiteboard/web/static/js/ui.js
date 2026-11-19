@@ -9,7 +9,7 @@
 // 早先关掉过笔具盘的机器回来用的（选择记在本机）。
 
 import { icon } from "./icons.js";
-import { loadFingerDraw } from "./boards.js";
+import { loadFingerDraw, loadShapeLines } from "./boards.js";
 import { loadPicker } from "./pkpicker.js";
 import { inShell } from "/inksync/shell.js";
 import { ToolDock } from "./toolpicker.js";
@@ -132,6 +132,7 @@ export class UI {
     this.root.append(this.status);
 
     this.fingerDraw = loadFingerDraw();
+    this.shapeLines = loadShapeLines();
 
     this.toolbar = el("div", { id: "toolbar", class: "pill" });
     this.root.append(this.toolbar);
@@ -258,12 +259,14 @@ export class UI {
     this.appendEditButtons(bar);
   }
 
-  /** 两条都有的：手指书写开关和位置按钮。 */
+  /** 两条都有的：手指书写、形状识别两个开关和位置按钮。 */
   appendCommonButtons(bar) {
     if (this.touchDevice) {
       this.fingerButton = iconButton("hand", "手指书写", () => this.toggleFingerDraw());
       this.fingerButton.classList.toggle("active", this.fingerDraw);
-      bar.append(this.fingerButton);
+      this.shapeButton = iconButton("shapeLine", "形状识别", () => this.toggleShapeLines());
+      this.shapeButton.classList.toggle("active", this.shapeLines);
+      bar.append(this.fingerButton, this.shapeButton);
     }
     // 手拿着 iPad 写字时底部这条够不着，让它能挪到上边去。
     this.dockButton = iconButton("dockTop", "工具栏换个位置", () => this.toggleDock());
@@ -297,11 +300,14 @@ export class UI {
       pk.onRedo = () => this.actions.onRedo();
       pk.allowClear = this.may("clear");
       pk.onClear = () => this.confirmClear();
+      // 尺子只在笔具盘里有，也就是只在 iPad 上有（见 isIPad）
+      pk.onRuler = (shown) => this.actions.onRuler(shown);
       pk.applyState({
         tool: this.tool.tool,
         color: this.ink.color,
         sizeIndex: this.ink.widthIndex,
         fingerDraws: this.fingerDraw,
+        shapeLines: this.shapeLines,
         eraserMode: this.tool.eraserMode,
       });
       this.pk = pk;
@@ -357,11 +363,15 @@ export class UI {
     this.corner.classList.toggle("shy", hit);
   }
 
-  /** 工具盘那边改了工具 / 颜色 / 粗细 / 手指书写，同步到白板。 */
+  /** 工具盘那边改了工具 / 颜色 / 粗细 / 手指书写 / 形状识别，同步到白板。 */
   onPickerChange(state) {
     if (state.fingerDraws !== this.fingerDraw) {
       this.fingerDraw = state.fingerDraws;
       this.actions.onFingerDraw(this.fingerDraw);
+    }
+    if (state.shapeLines !== this.shapeLines) {
+      this.shapeLines = state.shapeLines;
+      this.actions.onShapeLines(this.shapeLines);
     }
     const entry = this.tool[state.tool];
     if (entry) {
@@ -439,6 +449,13 @@ export class UI {
     this.fingerButton.classList.toggle("active", this.fingerDraw);
     this.actions.onFingerDraw(this.fingerDraw);
     this.toast(this.fingerDraw ? "hand" : "pen");
+  }
+
+  /** 普通工具栏上的「形状识别」开关。按钮亮着就是开着。 */
+  toggleShapeLines() {
+    this.shapeLines = !this.shapeLines;
+    this.shapeButton.classList.toggle("active", this.shapeLines);
+    this.actions.onShapeLines(this.shapeLines);
   }
 
   rememberTool() {

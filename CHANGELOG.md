@@ -15,7 +15,11 @@ This file lists the notable changes to the board app and to inksync. The section
 - Export: Page frames can be moved, resized, added and deleted on the board before exporting.
 - Export: PNG pages are exported at 150, 300 or 600 dpi.
 - Export: PDF pages of infinite and note boards contain vector ink, which stays sharp at any zoom.
+- Ink: With Shape recognition on, a stroke becomes a straight line when the Pencil stays still for 0.5 s at its end. One undo brings back the handwritten stroke.
+- Tool picker: Shape recognition is turned on in the More menu, next to Draw with finger. It is off by default and remembered per device.
 - Settings: `update_channel` in the configuration file selects `alpha` test builds or `stable` releases.
+- iPad: The Ruler button in the tool picker shows a ruler. Two fingers move and rotate it, and the ruler shows its angle.
+- iPad: An Apple Pencil stroke started on the ruler or near its edge is drawn as a straight line along the edge. The line syncs; the ruler is not shown on the Mac.
 
 ### Changed
 

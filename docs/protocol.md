@@ -150,7 +150,7 @@ Other messages are registered by server extensions (the whiteboard app's: [The w
 
 | `phase` | Fields | Meaning |
 | --- | --- | --- |
-| `b` | `tool`, `color`, `w` | Stroke begins |
+| `b` | `tool`, `color`, `w`, `p` (optional) | Stroke begins. A `b` for an `id` that is already shown replaces that live stroke with `p`; shape recognition uses this when it straightens a stroke before the pen lifts. |
 | `m` | `p`: `[x, y, pressure, ...]` | New sample points, appended |
 | `e` | `p` (optional) | Stroke ends. Receivers keep the live stroke for 5 s or until the matching `add` arrives. |
 | `x` | — | Stroke cancelled; receivers remove it |
@@ -291,6 +291,7 @@ Stroke fields and limits: [format.md](format.md#stroke-fields). Mask format: [fo
 
 - **Stacking order.** The server assigns `n` in increasing order; clients draw in ascending `n`. `restore` keeps the original `n`, so undoing an erase restores the previous stacking.
 - **Undo.** Undo and redo run on the client. The client applies the change locally at once and sends the equivalent `remove`, `restore` or `mask`. Undo therefore works offline. Undoing `clear` sends `restore`.
+- **Shape recognition.** A straightened stroke is committed as an ordinary `add` with the same `id` as its live ink; its points lie on the line from the first to the last sample and keep their pressure. The handwritten stroke is never sent unless the user undoes: the client records two undo steps, "added the handwritten stroke" and "replaced it with the line". The first undo sends `remove` for the line and `restore` for the handwritten stroke (new `id`, the line's `n`); the second sends `remove`. No new operation is needed, so older clients follow along.
 - **Duplicates.** `add` and `restore` ignore stroke IDs that already exist and still send `ack`, so resending after a reconnect is safe.
 - **Invalid data.** Invalid values are dropped or clamped (see [format.md](format.md#stroke-fields)). One invalid message never closes the connection.
 - **Long strokes.** A stroke over 20000 points is dropped as a whole, not truncated. The client splits a longer stroke at commit (`stroke.js` `splitLongStroke`, `MAX_STROKE_POINTS` = 20000): adjacent pieces share one sample point, all ends are round, no `cut` is set, the pieces are sent in one `add` and undone as one step.

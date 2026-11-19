@@ -67,7 +67,7 @@ An entry describes an effect a user can observe or an action a user must take. R
 
 Start every entry with the area it affects, followed by a colon. Use one of:
 
-`iPad`, `Mac`, `Boards`, `Eraser`, `Tool picker`, `Documents`, `Export`, `Sketch`, `Sync`, `Storage`, `Settings`, `Updates`, `Extension`, `Embedding`, `inksync`.
+`iPad`, `Mac`, `Boards`, `Ink`, `Eraser`, `Tool picker`, `Documents`, `Export`, `Sketch`, `Sync`, `Storage`, `Settings`, `Updates`, `Extension`, `Embedding`, `inksync`.
 
 Add an area to this list before using a new one. Do not combine two areas in one prefix.
 
@@ -122,9 +122,11 @@ The app interface is in Chinese. Entries refer to controls by these English name
 | 管理白板 | Manage boards (permission) |
 | 存储目录 | Storage directory |
 | 笔具盘 | Tool picker |
+| 尺子 | Ruler |
 | 更多 | More |
 | 自动最小化 | Auto-minimize |
 | 用手指绘图 | Draw with finger |
+| 形状识别 | Shape recognition |
 | 对象橡皮擦 | Object eraser |
 | 像素橡皮擦 | Pixel eraser |
 | 速写 | Sketch |

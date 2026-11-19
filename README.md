@@ -23,6 +23,8 @@ Whiteboard is a Mac app that serves a handwriting board to the local network. Th
 - **Real-time sync over the LAN.** The Mac serves the page and stores the boards; any device on the network opens the page in a browser and writes.
 - **Vector ink.** Strokes are stored as points, not images. A 500-point stroke is usually under 2 KB. Outlines are drawn with [perfect-freehand](https://github.com/steveruizok/perfect-freehand).
 - **Apple Pencil input.** Pressure and tilt set the pen width, the palm is ignored while the Pencil is down, and fingers pan and zoom unless finger drawing is on.
+- **Ruler on the iPad.** Turn it on in the tool picker, move and rotate it with two fingers, and draw straight lines along its edge with the Pencil. The ruler stays on the iPad; the lines sync.
+- **Shape recognition.** With it turned on, a stroke whose pen stays still for half a second at the end becomes a straight line; one undo brings back the handwriting. It is off by default and turned on per device next to finger drawing.
 - **Two erasers.** The object eraser deletes the stroke it touches; the pixel eraser removes only the swept area and keeps the ink as vectors.
 - **Three board kinds**, including document boards for annotating a PDF or an image and exporting it with the ink.
 - **Offline writing.** Strokes queue locally and in IndexedDB and are sent in order when the connection returns.
@@ -183,7 +185,7 @@ The iPad uses the **tool picker**; every other device uses the **classic toolbar
 | | Tool picker (iPad) | Classic toolbar (other devices) |
 | --- | --- | --- |
 | Tools | Pen, marker, highlighter, eraser; each keeps its own color and width | Pen, marker, highlighter, eraser |
-| Other controls | Undo, redo; ⋯ menu with auto-minimize, finger drawing and clear board | Toolbar position, color, width, undo, redo, clear board; finger drawing on touch devices |
+| Other controls | Undo, redo, ruler; ⋯ menu with auto-minimize, finger drawing and clear board | Toolbar position, color, width, undo, redo, clear board; finger drawing on touch devices |
 | Position | Docks to any of the four edges, or shrinks to a circle in a corner | Top or bottom edge, remembered on the device; panels open away from the edge |
 
 Around the toolbar:
@@ -199,7 +201,7 @@ The tool picker is the implementation in [static/vendor](whiteboard/web/static/v
 - Dropped in a corner, the picker shrinks to a circle showing the current tool and expands when the Pencil or the cursor comes near. A finger has no hover and taps the circle.
 - Undo and redo use the board's own history; the buttons follow its state.
 - The picker is hidden while the board chooser or the settings sheet is open.
-- The vendor canvas, ruler and lasso are not used. Opacity is not available because the stroke format has no field for it.
+- The vendor canvas, ruler and lasso are not used; the ruler button turns on the board's own ruler (see [Ruler](#ruler)). Opacity is not available because the stroke format has no field for it.
 
 The interface follows the system controls: frosted glass and the system blue accent. Background blur is turned off while a stroke is in progress. The tool picker is never frosted, because it sits over the writing area.
 
@@ -216,6 +218,20 @@ The interface follows the system controls: frosted glass and the system blue acc
 - The pressure curve fits the range an iPad reports: a whole line of handwriting falls between 0 and 0.13. See [docs/format.md](docs/format.md).
 - The page suppresses Safari's text selection, lookup and long-press gestures on the canvas, which otherwise take over fast strokes.
 - Text fields (board names, search, folder names) accept typing normally.
+
+### Ruler
+
+The ruler button in the tool picker shows or hides a ruler on the iPad, like the ruler in the iPad's own apps. The ruler exists only on that iPad: it is neither synced nor shown on the Mac, and it is hidden again when the page reloads. Lines drawn along it sync like any other stroke.
+
+| Input | Behavior |
+| --- | --- |
+| One finger on the ruler | Moves the ruler. |
+| Two fingers on the ruler | Move and rotate the ruler. The angle to the horizontal (0° to 90°) is shown on the ruler; it snaps to multiples of 45° within 2°. |
+| Fingers that start off the ruler | Pan and zoom the board as usual. If the first finger is on the ruler and the second lands off it, both pan and zoom the board. |
+| Pencil starting on the ruler or within 24 pt of an edge | Draws along that edge: every point of the stroke lies on the edge line. The distance is measured on the screen, so it does not change with the zoom. |
+| Pencil starting farther away | Draws as usual. |
+
+The ruler stays in place on the screen when the board is panned or zoomed, and it holds still while a stroke along it is in progress. With finger drawing on, a finger stroke near an edge snaps the same way.
 
 ### Erasers
 
@@ -480,6 +496,8 @@ packages/inksync/   sync component, installable on its own (interface in its REA
       input.js, input-erase.js,    pointer routing and drawing; the eraser;
         input-gesture.js,          pan / zoom / momentum; fallback for the
         shell-fallback.js          0.9.43 shell
+      ruler.js, input-ruler.js     ruler geometry; which fingers move the ruler,
+                                   strokes along its edge
       stroke.js, boardstate.js,    geometry, ordering and spatial index,
         renderer.js, layers.js,    rendering, image layers,
         net.js, cache.js, ...      sync, local cache, export
@@ -510,6 +528,7 @@ whiteboard/
       boards.js                     board kind, folder and document in the interface
       ui.js, ui-*.js                toolbar and tool picker; board chooser,
                                     dialogs, settings
+      ruler-view.js                 how the ruler looks (styles in css/app.css)
     static/lab/                     tuning pages (source runs only)
 ipad/           the iPad shell (Swift, project generated by XcodeGen)
 extensions/sketch/   Edge / Chrome extension (toolbar popup sketch); only embeds the /sketch page
