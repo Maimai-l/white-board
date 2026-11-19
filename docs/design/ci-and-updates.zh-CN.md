@@ -169,11 +169,11 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 | --- | --- | --- |
 | 生成 EdDSA 密钥：Sparkle 包里的 `bin/generate_keys`，再用 `generate_keys -x 文件` 导出私钥 | 自己的 Mac | 不能发布更新 |
 | 私钥存成 Secret `SPARKLE_ED_PRIVATE_KEY` | 仓库 Settings → Secrets | publish 跳过，摘要里写明原因 |
-| 公钥存成 Variable `SPARKLE_PUBLIC_ED_KEY` | 仓库 Settings → Variables | 打出的应用不带 Sparkle 配置，继续用旧更新器 |
+| 公钥（`generate_keys -p` 打印的一行）交给 agent，提交为 `packaging/sparkle-public-key.txt` | 仓库里 | 打出的应用不带 Sparkle 配置，继续用旧更新器 |
 | 开启 Pages，来源选 GitHub Actions；`github-pages` 环境允许 `dev` 分支和 `v*` tag | 仓库 Settings → Pages / Environments | 发布这一步失败 |
 | （可选）自签名证书 `MAC_CERT_P12`、`MAC_CERT_PASSWORD` | 仓库 Settings → Secrets | 继续用 ad hoc 签名 |
 
-私钥只在你自己的 Mac 和仓库 Secret 里。丢了私钥，已安装的应用就收不到之后的更新，只能手动装一次新版本。
+公钥是公开的，所以直接放在仓库里，少一步设置。私钥只在你自己的 Mac（登录钥匙串）和仓库 Secret 里。丢了私钥，已安装的应用就收不到之后的更新，只能手动装一次新版本。
 
 ## 5. 验证
 

@@ -254,8 +254,11 @@ jobs:
           WHITEBOARD_BUILD: ${{ needs.plan.outputs.build }}
           WHITEBOARD_CHANNEL: ${{ needs.plan.outputs.channel }}
           SPARKLE_FEED_URL: ${{ needs.plan.outputs.site }}/appcast.xml
-          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
-        run: pyinstaller --noconfirm --clean packaging/whiteboard.spec
+        run: |
+          # 公钥是公开的，放在仓库里（packaging/sparkle-public-key.txt）；没有这个文件时打出的包不启用 Sparkle
+          SPARKLE_PUBLIC_ED_KEY="$(tr -d '[:space:]' < packaging/sparkle-public-key.txt 2>/dev/null || true)"
+          export SPARKLE_PUBLIC_ED_KEY
+          pyinstaller --noconfirm --clean packaging/whiteboard.spec
 
       - run: packaging/embed_sparkle.sh dist/Whiteboard.app build/sparkle
 
@@ -288,9 +291,9 @@ jobs:
 
       - name: 冒烟测试：Sparkle 能加载，配置齐全
         env:
-          EXPECT_FEED: ${{ vars.SPARKLE_PUBLIC_ED_KEY != '' }}
           FEED_URL: ${{ needs.plan.outputs.site }}/appcast.xml
         run: |
+          if [ -s packaging/sparkle-public-key.txt ]; then export EXPECT_FEED=true; else export EXPECT_FEED=false; fi
           dist/Whiteboard.app/Contents/MacOS/Whiteboard --check-updater | tail -n 1 > updater.json
           cat updater.json
           python - <<'PY'
@@ -305,7 +308,7 @@ jobs:
               if info.get("updater") != "sparkle" or info.get("feed") != os.environ["FEED_URL"]:
                   problems.append(f"Sparkle 配置不对：{info.get('updater')} {info.get('feed')}")
           else:
-              print("::notice::仓库变量 SPARKLE_PUBLIC_ED_KEY 未设置：这个包用旧的更新流程")
+              print("::notice::仓库里还没有 packaging/sparkle-public-key.txt：这个包用旧的更新流程")
           for problem in problems:
               print(f"::error::{problem}")
           raise SystemExit(1 if problems else 0)
@@ -390,46 +393,49 @@ jobs:
       SITE: ${{ needs.plan.outputs.site }}
       CHANNEL: ${{ needs.plan.outputs.publish }}
       VERSION: ${{ needs.plan.outputs.version }}
-      HAS_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY != '' && vars.SPARKLE_PUBLIC_ED_KEY != '' }}
+      HAS_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY != '' }}
     steps:
-      - name: 检查密钥
-        if: env.HAS_KEY != 'true'
-        run: |
-          echo "::warning::没有设置 Secret SPARKLE_ED_PRIVATE_KEY 或变量 SPARKLE_PUBLIC_ED_KEY，跳过发布"
-          echo "### 更新没有发布" >> "$GITHUB_STEP_SUMMARY"
-          echo "缺少 Secret \`SPARKLE_ED_PRIVATE_KEY\` 或变量 \`SPARKLE_PUBLIC_ED_KEY\`，见 docs/design/ci-and-updates.zh-CN.md 第 4 节。" >> "$GITHUB_STEP_SUMMARY"
-
       - uses: actions/checkout@v4
-        if: env.HAS_KEY == 'true'
         with:
           fetch-depth: 0
+      - name: 检查密钥
+        id: keys
+        run: |
+          if [ "$HAS_PRIVATE_KEY" = "true" ] && [ -s packaging/sparkle-public-key.txt ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::缺少 Secret SPARKLE_ED_PRIVATE_KEY 或 packaging/sparkle-public-key.txt，跳过发布"
+          echo "### 更新没有发布" >> "$GITHUB_STEP_SUMMARY"
+          echo "缺少 Secret \`SPARKLE_ED_PRIVATE_KEY\` 或文件 \`packaging/sparkle-public-key.txt\`，见 docs/design/ci-and-updates.zh-CN.md 第 4 节。" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/download-artifact@v4
-        if: env.HAS_KEY == 'true'
+        if: steps.keys.outputs.ok == 'true'
         with:
           name: Whiteboard-macos-arm64
           path: new
       - uses: actions/cache@v4
-        if: env.HAS_KEY == 'true'
+        if: steps.keys.outputs.ok == 'true'
         with:
           path: build/sparkle
           key: sparkle-${{ hashFiles('packaging/fetch_sparkle.sh') }}
-      - if: env.HAS_KEY == 'true'
+      - if: steps.keys.outputs.ok == 'true'
         run: packaging/fetch_sparkle.sh build/sparkle
       - uses: actions/setup-python@v5
-        if: env.HAS_KEY == 'true'
+        if: steps.keys.outputs.ok == 'true'
         with:
           python-version: "3.12"
-      - if: env.HAS_KEY == 'true'
+      - if: steps.keys.outputs.ok == 'true'
         run: python -m pip install cryptography
 
       - name: 取线上的 appcast 和完整包
-        if: env.HAS_KEY == 'true'
+        if: steps.keys.outputs.ok == 'true'
         run: |
           python3 packaging/appcast.py fetch "$SITE" site
           cp new/*.zip site/
 
       - name: 写更新说明
-        if: env.HAS_KEY == 'true'
+        if: steps.keys.outputs.ok == 'true'
         env:
           BEFORE: ${{ github.event.before }}
         run: |
@@ -445,7 +451,7 @@ jobs:
           python3 packaging/appcast.py notes site "$zip_name" notes.md
 
       - name: 生成 appcast 和增量包
-        if: env.HAS_KEY == 'true'
+        if: steps.keys.outputs.ok == 'true'
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
@@ -461,19 +467,17 @@ jobs:
           ls -l site
 
       - name: 核对签名
-        if: env.HAS_KEY == 'true'
-        env:
-          PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
-        run: python3 packaging/appcast.py verify site "$PUBLIC_KEY"
+        if: steps.keys.outputs.ok == 'true'
+        run: python3 packaging/appcast.py verify site packaging/sparkle-public-key.txt
 
       - uses: actions/upload-pages-artifact@v3
-        if: env.HAS_KEY == 'true'
+        if: steps.keys.outputs.ok == 'true'
         with:
           path: site
       - uses: actions/deploy-pages@v4
-        if: env.HAS_KEY == 'true'
+        if: steps.keys.outputs.ok == 'true'
       - name: 摘要
-        if: env.HAS_KEY == 'true'
+        if: steps.keys.outputs.ok == 'true'
         run: |
           echo "### 已发布 $CHANNEL：$VERSION" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
