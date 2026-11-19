@@ -14,22 +14,22 @@
 // 几乎同时进行、不回弹。动画进行中可以随时拿起。手感参数都在下面。
 //
 // 没接的：不透明度（笔迹格式里还没有这个字段）、那份实现自带的直尺和套索（套索白板
-// 没有；尺子是白板自己的，见 ruler-view.js 和 inksync 的 ruler.js，按钮也是白板的
-// 图标按钮，放在原来直尺那一格附近）。撤销和重做都接到白板自己的历史栈上。
-
-import { iconButton } from "./ui-common.js";
+// 没有；尺子是白板自己的，见 ruler-view.js 和 inksync 的 ruler.js。笔具盘里开关它的
+// 是橡皮后面一格的尺子小图，用 css/app.css 画，不用那份实现的图片）。撤销和重做都接到
+// 白板自己的历史栈上。
 
 import { clamp } from "/inksync/util.js";
 
 // 去掉套索和直尺之后的布局，数值取自 vendor 里的 PK_LAYOUT；橡皮后面多出一格放
-// 尺子按钮（rulerToggle，31×31，和撤销同样大），后面的色块和「更多」整体挪 52。
+// 尺子（rulerToggle，和笔一样占一格工具位：30×105，间距 52），后面的色块和「更多」
+// 整体挪 52。
 const LAYOUT = {
   h: {
     W: 596,
     H: 105,
     items: {
       more: { x: 542, y: 37, w: 31, h: 31, r: 0 },
-      rulerToggle: { x: 340, y: 37, w: 31, h: 31, r: 0 },
+      rulerToggle: { x: 326, y: 0, w: 30, h: 105, r: 0 },
       eraser: { x: 274, y: 0, w: 30, h: 105, r: 0 },
       pencil: { x: 220, y: 0, w: 30, h: 105, r: 0 },
       marker: { x: 168, y: 0, w: 30, h: 105, r: 0 },
@@ -52,7 +52,7 @@ const LAYOUT = {
     H: 551,
     items: {
       more: { x: 36, y: 495, w: 31, h: 31, r: 0 },
-      rulerToggle: { x: 37, y: 303, w: 31, h: 31, r: 0 },
+      rulerToggle: { x: 38, y: 264, w: 30, h: 105, r: 90 },
       eraser: { x: 38, y: 212, w: 30, h: 105, r: 90 },
       pencil: { x: 38, y: 160, w: 30, h: 105, r: 90 },
       marker: { x: 38, y: 107, w: 30, h: 105, r: 90 },
@@ -75,7 +75,7 @@ const LAYOUT = {
     H: 551,
     items: {
       more: { x: 36, y: 495, w: 31, h: 31, r: 0 },
-      rulerToggle: { x: 37, y: 303, w: 31, h: 31, r: 0 },
+      rulerToggle: { x: 38, y: 264, w: 30, h: 105, r: 270 },
       eraser: { x: 38, y: 212, w: 30, h: 105, r: 270 },
       pencil: { x: 38, y: 160, w: 30, h: 105, r: 270 },
       marker: { x: 38, y: 107, w: 30, h: 105, r: 270 },
@@ -233,10 +233,17 @@ function makeClass(Base) {
       for (const cfg of Object.values(this.tools)) {
         if (cfg && cfg.opacity !== undefined) cfg.opacity = 1;
       }
-      // 尺子：白板自己的图标按钮，位置由 _layoutBar 按 LAYOUT 里的 rulerToggle 摆
-      const ruler = iconButton("ruler", "尺子", () => this.toggleRuler(), "pk-el pk-ruler-btn");
+      // 尺子：和笔一样站在工具那一排里的一个小图（样子在 css/app.css 的「尺子」一节）。
+      // 借用 pk-tool / pk-tool-art 这两个类，打开时和选中的笔一样升起来；不带 data-tool，
+      // 那份实现的点击处理就不会把它当成工具。位置由 _layoutBar 按 rulerToggle 摆。
+      const ruler = document.createElement("button");
       ruler.type = "button";
+      ruler.className = "pk-el pk-tool pk-ruler-tool";
+      ruler.title = "尺子";
+      ruler.setAttribute("aria-label", "尺子");
       ruler.setAttribute("aria-pressed", "false");
+      ruler.innerHTML = '<span class="pk-tool-art"><span class="pk-ruler-art"></span></span>';
+      ruler.addEventListener("click", () => this.toggleRuler());
       this.el.rulerToggle = ruler;
       this.bar.append(ruler);
       this.rulerShown = false;
@@ -904,7 +911,7 @@ function makeClass(Base) {
     setRulerShown(shown) {
       this.rulerShown = !!shown;
       const button = this.el.rulerToggle;
-      button.classList.toggle("active", this.rulerShown);
+      button.classList.toggle("is-on", this.rulerShown);
       button.setAttribute("aria-pressed", String(this.rulerShown));
     }
 

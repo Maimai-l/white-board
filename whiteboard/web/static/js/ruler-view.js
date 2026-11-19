@@ -6,8 +6,9 @@
 //
 // 结构：
 //   .ruler                铺满画布区域的一层，pointer-events: none
-//     .ruler-bar          尺身。以尺子中心为原点旋转；长度是画布对角线的两倍，
-//                         怎么转两头都在屏幕外面，看上去没有尽头
+//     .ruler-bar          尺身。以尺子中心为原点旋转；长度不小于画布对角线的两倍，
+//                         怎么转两头都在屏幕外面，看上去没有尽头。长度取 200 的
+//                         整数倍：刻度从左端每 100 一道大刻度，中心就正好在一道上
 //       .ruler-angle      当前角度，0–90°（见 ruler.js 的 displayAngle）
 
 import { displayAngle } from "/inksync/ruler.js";
@@ -32,7 +33,7 @@ export class RulerView {
     const ruler = this.ruler;
     this.root.hidden = !ruler.visible;
     if (!ruler.visible) return;
-    const length = 2 * Math.hypot(ruler.bounds.w, ruler.bounds.h);
+    const length = Math.ceil(Math.hypot(ruler.bounds.w, ruler.bounds.h) / 100) * 200;
     const bar = this.bar.style;
     bar.width = `${length}px`;
     bar.height = `${ruler.width}px`;
