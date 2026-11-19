@@ -28,7 +28,7 @@
 | # | 事项 | 状态 |
 | --- | --- | --- |
 | [001](001-export-redesign.md) | 导出重做：清晰、自动分页、选页、打印式对话框 | 待办 |
-| [002](002-shape-recognition-lines.md) | 形状识别（第一版：直线） | 待办 |
+| [002](002-shape-recognition-lines.md) | 形状识别（第一版：直线） | 进行中 |
 | [003](003-ruler.md) | 尺子（iPad） | 待办 |
 | [004](004-macos-runner-queue.md) | CI：macOS 机器排队 5–10 分钟 | 待办 |
 | [005](005-lint-and-format.md) | 统一格式化（ruff format） | 待办 |

@@ -10,6 +10,8 @@ This file lists the notable changes to the board app and to inksync. The section
 
 ### Added
 
+- Ink: With Shape recognition on, a stroke becomes a straight line when the Pencil stays still for 0.5 s at its end. One undo brings back the handwritten stroke.
+- Tool picker: Shape recognition is turned on in the More menu, next to Draw with finger. It is off by default and remembered per device.
 - Settings: `update_channel` in the configuration file selects `alpha` test builds or `stable` releases.
 
 ### Changed
