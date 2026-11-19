@@ -1299,3 +1299,266 @@ body.dropping::after {
 .gallery-title { flex: 1; font-size: 17px; font-weight: 600; }
 .board-card.app-board { background: #fff; }
 .board-card.add.more { font-size: 14px; }
+
+/* ------------------------------------------------------------- 导出对话框 */
+
+/* 和更新对话框同一套：白底、20 圆角、shadow-3，暗底用 .scrim */
+.export-dialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(760px, calc(100vw - 48px));
+  height: min(520px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  background: var(--surface-1);
+  box-shadow: var(--shadow-3);
+  animation: pop var(--motion);
+  overflow: hidden;
+}
+.export-scrim[hidden] { display: none; }
+.export-title { margin: 0; padding: 20px 22px 0; font-size: 15px; font-weight: 700; }
+.export-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: 24px;
+  padding: 16px 22px 18px;
+}
+.export-pages {
+  flex: 0 0 248px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+.export-pages-head { display: flex; align-items: center; gap: 12px; }
+.export-pages-head .spacer { flex: 1; }
+.export-count { font-size: 13px; color: var(--on-surface-variant); }
+.text-btn {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.export-cards { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.export-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  padding: 6px 0 0;
+  background: none;
+  color: var(--on-surface);
+  font: inherit;
+  cursor: pointer;
+}
+.export-thumb-wrap { position: relative; }
+.export-thumb {
+  border-radius: 6px;
+  border: 1px solid rgba(60, 60, 67, .22);
+  background: #ffffff;
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  opacity: .55;
+  transition: opacity var(--motion);
+}
+.export-canvas { display: block; width: 100%; height: 100%; }
+.export-card.is-selected .export-thumb { opacity: 1; border: 2px solid #007aff; }
+.export-check {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1.5px rgba(60, 60, 67, .3);
+  color: transparent;
+}
+.export-check svg { stroke-width: 2.6; }
+.export-card.is-selected .export-check { background: #007aff; box-shadow: none; color: #ffffff; }
+.export-caption { font-size: 12px; }
+
+.export-options {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  column-gap: 12px;
+  row-gap: 20px;
+  align-content: start;
+  align-items: start;
+  padding-top: 4px;
+}
+.export-label { font-size: 13px; line-height: 32px; color: var(--on-surface-variant); }
+.export-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.export-hint { font-size: 12px; color: var(--on-surface-variant); }
+.export-seg { display: inline-flex; justify-self: start; }
+.export-seg button {
+  flex: 0 0 84px;
+  width: 84px;
+  height: 28px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--on-surface);
+}
+.export-seg button.is-on { font-weight: 600; }
+.export-popup {
+  position: relative;
+  width: 172px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  background: var(--surface-1);
+  font-size: 13px;
+}
+.export-popup .chevron { display: flex; color: var(--on-surface-variant); }
+.export-popup select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 13px;
+}
+.export-paging { display: flex; align-items: center; gap: 12px; font-size: 13px; min-height: 32px; }
+
+/* 胶囊按钮：灰底；主按钮是系统蓝 */
+.pill-btn {
+  height: 30px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--fill);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 30px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pill-btn.primary { background: #007aff; color: #ffffff; font-weight: 600; }
+.pill-btn[disabled] { opacity: .4; pointer-events: none; }
+.export-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid rgba(60, 60, 67, .12);
+}
+
+/* ------------------------------------------------------------- 调整页框 */
+
+/* 盖满屏幕但不吃事件：只有页框和上面那条按钮吃，空白处的拖动和滚轮照旧落到白板上 */
+#ui > .export-adjust { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+#ui[data-adjusting] #toolbar,
+#ui[data-adjusting] #topright,
+#ui[data-adjusting] #pk-host { display: none; }
+.export-veil { position: absolute; left: 0; top: 0; }
+.export-veil-fill { fill: rgba(242, 242, 247, .55); }
+.export-frames { position: absolute; inset: 0; }
+.export-frame {
+  position: absolute;
+  border: 2px dashed #007aff;
+  border-radius: 4px;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: move;
+}
+.export-frame.is-selected { border-style: solid; }
+.export-badge {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  height: 20px;
+  min-width: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: #007aff;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+  pointer-events: none;
+}
+.export-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #ffffff;
+  border: 1.5px solid #007aff;
+  touch-action: none;
+}
+.export-handle.nw { left: -6px; top: -6px; cursor: nwse-resize; }
+.export-handle.ne { right: -6px; top: -6px; cursor: nesw-resize; }
+.export-handle.sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
+.export-handle.se { right: -6px; bottom: -6px; cursor: nwse-resize; }
+/* 触摸设备上把手的感应区放大，看上去还是 10 px */
+.export-handle::after { content: ""; position: absolute; inset: -12px; }
+.export-delete {
+  position: absolute;
+  top: -13px;
+  right: -40px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(120, 120, 128, .16);
+  color: var(--on-surface);
+  cursor: pointer;
+}
+.export-bar {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  height: 48px;
+  padding: 0 8px;
+  gap: 6px;
+  pointer-events: auto;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+}
+.bar-btn {
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 32px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bar-btn.primary { background: #007aff; color: #ffffff; font-weight: 600; }
+.export-bar .sep { height: 24px; }

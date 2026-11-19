@@ -24,11 +24,15 @@ def test_export_png_has_content(browser, server):
 
 
 def test_the_export_button_downloads_a_png(browser, server):
+    """导出按钮打开导出对话框；选 PNG、只有一页时下载一张 PNG（对话框本身见 test_export_dialog.py）。"""
     mac = open_mac(browser, server.port)
     draw(mac, [(200, 200), (300, 260)], pointer_type="mouse")
     wait_strokes(mac, 1)
+    mac.click('#topright button[title="导出"]')
+    mac.wait_for_selector(".export-card")
+    mac.click('.export-seg button:has-text("PNG")')
     with mac.expect_download() as info:
-        mac.click('button[title="导出 PNG"]')
+        mac.click('.export-footer button:has-text("导出图片")')
     download = info.value
     assert download.suggested_filename.endswith(".png")
     with open(download.path(), "rb") as handle:

@@ -12,7 +12,7 @@ Whiteboard is a Mac app that serves a handwriting board to the local network. Th
 ┌──────────── Mac ────────────┐            ┌─────── iPad ───────┐
 │ pywebview window (role=mac) │            │ Home screen icon   │
 │   boards / background       │  WebSocket │   Full-screen page │
-│   zoom / export PNG         │◀──────────▶│   Apple Pencil     │
+│   zoom / export PDF, PNG    │◀──────────▶│   Apple Pencil     │
 │ aiohttp server + mDNS       │    LAN     │                    │
 │ boards stored as vectors    │            │ IndexedDB cache    │
 └─────────────────────────────┘            └────────────────────┘
@@ -353,10 +353,27 @@ Drop a PDF or an image onto the Mac window, choose the document tile in the new-
 | Ink | Vector data in the board's `.wbz` file; cannot be placed outside the pages; the view stops at the first and last page |
 | Page images | Rendered on the Mac per zoom step, only for visible pages |
 
-The third icon in the top-right group exports the document: a PDF from a PDF, an image from an image (gif, bmp, webp and tiff export as PNG).
+The export dialog (see [Export](#export)) uses the pages of the original. A PDF keeps the original pages with the ink appended; an image becomes a one-page PDF or a PNG at the chosen resolution.
 
-- Ink is appended as vectors and the original content is not re-encoded. The file grows by a few hundred bytes per stroke; a heavily annotated handout grows by a few hundred KB.
+- In a PDF, ink is appended as vectors and the original content is not re-encoded. The file grows by a few hundred bytes per stroke; a heavily annotated handout grows by a few hundred KB.
 - Ink in the gap between two pages is assigned to the nearer page; ink outside a page is clipped.
+
+### Export
+
+The export icon in the top-right group (导出) opens the export dialog. It needs the Export board permission.
+
+| Part | Behaviour |
+| --- | --- |
+| Pages | Thumbnails of every page on the left. Tap a page to select or deselect it; 全选 selects all, 当前页 selects the page in the middle of the view. |
+| 格式 (Format) | PDF, or PNG. With PNG, one selected page gives one PNG file and several give a ZIP with one PNG per page, named in page order. |
+| 清晰度 (Resolution, PNG only) | 标准 150 dpi, 高 300 dpi (default), 最高 600 dpi. The line below shows the pixel size of a page. |
+| 纸张 (Paper) | A4 or Letter. Each page is turned to portrait or landscape to fit its content. |
+| 分页 (Pages) | Number of automatic pages, and 调整 to adjust them. |
+
+- One board unit prints as 1 pt, so a page shows the ink at the size seen at 100% zoom. PDF pages are vector and stay sharp at any zoom; PNG pages are rendered at the chosen resolution, however far the board is spread.
+- Automatic pages: on an infinite board, strokes close to each other form a group, and each group gets a page, landscape or portrait. A group larger than a page is shrunk to at most 70%, then split into several pages. A note board is cut by paper length, between lines where possible. A document board uses the pages of its original.
+- 调整 shows the page frames on the board: drag a frame to move it, drag a corner to resize it (the paper's proportions are kept), and use the delete button to remove it. 添加一页 adds a page in the middle of the view, 自动分页 restores the automatic pages, and 完成 returns to the dialog. The board can still be panned and zoomed; nothing is drawn while adjusting.
+- In the Mac window the file is saved through the save dialog; elsewhere it is downloaded (the iPad shell opens the share sheet).
 
 ## Permissions for other devices
 
@@ -427,7 +444,7 @@ To check your boards before upgrading, run `python tools/check_boards.py`.
 - Strokes drawn while offline queue locally and in IndexedDB, so a page reload does not lose them. They are sent in order on reconnect, and the server deduplicates by stroke id.
 - A reconnecting client sends its epoch and sequence number. A restarted server has a new epoch and sends the whole board, so the iPad never keeps stale or blank content.
 - Resizing or rotating repaints everything; panning and zooming repaint only the strokes in view.
-- PNG export and thumbnails frame the content with a margin. An empty board exports one screen of blank page.
+- Thumbnails frame the content with a margin.
 
 > **Note**
 > `http://*.local` is not a secure context, so Service Workers are unavailable and the iPad cannot open the page while the server is not running. A server restart while the page is open is handled.
@@ -492,6 +509,9 @@ whiteboard/
   backup.py     copies the boards before a new version first touches them
   docs.py       document boards: reading, rendering and exporting PDFs / images
   inkpdf.py     ink as PDF vector paths
+  inkraster.py  ink drawn into images (PNG export, image documents)
+  pagination.py automatic page frames for export
+  export.py     paged export: selected pages as PDF, a ZIP of PNG files or one PNG
   freehand.py   Python port of perfect-freehand, for export
   profile.py    .mobileconfig and icon generation (PNG written in pure Python)
   netinfo.py, codec.py   point to the modules of the same name in inksync (old import paths)
@@ -548,7 +568,7 @@ make plan FILES="whiteboard/app.py docs/sketch.md"   # which CI jobs a change wo
 - `make checks` runs ruff with the error-only rules (syntax errors, undefined names) and the checks of `CHANGELOG.md` and commit messages.
 
 - The end-to-end tests live in `tests/e2e/`, one file per area (sync, input, eraser, gallery, picker, …); shared fixtures are in `conftest.py`, shared helpers in `support.py`, and in-page helpers (`window.__t`) in `probe.js`. Pure calculations that need no page go in `tests/js/` instead.
-- The end-to-end tests open two browser pages (the Mac and a touch device) and sync between them. They cover drawing, undo, erasing, clearing, Pencil exclusivity, switching boards, reconnecting with a backlog, folders, read-only boards and PNG export. They skip themselves if Playwright or the browser is missing.
+- The end-to-end tests open two browser pages (the Mac and a touch device) and sync between them. They cover drawing, undo, erasing, clearing, Pencil exclusivity, switching boards, reconnecting with a backlog, folders, read-only boards and the export dialog. They skip themselves if Playwright or the browser is missing.
 - `tests/test_compat.py` checks that board files written by earlier versions still read back identically. Do not regenerate the fixture in `tests/fixtures/compat/` with newer code.
 
 ### CI

@@ -177,7 +177,7 @@ export class UI {
       buttons.push(iconButton("settings", "白板设置", () => this.openSettings()));
     }
     if (this.may("export")) {
-      buttons.push((this.exportButton = iconButton("image", "导出 PNG", () => this.actions.onExport())));
+      buttons.push((this.exportButton = iconButton("download", "导出", () => this.actions.onExport())));
     }
     if (this.native) {
       buttons.push(iconButton("tablet", "连接 iPad", () => this.openConnect()));
@@ -218,6 +218,7 @@ export class UI {
     if (this.pk) this.pk.allowClear = this.may("clear");
     if (!this.may("manage")) this.closeGallery();
     if (!this.may("settings") && !this.native) this.closeSheet();
+    if (!this.may("export") && this.exportDialog) this.exportDialog.close();
   }
 
   /** 填工具栏。开了笔具盘就把这条藏起来，交给 pkpicker.js 那条。 */
@@ -666,11 +667,6 @@ export class UI {
 
   setMeta(meta) {
     this.meta = meta;
-    if (this.exportButton) {
-      const isDoc = meta && meta.kind === "doc";
-      this.exportButton.title = isDoc ? "导出（笔迹合进原件）" : "导出 PNG";
-      this.exportButton.innerHTML = icon(isDoc ? "download" : "image");
-    }
     if (this.sheet && this.sheet.dataset.kind === "settings") this.openSettings();
   }
 
