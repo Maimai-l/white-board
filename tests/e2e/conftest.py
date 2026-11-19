@@ -5,9 +5,45 @@
 
 from __future__ import annotations
 
+import os
+import re
+from pathlib import Path
+
 import pytest
 
 from e2e.support import ENGINE, chromium_path, start_server
+
+SCREENSHOTS = Path(os.environ.get("WB_SCREENSHOTS", Path(__file__).resolve().parents[2] / "test-results"))
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """用例失败时，把它当时开着的每个页面截一张图（在 close_pages 关掉它们之前）。
+
+    CI 把 test-results/ 作为产物上传。文件名只留字母、数字、- 和 _：产物上传不收
+    引号、冒号这类字符。
+    """
+    outcome = yield
+    report = outcome.get_result()
+    if report.when != "call" or not report.failed:
+        return
+    browser = item.funcargs.get("browser")
+    if browser is None:
+        return
+    name = re.sub(r"[^A-Za-z0-9_-]+", "_", item.nodeid).strip("_")[-150:]
+    saved, problems = [], []
+    for context_index, context in enumerate(browser.contexts):
+        for page_index, page in enumerate(context.pages):
+            path = SCREENSHOTS / f"{ENGINE}-{name}-{context_index}-{page_index}.png"
+            try:
+                SCREENSHOTS.mkdir(parents=True, exist_ok=True)
+                page.screenshot(path=str(path), timeout=5000)
+                saved.append(str(path))
+            except Exception as exc:  # noqa: BLE001 - 截不到图不能盖掉原本的失败
+                problems.append(f"{path.name}: {exc}")
+    lines = [f"截图：{path}" for path in saved] + [f"截图失败：{problem}" for problem in problems]
+    if lines:
+        report.sections.append(("失败时的页面", "\n".join(lines)))
 
 
 @pytest.fixture(scope="module")

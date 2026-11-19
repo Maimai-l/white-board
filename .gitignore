@@ -16,3 +16,6 @@ ipad/build/
 packaging/ipad/
 # 兼容性夹具里的存储目录要进仓库
 !tests/fixtures/compat/data/
+# 测试报告和失败截图（make 和 CI 写在这里）
+reports/
+test-results/
