@@ -504,11 +504,12 @@ tools/          check_boards.py（升级前检查白板）及研究用脚本
 
 ```bash
 python -m pytest tests -q                                   # 全部测试
-python -m pytest tests --ignore=tests/test_browser.py -q    # 跳过浏览器测试
+python -m pytest tests --ignore=tests/e2e -q               # 跳过浏览器测试
 node --test tests/js/*.test.mjs                             # 前端纯函数
-WB_BROWSER=webkit python -m pytest tests/test_browser.py    # 在 WebKit 上运行端到端测试
+WB_BROWSER=webkit python -m pytest tests/e2e               # 在 WebKit 上运行端到端测试
 ```
 
+- 端到端测试在 `tests/e2e/`，按领域分文件（同步、输入、橡皮、白板列表、笔具盘……）；共用的 fixture 在 `conftest.py`，共用的函数在 `support.py`，页面里用的小工具（`window.__t`）在 `probe.js`。不需要页面的纯计算放在 `tests/js/`。
 - 端到端测试打开两个浏览器页面（Mac 端和一台触摸设备）并在两者之间同步，覆盖书写、撤销、擦除、清空、Pencil 独占、切换白板、断线重连补发、文件夹、只读白板和导出 PNG。未安装 Playwright 或浏览器时自动跳过。
 - `tests/test_compat.py` 检查旧版本写出的白板文件现在能否读出相同的内容。不要用新代码重新生成 `tests/fixtures/compat/` 中的测试数据。
 

@@ -381,7 +381,7 @@ Recordings store shell batches unchanged, so that a replay reproduces the stroke
 | Top-level `shell` | `{version, bridge}` when `source` is `shell`; otherwise `null` |
 | Shell batch entry | `{"type": "shell", "t": ..., "batch": {...}}`; `batch` is the object from section 5.1 with all fields and original values, without rounding |
 
-Safari pen events recorded alongside do not draw during replay. Replaying a shell recording passes each batch to the input source layer (`receiveShell`); the result must equal the recording's `after`. Tests: `tests/test_shell_input.py::test_shell_recording_replays_exactly`, following `tests/test_browser.py::test_recorder_replays_an_erase_exactly`. Recording format: [recording.md](recording.md).
+Safari pen events recorded alongside do not draw during replay. Replaying a shell recording passes each batch to the input source layer (`receiveShell`); the result must equal the recording's `after`. Tests: `tests/e2e/test_shell_input.py::test_shell_recording_replays_exactly`, following `tests/e2e/test_diagnostics.py::test_recorder_replays_an_erase_exactly`. Recording format: [recording.md](recording.md).
 
 ### 7.4 Diagnostics panel
 
@@ -526,7 +526,7 @@ On the shell side, `MacDiscovery` browses with `NWBrowser` (`.bonjourWithTXTReco
 | A1 | New positions per second from the shell are at least 95% of the InkProbe value on the same iPad. | Diagnostics panel; write the same content in the shell and in InkProbe. |
 | A2 | Shell sample coordinates are fractional. | Shell recording |
 | A3 | Coordinate deviation between shell samples and Safari pen events is at most 1 CSS pixel. | Diagnostics line “坐标偏差” (Coordinate deviation) |
-| A4 | Replaying a shell recording reproduces `after` exactly. | `tests/test_shell_input.py::test_shell_recording_replays_exactly` |
+| A4 | Replaying a shell recording reproduces `after` exactly. | `tests/e2e/test_shell_input.py::test_shell_recording_replays_exactly` |
 
 ### 9.2 No regressions
 
@@ -613,6 +613,6 @@ Q2 findings and measures:
 | Web page (section 7) | `input.js` shell input section (input source, coordinate deviation, estimate updates, prediction), `shell-fallback.js` (fallback for 0.9.43 shells), `shell.js` (handshake), `recorder.js` (7.3), `perf.js` (7.4), `ui.js` (tool picker, settings button in the shell), `ui-settings.js` (“Mac” group, install page address on the Connect iPad card), `exporter.js` (4.1.1) |
 | Mac server (section 8) | `whiteboard/ipadshell.py` (`/ipad`, `/ipad/version`, `/ipad/Whiteboard.ipa`), routes in `whiteboard/server.py`, `netinfo.BonjourService` (8.4), `runner.py`, `run.py` (`--no-bonjour`) |
 | Build (section 8.1) | `ipad` job in `.github/workflows/build-macos.yml`; `.github/workflows/ipad-check.yml`; `packaging/whiteboard.spec`; `packaging/smoke_ipad.py` (checks that the packaged app serves the IPA and the install page) |
-| Tests | `tests/test_shell_input.py` (web page, including A2 and A4), `tests/test_ipadshell.py` (install page, version endpoint, Bonjour registration, bridge range, download handling) |
+| Tests | `tests/e2e/test_shell_input.py` (web page, including A2 and A4), `tests/test_ipadshell.py` (install page, version endpoint, Bonjour registration, bridge range, download handling) |
 
 Checks that require a real device: A1 and A3 in section 9.1, all of section 9.2, section 9.4, installation and updates in section 9.5, and Q1 to Q5 and Q7 in section 12.

@@ -66,7 +66,7 @@ jobs:
         env:
           WB_BROWSER: webkit
         run: >-
-          python -m pytest tests/test_browser.py -q -k
+          python -m pytest tests/e2e -q -k
           "test_drawing_syncs_both_ways or test_undo_erase_and_clear
           or test_touch_pans_by_default_and_only_pencil_draws
           or test_strokes_survive_a_reload_without_id_collisions

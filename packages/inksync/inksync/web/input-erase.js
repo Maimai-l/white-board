@@ -70,6 +70,21 @@ function eraserDiameter(deg) {
   return curve[curve.length - 1][1];
 }
 
+/**
+ * 橡皮的半径（屏幕像素），只看模式、指针类型和笔身倾角，不碰任何状态。
+ *
+ * ``altitude`` 是 ``penAltitude`` 给出的弧度，只有笔才用得上。单独拿出来是为了
+ * 不开浏览器就能把这条曲线和原生实测逐点对照（tests/js/eraser.test.mjs）。
+ */
+export function eraserRadiusFor(mode, pointerType, altitude) {
+  if (mode !== "pixel") return ERASER_TIP / 2;
+  // 鼠标和手指没有倾斜可依据，按常握笔的角度给一档，不然一直是笔尖等于没法用
+  if (pointerType !== "pen") return eraserDiameter(50) / 2;
+  return eraserDiameter((altitude * 180) / Math.PI) / 2;
+}
+
+export { ERASER_TIP, eraserDiameter };
+
 // 由 input.js 传进来（反过来 import 会成环）
 let penAltitude;
 
@@ -92,10 +107,9 @@ const methods = {
    * 一直是笔尖等于没法用，一直最粗又太凶。
    */
   eraserRadius(event) {
-    if (this.getTool().eraserMode !== "pixel") return ERASER_TIP / 2;
-    // 鼠标和手指没有倾斜可依据，按常握笔的角度给一档，不然一直是笔尖等于没法用
-    if (!event || event.pointerType !== "pen") return eraserDiameter(50) / 2;
-    return eraserDiameter((penAltitude(event) * 180) / Math.PI) / 2;
+    const pointerType = event ? event.pointerType : null;
+    const altitude = pointerType === "pen" ? penAltitude(event) : 0;
+    return eraserRadiusFor(this.getTool().eraserMode, pointerType, altitude);
   },
 
   /** 抬笔的位置和最后一个采样点是不是同一处，是的话就不用再扫一段。 */

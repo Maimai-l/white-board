@@ -681,6 +681,15 @@ function makeClass(Base) {
       this._emit("dock", "corner");
     }
 
+    /**
+     * 收成圆。给了 corner（"tl" / "tr" / "bl" / "br"）就停在那个角，否则停在当前
+     * 这条边上。和丢进角落、自动最小化走的是同一条路，测试也用它把工具盘摆到位。
+     */
+    minimize(corner) {
+      if (corner) this._settleCorner(corner);
+      else this._minimize();
+    }
+
     /** 自动最小化：收成圆，停在当前这条边上。 */
     _minimize() {
       this._toCircle();

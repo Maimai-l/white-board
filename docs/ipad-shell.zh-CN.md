@@ -381,7 +381,7 @@ InkProbe 四份会话的统计（只计 Pencil 的 80 笔，共 19139 个等待�
 | 顶层 `shell` | `source` 为 `shell` 时为 `{version, bridge}`，否则为 `null` |
 | 外壳批次条目 | `{"type": "shell", "t": ..., "batch": {...}}`；`batch` 即 5.1 节的对象，保留全部字段和原始数值，不做四舍五入 |
 
-同时录下的 Safari pen 事件在回放时不参与书写。回放外壳来源的录像时，每一批都交给输入来源层（`receiveShell`），结果必须与录像中的 `after` 一致。测试：`tests/test_shell_input.py::test_shell_recording_replays_exactly`，做法与 `tests/test_browser.py::test_recorder_replays_an_erase_exactly` 相同。录像格式见 [recording.zh-CN.md](recording.zh-CN.md)。
+同时录下的 Safari pen 事件在回放时不参与书写。回放外壳来源的录像时，每一批都交给输入来源层（`receiveShell`），结果必须与录像中的 `after` 一致。测试：`tests/e2e/test_shell_input.py::test_shell_recording_replays_exactly`，做法与 `tests/e2e/test_diagnostics.py::test_recorder_replays_an_erase_exactly` 相同。录像格式见 [recording.zh-CN.md](recording.zh-CN.md)。
 
 ### 7.4 诊断面板
 
@@ -526,7 +526,7 @@ dns-sd -L "<服务名>" _whiteboard._tcp          # TXT 记录包含 host、port
 | A1 | 外壳来源的每秒新位置数不低于同一台 iPad 上 InkProbe 记录值的 95% | 诊断面板读数；同样的内容分别在外壳和 InkProbe 中写一遍 |
 | A2 | 外壳采样点的坐标带小数 | 外壳来源的录像 |
 | A3 | 外壳采样点与 Safari pen 事件的坐标偏差不超过 1 CSS 像素 | 诊断面板的「坐标偏差」一行 |
-| A4 | 外壳来源的录像回放后与 `after` 完全一致 | `tests/test_shell_input.py::test_shell_recording_replays_exactly` |
+| A4 | 外壳来源的录像回放后与 `after` 完全一致 | `tests/e2e/test_shell_input.py::test_shell_recording_replays_exactly` |
 
 ### 9.2 功能不退化
 
@@ -613,6 +613,6 @@ Q2 的结论与措施：
 | 网页（第 7 节） | `input.js` 的外壳输入部分（输入来源、坐标偏差、估计属性更新、预测），`shell-fallback.js`（0.9.43 版外壳的补救逻辑），`shell.js`（握手），`recorder.js`（7.3），`perf.js`（7.4），`ui.js`（外壳中的笔具盘和「白板设置」按钮），`ui-settings.js`（「Mac」一组、「连接 iPad」卡片上的安装页地址），`exporter.js`（4.1.1） |
 | Mac 端服务（第 8 节） | `whiteboard/ipadshell.py`（`/ipad`、`/ipad/version`、`/ipad/Whiteboard.ipa`），`whiteboard/server.py` 中的路由，`netinfo.BonjourService`（8.4），`runner.py`，`run.py`（`--no-bonjour`） |
 | 构建（8.1 节） | `.github/workflows/build-macos.yml` 的 `ipad` 任务；`.github/workflows/ipad-check.yml`；`packaging/whiteboard.spec`；`packaging/smoke_ipad.py`（检查打包后的应用能提供 IPA 和安装页） |
-| 测试 | `tests/test_shell_input.py`（网页端，含 A2、A4），`tests/test_ipadshell.py`（安装页、版本接口、Bonjour 注册、接口版本范围、下载处理） |
+| 测试 | `tests/e2e/test_shell_input.py`（网页端，含 A2、A4），`tests/test_ipadshell.py`（安装页、版本接口、Bonjour 注册、接口版本范围、下载处理） |
 
 需要在真机上完成的检查：9.1 节的 A1、A3，9.2 节全部，9.4 节，9.5 节的安装与更新，以及 12 节的 Q1 至 Q5、Q7。

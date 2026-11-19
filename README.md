@@ -504,11 +504,12 @@ Input recording captures problems that need a real Pencil (pressure, tilt, coale
 
 ```bash
 python -m pytest tests -q                                   # everything
-python -m pytest tests --ignore=tests/test_browser.py -q    # skip the browser tests
+python -m pytest tests --ignore=tests/e2e -q               # skip the browser tests
 node --test tests/js/*.test.mjs                             # front-end pure functions
-WB_BROWSER=webkit python -m pytest tests/test_browser.py    # end-to-end on WebKit
+WB_BROWSER=webkit python -m pytest tests/e2e               # end-to-end on WebKit
 ```
 
+- The end-to-end tests live in `tests/e2e/`, one file per area (sync, input, eraser, gallery, picker, …); shared fixtures are in `conftest.py`, shared helpers in `support.py`, and in-page helpers (`window.__t`) in `probe.js`. Pure calculations that need no page go in `tests/js/` instead.
 - The end-to-end tests open two browser pages (the Mac and a touch device) and sync between them. They cover drawing, undo, erasing, clearing, Pencil exclusivity, switching boards, reconnecting with a backlog, folders, read-only boards and PNG export. They skip themselves if Playwright or the browser is missing.
 - `tests/test_compat.py` checks that board files written by earlier versions still read back identically. Do not regenerate the fixture in `tests/fixtures/compat/` with newer code.
 

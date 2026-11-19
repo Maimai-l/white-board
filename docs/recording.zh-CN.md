@@ -96,9 +96,9 @@ assert result == data["after"]
 
 | 测试 | 检查内容 |
 | --- | --- |
-| `tests/test_browser.py::test_recorder_replays_an_erase_exactly` | 录下的一次像素擦除回放后与 `after` 完全一致。 |
-| `tests/test_browser.py::test_recorder_panel_rides_the_diagnostics_toggle` | 录制一格随诊断面板一起出现。 |
-| `tests/test_shell_input.py::test_shell_recording_replays_exactly` | 在 iPad 外壳中录制的录像回放后与 `after` 完全一致。 |
+| `tests/e2e/test_diagnostics.py::test_recorder_replays_an_erase_exactly` | 录下的一次像素擦除回放后与 `after` 完全一致。 |
+| `tests/e2e/test_diagnostics.py::test_recorder_panel_rides_the_diagnostics_toggle` | 录制一格随诊断面板一起出现。 |
+| `tests/e2e/test_shell_input.py::test_shell_recording_replays_exactly` | 在 iPad 外壳中录制的录像回放后与 `after` 完全一致。 |
 
 ### 回放的局限
 

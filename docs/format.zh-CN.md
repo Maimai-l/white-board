@@ -159,7 +159,7 @@
 | 屏幕 | `packages/inksync/inksync/web/vendor/perfect-freehand.js`（perfect-freehand 1.2.3，未经修改的 ESM 构建），由 `stroke.js` 调用 |
 | 导出 | `whiteboard/freehand.py`，Python 移植版本，供服务端的 `/api/export/{board_id}` 使用 |
 
-两份实现必须生成完全相同的轮廓点。`tests/test_browser.py::test_python_outline_matches_perfect_freehand` 使用真机录制的笔画逐点比对，容差为 1e-9。
+两份实现必须生成完全相同的轮廓点。`tests/test_outline_parity.py::test_python_outline_matches_perfect_freehand` 使用真机录制的笔画逐点比对，容差为 1e-9。
 
 > **警告**
 > 修改仓库中的 perfect-freehand 文件或 `freehand.py` 之后，须运行 `test_python_outline_matches_perfect_freehand`。

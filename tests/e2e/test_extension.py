@@ -12,18 +12,16 @@ import base64
 import hashlib
 import json
 import os
-from pathlib import Path
 
 import pytest
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
-from test_browser import chromium_path, draw, free_port, open_pages  # noqa: E402
-
+from e2e.support import ROOT, chromium_path, draw, free_port, open_pages  # noqa: E402
 from whiteboard.config import Config  # noqa: E402
 from whiteboard.runner import ServerThread  # noqa: E402
 
-EXTENSION = Path(__file__).resolve().parent.parent / "extensions" / "sketch"
+EXTENSION = ROOT / "extensions" / "sketch"
 
 
 def test_manifest_is_complete():
@@ -40,17 +38,6 @@ def test_manifest_is_complete():
     html = (EXTENSION / "popup.html").read_text("utf-8")
     assert "http" not in html
     assert 'allow="clipboard-write"' in html
-
-
-@pytest.fixture
-def server(tmp_path):
-    config = Config(path=tmp_path / "config.json")
-    config.data_dir = tmp_path / "data"
-    config.port = free_port()
-    thread = ServerThread(config, advertise=False)
-    thread.start()
-    yield thread
-    thread.stop()
 
 
 def extension_id():
@@ -140,7 +127,7 @@ def test_popup_embeds_the_sketch_and_copies_from_inside(extension_context, serve
         notice = frame.evaluate("() => document.getElementById('notice').textContent")
         assert "已复制" in notice, notice
         # 剪贴板写入成功之后页面才发出 sketch-copied（带写入的 PNG 大小）。这里不读回剪贴板：
-        # 较新的 Chromium 不允许嵌入的其他来源的页面读剪贴板；读回像素的检查在 test_browser.py 中
+        # 较新的 Chromium 不允许嵌入的其他来源的页面读剪贴板；读回像素的检查在 test_sketch_page.py 中
         copied = frame.evaluate("() => window.copied")
         assert copied is not None and copied["size"] > 100, copied
 

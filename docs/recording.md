@@ -96,9 +96,9 @@ Tests that use replay:
 
 | Test | Checks |
 | --- | --- |
-| `tests/test_browser.py::test_recorder_replays_an_erase_exactly` | A recorded pixel erase replays to exactly `after`. |
-| `tests/test_browser.py::test_recorder_panel_rides_the_diagnostics_toggle` | The recording cell appears with the diagnostics panel. |
-| `tests/test_shell_input.py::test_shell_recording_replays_exactly` | A recording made in the iPad shell replays to exactly `after`. |
+| `tests/e2e/test_diagnostics.py::test_recorder_replays_an_erase_exactly` | A recorded pixel erase replays to exactly `after`. |
+| `tests/e2e/test_diagnostics.py::test_recorder_panel_rides_the_diagnostics_toggle` | The recording cell appears with the diagnostics panel. |
+| `tests/e2e/test_shell_input.py::test_shell_recording_replays_exactly` | A recording made in the iPad shell replays to exactly `after`. |
 
 ### Limits of replay
 
