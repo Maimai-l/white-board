@@ -412,7 +412,7 @@ The `ipad`, `package` and `release` jobs of `.github/workflows/ci.yml` build the
 | Job | Runner | Steps |
 |---|---|---|
 | `ipad` | `macos-26` | Take the version from `plan`; `brew install xcodegen ldid`; `python3 ipad/make_icon.py`; `xcodegen generate`; `xcodebuild -sdk iphoneos -configuration Release` without code signing; `ldid -S` pseudo-signing; zip `Payload/` into `Whiteboard-<version>-ipad.ipa`; upload artifact `Whiteboard-ipad`. |
-| `package` | `macos-14` (arm64), needs `ipad` | Download the IPA to `packaging/ipad/Whiteboard.ipa`; PyInstaller (`packaging/whiteboard.spec`) places it in the app resources at `whiteboard/ipad/Whiteboard.ipa`; smoke test with `packaging/smoke_ipad.py`. |
+| `package` | `macos-15` (arm64), needs `ipad` | Download the IPA to `packaging/ipad/Whiteboard.ipa`; PyInstaller (`packaging/whiteboard.spec`) places it in the app resources at `whiteboard/ipad/Whiteboard.ipa`; smoke test with `packaging/smoke_ipad.py`. |
 | `release` | `ubuntu-latest`, tags only, after the update is published | Publishes the Mac zip and the IPA in the GitHub Release. The IPA is also a separate asset for the first installation. Tags containing `-` are published as prereleases. |
 
 Version numbers:

@@ -412,7 +412,7 @@ InkProbe 四份会话的统计（只计 Pencil 的 80 笔，共 19139 个等待�
 | 任务 | Runner | 步骤 |
 |---|---|---|
 | `ipad` | `macos-26` | 从 `plan` 取版本号；`brew install xcodegen ldid`；`python3 ipad/make_icon.py`；`xcodegen generate`；`xcodebuild -sdk iphoneos -configuration Release` 不签名编译；`ldid -S` 伪签名；把 `Payload/` 打包为 `Whiteboard-<版本>-ipad.ipa`；上传构建产物 `Whiteboard-ipad`。 |
-| `package` | `macos-14`（arm64），依赖 `ipad` | 把 IPA 下载到 `packaging/ipad/Whiteboard.ipa`；PyInstaller（`packaging/whiteboard.spec`）将其放入应用资源目录的 `whiteboard/ipad/Whiteboard.ipa`；用 `packaging/smoke_ipad.py` 做冒烟测试。 |
+| `package` | `macos-15`（arm64），依赖 `ipad` | 把 IPA 下载到 `packaging/ipad/Whiteboard.ipa`；PyInstaller（`packaging/whiteboard.spec`）将其放入应用资源目录的 `whiteboard/ipad/Whiteboard.ipa`；用 `packaging/smoke_ipad.py` 做冒烟测试。 |
 | `release` | `ubuntu-latest`，只在 tag 时运行，在更新发布之后 | 在 GitHub Release 中发布 Mac 的 zip 和 IPA。IPA 同时单独发布，用于首次安装。带 `-` 的 tag 发布为预发布版。 |
 
 版本号：

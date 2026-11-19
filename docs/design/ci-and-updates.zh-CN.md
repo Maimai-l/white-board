@@ -68,9 +68,9 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 | js | `node --test tests/js` | ubuntu |
 | inksync | 单独安装 inksync 再测，确认它不依赖白板应用 | ubuntu |
 | ipad | 编译 iPad 外壳，打成 IPA | macos-26 |
-| package | PyInstaller 打包、放入 Sparkle、签名、冒烟测试、压缩 | macos-14 |
+| package | PyInstaller 打包、放入 Sparkle、签名、冒烟测试、压缩 | macos-15 |
 | extension | 打包浏览器插件 | ubuntu |
-| publish | 生成 appcast 和增量包，发布到 GitHub Pages | macos-14 |
+| publish | 生成 appcast 和增量包，发布到 GitHub Pages | macos-15 |
 | release | 发 GitHub Release（只有 tag） | ubuntu |
 
 ### 2.3 触发、并发和缓存

@@ -207,8 +207,8 @@ jobs:
   package:
     needs: [plan, ipad]
     if: needs.plan.outputs.package == 'true'
-    # 只出 Apple 芯片的包；要 Intel 版的话加一条 macos-13 / x86_64 的矩阵项
-    runs-on: macos-14
+    # 只出 Apple 芯片的包。macos-14 上的 job 一启动就被取消（2026-11-19 连续两次，没有日志），换成 macos-15
+    runs-on: macos-15
     timeout-minutes: 45
     env:
       VERSION: ${{ needs.plan.outputs.version }}
@@ -339,7 +339,7 @@ jobs:
   updates-dry-run:
     needs: [plan, package]
     if: needs.plan.outputs.publish == 'dry-run' && needs.package.result == 'success'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -371,7 +371,7 @@ jobs:
       && needs.package.result == 'success'
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     concurrency:
       group: pages-updates
