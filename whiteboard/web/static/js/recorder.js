@@ -118,6 +118,7 @@ export class Recorder {
               +rect.width.toFixed(2), +rect.height.toFixed(2)],
       viewport: this.viewport(),
       fingerDraw: !!app.input.fingerDraw,
+      shapeLines: !!app.input.shapeLines,
       // browser 或 shell。shell 时 Pencil 的采样在 type 为 shell 的条目里，
       // 同时录下的 Safari pen 事件回放时照样不参与书写
       ...this.source(),
@@ -232,6 +233,7 @@ export class Recorder {
       app.viewport.y = v.y;
     }
     input.fingerDraw = !!data.fingerDraw;
+    input.shapeLines = !!data.shapeLines;
     app.renderer.requestFull();
     // 外壳来源的录像：回放期间把输入来源切到外壳，结束后恢复原样
     const shellBefore = {

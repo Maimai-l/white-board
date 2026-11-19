@@ -79,6 +79,7 @@ export class InkPad {
    * @param {string} [options.storage]      本地存储前缀，默认 ``inksync:<space>``
    * @param {object} [options.tool]         初始工具
    * @param {boolean} [options.fingerDraw]  手指是否书写
+   * @param {boolean} [options.shapeLines]  形状识别：一笔写完停住半秒变成直线
    * @param {number} [options.undoLimit]    撤销步数
    * @param {boolean} [options.shell]       接收 iPad 外壳的 Pencil 采样（默认接收）
    * @param {boolean} [options.embedded]    嵌在别的页面里：只拦截自己区域里的触摸和捏合
@@ -140,6 +141,7 @@ export class InkPad {
       device: this.role,
       embedded: !!options.embedded,
       fingerDraw: !!options.fingerDraw,
+      shapeLines: !!options.shapeLines,
       // 会话段必不可少：光用客户端 id + 计数器的话，重开页面后计数器从头数，
       // 新笔画的 id 会和上次的撞车，被当成重复项丢掉（表现为抬笔即消失）。
       strokePrefix: `${this.clientId}-${uid(4)}`,
@@ -347,10 +349,23 @@ export class InkPad {
       onLivePoints: (stroke, points) => {
         this.net.sendLive({ t: "live", id: stroke.id, phase: "m", p: points });
       },
-      onStrokeEnd: (stroke) => {
+      // 书写途中整条换掉（形状识别把这一笔变直了）：同一个 id 再发一次 b，带上全部的点。
+      // 收到的一方（包括旧版本的页面）在 b 上总是新建这一笔，原来那条就被替换掉了。
+      onLiveRestart: (stroke) => {
+        this.net.sendLive({
+          t: "live",
+          id: stroke.id,
+          phase: "b",
+          tool: stroke.tool,
+          color: stroke.color,
+          w: stroke.w,
+          p: stroke.p,
+        });
+      },
+      onStrokeEnd: (stroke, hand) => {
         this.emit("strokeend", stroke);
         this.net.sendLive({ t: "live", id: stroke.id, phase: "e" });
-        this.commitStroke(stroke);
+        this.commitStroke(stroke, hand);
       },
       onStrokeCancel: (stroke) => {
         this.emit("strokeend", stroke);
@@ -416,7 +431,11 @@ export class InkPad {
     };
   }
 
-  commitStroke(stroke) {
+  /**
+   * 提交一笔。``hand`` 是形状识别变直之前手写的那一笔（没变直时为 null）：板上和
+   * 对端只有直线，手写的那一笔只进撤销历史——撤销一次换回手写的，再撤销一次才没了。
+   */
+  commitStroke(stroke, hand = null) {
     // 兜底：id 撞上已有笔画就换一个，绝不允许一笔画完之后凭空消失。
     for (let guard = 0; this.state.byId.has(stroke.id) && guard < 50; guard += 1) {
       stroke.id = this.input.newStrokeId();
@@ -434,7 +453,20 @@ export class InkPad {
     const plain = pieces.map(plainStroke);
     // 重做要把这一笔原样放回去，所以连内容一起记下来。切开的几段算一步撤销：
     // 用户画的是一笔，撤销就该一次全没。
-    this.pushUndo({ type: "added", ids: plain.map((s) => s.id), strokes: plain });
+    if (hand) {
+      // 历史里记成「先画了手写的那一笔，再把它换成直线」两步，撤销、重做都走现成的
+      // 路子（remove / restore），对端和旧版本的页面不需要认识新的操作。手写的那一笔
+      // 沿用直线的层叠序号，换回来时还在原来那一层。
+      for (let guard = 0; (this.state.byId.has(hand.id) || hand.id === stroke.id) && guard < 50; guard += 1) {
+        hand.id = this.input.newStrokeId();
+      }
+      hand.n = pieces[0].n;
+      const handPlain = splitLongStroke(hand, () => this.input.newStrokeId()).map(plainStroke);
+      this.pushUndo({ type: "added", ids: handPlain.map((s) => s.id), strokes: handPlain });
+      this.pushUndo({ type: "split", removed: handPlain, added: plain, bites: [] });
+    } else {
+      this.pushUndo({ type: "added", ids: plain.map((s) => s.id), strokes: plain });
+    }
     this.sendOp({ op: "add", strokes: plain });
     this.saveCache();
     this.pushThumb();

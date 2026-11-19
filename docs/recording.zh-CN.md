@@ -68,7 +68,7 @@ await whiteboard.recorder.replay(data, { speed: 4 })     // four times faster
 回放依次执行以下步骤：
 
 1. 把白板重置为 `meta` 和 `before`，并把视口设为 `viewport`。
-2. 按 `fingerDraw` 设置手指书写。
+2. 按 `fingerDraw` 设置手指书写，按 `shapeLines` 设置形状识别。
 3. `source` 为 `shell` 时把输入来源切换到 iPad 外壳，否则切换到浏览器。
 4. 把新笔画 id 的前缀和计数器设为 `ids`，使新笔画获得与录制时相同的 id。
 5. 逐条输入事件：若带有 `tool` 和 `viewport` 则先应用，重新读取画布位置，然后调用输入控制器（`onDown`、`onMove`、`onUp`，外壳批次调用 `receiveShell`）。
@@ -129,6 +129,7 @@ assert result == data["after"]
 | `stage` | array | 画布的 `[left, top, width, height]`，单位 CSS px，保留两位小数 |
 | `viewport` | object | 开始时的 `{scale, x, y}` |
 | `fingerDraw` | boolean | 是否开启手指书写 |
+| `shapeLines` | boolean | 是否开启形状识别（直线）；旧录像没有这一项，按关闭处理 |
 | `source` | string | `browser` 或 `shell` |
 | `shell` | object 或 null | `source` 为 `shell` 时为 `{version, bridge}` |
 | `ids` | object | 新笔画 id 的 `{prefix, counter}` |
