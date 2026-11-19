@@ -47,7 +47,7 @@
 
 ## 实测数据
 
-下表列出原生实测值（笔身与屏幕的夹角，屏幕单位下的直径）。`tests/test_browser.py::test_eraser_width_follows_the_native_curve` 使用同一组数据。
+下表列出原生实测值（笔身与屏幕的夹角，屏幕单位下的直径）。`tests/js/eraser.test.mjs` 使用同一组数据。
 
 ### 孤立点（等效直径）
 

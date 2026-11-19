@@ -15,6 +15,28 @@ VERSION = os.environ.get("WHITEBOARD_VERSION", "0.0.0")
 import re as _re
 
 MARKETING = _re.sub(r"[^0-9.].*$", "", VERSION) or "0.0.0"
+# Sparkle 只比 CFBundleVersion：CI 写入构建时间（YYYYMMDD.HHMMSS），只会增长。
+# alpha 构建的显示版本带着构建时间，Sparkle 的窗口里能看出是哪一次构建。
+# 见 docs/design/ci-and-updates.zh-CN.md 第 3.2 节。
+BUILD = os.environ.get("WHITEBOARD_BUILD") or MARKETING
+CHANNEL = os.environ.get("WHITEBOARD_CHANNEL", "stable")
+DISPLAY = VERSION if CHANNEL == "alpha" else MARKETING
+# 两个都有才启用 Sparkle；没配公钥的构建继续用旧的更新流程（whiteboard/sparkle.py）
+FEED_URL = os.environ.get("SPARKLE_FEED_URL", "")
+PUBLIC_KEY = os.environ.get("SPARKLE_PUBLIC_ED_KEY", "")
+SPARKLE_PLIST = {}
+if FEED_URL and PUBLIC_KEY:
+    SPARKLE_PLIST = {
+        "SUFeedURL": FEED_URL,
+        "SUPublicEDKey": PUBLIC_KEY,
+        "SUEnableAutomaticChecks": True,
+        # alpha 一天会出很多版：每小时查一次，自动下载，退出时装上
+        "SUScheduledCheckInterval": 3600 if CHANNEL == "alpha" else 86400,
+        "SUAutomaticallyUpdate": CHANNEL == "alpha",
+        "SUAllowsAutomaticUpdates": True,
+    }
+else:
+    print("[spec] 没有 SPARKLE_FEED_URL / SPARKLE_PUBLIC_ED_KEY，这个包不启用 Sparkle")
 ICON = os.path.join(SPECPATH, "whiteboard.icns")
 
 def _is_lab(dest):
@@ -95,8 +117,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "Whiteboard",
         "CFBundleDisplayName": "白板",
-        "CFBundleShortVersionString": MARKETING,
-        "CFBundleVersion": MARKETING,
+        "CFBundleShortVersionString": DISPLAY,
+        "CFBundleVersion": BUILD,
         "LSMinimumSystemVersion": "11.0",
         "NSHighResolutionCapable": True,
         # macOS 15 起，访问局域网要有这段说明，否则 iPad 连不上
@@ -131,6 +153,7 @@ app = BUNDLE(
                 ],
             },
         ],
+        **SPARKLE_PLIST,
         "UTExportedTypeDeclarations": [
             {
                 "UTTypeIdentifier": "local.whiteboard.board",

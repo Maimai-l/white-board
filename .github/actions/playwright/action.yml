@@ -1,0 +1,34 @@
+name: 在 Playwright 镜像里准备浏览器测试
+description: >-
+  启动 mcr.microsoft.com/playwright/python 容器（浏览器和系统依赖都在里面，不走 apt），
+  在容器里装测试依赖。之后 make 照常在机器上跑，PY 换成 outputs.py，pytest 就在容器里执行。
+  镜像版本取自 requirements-test.txt 里固定的 playwright 版本。
+
+outputs:
+  py:
+    description: 传给 make 的 PY：在容器里运行的 python
+    value: docker exec -e WB_BROWSER -e WB_SCREENSHOTS playwright /venv/bin/python
+
+runs:
+  using: composite
+  steps:
+    - name: 启动容器
+      shell: bash
+      run: |
+        version="$(sed -n 's/^playwright==//p' requirements-test.txt)"
+        if [ -z "$version" ]; then
+          echo "::error::requirements-test.txt 里的 playwright 没有用 == 固定版本"
+          exit 1
+        fi
+        image="mcr.microsoft.com/playwright/python:v${version}-noble"
+        echo "镜像：$image"
+        docker run -d --name playwright --ipc=host -v "$PWD:$PWD" -w "$PWD" "$image" sleep infinity
+    - name: 在容器里装测试依赖
+      shell: bash
+      run: |
+        docker exec playwright sh -c "python3 -m venv /venv || python3 -m virtualenv /venv"
+        docker exec playwright /venv/bin/python -m pip install --quiet -r requirements-test.txt
+        docker exec playwright /venv/bin/python -m playwright --version
+        # 检出目录属于机器上的 runner 用户，容器里是 root：不加这一行 git 会拒绝读这个仓库，
+        # 「关于」里从源码运行时显示的分支和提交就取不到（test_the_version_survives_switching_boards）
+        docker exec playwright git config --global --add safe.directory "$PWD"

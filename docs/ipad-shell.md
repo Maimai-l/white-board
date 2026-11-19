@@ -381,7 +381,7 @@ Recordings store shell batches unchanged, so that a replay reproduces the stroke
 | Top-level `shell` | `{version, bridge}` when `source` is `shell`; otherwise `null` |
 | Shell batch entry | `{"type": "shell", "t": ..., "batch": {...}}`; `batch` is the object from section 5.1 with all fields and original values, without rounding |
 
-Safari pen events recorded alongside do not draw during replay. Replaying a shell recording passes each batch to the input source layer (`receiveShell`); the result must equal the recording's `after`. Tests: `tests/test_shell_input.py::test_shell_recording_replays_exactly`, following `tests/test_browser.py::test_recorder_replays_an_erase_exactly`. Recording format: [recording.md](recording.md).
+Safari pen events recorded alongside do not draw during replay. Replaying a shell recording passes each batch to the input source layer (`receiveShell`); the result must equal the recording's `after`. Tests: `tests/e2e/test_shell_input.py::test_shell_recording_replays_exactly`, following `tests/e2e/test_diagnostics.py::test_recorder_replays_an_erase_exactly`. Recording format: [recording.md](recording.md).
 
 ### 7.4 Diagnostics panel
 
@@ -407,25 +407,22 @@ Samples filled in from Safari events are not counted in the shell sample rate.
 
 ### 8.1 Building the IPA in CI
 
-`.github/workflows/build-macos.yml` builds the IPA, bundles it into the Mac app and publishes both.
+The `ipad`, `package` and `release` jobs of `.github/workflows/ci.yml` build the IPA, bundle it into the Mac app and publish both. The `plan` job runs `ipad` whenever `ipad/**` changes or the Mac app is packaged (docs/design/ci-and-updates.zh-CN.md).
 
 | Job | Runner | Steps |
 |---|---|---|
-| `ipad` | `macos-26` | Determine version; `brew install xcodegen ldid`; `python3 ipad/make_icon.py`; `xcodegen generate`; `xcodebuild -sdk iphoneos -configuration Release` without code signing; `ldid -S` pseudo-signing; zip `Payload/` into `Whiteboard-<version>-ipad.ipa`; upload artifact `Whiteboard-ipad`. |
-| `build` | `macos-14` (arm64), needs `ipad` | Download the IPA to `packaging/ipad/Whiteboard.ipa`; PyInstaller (`packaging/whiteboard.spec`) places it in the app resources at `whiteboard/ipad/Whiteboard.ipa`; smoke test with `packaging/smoke_ipad.py`. |
-| `release` | `ubuntu-latest`, needs `ipad` and `build`, tags only | Publishes the Mac zip and the IPA in the GitHub Release. The IPA is also a separate asset for the first installation. Tags containing `-` are published as prereleases. |
+| `ipad` | `macos-26` | Take the version from `plan`; `brew install xcodegen ldid`; `python3 ipad/make_icon.py`; `xcodegen generate`; `xcodebuild -sdk iphoneos -configuration Release` without code signing; `ldid -S` pseudo-signing; zip `Payload/` into `Whiteboard-<version>-ipad.ipa`; upload artifact `Whiteboard-ipad`. |
+| `package` | `macos-15` (arm64), needs `ipad` | Download the IPA to `packaging/ipad/Whiteboard.ipa`; PyInstaller (`packaging/whiteboard.spec`) places it in the app resources at `whiteboard/ipad/Whiteboard.ipa`; smoke test with `packaging/smoke_ipad.py`. |
+| `release` | `ubuntu-latest`, tags only, after the update is published | Publishes the Mac zip and the IPA in the GitHub Release. The IPA is also a separate asset for the first installation. Tags containing `-` are published as prereleases. |
 
 Version numbers:
 
 | Value | Source |
 |---|---|
-| Version | Tag `v1.2.3` → `1.2.3`; manual runs use the `version` input (default `0.0.0-dev`); other runs use `0.0.0-dev`. |
-| `CFBundleShortVersionString` | The numeric part of the version: `1.0.0-rc.1` → `1.0.0`, `0.0.0-dev` → `0.0.0`. Passed as `MARKETING_VERSION`. |
-| `CFBundleVersion` | `github.run_number` |
+| Version | Tag `v1.2.3` → `1.2.3`; other runs use `<whiteboard.__version__>-alpha.<build>`, for example `1.3.0-alpha.20261119.153012`. |
+| `CFBundleShortVersionString` | The numeric part of the version: `1.0.0-rc.1` → `1.0.0`, `1.3.0-alpha.20261119.153012` → `1.3.0`. Passed as `MARKETING_VERSION`. |
+| `CFBundleVersion` | The build time in UTC, `YYYYMMDD.HHMMSS`, the same value as the Mac app's |
 
-Triggers of `build-macos.yml`: tags `v*` (build and release); pull requests that change `whiteboard/**`, `packaging/**`, `ipad/**`, `run.py`, `requirements.txt` or the workflow (build only); `workflow_dispatch` (build only, no release).
-
-`.github/workflows/ipad-check.yml` compiles the shell without producing an IPA. It runs on pushes to any branch that change `ipad/**` or the workflow, and on pull requests that change `ipad/**`.
 
 A local PyInstaller build without `packaging/ipad/Whiteboard.ipa` still succeeds; the app then contains no shell and the install page links to the Release.
 
@@ -526,7 +523,7 @@ On the shell side, `MacDiscovery` browses with `NWBrowser` (`.bonjourWithTXTReco
 | A1 | New positions per second from the shell are at least 95% of the InkProbe value on the same iPad. | Diagnostics panel; write the same content in the shell and in InkProbe. |
 | A2 | Shell sample coordinates are fractional. | Shell recording |
 | A3 | Coordinate deviation between shell samples and Safari pen events is at most 1 CSS pixel. | Diagnostics line “坐标偏差” (Coordinate deviation) |
-| A4 | Replaying a shell recording reproduces `after` exactly. | `tests/test_shell_input.py::test_shell_recording_replays_exactly` |
+| A4 | Replaying a shell recording reproduces `after` exactly. | `tests/e2e/test_shell_input.py::test_shell_recording_replays_exactly` |
 
 ### 9.2 No regressions
 
@@ -612,7 +609,7 @@ Q2 findings and measures:
 | Shell (section 4) | `ipad/Whiteboard/`: `AppDelegate.swift` (window, URL scheme, foreground), `PencilCapture.swift` (4.2, 5.1), `ShellViewController.swift` (4.1, 4.1.1, 4.3, 5.2, 8.3), `StatusView.swift` (search, list, error screens), `MacDiscovery.swift` (Bonjour browsing, update check), `MacAddress.swift` (address, saved settings, version comparison), `Settings.bundle` (“重新查找 Mac”, version, current Mac), `Info.plist`; `ipad/project.yml`, `ipad/make_icon.py` |
 | Web page (section 7) | `input.js` shell input section (input source, coordinate deviation, estimate updates, prediction), `shell-fallback.js` (fallback for 0.9.43 shells), `shell.js` (handshake), `recorder.js` (7.3), `perf.js` (7.4), `ui.js` (tool picker, settings button in the shell), `ui-settings.js` (“Mac” group, install page address on the Connect iPad card), `exporter.js` (4.1.1) |
 | Mac server (section 8) | `whiteboard/ipadshell.py` (`/ipad`, `/ipad/version`, `/ipad/Whiteboard.ipa`), routes in `whiteboard/server.py`, `netinfo.BonjourService` (8.4), `runner.py`, `run.py` (`--no-bonjour`) |
-| Build (section 8.1) | `ipad` job in `.github/workflows/build-macos.yml`; `.github/workflows/ipad-check.yml`; `packaging/whiteboard.spec`; `packaging/smoke_ipad.py` (checks that the packaged app serves the IPA and the install page) |
-| Tests | `tests/test_shell_input.py` (web page, including A2 and A4), `tests/test_ipadshell.py` (install page, version endpoint, Bonjour registration, bridge range, download handling) |
+| Build (section 8.1) | `ipad` and `package` jobs in `.github/workflows/ci.yml`; `packaging/whiteboard.spec`; `packaging/smoke_ipad.py` (checks that the packaged app serves the IPA and the install page) |
+| Tests | `tests/e2e/test_shell_input.py` (web page, including A2 and A4), `tests/test_ipadshell.py` (install page, version endpoint, Bonjour registration, bridge range, download handling) |
 
 Checks that require a real device: A1 and A3 in section 9.1, all of section 9.2, section 9.4, installation and updates in section 9.5, and Q1 to Q5 and Q7 in section 12.

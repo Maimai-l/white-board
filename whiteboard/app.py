@@ -18,7 +18,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from . import __version__, backup, netinfo, profile, resources, updater
+from . import __version__, backup, netinfo, profile, resources, sparkle, updater
 from .config import Config
 from .runner import ServerThread
 from .server import list_apps
@@ -33,6 +33,8 @@ class NativeApi:
         self.config = config
         self.server = server
         self.window = None
+        # 有 Sparkle 就交给它；没有（源码运行、旧构建）时走下面 updater.py 的旧流程
+        self.sparkle = sparkle.Updater(config)
         self.update_info: Optional[Dict[str, Any]] = None
         self.staged_app: Optional[Path] = None
         self.updating = False
@@ -57,13 +59,17 @@ class NativeApi:
             "ipad_home": self.config.ipad_home,
             "log": str(resources.log_path()),
             "releases": f"https://github.com/{updater.REPO}/releases",
+            "updates": self.sparkle.describe(),
         }
 
     # ------------------------------------------------------------------ 更新
 
     def start_update_check(self) -> None:
-        """启动后在后台查一次。只有明确开了自动下载才会顺手把包下好。"""
-        if not resources.is_frozen():
+        """启动后在后台查一次。只有明确开了自动下载才会顺手把包下好。
+
+        有 Sparkle 时由它按 Info.plist 的间隔自己查，这里不再查。
+        """
+        if not resources.is_frozen() or self.sparkle.available:
             return
         threading.Thread(target=self._check_update, name="whiteboard-update", daemon=True).start()
 
@@ -143,6 +149,8 @@ class NativeApi:
     def check_update_now(self) -> Dict[str, Any]:
         if not resources.is_frozen():
             return {"status": "source", "version": __version__}
+        if self.sparkle.check_now():
+            return {"status": "sparkle", "version": __version__}
         return self._check_update(force=True)
 
     def set_remote_permission(self, name: str, enabled: bool) -> Optional[Dict[str, bool]]:
@@ -531,6 +539,7 @@ def run(
     api.window = window
     opener.window = window
     window.events.loaded += opener.on_loaded
+    api.sparkle.remember_channel()
     api.start_update_check()
 
     def _on_closing() -> None:
@@ -542,7 +551,8 @@ def run(
 
     window.events.closing += _on_closing
     try:
-        webview.start(debug=debug)
+        # Sparkle 要在主线程、事件循环跑起来之后创建；start 的回调在别的线程，转一下
+        webview.start(api.sparkle.start_on_main_thread, debug=debug)
     finally:
         try:
             api.server.save_now()

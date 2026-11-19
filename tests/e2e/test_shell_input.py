@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.test_browser import FIRE, IPAD_UA, browser, enable_pk_picker, open_pages, server  # noqa: F401
+from e2e.support import FIRE, IPAD_UA, enable_pk_picker, open_pages
 
 HELLO = "(info) => whiteboardShell.hello(info)"
 ACTIVE = {"shellVersion": "1.3.0", "bridge": 1, "active": True}

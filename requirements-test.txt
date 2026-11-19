@@ -1,0 +1,15 @@
+# 跑测试用的依赖（本地 make deps 和 CI 共用这一份）。应用本身的依赖在 requirements.txt；
+# pywebview 和 pyobjc 只在 Mac 窗口里用到，测试不装。
+aiohttp>=3.9
+zeroconf>=0.131
+certifi
+pypdf>=4.2
+pypdfium2>=4.30
+pillow>=10.0
+pytest>=8
+# 浏览器测试在 CI 里跑在 mcr.microsoft.com/playwright/python:v<这个版本>-noble 里（.github/actions/playwright），
+# 镜像里的浏览器和这个版本配套：升级时只改这一行
+playwright==1.65.2
+ruff>=0.6
+# packaging/appcast.py 生成和核对 EdDSA 签名
+cryptography>=42

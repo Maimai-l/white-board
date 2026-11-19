@@ -381,7 +381,7 @@ InkProbe 四份会话的统计（只计 Pencil 的 80 笔，共 19139 个等待�
 | 顶层 `shell` | `source` 为 `shell` 时为 `{version, bridge}`，否则为 `null` |
 | 外壳批次条目 | `{"type": "shell", "t": ..., "batch": {...}}`；`batch` 即 5.1 节的对象，保留全部字段和原始数值，不做四舍五入 |
 
-同时录下的 Safari pen 事件在回放时不参与书写。回放外壳来源的录像时，每一批都交给输入来源层（`receiveShell`），结果必须与录像中的 `after` 一致。测试：`tests/test_shell_input.py::test_shell_recording_replays_exactly`，做法与 `tests/test_browser.py::test_recorder_replays_an_erase_exactly` 相同。录像格式见 [recording.zh-CN.md](recording.zh-CN.md)。
+同时录下的 Safari pen 事件在回放时不参与书写。回放外壳来源的录像时，每一批都交给输入来源层（`receiveShell`），结果必须与录像中的 `after` 一致。测试：`tests/e2e/test_shell_input.py::test_shell_recording_replays_exactly`，做法与 `tests/e2e/test_diagnostics.py::test_recorder_replays_an_erase_exactly` 相同。录像格式见 [recording.zh-CN.md](recording.zh-CN.md)。
 
 ### 7.4 诊断面板
 
@@ -407,25 +407,22 @@ InkProbe 四份会话的统计（只计 Pencil 的 80 笔，共 19139 个等待�
 
 ### 8.1 在 CI 中构建 IPA
 
-`.github/workflows/build-macos.yml` 构建 IPA，将其打包进 Mac 应用，并一同发布。
+`.github/workflows/ci.yml` 的 `ipad`、`package` 和 `release` 任务构建 IPA，将其打包进 Mac 应用，并一同发布。`ipad/**` 有改动或需要打包 Mac 应用时，`plan` 任务会运行 `ipad`（见 docs/design/ci-and-updates.zh-CN.md）。
 
 | 任务 | Runner | 步骤 |
 |---|---|---|
-| `ipad` | `macos-26` | 确定版本号；`brew install xcodegen ldid`；`python3 ipad/make_icon.py`；`xcodegen generate`；`xcodebuild -sdk iphoneos -configuration Release` 不签名编译；`ldid -S` 伪签名；把 `Payload/` 打包为 `Whiteboard-<版本>-ipad.ipa`；上传构建产物 `Whiteboard-ipad`。 |
-| `build` | `macos-14`（arm64），依赖 `ipad` | 把 IPA 下载到 `packaging/ipad/Whiteboard.ipa`；PyInstaller（`packaging/whiteboard.spec`）将其放入应用资源目录的 `whiteboard/ipad/Whiteboard.ipa`；用 `packaging/smoke_ipad.py` 做冒烟测试。 |
-| `release` | `ubuntu-latest`，依赖 `ipad` 和 `build`，只在 tag 时运行 | 在 GitHub Release 中发布 Mac 的 zip 和 IPA。IPA 同时单独发布，用于首次安装。带 `-` 的 tag 发布为预发布版。 |
+| `ipad` | `macos-26` | 从 `plan` 取版本号；`brew install xcodegen ldid`；`python3 ipad/make_icon.py`；`xcodegen generate`；`xcodebuild -sdk iphoneos -configuration Release` 不签名编译；`ldid -S` 伪签名；把 `Payload/` 打包为 `Whiteboard-<版本>-ipad.ipa`；上传构建产物 `Whiteboard-ipad`。 |
+| `package` | `macos-15`（arm64），依赖 `ipad` | 把 IPA 下载到 `packaging/ipad/Whiteboard.ipa`；PyInstaller（`packaging/whiteboard.spec`）将其放入应用资源目录的 `whiteboard/ipad/Whiteboard.ipa`；用 `packaging/smoke_ipad.py` 做冒烟测试。 |
+| `release` | `ubuntu-latest`，只在 tag 时运行，在更新发布之后 | 在 GitHub Release 中发布 Mac 的 zip 和 IPA。IPA 同时单独发布，用于首次安装。带 `-` 的 tag 发布为预发布版。 |
 
 版本号：
 
 | 值 | 来源 |
 |---|---|
-| 版本号 | tag `v1.2.3` → `1.2.3`；手动运行时取输入参数 `version`（默认 `0.0.0-dev`）；其他情况为 `0.0.0-dev`。 |
-| `CFBundleShortVersionString` | 版本号的数字部分：`1.0.0-rc.1` → `1.0.0`，`0.0.0-dev` → `0.0.0`。通过 `MARKETING_VERSION` 传入。 |
-| `CFBundleVersion` | `github.run_number` |
+| 版本号 | tag `v1.2.3` → `1.2.3`；其他情况为 `<whiteboard.__version__>-alpha.<构建号>`，例如 `1.3.0-alpha.20261119.153012`。 |
+| `CFBundleShortVersionString` | 版本号的数字部分：`1.0.0-rc.1` → `1.0.0`，`1.3.0-alpha.20261119.153012` → `1.3.0`。通过 `MARKETING_VERSION` 传入。 |
+| `CFBundleVersion` | UTC 构建时间 `YYYYMMDD.HHMMSS`，与 Mac 应用相同 |
 
-`build-macos.yml` 的触发条件：推送 `v*` tag（构建并发布）；修改 `whiteboard/**`、`packaging/**`、`ipad/**`、`run.py`、`requirements.txt` 或该工作流的 pull request（只构建）；`workflow_dispatch`（只构建，不发布）。
-
-`.github/workflows/ipad-check.yml` 只编译外壳，不生成 IPA。它在任意分支推送了 `ipad/**` 或该工作流的改动时运行，也在修改 `ipad/**` 的 pull request 中运行。
 
 本地用 PyInstaller 打包时，如果没有 `packaging/ipad/Whiteboard.ipa`，打包仍然成功；此时应用不带外壳，安装页给出 Release 的链接。
 
@@ -526,7 +523,7 @@ dns-sd -L "<服务名>" _whiteboard._tcp          # TXT 记录包含 host、port
 | A1 | 外壳来源的每秒新位置数不低于同一台 iPad 上 InkProbe 记录值的 95% | 诊断面板读数；同样的内容分别在外壳和 InkProbe 中写一遍 |
 | A2 | 外壳采样点的坐标带小数 | 外壳来源的录像 |
 | A3 | 外壳采样点与 Safari pen 事件的坐标偏差不超过 1 CSS 像素 | 诊断面板的「坐标偏差」一行 |
-| A4 | 外壳来源的录像回放后与 `after` 完全一致 | `tests/test_shell_input.py::test_shell_recording_replays_exactly` |
+| A4 | 外壳来源的录像回放后与 `after` 完全一致 | `tests/e2e/test_shell_input.py::test_shell_recording_replays_exactly` |
 
 ### 9.2 功能不退化
 
@@ -612,7 +609,7 @@ Q2 的结论与措施：
 | 外壳（第 4 节） | `ipad/Whiteboard/`：`AppDelegate.swift`（窗口、URL scheme、回到前台），`PencilCapture.swift`（4.2、5.1），`ShellViewController.swift`（4.1、4.1.1、4.3、5.2、8.3），`StatusView.swift`（查找、列表、错误页面），`MacDiscovery.swift`（Bonjour 查找、更新检查），`MacAddress.swift`（地址、本机保存、版本比较），`Settings.bundle`（「重新查找 Mac」、版本号、当前 Mac），`Info.plist`；`ipad/project.yml`、`ipad/make_icon.py` |
 | 网页（第 7 节） | `input.js` 的外壳输入部分（输入来源、坐标偏差、估计属性更新、预测），`shell-fallback.js`（0.9.43 版外壳的补救逻辑），`shell.js`（握手），`recorder.js`（7.3），`perf.js`（7.4），`ui.js`（外壳中的笔具盘和「白板设置」按钮），`ui-settings.js`（「Mac」一组、「连接 iPad」卡片上的安装页地址），`exporter.js`（4.1.1） |
 | Mac 端服务（第 8 节） | `whiteboard/ipadshell.py`（`/ipad`、`/ipad/version`、`/ipad/Whiteboard.ipa`），`whiteboard/server.py` 中的路由，`netinfo.BonjourService`（8.4），`runner.py`，`run.py`（`--no-bonjour`） |
-| 构建（8.1 节） | `.github/workflows/build-macos.yml` 的 `ipad` 任务；`.github/workflows/ipad-check.yml`；`packaging/whiteboard.spec`；`packaging/smoke_ipad.py`（检查打包后的应用能提供 IPA 和安装页） |
-| 测试 | `tests/test_shell_input.py`（网页端，含 A2、A4），`tests/test_ipadshell.py`（安装页、版本接口、Bonjour 注册、接口版本范围、下载处理） |
+| 构建（8.1 节） | `.github/workflows/ci.yml` 的 `ipad` 和 `package` 任务；`packaging/whiteboard.spec`；`packaging/smoke_ipad.py`（检查打包后的应用能提供 IPA 和安装页） |
+| 测试 | `tests/e2e/test_shell_input.py`（网页端，含 A2、A4），`tests/test_ipadshell.py`（安装页、版本接口、Bonjour 注册、接口版本范围、下载处理） |
 
 需要在真机上完成的检查：9.1 节的 A1、A3，9.2 节全部，9.4 节，9.5 节的安装与更新，以及 12 节的 Q1 至 Q5、Q7。

@@ -52,4 +52,4 @@ Chrome 中的步骤相同，地址为 `chrome://extensions`。
 | HTTP | `GET /sketch`（页面）、`POST /api/sketch`（开始或继续）、`DELETE /api/sketch`（结束），见 [protocol.zh-CN.md](protocol.zh-CN.md#http-接口)。 |
 | 页面 | `whiteboard/web/sketch.html`、`whiteboard/web/static/js/sketch.js`。视图在每次笔迹变化、窗口大小变化后缩放到全部笔迹（`fit({maxScale: 1})`）； |
 | 插件 | `extensions/sketch/`：Manifest V3 的工具栏弹出页（`popup.html`），只嵌入白板应用的 `/sketch` 页面，不包含手写板代码，因此白板升级后不需要更新插件。清单中的 `key` 固定了插件的 id。嵌入的页面与白板服务端同源，不受[来源检查](protocol.zh-CN.md#请求来源)影响。 |
-| 测试 | `tests/test_sketch.py`（协议、并发、断线、权限、不留文件）、`tests/test_browser.py` 中的速写用例（真实浏览器中的跟随、复制透明 PNG、视图跟随笔迹、断网）、`tests/test_extension.py`（在 Chromium 中加载插件：嵌入、复制、自动查找端口） |
+| 测试 | `tests/test_sketch.py`（协议、并发、断线、权限、不留文件）、`tests/e2e/test_sketch_page.py`（真实浏览器中的跟随、复制透明 PNG、视图跟随笔迹、断网）、`tests/e2e/test_extension.py`（在 Chromium 中加载插件：嵌入、复制、自动查找端口） |

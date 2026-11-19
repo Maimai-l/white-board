@@ -4,7 +4,7 @@
 #   cd ipad && xcodegen generate
 #
 # 版本号由构建时传入的 MARKETING_VERSION 决定，与 Mac 端相同，见
-# .github/workflows/build-macos.yml 的 ipad 任务。不签名编译，再用 ldid 伪签名，
+# .github/workflows/ci.yml 的 ipad 任务。不签名编译，再用 ldid 伪签名，
 # 通过 TrollStore 安装。
 name: WhiteboardShell
 options:

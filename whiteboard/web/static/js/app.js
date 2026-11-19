@@ -368,6 +368,8 @@ class App extends InkPad {
             return `${result.version} 已被跳过`;
           case "source":
             return `源码运行（v${result.version || ""}），更新请用 git pull`;
+          case "sparkle":
+            return `正在检查，结果显示在更新窗口里（当前 v${result.version || ""}）`;
           case "error":
             return `检查失败：${result.message || "未知原因"}`;
           default:

@@ -47,7 +47,7 @@ All 21 isolated dabs were matched to their taps, with center offsets under 3 pt.
 
 ## Measured data
 
-Each table lists native measurements as (altitude angle, diameter in screen units). The same data is used by `tests/test_browser.py::test_eraser_width_follows_the_native_curve`.
+Each table lists native measurements as (altitude angle, diameter in screen units). The same data is used by `tests/js/eraser.test.mjs`.
 
 ### Isolated dabs (equivalent diameter)
 
