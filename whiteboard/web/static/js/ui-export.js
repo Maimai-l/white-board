@@ -442,9 +442,8 @@ class AdjustView {
     this.changed = false;
     this.reset = false;
     this.selectedKey = null;
-    this.build();
-    host.setExportAdjusting(true);
-    // 页框可能在视口外面（或者比视口大）：先让全部页框都看得见，结束时回到原来的视图
+    // 页框可能在视口外面（或者比视口大）：先让全部页框都看得见，结束时回到原来的视图。
+    // 要在画页框之前调好视口，否则页框先按旧视口画出来，下一帧才跳到位
     if (frames.length) {
       const bounds = frames.reduce(
         (box, f) => ({
@@ -457,6 +456,8 @@ class AdjustView {
       );
       this.savedView = host.showExportArea(bounds);
     }
+    this.build();
+    host.setExportAdjusting(true);
     this.tick = this.tick.bind(this);
     this.raf = requestAnimationFrame(this.tick);
   }

@@ -194,6 +194,26 @@ def test_dragging_a_page_frame_changes_what_the_page_shows(browser, server):
     assert dark_pixels(after) == 0
 
 
+def test_the_adjust_view_shows_the_frames_in_place_right_away(browser, server):
+    """点「调整」的那一刻页框就在最终的位置上，不会先在别处闪一下再跳过去。"""
+    mac = board_with_groups(browser, server, [(150, 200)])
+    open_dialog(mac, 1)
+    first = mac.evaluate(
+        """() => {
+            [...document.querySelectorAll('.export-paging button')].find((b) => b.textContent === '调整').click();
+            const r = document.querySelector('.export-frame').getBoundingClientRect();
+            return [r.x, r.y, r.width, r.height];
+        }"""
+    )
+    settled = mac.evaluate(
+        """() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => {
+            const r = document.querySelector('.export-frame').getBoundingClientRect();
+            done([r.x, r.y, r.width, r.height]);
+        })))"""
+    )
+    assert first == pytest.approx(settled, abs=0.5)
+
+
 def test_a_frame_released_outside_the_window_stops_following_the_mouse(browser, server):
     """在窗口外松开鼠标：页面收不到松开，回到窗口时鼠标键已经松了，页框不能再跟着鼠标走。"""
     mac = board_with_groups(browser, server, [(550, 400)])
