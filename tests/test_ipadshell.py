@@ -33,10 +33,12 @@ def test_exporting_is_a_download_not_a_navigation():
     WebSocket 跟着断，界面上看到的就是一句连接断开，文件也没存下来。带 download
     的链接外壳会当成下载接住（见 ShellViewController 的 WKDownloadDelegate）。
     """
-    app_js = (ROOT / "whiteboard/web/static/js/app.js").read_text("utf-8")
+    dialog_js = (ROOT / "whiteboard/web/static/js/ui-export.js").read_text("utf-8")
     exporter_js = (ROOT / "packages/inksync/inksync/web/exporter.js").read_text("utf-8")
-    assert "downloadURL(`/api/export/${boardId}`" in app_js
-    assert "location.href = `/api/export" not in app_js
+    # 导出对话框 POST 拿到文件，转成 blob: 链接，再走带 download 的链接
+    assert "URL.createObjectURL(await response.blob())" in dialog_js
+    assert "downloadURL(url, name)" in dialog_js
+    assert "location.href" not in dialog_js
     assert "link.download" in exporter_js
     # PNG 也不能直接下 data: 链接，WKWebView 下不了，要先转成 blob:
     assert "URL.createObjectURL" in exporter_js

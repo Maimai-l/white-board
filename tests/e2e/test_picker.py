@@ -99,7 +99,7 @@ def test_ipad_keeps_the_board_entries_when_the_picker_hides_the_toolbar(browser,
       };
     }""")
     assert out["工具栏隐藏"], out           # 笔具盘模式，普通工具栏收起来了
-    assert out["条目"] == ["白板", "白板设置", "导出 PNG"], out
+    assert out["条目"] == ["白板", "白板设置", "导出"], out
     assert "tinted" in out["类名"], out
     assert out["状态点可见"], out           # 诊断和录制的入口还在
     # 图标用强调色，不是默认的灰色

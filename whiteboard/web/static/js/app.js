@@ -19,8 +19,8 @@ import {
   strokeRadius,
 } from "/inksync/stroke.js";
 import { debounce, isTextField } from "/inksync/util.js";
-import { downloadDataURL, downloadURL, exportDataURL } from "/inksync/exporter.js";
-import { boardView, docOf, loadFingerDraw, saveFingerDraw, uploadThumb } from "./boards.js";
+import { boardView, loadFingerDraw, saveFingerDraw, uploadThumb } from "./boards.js";
+import { ExportDialog } from "./ui-export.js";
 import { reportError, reportUncaughtErrors, setReportURL } from "/inksync/report.js";
 
 export { reportError };
@@ -90,7 +90,12 @@ class App extends InkPad {
       this.ui.setUndoEnabled(undo);
       this.ui.setRedoEnabled(redo);
     });
-    this.on("meta", (meta) => this.ui.setMeta(boardView(meta)));
+    this.on("meta", (meta) => {
+      this.ui.setMeta(boardView(meta));
+      // 换了白板：导出对话框是给上一块开的，关掉
+      const dialog = this.ui.exportDialog;
+      if (dialog && dialog.boardId !== this.state.id) dialog.close();
+    });
     this.on("info", (info) => this.ui.setInfo(info));
     this.on("shell", (shell) => {
       root.dataset.shell = shell.active ? "active" : "inactive";
@@ -275,29 +280,60 @@ class App extends InkPad {
     }
   }
 
-  /** 文档板导出：笔迹合进原件，打包成 PDF / 图片。 */
-  async exportDoc() {
-    const boardId = this.state.id;
-    if (!boardId) return;
-    const api = nativeApi();
-    const done = this.ui.message("正在导出…", "download", 60000);
-    try {
-      if (api && api.export_doc) {
-        const path = await api.export_doc(boardId);
-        done();
-        if (path) this.ui.toast("check");
-        else if (path === false) this.ui.message("导出失败，日志里有详细原因", "close", 6000);
-      } else {
-        // 文件名由服务端的 Content-Disposition 决定，这里不写死
-        downloadURL(`/api/export/${boardId}`, "");
-        done();
-        this.ui.toast("check");
-      }
-    } catch (err) {
-      done();
-      this.ui.message(`导出失败：${String(err).slice(0, 80)}`, "close", 6000);
-    }
+  /** 导出：打开导出对话框（分页、选页、格式都在里面，见 ui-export.js）。 */
+  openExport() {
+    if (!this.state.id) return;
+    if (this.ui.exportDialog) this.ui.exportDialog.close();
+    this.ui.exportDialog = new ExportDialog(this);
+    this.ui.exportDialog.open();
   }
+
+  // 导出对话框要用的几样东西：本地接口、视口中心、屏幕坐标换白板坐标
+
+  native() {
+    return nativeApi();
+  }
+
+  viewSize() {
+    return [this.renderer.viewW, this.renderer.viewH];
+  }
+
+  viewCenter() {
+    return this.viewport.toWorld(this.renderer.viewW / 2, this.renderer.viewH / 2);
+  }
+
+  toWorld(clientX, clientY) {
+    const rect = this.input.stage.getBoundingClientRect();
+    return this.viewport.toWorld(clientX - rect.left, clientY - rect.top);
+  }
+
+  /** 调整页框：先把全部页框放进视口（上面留出按钮条），返回原来的视口，结束时 restoreExportView。 */
+  showExportArea(bounds) {
+    const saved = { scale: this.viewport.scale, x: this.viewport.x, y: this.viewport.y };
+    this.viewport.fit(bounds, this.renderer.viewW, this.renderer.viewH, 80);
+    this.clampView();
+    this.renderer.requestFull();
+    return saved;
+  }
+
+  restoreExportView(saved) {
+    Object.assign(this.viewport, saved);
+    this.clampView();
+    this.renderer.requestFull();
+  }
+
+  /** 调整页框时不落笔：在白板上按下拖动就是平移（input.js 对只读的处理）。 */
+  setExportAdjusting(on) {
+    this.exportAdjusting = !!on;
+    this.ui.root.toggleAttribute("data-adjusting", this.exportAdjusting);
+    this.updateReadOnly();
+  }
+
+  updateReadOnly() {
+    super.updateReadOnly();
+    if (this.exportAdjusting) this.input.readOnly = true;
+  }
+
 
   /** 只读查看某个应用空间里的一块白板：浮层里放一块只读的手写板，关掉就断开。 */
   async viewAppBoard(space, board) {
@@ -420,26 +456,7 @@ class App extends InkPad {
       },
       onNewDoc: (file, folder) => this.importDoc(file, folder),
       onViewAppBoard: (space, board) => this.viewAppBoard(space, board),
-      onExport: async () => {
-        if (docOf(this.state.meta)) {
-          await this.exportDoc();
-          return;
-        }
-        const name = `whiteboard-${new Date().toISOString().slice(0, 10)}.png`;
-        try {
-          const dataUrl = exportDataURL(this.state);
-          const api = nativeApi();
-          if (api && api.save_png) {
-            const path = await api.save_png(dataUrl, name);
-            if (path) this.ui.toast("check");
-          } else {
-            await downloadDataURL(dataUrl, name);
-            this.ui.toast("check");
-          }
-        } catch (err) {
-          this.ui.message(`导出失败：${String(err).slice(0, 80)}`, "close", 6000);
-        }
-      },
+      onExport: () => this.openExport(),
       onProfile: async () => {
         const api = nativeApi();
         if (api && api.save_profile) {

@@ -10,13 +10,23 @@ This file lists the notable changes to the board app and to inksync. The section
 
 ### Added
 
+- Export: The export button opens an export dialog that exports the selected pages as a PDF, one PNG file or a ZIP of PNG files.
+- Export: Infinite boards are divided into A4 or Letter pages automatically, one page per group of nearby strokes. Note boards are cut by paper length. See README.md.
+- Export: Page frames can be moved, resized, added and deleted on the board before exporting.
+- Export: PNG pages are exported at 150, 300 or 600 dpi.
+- Export: PDF pages of infinite and note boards contain vector ink, which stays sharp at any zoom.
 - Settings: `update_channel` in the configuration file selects `alpha` test builds or `stable` releases.
 
 ### Changed
 
 - Updates: The Mac app checks for updates with Sparkle and downloads only the changed parts of the app when updating from one of the three previous versions.
 - Updates: The Check for updates button opens the update window, which shows the result and the release notes.
+- Export: Document boards are exported through the export dialog, where single pages of the original can be selected.
 - Export: Exporting a document board with many strokes takes about one third of the previous time.
+
+### Fixed
+
+- Export: The PNG of a widely spread board was blurred, because its long edge was limited to 4096 px.
 
 ## 1.2.0 (2026-10-22)
 

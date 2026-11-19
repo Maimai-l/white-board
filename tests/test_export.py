@@ -6,6 +6,7 @@
 
 import asyncio
 import io
+import socket
 import zipfile
 from contextlib import asynccontextmanager
 
@@ -477,3 +478,40 @@ def test_export_needs_the_export_permission(tmp_path, remote):
             assert (await export(client, board_id, format="pdf")).status == 200
 
     run(main())
+
+
+# ------------------------------------------------------------------ Mac 窗口
+
+
+def test_the_mac_window_saves_the_dialogs_export_under_the_servers_name(tmp_path, monkeypatch):
+    """Mac 窗口里导出走本地接口：把对话框的选择 POST 给本机服务端，存到保存对话框给的位置。"""
+    from whiteboard.app import NativeApi
+    from whiteboard.runner import ServerThread
+
+    config = Config(path=tmp_path / "config.json")
+    config.data_dir = tmp_path / "data"
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        config.port = probe.getsockname()[1]
+    server = ServerThread(config, advertise=False)
+    server.start()
+    try:
+        server.hub.board().apply({"op": "add", "strokes": [line("a", 0, 0, 300, 0), line("b", 9000, 0, 9300, 0)]})
+        api = NativeApi(config, server)
+        asked = []
+
+        def ask(suggested):
+            asked.append(suggested)
+            return str(tmp_path / suggested)
+
+        monkeypatch.setattr(api, "_ask_save_path", ask)
+        board_id = server.hub.current_id
+        path = api.export_doc(board_id, {"format": "zip", "select": [0, 1], "dpi": 72})
+        assert path == str(tmp_path / asked[0]) and asked[0].endswith(".zip")
+        assert len(zipfile.ZipFile(path).namelist()) == 2
+        assert api.export_doc(board_id, {"format": "png"}) is False  # 两页不能导出成单张 PNG
+
+        monkeypatch.setattr(api, "_ask_save_path", lambda suggested: None)
+        assert api.export_doc(board_id, {"format": "pdf"}) is None  # 用户取消
+    finally:
+        server.stop()

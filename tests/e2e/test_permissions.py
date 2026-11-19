@@ -39,14 +39,14 @@ def test_the_ui_only_draws_the_entries_it_is_allowed(browser, server):
     mac = open_mac(browser, server.port)
 
     # 本机：权限齐全，但「连接 iPad」「关于」要本地进程才有
-    assert mac.evaluate(TOPRIGHT) == ["白板", "白板设置", "导出 PNG"]
+    assert mac.evaluate(TOPRIGHT) == ["白板", "白板设置", "导出"]
     as_native(mac)
-    assert mac.evaluate(TOPRIGHT) == ["白板", "白板设置", "导出 PNG", "连接 iPad", "关于"]
+    assert mac.evaluate(TOPRIGHT) == ["白板", "白板设置", "导出", "连接 iPad", "关于"]
 
     # 装成局域网里的别的设备：把服务端发下来的那份清单改成只有 export
     mac.add_init_script("delete window.pywebview;")  # 别的设备不是本地进程
     serve_with_perms(mac, "export")
-    assert mac.evaluate(TOPRIGHT) == ["导出 PNG"]
+    assert mac.evaluate(TOPRIGHT) == ["导出"]
 
     # 没有任何权限时，那一簇整个不出现
     serve_with_perms(mac, "")

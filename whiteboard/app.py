@@ -270,37 +270,57 @@ class NativeApi:
         log.info("已导出描述文件：%s", path)
         return path
 
-    def export_doc(self, board_id: str) -> Any:
-        """文档板导出：服务端把笔迹合进原件，这边负责挑保存位置。
+    def export_doc(self, board_id: str, options: Optional[Dict[str, Any]] = None) -> Any:
+        """导出：服务端出文件，这边负责挑保存位置。
+
+        ``options`` 是导出对话框的选择（POST /api/export/{board} 的请求体：格式、页框、
+        选中的页、清晰度）；不给时是文档板原来的整份导出。保存对话框里建议的文件名
+        和扩展名来自服务端的 Content-Disposition。
 
         返回保存后的路径；用户取消返回 None，失败返回 False。
         """
+        data_and_name = self._fetch_export(board_id, options)
+        if data_and_name is None:
+            return False
+        data, suggested = data_and_name
+        path = self._ask_save_path(suggested)
+        if not path:
+            return None
+        Path(path).write_bytes(data)
+        log.info("已导出白板 %s：%s（%.1f KB）", board_id, path, len(data) / 1024)
+        return path
+
+    def _fetch_export(self, board_id: str, options: Optional[Dict[str, Any]]):
+        """向本机的服务端要导出的文件，返回 ``(内容, 建议的文件名)``；失败记日志并返回 None。"""
         import urllib.error
         import urllib.parse
         import urllib.request
 
-        url = f"http://127.0.0.1:{self.server.port}/api/export/{board_id}"
+        url = f"http://127.0.0.1:{self.server.port}/api/export/{urllib.parse.quote(board_id)}"
+        request = urllib.request.Request(url)
+        if options is not None:
+            request = urllib.request.Request(
+                url,
+                data=json.dumps(options).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
         try:
-            with urllib.request.urlopen(url, timeout=300) as response:
+            with urllib.request.urlopen(request, timeout=300) as response:
                 disposition = response.headers.get("Content-Disposition", "")
                 data = response.read()
         except urllib.error.HTTPError as exc:
-            log.error("导出失败：%s %s", exc.code, exc.read()[:200].decode("utf-8", "replace"))
-            return False
+            log.error("app._fetch_export 导出失败：%s %s", exc.code, exc.read()[:200].decode("utf-8", "replace"))
+            return None
         except OSError as exc:
-            log.error("导出失败：%s", exc)
-            return False
+            log.error("app._fetch_export 导出失败：%s", exc)
+            return None
 
         suggested = "whiteboard.pdf"
         marker = "filename*=UTF-8''"
         if marker in disposition:
             suggested = urllib.parse.unquote(disposition.split(marker, 1)[1].strip('"'))
-        path = self._ask_save_path(suggested)
-        if not path:
-            return None
-        Path(path).write_bytes(data)
-        log.info("已导出文档板：%s（%.1f KB）", path, len(data) / 1024)
-        return path
+        return data, suggested
 
     def _ask_save_path(self, suggested: str) -> Optional[str]:
         import webview
