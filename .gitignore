@@ -19,3 +19,6 @@ packaging/ipad/
 # 测试报告和失败截图（make 和 CI 写在这里）
 reports/
 test-results/
+
+# 子 agent 的独立工作目录（git worktree），不进仓库
+.claude/worktrees/
