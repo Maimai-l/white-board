@@ -7,7 +7,9 @@ pypdf>=4.2
 pypdfium2>=4.30
 pillow>=10.0
 pytest>=8
-playwright>=1.49
+# 浏览器测试在 CI 里跑在 mcr.microsoft.com/playwright/python:v<这个版本>-noble 里（.github/actions/playwright），
+# 镜像里的浏览器和这个版本配套：升级时只改这一行
+playwright==1.65.2
 ruff>=0.6
 # packaging/appcast.py 生成和核对 EdDSA 签名
 cryptography>=42

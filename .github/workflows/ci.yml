@@ -86,19 +86,18 @@ jobs:
   e2e:
     needs: plan
     if: needs.plan.outputs.e2e == 'true'
-    # ubuntu-latest 已经是 26.04：在上面装 WebKit 的系统依赖卡了 17 分钟以上，apt 也慢。
-    # 浏览器 job 固定在 Playwright 支持、以前一直在用的 24.04
+    # 浏览器和系统依赖来自 Playwright 的镜像：GitHub 机器上 apt 只有 60–220 kB/s，
+    # WebKit 的 126 MB 依赖装不完。make 在机器上跑，pytest 在容器里跑
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-python-deps
-        with:
-          browser: chromium
-      - run: make e2e PY=python
+      - uses: ./.github/actions/playwright
+        id: pw
+      - run: make e2e PY="${{ steps.pw.outputs.py }}"
       - name: 摘要
         if: always()
-        run: python tools/ci_summary.py "端到端（Chromium）" reports/e2e.xml >> "$GITHUB_STEP_SUMMARY"
+        run: python3 tools/ci_summary.py "端到端（Chromium）" reports/e2e.xml >> "$GITHUB_STEP_SUMMARY"
       - name: 上传失败截图
         if: failure()
         uses: actions/upload-artifact@v4
@@ -111,19 +110,18 @@ jobs:
   webkit:
     needs: plan
     if: needs.plan.outputs.webkit == 'true'
-    # ubuntu-latest 已经是 26.04：在上面装 WebKit 的系统依赖卡了 17 分钟以上，apt 也慢。
-    # 浏览器 job 固定在 Playwright 支持、以前一直在用的 24.04
+    # 浏览器和系统依赖来自 Playwright 的镜像：GitHub 机器上 apt 只有 60–220 kB/s，
+    # WebKit 的 126 MB 依赖装不完。make 在机器上跑，pytest 在容器里跑
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-python-deps
-        with:
-          browser: webkit
-      - run: make webkit PY=python
+      - uses: ./.github/actions/playwright
+        id: pw
+      - run: make webkit PY="${{ steps.pw.outputs.py }}"
       - name: 摘要
         if: always()
-        run: python tools/ci_summary.py "端到端（WebKit）" reports/webkit.xml >> "$GITHUB_STEP_SUMMARY"
+        run: python3 tools/ci_summary.py "端到端（WebKit）" reports/webkit.xml >> "$GITHUB_STEP_SUMMARY"
       - name: 上传失败截图
         if: failure()
         uses: actions/upload-artifact@v4

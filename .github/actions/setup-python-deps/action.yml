@@ -1,13 +1,10 @@
 name: 装好 Python 测试依赖
-description: setup-python（带 pip 缓存）+ requirements-test.txt，需要时再装一个 Playwright 浏览器（按版本缓存）
+description: setup-python（带 pip 缓存）+ requirements-test.txt。浏览器测试不用它，用 .github/actions/playwright
 
 inputs:
   python-version:
     description: Python 版本
     default: "3.12"
-  browser:
-    description: 要装的 Playwright 浏览器（chromium / webkit），空表示不装
-    default: ""
 
 runs:
   using: composite
@@ -21,27 +18,3 @@ runs:
     - name: 装测试依赖
       shell: bash
       run: python -m pip install -r requirements-test.txt
-
-    - name: 查 Playwright 版本
-      id: pw
-      if: inputs.browser != ''
-      shell: bash
-      run: echo "version=$(python -c 'import importlib.metadata as m; print(m.version("playwright"))')" >> "$GITHUB_OUTPUT"
-
-    - name: 缓存浏览器
-      id: cache
-      if: inputs.browser != ''
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/ms-playwright
-        key: playwright-${{ runner.os }}-${{ inputs.browser }}-${{ steps.pw.outputs.version }}
-
-    - name: 装浏览器
-      if: inputs.browser != '' && steps.cache.outputs.cache-hit != 'true'
-      shell: bash
-      run: python -m playwright install --with-deps ${{ inputs.browser }}
-
-    - name: 装浏览器的系统依赖（浏览器本身来自缓存）
-      if: inputs.browser != '' && steps.cache.outputs.cache-hit == 'true'
-      shell: bash
-      run: python -m playwright install-deps ${{ inputs.browser }}

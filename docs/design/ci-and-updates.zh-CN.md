@@ -77,10 +77,10 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 
 - 触发：推送到 `dev` 和 `claude/**`、推 tag `v*`、PR、手动。`stable` 只接收已经在 dev 通过的提交，不再单独跑。
 - 并发：同一个分支上新的推送会取消正在跑的那次（`cancel-in-progress`），tag 除外。发布到 Pages 的步骤用一个独立的并发组排队，不取消。
-- 缓存：Python 依赖用 `setup-python` 的 pip 缓存；Playwright 浏览器按版本缓存。测试依赖写在 `requirements-test.txt`，本地和 CI 用同一份。
+- 缓存：Python 依赖用 `setup-python` 的 pip 缓存。测试依赖写在 `requirements-test.txt`，本地和 CI 用同一份。
+- 浏览器测试（e2e、webkit）在 `mcr.microsoft.com/playwright/python:v<版本>-noble` 容器里跑（`.github/actions/playwright`）：浏览器和系统依赖都在镜像里。GitHub 机器上 apt 只有 60–220 kB/s，WebKit 要装 126 MB 系统包，第一次运行时装不完。make 仍在机器上跑，`PY` 换成容器里的 python。镜像版本取自 `requirements-test.txt` 里固定的 `playwright==` 版本，升级只改那一行。
 - 共用的安装步骤放在 `.github/actions/setup-python-deps`，每个 job 只写自己跑什么。
 - 每个 job 都有 `timeout-minutes`：卡住的 job 最多占几十分钟，而不是默认的 6 小时。
-- 浏览器 job（e2e、webkit）固定在 `ubuntu-24.04`：`ubuntu-latest` 已是 26.04，第一次运行时在上面装 WebKit 依赖卡住了。
 
 ### 2.4 结果要能直接看
 
