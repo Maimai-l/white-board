@@ -44,6 +44,17 @@ CI 只在 Linux 上的 Chromium 和 WebKit 中运行。Apple Pencil 输入、iPa
 - [ ] 白板选择界面显示某个文件夹时，用本应用打开一张图片，新白板位于该文件夹中。
 - [ ] 双击 `backups/upgrade/` 中的 `.wbz`，导入为新白板，`backups/` 中的文件不变。
 
+### 更新（Sparkle）
+
+CI 会检查打包后的应用能加载 Sparkle、增量包能正确应用。真正装上更新只能在 Mac 上验证。
+
+- [ ] 从 GitHub Pages 站点安装最新的 alpha 构建。「关于」显示的版本号以 `-alpha.<构建时间>` 结尾。
+- [ ] 往 `dev` 合入任意一个改动，等 CI 通过。一小时内更新会在后台下载，不弹提示；退出并重新打开应用后，「关于」显示新的构建。
+- [ ] 「检查更新」打开 Sparkle 的窗口，显示最新版本。
+- [ ] 从 1.2.0 升级：原来的更新对话框提示这个正式版；装上之后，「检查更新」打开的是 Sparkle 的窗口。
+
+任一项不通过时，请发回 `~/Library/Logs/Whiteboard.log` 中以 `Sparkle` 开头的行，以及 `/Applications/Whiteboard.app/Contents/MacOS/Whiteboard --check-updater` 的输出。
+
 ## 2. iPad
 
 本节执行两遍：一遍在 iPad 外壳中，一遍从主屏图标打开。
@@ -107,9 +118,9 @@ git tag v1.0.0 && git push origin v1.0.0
 
 | Tag | 发布为 | 应用内更新是否提示 |
 | --- | --- | --- |
-| `v1.0.0` | 正式版 | 是 |
-| `v1.0.0-rc.1`（含连字符） | 预发布版 | 否 |
+| `v1.0.0` | 正式版 | 是：Sparkle 的 `stable` 通道；旧的更新方式通过 `releases/latest` |
+| `v1.0.0-rc.1`（含连字符） | 预发布版 | 只推给 `alpha` 通道的 Mac |
 
-- CI（`.github/workflows/build-macos.yml`）构建 Mac 应用与 iPad 外壳，并将 `.zip` 与 `.ipa` 发布到 GitHub Release。
-- 应用内更新读取 `releases/latest`，其中不包括预发布版。正式版发布之后，现有用户才会收到更新提示。
+- CI（`.github/workflows/ci.yml`）跑完全部 job，把 Sparkle 更新发布到 GitHub Pages，再将 `.zip` 与 `.ipa` 发布到 GitHub Release。
+- 带 Sparkle 的构建读取 GitHub Pages 上的 `appcast.xml`；不带的构建（1.2.0 及更早）读取 `releases/latest`，其中不包括预发布版。
 - Release 说明取自 `CHANGELOG.md`（只有英文版，写法见 `docs/changelog-style.md`）中该版本的一节（`packaging/release_notes.py`），更新对话框显示的即为这段说明。预发布版没有单独一节时，使用对应正式版的一节；两者均不存在时，由 GitHub 自动生成说明。

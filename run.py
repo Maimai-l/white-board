@@ -28,6 +28,11 @@ def main(argv: list[str] | None = None) -> int:
         help="不注册 iPad 外壳用的 _whiteboard._tcp 服务（macOS 默认注册）",
     )
     parser.add_argument("--debug", action="store_true", help="打开调试日志与开发者工具")
+    parser.add_argument(
+        "--check-updater",
+        action="store_true",
+        help="打印更新器（Sparkle）的加载结果和配置后退出，打包后的冒烟测试用",
+    )
     parser.add_argument("--version", action="version", version=f"白板 {__version__}")
 
     # macOS 双击 .app 时系统会塞进来 -psn_0_xxx 之类的参数，别让 argparse 报错
@@ -42,6 +47,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"日志写在 {log_file}")
 
     config = Config()
+    if args.check_updater:
+        import json
+
+        from whiteboard import sparkle
+
+        print(json.dumps(sparkle.self_check(config), ensure_ascii=False))
+        return 0
+
     # 命令行参数只管这一次运行，不写进配置文件：想长期换目录就在界面上选
     config.set_runtime(port=args.port or None, data_dir=args.data_dir or None)
 

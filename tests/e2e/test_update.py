@@ -127,6 +127,8 @@ def test_check_update_button_says_what_happened(browser, server):
         ({"status": "error", "message": "连不上 GitHub"}, "检查失败：连不上 GitHub"),
         ({"status": "source", "version": "1.0.0"}, "git pull"),
         ({"status": "skipped", "version": "1.2.0"}, "已被跳过"),
+        # 打包应用带着 Sparkle 时由它自己的窗口接手，按钮下面说清楚去哪儿看
+        ({"status": "sparkle", "version": "1.3.0-alpha.20261119.153012"}, "更新窗口"),
     ]
     for result, expected in cases:
         mac.evaluate(CHECK_STUB, [result])

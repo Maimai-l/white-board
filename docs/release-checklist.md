@@ -44,6 +44,17 @@ CI cannot check these items: they depend on the packaged app's Info.plist and on
 - [ ] With the board chooser showing a folder, opening an image with the app puts the new board in that folder.
 - [ ] Double-clicking a `.wbz` from `backups/upgrade/` imports it as a new board, and the file in `backups/` is unchanged.
 
+### Updates (Sparkle)
+
+CI checks that Sparkle loads in the packaged app and that delta updates apply. Installing an update needs a real Mac.
+
+- [ ] Install the newest alpha build from the GitHub Pages site. About shows a version ending in `-alpha.<build time>`.
+- [ ] Merge any change into `dev` and wait for CI to pass. Within an hour the update downloads without a prompt; after quitting and reopening the app, About shows the new build.
+- [ ] 检查更新 (Check for updates) opens the Sparkle window and reports the newest version.
+- [ ] Upgrading from 1.2.0: the previous update dialog offers this release; after installing it, 检查更新 (Check for updates) opens the Sparkle window.
+
+If an item fails, send the lines of `~/Library/Logs/Whiteboard.log` that start with `Sparkle`, and the output of `/Applications/Whiteboard.app/Contents/MacOS/Whiteboard --check-updater`.
+
 ## 2. iPad
 
 Run this section twice: once in the iPad shell and once from the Home Screen icon.
@@ -107,9 +118,9 @@ git tag v1.0.0 && git push origin v1.0.0
 
 | Tag | Published as | Offered by the in-app updater |
 | --- | --- | --- |
-| `v1.0.0` | Release | Yes |
-| `v1.0.0-rc.1` (contains a hyphen) | Prerelease | No |
+| `v1.0.0` | Release | Yes: Sparkle `stable` channel, and the previous updater through `releases/latest` |
+| `v1.0.0-rc.1` (contains a hyphen) | Prerelease | Only to Macs on the `alpha` channel |
 
-- CI (`.github/workflows/build-macos.yml`) builds the Mac app and the iPad shell, then publishes the `.zip` and the `.ipa` to the GitHub Release.
-- The in-app updater reads `releases/latest`, which excludes prereleases. Existing users receive the update only after the release is published.
+- CI (`.github/workflows/ci.yml`) runs every job, publishes the Sparkle update to GitHub Pages, then publishes the `.zip` and the `.ipa` to the GitHub Release.
+- Builds with Sparkle read `appcast.xml` on GitHub Pages. Builds without it (1.2.0 and earlier) read `releases/latest`, which excludes prereleases.
 - The release notes are the section of `CHANGELOG.md` for that version (`packaging/release_notes.py`). The update dialog shows these notes. A prerelease without its own section uses the section of the corresponding release version. If no section exists, GitHub generates the notes.

@@ -134,6 +134,7 @@ The app interface is in Chinese. Entries refer to controls by these English name
 | 来源 | Source (iPad shell setting) |
 | 仍然编辑 | Edit anyway |
 | 打开方式 (Finder) | Open With |
+| 检查更新 | Check for updates |
 
 ## 8. Example
 

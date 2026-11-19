@@ -2,6 +2,21 @@
 
 This file lists the notable changes to the board app and to inksync. The section of a version is used as its GitHub release notes and is shown in the in-app update dialog. Entries follow [docs/changelog-style.md](docs/changelog-style.md).
 
+## 1.3.0 (unreleased)
+
+### Upgrade notes
+
+- Updates: Version 1.2.0 installs this version through its update dialog. Later updates are installed through the new update window.
+
+### Added
+
+- Settings: `update_channel` in the configuration file selects `alpha` test builds or `stable` releases.
+
+### Changed
+
+- Updates: The Mac app checks for updates with Sparkle and downloads only the changed parts of the app when updating from one of the three previous versions.
+- Updates: The Check for updates button opens the update window, which shows the result and the release notes.
+
 ## 1.2.0 (2026-10-22)
 
 ### Upgrade notes

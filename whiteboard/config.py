@@ -53,6 +53,10 @@ class Config:
             "auto_update": False,
             # 「跳过这个版本」记在这里
             "skip_version": "",
+            # Sparkle 的更新通道：alpha 或 stable。空串表示还没定，第一次以打包应用
+            # 运行时按这个构建自己的通道写进来，之后换装正式版也留在原来的通道
+            # （docs/design/ci-and-updates.zh-CN.md 第 3.1 节）
+            "update_channel": "",
             # 局域网上的别的设备各能做什么，一项一开关，默认全关：那些设备只能写字。
             # 检查更新、选存储目录不在这里：它们走 pywebview 的本地接口，
             # 别的设备本来就够不着，给个开关反而是骗人。
@@ -161,6 +165,17 @@ class Config:
     @auto_update.setter
     def auto_update(self, value: bool) -> None:
         self.values["auto_update"] = bool(value)
+
+    @property
+    def update_channel(self) -> str:
+        value = self.values.get("update_channel", "")
+        return value if value in ("alpha", "stable") else ""
+
+    @update_channel.setter
+    def update_channel(self, value: str) -> None:
+        if value not in ("alpha", "stable", ""):
+            raise ValueError(f"未知的更新通道：{value}")
+        self.values["update_channel"] = value
 
     @property
     def remote_permissions(self) -> Dict[str, bool]:

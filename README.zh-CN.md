@@ -6,7 +6,7 @@
 
 ## 概述
 
-本应用运行在 Mac 上，向局域网提供手写白板页面。Mac 与 iPad 打开同一块白板，任一设备上的笔画都会实时显示在另一设备上。所有通信只在局域网内进行，不需要账号，也不使用云服务；唯一的对外连接是向 GitHub Releases 检查更新。
+本应用运行在 Mac 上，向局域网提供手写白板页面。Mac 与 iPad 打开同一块白板，任一设备上的笔画都会实时显示在另一设备上。所有通信只在局域网内进行，不需要账号，也不使用云服务；对外连接只有检查更新：读取本项目的 GitHub Pages 站点和 GitHub Releases。
 
 ```
 ┌──────────── Mac ────────────┐            ┌─────── iPad ───────┐
@@ -54,7 +54,18 @@
 
 ### 更新
 
-应用在启动时检查一次 GitHub Releases。存在新版本时，对话框显示版本号、更新说明和三个选项：
+1.3.0 起发布的构建通过 [Sparkle](https://sparkle-project.org) 更新。应用读取本项目 GitHub Pages 站点上的 `appcast.xml`；从前三个构建中的任一个更新时只下载变化的部分，每个下载都核对 EdDSA 签名。新版本和更新说明显示在 Sparkle 自己的窗口里；「关于」面板的「检查更新」会打开它。
+
+| 通道 | 何时发布 | 检查频率 |
+| --- | --- | --- |
+| `stable` | 每个不带连字符的 `v*` tag | 每天一次 |
+| `alpha` | 每次推送到 `dev` 且所有 CI job 通过；预发布 tag（例如 `v1.3.0-rc.1`） | 每小时一次；自动下载，退出应用时安装 |
+
+- 构建第一次启动时把自己的通道写进配置文件（`update_channel`），所以装了 alpha 的 Mac 在正式版发布后仍留在 alpha。把 `update_channel` 改成 `stable` 即可离开 alpha 通道。
+- 第一次安装从 Pages 站点下载（首页列出每个通道最新的构建），或从 Release 下载。
+- 更新源、增量包和签名的工作方式见 [docs/design/ci-and-updates.zh-CN.md](docs/design/ci-and-updates.zh-CN.md)。
+
+不带 Sparkle 的构建（1.2.0 及更早的版本，以及没有公钥时打出的构建）使用之前的更新方式：启动时检查一次 GitHub Releases。存在新版本时，对话框显示版本号、更新说明和三个选项：
 
 | 选项 | 结果 |
 | --- | --- |
@@ -125,7 +136,8 @@ WHITEBOARD_VERSION=1.1.0 pyinstaller --noconfirm packaging/whiteboard.spec
 ```
 
 - 本地打包只有在 `packaging/ipad/Whiteboard.ipa` 存在时才包含 iPad 外壳；否则安装页会指向 Release 下载。
-- Intel 版本需要在 Intel Mac 上本地打包，或在 `.github/workflows/build-macos.yml` 中增加 `macos-13` / `x86_64` 矩阵项。
+- 本地打包默认不带 Sparkle：需要先运行 `packaging/fetch_sparkle.sh` 和 `packaging/embed_sparkle.sh dist/Whiteboard.app`，再运行 `packaging/sign_app.sh dist/Whiteboard.app`；没有设置 `SPARKLE_FEED_URL` 和 `SPARKLE_PUBLIC_ED_KEY` 时仍使用之前的更新方式。
+- Intel 版本需要在 Intel Mac 上本地打包，或把 `.github/workflows/ci.yml` 中 `package` job 的机器换成 `macos-13` / `x86_64`。
 - 将预发布版转为正式版之前，按照 [docs/release-checklist.zh-CN.md](docs/release-checklist.zh-CN.md) 逐项检查。
 
 打包后的应用与源码运行共用 `~/Library/Application Support/Whiteboard`，两者之间切换不会丢失白板。打包后的应用将日志写入 `~/Library/Logs/Whiteboard.log`。
@@ -466,7 +478,8 @@ whiteboard/
   profile.py    .mobileconfig 与图标生成（纯 Python 写 PNG）
   netinfo.py、codec.py   指向 inksync 中的同名模块（旧的导入路径）
   ipadshell.py  外壳安装页、版本接口与 IPA 下载
-  updater.py    检查更新、下载、校验与替换
+  sparkle.py    Sparkle 更新：加载框架、更新通道、「检查更新」
+  updater.py    之前的更新方式（不带 Sparkle 的构建）：检查、下载、校验与替换
   resources.py  源码运行与打包运行时的路径和日志
   runner.py     在后台线程中运行服务端
   app.py        pywebview 窗口与本地文件对话框
@@ -502,12 +515,18 @@ tools/          check_boards.py（升级前检查白板）及研究用脚本
 
 ### 测试
 
+CI 的每个 job 都有同名的 `make` 目标，本地运行的命令与 CI 相同：
+
 ```bash
-python -m pytest tests -q                                   # 全部测试
-python -m pytest tests --ignore=tests/e2e -q               # 跳过浏览器测试
-node --test tests/js/*.test.mjs                             # 前端纯函数
-WB_BROWSER=webkit python -m pytest tests/e2e               # 在 WebKit 上运行端到端测试
+make deps      # 测试依赖和 Chromium（requirements-test.txt）
+make fast      # checks + unit + js，不开浏览器
+make test      # checks、unit、js、inksync 和 e2e
+make e2e PYTEST_ARGS="-k sync -x"
+make webkit    # 在 WebKit 上运行冒烟用例（WB_BROWSER=webkit）
+make plan FILES="whiteboard/app.py docs/sketch.md"   # 这些改动在 CI 里会跑哪些 job
 ```
+
+- `make checks` 运行只开错误类规则（语法错误、未定义的名字）的 ruff，以及 `CHANGELOG.md` 和提交说明的检查。
 
 - 端到端测试在 `tests/e2e/`，按领域分文件（同步、输入、橡皮、白板列表、笔具盘……）；共用的 fixture 在 `conftest.py`，共用的函数在 `support.py`，页面里用的小工具（`window.__t`）在 `probe.js`。不需要页面的纯计算放在 `tests/js/`。
 - 端到端测试打开两个浏览器页面（Mac 端和一台触摸设备）并在两者之间同步，覆盖书写、撤销、擦除、清空、Pencil 独占、切换白板、断线重连补发、文件夹、只读白板和导出 PNG。未安装 Playwright 或浏览器时自动跳过。
@@ -515,11 +534,19 @@ WB_BROWSER=webkit python -m pytest tests/e2e               # 在 WebKit 上运�
 
 ### 持续集成
 
-| 工作流 | 内容 |
+只有一个工作流 `.github/workflows/ci.yml`。其中的 `plan` job（`tools/ci_plan.py`）按改动的文件挑选要跑的 job，运行摘要里列出每个 job 以及是哪个文件让它运行的。完整规则见 [docs/design/ci-and-updates.zh-CN.md](docs/design/ci-and-updates.zh-CN.md)。
+
+| 改动 | 运行的 job |
 | --- | --- |
-| `tests.yml` | 使用 Chromium 运行 Python 测试，使用 Node 运行前端单元测试，在 WebKit 上运行一组冒烟测试；在 Python 3.10 上单独安装并测试 inksync |
-| `build-macos.yml` | 在推送 `v*` tag 时（并发布 Release）、在修改应用或打包配置的 pull request 中、以及手动运行时，构建 iPad 外壳和 macOS 应用 |
-| `ipad-check.yml` | `ipad/` 有改动时编译 iPad 外壳 |
+| 只改文档 | `checks` |
+| 应用或 inksync 的代码 | `checks`、`unit`、`e2e`、`webkit`、`package`（涉及时加上 `js`、`inksync`） |
+| `ipad/` | `checks`、`ipad` |
+| CI 本身，或无法识别的路径 | 全部 |
+| 推送到 `dev`，或 `v*` tag | 全部，然后发布更新（`alpha` 或 `stable`） |
+
+- 可以在提交说明里写 `[ci: e2e,webkit]` 或 `[ci: all]` 手动指定，也可以在手动运行时填写 `jobs`。
+- 其他分支演练更新发布（`updates-dry-run`）：用临时密钥生成增量包、核对签名，并把增量包应用到上一个构建上。
+- 端到端测试失败时，每个打开的页面都会截图，上传为 `test-results-*` 产物。
 
 ## 不做的事
 

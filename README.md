@@ -6,7 +6,7 @@ English | [简体中文](README.zh-CN.md)
 
 ## Overview
 
-Whiteboard is a Mac app that serves a handwriting board to the local network. The Mac and an iPad open the same board, and every stroke appears on the other device in real time. All traffic stays on the LAN. There is no account and no cloud service; the only outbound connection is the update check against GitHub Releases.
+Whiteboard is a Mac app that serves a handwriting board to the local network. The Mac and an iPad open the same board, and every stroke appears on the other device in real time. All traffic stays on the LAN. There is no account and no cloud service; the only outbound connections are the update checks against the project's GitHub Pages site and GitHub Releases.
 
 ```
 ┌──────────── Mac ────────────┐            ┌─────── iPad ───────┐
@@ -54,7 +54,18 @@ The first launch shows two system prompts. Each appears once.
 
 ### Updates
 
-The app checks GitHub Releases once at startup. When a newer version exists, a dialog shows the version, the release notes and three choices:
+Builds published from 1.3.0 on update through [Sparkle](https://sparkle-project.org). The app reads `appcast.xml` from the project's GitHub Pages site, downloads only the changed parts of the app when it updates from one of the three previous builds, and checks the EdDSA signature of every download. Sparkle's own window shows the new version and its release notes; 检查更新 (Check for updates) in the About panel opens it.
+
+| Channel | Published | Checked |
+| --- | --- | --- |
+| `stable` | for each `v*` tag without a hyphen | once a day |
+| `alpha` | after every push to `dev` that passes all CI jobs, and for prerelease tags such as `v1.3.0-rc.1` | every hour; downloaded automatically and installed when the app quits |
+
+- A build remembers its channel in the configuration file (`update_channel`) on first launch, so an alpha install stays on alpha after a stable release. Set `update_channel` to `stable` to leave the alpha channel.
+- The first install of a build comes from the Pages site (its index page links the newest build of each channel) or from the Release.
+- How the feed, the delta updates and the signing work: [docs/design/ci-and-updates.zh-CN.md](docs/design/ci-and-updates.zh-CN.md) (Chinese).
+
+Builds without Sparkle (1.2.0 and earlier, and builds made without the public key) use the previous updater, which checks GitHub Releases once at startup. When a newer version exists, a dialog shows the version, the release notes and three choices:
 
 | Choice | Result |
 | --- | --- |
@@ -125,7 +136,8 @@ WHITEBOARD_VERSION=1.1.0 pyinstaller --noconfirm packaging/whiteboard.spec
 ```
 
 - A local build includes the iPad shell only if `packaging/ipad/Whiteboard.ipa` exists; otherwise the install page points to the Release download.
-- An Intel build needs a local build on an Intel Mac, or a `macos-13` / `x86_64` matrix entry in `.github/workflows/build-macos.yml`.
+- A local build has no Sparkle unless you run `packaging/fetch_sparkle.sh` and `packaging/embed_sparkle.sh dist/Whiteboard.app`, then `packaging/sign_app.sh dist/Whiteboard.app`; without `SPARKLE_FEED_URL` and `SPARKLE_PUBLIC_ED_KEY` it keeps the previous updater.
+- An Intel build needs a local build on an Intel Mac, or a `macos-13` / `x86_64` runner for the `package` job in `.github/workflows/ci.yml`.
 - Before turning a prerelease into a release, follow [docs/release-checklist.md](docs/release-checklist.md).
 
 The packaged app and source runs share `~/Library/Application Support/Whiteboard`, so switching between them keeps the boards. The packaged app writes its log to `~/Library/Logs/Whiteboard.log`.
@@ -466,7 +478,8 @@ whiteboard/
   profile.py    .mobileconfig and icon generation (PNG written in pure Python)
   netinfo.py, codec.py   point to the modules of the same name in inksync (old import paths)
   ipadshell.py  the shell's install page, version endpoint and IPA download
-  updater.py    update check, download, verification and replacement
+  sparkle.py    Sparkle updates: loading the framework, update channel, Check for updates
+  updater.py    previous updater (builds without Sparkle): check, download, verification and replacement
   resources.py  paths and logging for source and packaged runs
   runner.py     runs the server in a background thread
   app.py        pywebview window and native file dialogs
@@ -502,12 +515,18 @@ Input recording captures problems that need a real Pencil (pressure, tilt, coale
 
 ### Tests
 
+Each CI job has a `make` target with the same name, so a local run uses the same commands as CI:
+
 ```bash
-python -m pytest tests -q                                   # everything
-python -m pytest tests --ignore=tests/e2e -q               # skip the browser tests
-node --test tests/js/*.test.mjs                             # front-end pure functions
-WB_BROWSER=webkit python -m pytest tests/e2e               # end-to-end on WebKit
+make deps      # test dependencies and Chromium (requirements-test.txt)
+make fast      # checks + unit + js, no browser
+make test      # checks, unit, js, inksync and e2e
+make e2e PYTEST_ARGS="-k sync -x"
+make webkit    # the WebKit smoke subset (WB_BROWSER=webkit)
+make plan FILES="whiteboard/app.py docs/sketch.md"   # which CI jobs a change would run
 ```
+
+- `make checks` runs ruff with the error-only rules (syntax errors, undefined names) and the checks of `CHANGELOG.md` and commit messages.
 
 - The end-to-end tests live in `tests/e2e/`, one file per area (sync, input, eraser, gallery, picker, …); shared fixtures are in `conftest.py`, shared helpers in `support.py`, and in-page helpers (`window.__t`) in `probe.js`. Pure calculations that need no page go in `tests/js/` instead.
 - The end-to-end tests open two browser pages (the Mac and a touch device) and sync between them. They cover drawing, undo, erasing, clearing, Pencil exclusivity, switching boards, reconnecting with a backlog, folders, read-only boards and PNG export. They skip themselves if Playwright or the browser is missing.
@@ -515,11 +534,19 @@ WB_BROWSER=webkit python -m pytest tests/e2e               # end-to-end on WebKi
 
 ### CI
 
-| Workflow | Runs |
+`.github/workflows/ci.yml` is the only workflow. Its `plan` job (`tools/ci_plan.py`) picks the jobs from the changed files, and the run summary lists each job with the file that pulled it in. The full rules are in [docs/design/ci-and-updates.zh-CN.md](docs/design/ci-and-updates.zh-CN.md) (Chinese).
+
+| Change | Jobs |
 | --- | --- |
-| `tests.yml` | Python tests with Chromium, front-end unit tests with Node, a smoke subset on WebKit; inksync installed and tested on its own on Python 3.10 |
-| `build-macos.yml` | Builds the iPad shell and the macOS app on `v*` tags (publishes a Release), on pull requests that touch the app or its packaging, and manually |
-| `ipad-check.yml` | Compiles the iPad shell when `ipad/` changes |
+| Documentation only | `checks` |
+| App or inksync code | `checks`, `unit`, `e2e`, `webkit`, `package` (+ `js`, `inksync` where they apply) |
+| `ipad/` | `checks`, `ipad` |
+| CI itself, or an unknown path | all |
+| Push to `dev`, or a `v*` tag | all, then publish an update (`alpha` or `stable`) |
+
+- Pick jobs by hand with `[ci: e2e,webkit]` or `[ci: all]` in the commit message, or with the `jobs` input of a manual run.
+- Other branches rehearse the update publishing (`updates-dry-run`): a delta update is generated with a temporary key, its signature is checked, and it is applied to the previous build.
+- Failed end-to-end tests upload a screenshot of every open page as the `test-results-*` artifact.
 
 ## Non-goals
 
