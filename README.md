@@ -474,6 +474,9 @@ whiteboard/
   backup.py     copies the boards before a new version first touches them
   docs.py       document boards: reading, rendering and exporting PDFs / images
   inkpdf.py     ink as PDF vector paths
+  inkraster.py  ink drawn into images (PNG export, image documents)
+  pagination.py automatic page frames for export
+  export.py     paged export: selected pages as PDF, a ZIP of PNG files or one PNG
   freehand.py   Python port of perfect-freehand, for export
   profile.py    .mobileconfig and icon generation (PNG written in pure Python)
   netinfo.py, codec.py   point to the modules of the same name in inksync (old import paths)

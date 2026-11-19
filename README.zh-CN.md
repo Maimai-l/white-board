@@ -474,6 +474,9 @@ whiteboard/
   backup.py     新版本首次处理白板前的备份
   docs.py       文档板：读取、渲染、导出 PDF / 图片
   inkpdf.py     将笔迹写为 PDF 矢量路径
+  inkraster.py  将笔迹画进图片（PNG 导出、图片原件）
+  pagination.py 导出用的自动分页
+  export.py     分页导出：选中的页导出为 PDF、PNG 压缩包或单张 PNG
   freehand.py   perfect-freehand 的 Python 移植，用于导出
   profile.py    .mobileconfig 与图标生成（纯 Python 写 PNG）
   netinfo.py、codec.py   指向 inksync 中的同名模块（旧的导入路径）

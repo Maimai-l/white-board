@@ -606,10 +606,15 @@ async def handle_doc_page(request: web.Request) -> web.StreamResponse:
 
 
 async def handle_doc_export(request: web.Request) -> web.StreamResponse:
-    """把笔迹合进原件导出；PDF 走矢量叠加，图片按原分辨率栅格化。"""
+    """把笔迹合进原件导出；PDF 走矢量叠加，图片按原分辨率栅格化。
+
+    带 ``?format=`` 时是分页导出（:func:`handle_page_export`），任何白板都可以。
+    """
     from . import docs
 
     require(request, "export")  # 导出能把任意一块白板整份取走
+    if "format" in request.query:
+        return await handle_page_export(request)
     hub: Hub = request.app[HUB_KEY]
     board_id = request.match_info["board_id"]
     meta = hub.core.board_meta(board_id)
@@ -641,6 +646,89 @@ async def handle_doc_export(request: web.Request) -> web.StreamResponse:
         content_type="application/octet-stream",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{quoted}",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+async def _export_source(request: web.Request):
+    """导出要用的 ``(白板 id, 元数据, 笔画)``；白板不存在时 404。"""
+    hub: Hub = request.app[HUB_KEY]
+    board_id = request.match_info["board_id"]
+    meta = hub.core.board_meta(board_id)
+    if not meta:
+        raise web.HTTPNotFound()
+    return board_id, meta, await hub.strokes_of(board_id)
+
+
+async def handle_export_pages(request: web.Request) -> web.Response:
+    """``GET /api/export/{board}/pages?paper=a4``：自动分页的页框，给导出对话框预览用。"""
+    from . import pagination
+
+    require(request, "export")
+    board_id, meta, strokes = await _export_source(request)
+    paper = request.query.get("paper") or pagination.DEFAULT_PAPER
+    try:
+        size = pagination.paper_size(paper)
+        pages = await asyncio.to_thread(pagination.auto_pages, meta, strokes, paper)
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+    return web.json_response(
+        {
+            "board": board_id,
+            "kind": models.kind_of(meta),
+            "paper": [size[0], size[1]],
+            "margin": pagination.MARGIN,
+            "pages": pages,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def handle_page_export(request: web.Request) -> web.StreamResponse:
+    """分页导出：选中的页导出成 PDF、PNG 压缩包或单张 PNG（``whiteboard/export.py``）。
+
+    POST 的请求体是 JSON（可以带自己调整过的页框）；GET 用查询参数，页框只能自动分。
+    """
+    from . import docs, export
+
+    require(request, "export")
+    try:
+        if request.method == "POST":
+            try:
+                raw = await request.json()
+            except ValueError as exc:
+                raise export.ExportError("the request body must be JSON") from exc
+            options = export.parse_options(raw)
+        else:
+            options = export.options_from_query(request.query)
+    except export.ExportError as exc:
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+
+    board_id, meta, strokes = await _export_source(request)
+    hub: Hub = request.app[HUB_KEY]
+    path = hub.store.doc_path(board_id) if models.doc_of(meta) is not None else None
+    if models.doc_of(meta) is not None and path is None:
+        raise web.HTTPNotFound(text="原件已丢失")
+    try:
+        body, content_type, name = await asyncio.to_thread(export.export, meta, strokes, options, path)
+    except export.ExportError as exc:
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+    except docs.DocError as exc:
+        log.warning("分页导出 %s 失败：%s", board_id, exc)
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        log.exception("分页导出 %s 出错", board_id)
+        raise web.HTTPInternalServerError(text="导出失败") from exc
+
+    log.info(
+        "分页导出 %s：%s，%d 笔，%.1f KB", board_id, options.format, len(strokes), len(body) / 1024
+    )
+    return web.Response(
+        body=body,
+        content_type=content_type,
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{urllib.parse.quote(name)}",
             "Cache-Control": "no-store",
         },
     )
@@ -699,6 +787,8 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app.router.add_post("/api/doc", handle_doc_upload)
     app.router.add_get("/api/doc/{board_id}/{index}", handle_doc_page)
     app.router.add_get("/api/export/{board_id}", handle_doc_export)
+    app.router.add_post("/api/export/{board_id}", handle_page_export)
+    app.router.add_get("/api/export/{board_id}/pages", handle_export_pages)
     app.router.add_get("/sdk/inkpad.js", handle_sdk)
     app.router.add_get("/api/apps", handle_apps)
     app.router.add_get("/sketch", handle_sketch_page)

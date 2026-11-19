@@ -397,7 +397,7 @@ The whiteboard app maps four permissions onto this policy (user space):
 | `manage` | “管理白板” (Manage boards) | Opening boards other than the current one; the extension messages `sel`, `newboard`, `delboard`, `rename`, `folder`, `order`, `newfolder`, `delfolder`, `renamefolder`; `unlock`; `GET /api/info`, `GET /api/boards`, `GET /api/spaces/{app}/boards`, `GET`/`POST /api/thumb/{board}`, `POST /api/doc` |
 | `settings` | “设置白板” (Board settings) | `meta` operation |
 | `clear` | “清空白板” (Clear board) | `clear` operation |
-| `export` | “导出白板” (Export board) | `GET /api/export/{board}` |
+| `export` | “导出白板” (Export board) | `GET`/`POST /api/export/{board}`, `GET /api/export/{board}/pages` |
 
 Writing on the current board (`add`, `restore`, `remove`, `mask`, `live`) needs no permission. Folders and document originals can change only through the extension messages (`protected_data_keys` holds `folder`, `doc` and `app`).
 
@@ -454,7 +454,9 @@ The role (`mac` or `ipad`) selects the interface layout.
 | GET | `/api/spaces/{app}/boards?offset=&limit=` | `manage` | Boards in an app's space: `boards` (metadata, newest `updated` first) and `total`. `limit` is 1–500, default 100. 404 if the app does not exist. |
 | GET | `/apps/{app}/{path}` | — | Static files of an installed app; a directory returns its `index.html`. See [embed.md](embed.md). |
 | GET | `/sdk/inkpad.js` | — | The 1.0.1 address; redirects to `/inksync/inkpad.js`. |
-| GET | `/api/export/{board}` | `export` | Document board with ink merged into the original |
+| GET | `/api/export/{board}` | `export` | Document board with ink merged into the original. With `?format=`: paged export, see [Paged export](#paged-export) |
+| POST | `/api/export/{board}` | `export` | Paged export of any board: selected pages as PDF, a ZIP of PNG files, or one PNG. See [Paged export](#paged-export). |
+| GET | `/api/export/{board}/pages?paper=<paper>` | `export` | Automatic page frames of a board, for previewing an export |
 | GET | `/sketch` | — | The sketch page; see [sketch.md](sketch.md). |
 | POST | `/api/sketch` | `manage` | Start or continue a sketch: when there is no sketch board `sketch`, create a blank temporary board, and switch following connections to it. Response: `{"board": <meta>, "id": "sketch"}`. |
 | DELETE | `/api/sketch` | `manage` | End the sketch: discard the sketch board; following connections still on it return to the current board, other connections receive `deleted`. Response: `{"ended": <boolean>}`. |
@@ -468,12 +470,72 @@ A missing permission returns `403`.
 | `POST /api/thumb/{board}` | `404` for an unknown board; `400` if the body is not PNG. |
 | `POST /api/doc` | The file name can also be sent in the `X-Filename` header. `folder` is optional and applies only if the folder exists. The body is read in 64 KB chunks until the end (`StreamReader.read(n)` returns at most `n` bytes). `413` over the limit, `400` for unsupported or unreadable files. Response: `{"board": <meta>}`. The server then sends `switch` to every following connection. |
 | `GET /api/doc/{board}/{page}` | `w` defaults to 1200 and is clamped to 160–2600. PDF pages and opaque images return JPEG (quality 82); images with transparency return PNG. `ETag` is `"<board>-<page>-<width>"`; a matching `If-None-Match` returns `304`. `Cache-Control: private, max-age=31536000, immutable`, because the original never changes. `404` if the board is not a document board, the original is missing, or the page is out of range. |
-| `GET /api/export/{board}` | Document boards only (`404` otherwise). `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename*=UTF-8''<name>`, `Cache-Control: no-store`. File name: `<original name>-批注<ext>`. |
+| `GET /api/export/{board}` | Without `format`: document boards only (`404` otherwise). `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename*=UTF-8''<name>`, `Cache-Control: no-store`. File name: `<original name>-批注<ext>`. |
 | `POST /api/recording` | Saved as `recordings/<YYYYmmdd-HHMMSS>[-<name>].json`; `name` keeps letters, digits, `-` and `_`, up to 40 characters. Response: `{"ok": true, "path": ..., "events": <count>}`. |
 
 - The `src` of page image layers contains `{w}`, and the front end requests only the widths 640, 1024, 1600 and 2400 (see [format.md](format.md#meta-fields)), so the browser cache stays valid for a long time.
 - At most 2 pages render at the same time (`server.RENDER_LIMIT`). All pdfium calls are serialized by one lock (`docs._PDFIUM_LOCK`), because pdfium is not thread-safe and concurrent calls crash the process.
 - The page triggers downloads with an `<a download>` link, never by assigning `location.href`. In the iPad shell (WKWebView), assigning `location.href` navigates away and closes the WebSocket; see [ipad-shell.md](ipad-shell.md).
+
+### Paged export
+
+`POST /api/export/{board}` exports selected pages of any board. The pages are page frames: rectangles in board coordinates, each printed on its own sheet of paper. The implementation is `whiteboard/export.py`; the automatic page frames come from `whiteboard/pagination.py`.
+
+Request body (JSON):
+
+| Key | Values | Default |
+| --- | --- | --- |
+| `format` | `pdf`; `zip` (one PNG per page); `png` (exactly one selected page) | Required |
+| `frames` | `"auto"`, or a list of 1–400 page frames `{x, y, w, h, paper?, margin?}`. `paper` is a paper name or `[width, height]` in pt; without it the requested paper is used, turned to the shape of the frame. `margin` is 0–144 pt. Document boards accept only `"auto"`. | `"auto"` |
+| `select` | Page indices counted from 0. Duplicates are removed and the pages are exported in page order. | All pages |
+| `dpi` | PNG resolution, 36–600. A page above 40 million pixels is rendered at a lower resolution. | 144; an image document keeps its original resolution |
+| `paper` | `a4`, `letter`, or `[width, height]` in pt (72–14400) | `a4` |
+| `background` | Draw the paper color and the background pattern (grid, lines or dots) | `true` |
+
+Example:
+
+```json
+{"format": "pdf", "select": [1, 3]}
+{"format": "zip", "frames": [{"x": -300, "y": -200, "w": 770, "h": 523}], "dpi": 300}
+```
+
+`GET /api/export/{board}?format=pdf&select=1,3&dpi=144&paper=a4&background=0` takes the same options as query parameters, with automatic page frames only, so a download link can use it.
+
+Response: `Content-Type` `application/pdf`, `application/zip` or `image/png`; `Content-Disposition: attachment; filename*=UTF-8''<name>`; `Cache-Control: no-store`. `400` for an invalid request (the text gives the reason), `404` for an unknown board or a missing original.
+
+| Board | File name |
+| --- | --- |
+| Document board | `<original name>-批注.pdf`, `.zip`, `-NN.png` |
+| Other boards | `<board name>.pdf` (`whiteboard-<date>` when unnamed), `.zip`, `-NN.png` |
+
+Files in a ZIP are named `<name>-NN.png`, where `NN` is the page number counted from 1 with at least two digits, so that they sort in page order. A single PNG of a board with one page has no number.
+
+How a page is drawn:
+
+| Board | Page |
+| --- | --- |
+| Infinite board, note board | A new sheet of the requested paper. The frame is scaled to fit the area inside a 36 pt margin, centered horizontally and aligned to the top. Ink outside the frame is not drawn. Ink is vector in the PDF and uses the same outline as the screen. |
+| Document board, PDF original | The original page with the ink appended (`docs.export_pdf`); unselected pages are removed. A PNG is the page rendered by pdfium with the ink drawn on it. |
+| Document board, image original | A PDF page the size of the image (1 pixel = 1 pt) with the image embedded (a JPEG unchanged) and vector ink, or a PNG. |
+
+One board unit is printed as 1 pt, as on document boards: a page at scale 1 shows the ink at the size seen at 100% zoom.
+
+`GET /api/export/{board}/pages?paper=a4` returns the automatic page frames:
+
+```json
+{"board": "49b773c7c7c2", "kind": "board", "paper": [595.28, 841.89], "margin": 36.0,
+ "pages": [{"x": -288.3, "y": -241.7, "w": 769.89, "h": 523.28, "paper": [841.89, 595.28]}]}
+```
+
+`paper` in each page is the sheet with its orientation. Pages of document boards also have `"margin": 0`.
+
+Automatic page frames:
+
+| Board | Rule |
+| --- | --- |
+| Infinite board | Strokes whose bounding boxes are at most 72 units apart on both axes form a group. Groups that fit on one page together at scale 1 are merged, closest first. Each group gets one page at scale 1, portrait or landscape, whichever fits; a group that does not fit is scaled down to at most 0.7; a larger group is cut into a grid of pages at scale 1, in the orientation with fewer pages. A page with room to spare is moved within that room to cut as little of other ink as possible. Pages are ordered top to bottom in rows, left to right within a row. An empty board has one page centered on the origin. |
+| Note board | The page width is the note width, on portrait paper. Each page ends at the paper length, or in the middle of the lowest blank line within the last quarter of the page. The last page is a full sheet. |
+| Document board | One page per page of the original, on paper of the original page size, without margin. |
 
 ## mDNS and Bonjour
 
