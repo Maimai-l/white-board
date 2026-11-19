@@ -6,84 +6,91 @@
 //
 // 接进来的东西：选工具、每支笔各自的颜色与粗细、点选中的笔弹出粗细面板、
 // 完整的取色器（色板 / 色轮 / RGB 滑块）、拖动换边、丢进角落缩成一个圆、
-// 撤销按钮、「更多」里的自动最小化与手指绘图开关。
+// 撤销按钮、「更多」里的自动最小化与手指绘图开关，以及开关尺子的按钮。
 //
 // 拖动与松手按 iPadOS 的手感重写过：圆进入边的触发区要停留一会儿才变成长条，
 // 长条一出触发区立即变回圆；松手时按惯性推算停点，决定去哪个角（圆）或哪条边（长条）。
 // 松手分「甩」和「慢放」两种：甩的时候先飞到位再展开、带回弹；慢放时飞行、转笔、展开
 // 几乎同时进行、不回弹。动画进行中可以随时拿起。手感参数都在下面。
 //
-// 没接的：不透明度（笔迹格式里还没有这个字段）、直尺和套索（白板没有这两个功能，
-// 对应的按钮已经从布局里去掉）。撤销和重做都接到白板自己的历史栈上。
+// 没接的：不透明度（笔迹格式里还没有这个字段）、那份实现自带的直尺和套索（套索白板
+// 没有；尺子是白板自己的，见 ruler-view.js 和 inksync 的 ruler.js，按钮也是白板的
+// 图标按钮，放在原来直尺那一格附近）。撤销和重做都接到白板自己的历史栈上。
+
+import { iconButton } from "./ui-common.js";
 
 import { clamp } from "/inksync/util.js";
 
-// 去掉套索和直尺之后的布局，其余数值原样取自 vendor 里的 PK_LAYOUT。
+// 去掉套索和直尺之后的布局，数值取自 vendor 里的 PK_LAYOUT；橡皮后面多出一格放
+// 尺子按钮（rulerToggle，31×31，和撤销同样大），后面的色块和「更多」整体挪 52。
 const LAYOUT = {
   h: {
-    W: 544,
+    W: 596,
     H: 105,
     items: {
-      more: { x: 490, y: 37, w: 31, h: 31, r: 0 },
+      more: { x: 542, y: 37, w: 31, h: 31, r: 0 },
+      rulerToggle: { x: 340, y: 37, w: 31, h: 31, r: 0 },
       eraser: { x: 274, y: 0, w: 30, h: 105, r: 0 },
       pencil: { x: 220, y: 0, w: 30, h: 105, r: 0 },
       marker: { x: 168, y: 0, w: 30, h: 105, r: 0 },
       pen: { x: 116, y: 0, w: 30, h: 105, r: 0 },
       redo: { x: 64, y: 37, w: 31, h: 31, r: 0 },
       undo: { x: 22, y: 37, w: 31, h: 31, r: 0 },
-      grip: { x: 254, y: 5, w: 36, h: 5, r: 0 },
+      grip: { x: 280, y: 5, w: 36, h: 5, r: 0 },
     },
     swatches: [
-      { x: 437, y: 57, w: 30, h: 30, r: 0, c: "custom" },
-      { x: 396, y: 57, w: 30, h: 30, r: 0, c: "#fc3142" },
-      { x: 354, y: 57, w: 30, h: 30, r: 0, c: "#fed031" },
-      { x: 437, y: 16, w: 30, h: 30, r: 0, c: "#53d669" },
-      { x: 396, y: 16, w: 30, h: 30, r: 0, c: "#157efa" },
-      { x: 354, y: 16, w: 30, h: 30, r: 0, c: "#000000" },
+      { x: 489, y: 57, w: 30, h: 30, r: 0, c: "custom" },
+      { x: 448, y: 57, w: 30, h: 30, r: 0, c: "#fc3142" },
+      { x: 406, y: 57, w: 30, h: 30, r: 0, c: "#fed031" },
+      { x: 489, y: 16, w: 30, h: 30, r: 0, c: "#53d669" },
+      { x: 448, y: 16, w: 30, h: 30, r: 0, c: "#157efa" },
+      { x: 406, y: 16, w: 30, h: 30, r: 0, c: "#000000" },
     ],
   },
   vl: {
     W: 105,
-    H: 499,
+    H: 551,
     items: {
-      more: { x: 36, y: 443, w: 31, h: 31, r: 0 },
+      more: { x: 36, y: 495, w: 31, h: 31, r: 0 },
+      rulerToggle: { x: 37, y: 303, w: 31, h: 31, r: 0 },
       eraser: { x: 38, y: 212, w: 30, h: 105, r: 90 },
       pencil: { x: 38, y: 160, w: 30, h: 105, r: 90 },
       marker: { x: 38, y: 107, w: 30, h: 105, r: 90 },
       pen: { x: 38, y: 54, w: 30, h: 105, r: 90 },
-      grip: { x: 80, y: 247, w: 36, h: 5, r: 90 },
+      grip: { x: 80, y: 273, w: 36, h: 5, r: 90 },
       redo: { x: 58, y: 41, w: 31, h: 31, r: 0 },
       undo: { x: 16, y: 41, w: 31, h: 31, r: 0 },
     },
     swatches: [
-      { x: 58, y: 386, w: 30, h: 30, r: 0, c: "#53d669" },
-      { x: 18, y: 386, w: 30, h: 30, r: 0, c: "custom" },
-      { x: 58, y: 346, w: 30, h: 30, r: 0, c: "#157efa" },
-      { x: 18, y: 346, w: 30, h: 30, r: 0, c: "#fc3142" },
-      { x: 58, y: 305, w: 30, h: 30, r: 0, c: "#000000" },
-      { x: 18, y: 305, w: 30, h: 30, r: 0, c: "#fed031" },
+      { x: 58, y: 438, w: 30, h: 30, r: 0, c: "#53d669" },
+      { x: 18, y: 438, w: 30, h: 30, r: 0, c: "custom" },
+      { x: 58, y: 398, w: 30, h: 30, r: 0, c: "#157efa" },
+      { x: 18, y: 398, w: 30, h: 30, r: 0, c: "#fc3142" },
+      { x: 58, y: 357, w: 30, h: 30, r: 0, c: "#000000" },
+      { x: 18, y: 357, w: 30, h: 30, r: 0, c: "#fed031" },
     ],
   },
   vr: {
     W: 105,
-    H: 499,
+    H: 551,
     items: {
-      more: { x: 36, y: 443, w: 31, h: 31, r: 0 },
+      more: { x: 36, y: 495, w: 31, h: 31, r: 0 },
+      rulerToggle: { x: 37, y: 303, w: 31, h: 31, r: 0 },
       eraser: { x: 38, y: 212, w: 30, h: 105, r: 270 },
       pencil: { x: 38, y: 160, w: 30, h: 105, r: 270 },
       marker: { x: 38, y: 107, w: 30, h: 105, r: 270 },
       pen: { x: 38, y: 54, w: 30, h: 105, r: 270 },
-      grip: { x: -10, y: 247, w: 36, h: 5, r: 90 },
+      grip: { x: -10, y: 273, w: 36, h: 5, r: 90 },
       redo: { x: 58, y: 41, w: 31, h: 31, r: 0 },
       undo: { x: 16, y: 41, w: 31, h: 31, r: 0 },
     },
     swatches: [
-      { x: 58, y: 386, w: 30, h: 30, r: 0, c: "#53d669" },
-      { x: 18, y: 386, w: 30, h: 30, r: 0, c: "custom" },
-      { x: 58, y: 346, w: 30, h: 30, r: 0, c: "#157efa" },
-      { x: 18, y: 346, w: 30, h: 30, r: 0, c: "#fc3142" },
-      { x: 58, y: 305, w: 30, h: 30, r: 0, c: "#000000" },
-      { x: 18, y: 305, w: 30, h: 30, r: 0, c: "#fed031" },
+      { x: 58, y: 438, w: 30, h: 30, r: 0, c: "#53d669" },
+      { x: 18, y: 438, w: 30, h: 30, r: 0, c: "custom" },
+      { x: 58, y: 398, w: 30, h: 30, r: 0, c: "#157efa" },
+      { x: 18, y: 398, w: 30, h: 30, r: 0, c: "#fc3142" },
+      { x: 58, y: 357, w: 30, h: 30, r: 0, c: "#000000" },
+      { x: 18, y: 357, w: 30, h: 30, r: 0, c: "#fed031" },
     ],
   },
 };
@@ -216,7 +223,8 @@ function makeClass(Base) {
       for (const node of [this.ink, this.live, this.rulerEl]) node.remove();
       this.ink = this.live = document.createElement("canvas");
       this.inkCtx = this.liveCtx = this.ink.getContext("2d");
-      // 套索和直尺白板没有：从 DOM 里摘掉就行，对象要留着——
+      // 套索白板没有，尺子用白板自己的（见下面的尺子按钮）：vendor 的这两个按钮
+      // 从 DOM 里摘掉就行，对象要留着——
       // 它的 _renderUI 会遍历整份工具清单，删了会空指针
       for (const key of ["lasso", "ruler"]) {
         if (this.el[key]) this.el[key].remove();
@@ -225,6 +233,13 @@ function makeClass(Base) {
       for (const cfg of Object.values(this.tools)) {
         if (cfg && cfg.opacity !== undefined) cfg.opacity = 1;
       }
+      // 尺子：白板自己的图标按钮，位置由 _layoutBar 按 LAYOUT 里的 rulerToggle 摆
+      const ruler = iconButton("ruler", "尺子", () => this.toggleRuler(), "pk-el pk-ruler-btn");
+      ruler.type = "button";
+      ruler.setAttribute("aria-pressed", "false");
+      this.el.rulerToggle = ruler;
+      this.bar.append(ruler);
+      this.rulerShown = false;
       for (const [art, tool] of Object.entries(ART_TOOL)) {
         const button = this.el[art];
         if (!button) continue;
@@ -877,6 +892,20 @@ function makeClass(Base) {
       if (key === this._lastSync) return;
       this._lastSync = key;
       this.onChange(next);
+    }
+
+    /** 点尺子按钮：开或关，交给白板去显示（onRuler）。 */
+    toggleRuler() {
+      this.setRulerShown(!this.rulerShown);
+      if (this.onRuler) this.onRuler(this.rulerShown);
+    }
+
+    /** 尺子按钮的亮灭。 */
+    setRulerShown(shown) {
+      this.rulerShown = !!shown;
+      const button = this.el.rulerToggle;
+      button.classList.toggle("active", this.rulerShown);
+      button.setAttribute("aria-pressed", String(this.rulerShown));
     }
 
     /** 撤销 / 重做都交给白板的历史栈。 */

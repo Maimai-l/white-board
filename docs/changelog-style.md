@@ -122,6 +122,7 @@ The app interface is in Chinese. Entries refer to controls by these English name
 | 管理白板 | Manage boards (permission) |
 | 存储目录 | Storage directory |
 | 笔具盘 | Tool picker |
+| 尺子 | Ruler |
 | 更多 | More |
 | 自动最小化 | Auto-minimize |
 | 用手指绘图 | Draw with finger |

@@ -11,6 +11,8 @@ This file lists the notable changes to the board app and to inksync. The section
 ### Added
 
 - Settings: `update_channel` in the configuration file selects `alpha` test builds or `stable` releases.
+- iPad: The Ruler button in the tool picker shows a ruler. Two fingers move and rotate it, and the ruler shows its angle.
+- iPad: An Apple Pencil stroke started on the ruler or near its edge is drawn as a straight line along the edge. The line syncs; the ruler is not shown on the Mac.
 
 ### Changed
 

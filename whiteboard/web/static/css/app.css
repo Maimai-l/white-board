@@ -121,6 +121,46 @@ html, body {
 #stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #live { pointer-events: none; }
 
+/* ------------------------------------------------------------- 尺子
+ * iPad 上的尺子（js/ruler-view.js 画，笔具盘里的按钮开关）。尺子的样子全在这一节：
+ * 换外观只改这里和 ruler-view.js。尺身的厚度是判定范围的一部分，在
+ * inksync 的 ruler.js（RULER_WIDTH）里，由 js 写进行内样式。
+ * 现在是一版刻意朴素的样子，等设计稿定了再换。 */
+/* 纸面在深色模式下也是浅色的，尺子的颜色跟着纸走，不跟系统配色变 */
+.ruler {
+  --ruler-body: rgba(120, 120, 128, .24);
+  --ruler-edge: rgba(60, 60, 67, .55);
+  --ruler-text: #1c1c1e;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.ruler[hidden] { display: none; }
+.ruler-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* ruler-view.js 写的变换以尺子中心为原点，要从元素左上角算起 */
+  transform-origin: 0 0;
+  box-sizing: border-box;
+  background: var(--ruler-body);
+  border-top: 1px solid var(--ruler-edge);
+  border-bottom: 1px solid var(--ruler-edge);
+}
+.ruler-angle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font: 600 17px/1 -apple-system, "SF Pro Text", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--ruler-text);
+}
+/* 笔具盘里开关尺子的那个按钮（js/pkpicker.js 摆位置） */
+#pk-host .pk-ruler-btn { color: var(--pk-text, var(--on-surface)); }
+#pk-host .pk-ruler-btn.active { background: var(--primary-container); color: var(--on-primary-container); }
+
 #ui { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
 #ui > * { pointer-events: auto; }
 

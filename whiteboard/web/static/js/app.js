@@ -7,6 +7,8 @@ import { InkPad, deviceClientId } from "/inksync/pad.js";
 import { penAltitude } from "/inksync/input.js";
 import { Recorder, mountRecorderPanel } from "./recorder.js";
 import { Renderer } from "/inksync/renderer.js";
+import { Ruler } from "/inksync/ruler.js";
+import { RulerView } from "./ruler-view.js";
 import { UI } from "./ui.js";
 import {
   buildPath,
@@ -177,6 +179,20 @@ class App extends InkPad {
       if (this.role === "mac") uploadThumb(this.state, this.state.id);
     });
     if (this.role === "mac") this.bindDrop();
+  }
+
+  /**
+   * 显示或收起尺子。第一次打开时才建：Mac 和别的设备没有尺子按钮，永远走不到这里。
+   * 尺子只在本机，不同步，也不记住（重新载入页面就收起）。
+   */
+  showRuler(shown) {
+    if (!this.ruler) {
+      if (!shown) return;
+      this.ruler = new Ruler();
+      this.rulerView = new RulerView(this.input.stage, this.ruler);
+      this.input.setRuler(this.ruler);
+    }
+    this.ruler.show(shown);
   }
 
   /** 版本号这类只有本地进程知道的信息，取回来给设置界面用。 */
@@ -381,6 +397,7 @@ class App extends InkPad {
         saveFingerDraw(enabled);
       },
       onToolChange: (tool) => this.setTool(tool),
+      onRuler: (shown) => this.showRuler(shown),
       onUndo: () => this.undo(),
       onRedo: () => this.redo(),
       onClear: () => this.clearBoard(),
