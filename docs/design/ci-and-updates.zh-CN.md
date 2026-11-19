@@ -79,6 +79,8 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 - 并发：同一个分支上新的推送会取消正在跑的那次（`cancel-in-progress`），tag 除外。发布到 Pages 的步骤用一个独立的并发组排队，不取消。
 - 缓存：Python 依赖用 `setup-python` 的 pip 缓存；Playwright 浏览器按版本缓存。测试依赖写在 `requirements-test.txt`，本地和 CI 用同一份。
 - 共用的安装步骤放在 `.github/actions/setup-python-deps`，每个 job 只写自己跑什么。
+- 每个 job 都有 `timeout-minutes`：卡住的 job 最多占几十分钟，而不是默认的 6 小时。
+- 浏览器 job（e2e、webkit）固定在 `ubuntu-24.04`：`ubuntu-latest` 已是 26.04，第一次运行时在上面装 WebKit 依赖卡住了。
 
 ### 2.4 结果要能直接看
 
