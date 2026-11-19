@@ -175,11 +175,14 @@ def test_dragging_a_page_frame_changes_what_the_page_shows(browser, server):
     assert mac.locator(".export-dialog").is_hidden()
     assert mac.locator('.export-bar button:has-text("完成")').is_visible()
     box = frame.bounding_box()
-    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    # 按住页框靠左边的地方往右拖一个多页框宽：页框整个越过墨迹，鼠标还在窗口里松开
+    x, y = box["x"] + 20, box["y"] + box["height"] / 2
+    end = x + box["width"] * 1.05
+    assert end < mac.viewport_size["width"]
     mac.mouse.move(x, y)
     mac.mouse.down()
     for step in range(1, 11):
-        mac.mouse.move(x + step * box["width"] * 0.12, y)
+        mac.mouse.move(x + (end - x) * step / 10, y)
     mac.mouse.up()
     # 拖的是页框，不是白板，也没落笔
     assert mac.evaluate("() => whiteboard.state.strokes.length") == 3
@@ -189,6 +192,30 @@ def test_dragging_a_page_frame_changes_what_the_page_shows(browser, server):
     _, after = download(mac, "导出 PDF")
     assert pdf_pages(after) == 1
     assert dark_pixels(after) == 0
+
+
+def test_a_frame_released_outside_the_window_stops_following_the_mouse(browser, server):
+    """在窗口外松开鼠标：页面收不到松开，回到窗口时鼠标键已经松了，页框不能再跟着鼠标走。"""
+    mac = board_with_groups(browser, server, [(550, 400)])
+    open_dialog(mac, 1)
+    mac.click('.export-paging button:has-text("调整")')
+    frame = mac.locator(".export-frame").first
+    frame.wait_for()
+    box = frame.bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    mac.mouse.move(x, y)
+    mac.mouse.down()
+    mac.mouse.move(x + 200, y)
+    dragged = frame.bounding_box()
+    assert dragged["x"] == pytest.approx(box["x"] + 200, abs=1)
+    # 松开发生在窗口外，页面只看到下一次移动：位置回到窗口里，按键已经是松开的
+    cdp = mac.context.new_cdp_session(mac)
+    cdp.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y + 150, "button": "none", "buttons": 0})
+    mac.wait_for_function("() => new Promise((done) => requestAnimationFrame(() => done(true)))")
+    assert frame.bounding_box() == dragged
+    mac.mouse.up()
+    mac.mouse.move(x - 300, y)
+    assert frame.bounding_box() == dragged
 
 
 def test_adjust_view_adds_and_deletes_pages(browser, server):

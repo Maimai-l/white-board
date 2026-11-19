@@ -610,6 +610,11 @@ class AdjustView {
     const [x0, y0] = this.host.toWorld(event.clientX, event.clientY);
     const move = (moveEvent) => {
       if (moveEvent.pointerId !== event.pointerId) return;
+      // 在窗口外松开时页面收不到 pointerup，回到窗口的第一下移动按键已经松了：就此结束
+      if (moveEvent.buttons === 0) {
+        end();
+        return;
+      }
       const [wx, wy] = this.host.toWorld(moveEvent.clientX, moveEvent.clientY);
       let next;
       if (mode === "move") next = { ...start, x: start.x + wx - x0, y: start.y + wy - y0 };
@@ -620,14 +625,18 @@ class AdjustView {
       this.changed = true;
       this.layout();
     };
-    const up = (upEvent) => {
-      if (upEvent.pointerId !== event.pointerId) return;
+    const end = () => {
       removeEventListener("pointermove", move);
       removeEventListener("pointerup", up);
       removeEventListener("pointercancel", up);
+      target.removeEventListener("lostpointercapture", up);
+    };
+    const up = (upEvent) => {
+      if (upEvent.pointerId === event.pointerId) end();
     };
     addEventListener("pointermove", move);
     addEventListener("pointerup", up);
     addEventListener("pointercancel", up);
+    target.addEventListener("lostpointercapture", up);
   }
 }
