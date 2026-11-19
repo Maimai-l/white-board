@@ -89,6 +89,7 @@ jobs:
     # ubuntu-latest 已经是 26.04：在上面装 WebKit 的系统依赖卡了 17 分钟以上，apt 也慢。
     # 浏览器 job 固定在 Playwright 支持、以前一直在用的 24.04
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-python-deps
