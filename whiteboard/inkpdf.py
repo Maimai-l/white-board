@@ -511,4 +511,6 @@ def page_matrix(rotation: int, box) -> Tuple[List[float], float, float]:
 
 
 def flate(data: bytes) -> bytes:
-    return zlib.compress(data, 9)
+    # 级别 6 而不是 9：笔迹内容流重复很多，9 级要慢十倍，只小 1～2%
+    # （一万笔的内容流 16 MB，6 级 0.46 s / 1884 KB，9 级 4.4 s / 1858 KB）
+    return zlib.compress(data, 6)

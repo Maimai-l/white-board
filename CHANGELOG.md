@@ -16,6 +16,7 @@ This file lists the notable changes to the board app and to inksync. The section
 
 - Updates: The Mac app checks for updates with Sparkle and downloads only the changed parts of the app when updating from one of the three previous versions.
 - Updates: The Check for updates button opens the update window, which shows the result and the release notes.
+- Export: Exporting a document board with many strokes takes about one third of the previous time.
 
 ## 1.2.0 (2026-10-22)
 

@@ -488,7 +488,7 @@ PDF export appends the ink to each page as a new content stream and leaves the o
 | Coordinates | Rounded to 1/4 pt integers and scaled back with `cm`. |
 | Opacity | `/ExtGState` entries `/WBa<percent>` with `ca` and `CA`. |
 | Page contents | `/Contents` becomes an array: `q`, original streams, `Q`, ink stream. |
-| Compression | Ink stream compressed with Flate (zlib level 9). |
+| Compression | Ink stream compressed with Flate (zlib level 6). |
 | Rewrite | Each export writes a new file from the original with `PdfWriter(clone_from=...)`, which keeps only reachable objects. |
 
 Measured size: 300–450 bytes per stroke. Exporting the same board repeatedly gives the same size, because the original is never modified. Code: `whiteboard/inkpdf.py`, `whiteboard/docs.py`.
