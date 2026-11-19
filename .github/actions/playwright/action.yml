@@ -29,3 +29,6 @@ runs:
         docker exec playwright sh -c "python3 -m venv /venv || python3 -m virtualenv /venv"
         docker exec playwright /venv/bin/python -m pip install --quiet -r requirements-test.txt
         docker exec playwright /venv/bin/python -m playwright --version
+        # 检出目录属于机器上的 runner 用户，容器里是 root：不加这一行 git 会拒绝读这个仓库，
+        # 「关于」里从源码运行时显示的分支和提交就取不到（test_the_version_survives_switching_boards）
+        docker exec playwright git config --global --add safe.directory "$PWD"
