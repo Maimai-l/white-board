@@ -93,6 +93,10 @@ Copy `examples/apps/demo/` into `apps/` in the storage directory first.
 - [ ] One finger pans and two fingers zoom. With finger drawing turned on, one finger draws.
 - [ ] Shape recognition (“形状识别” in the tool picker's More menu): draw a slightly curved line with the Pencil and keep the tip still. After about half a second, with the Pencil still down, the line snaps straight on both devices; moving the Pencil then moves the end. One undo brings back the handwriting on both devices. A short hesitation, handwriting that ends with a pause (a letter, a curve), and the switch turned off leave the stroke as written. On failure, send an input recording of the stroke (docs/recording.md) and say whether it snapped too early, too late or not at all.
 - [ ] Pixel eraser: the eraser is narrow with the Pencil upright and wider with the Pencil tilted flat. Tilting the Pencil during one drag changes the width gradually, without lifting.
+- [ ] Ruler: tap the ruler button in the tool picker. Two fingers on the ruler move and rotate it while the board stays still, and the angle follows the fingers. Two fingers away from the ruler still pan and zoom the board.
+- [ ] Ruler: hold the ruler with one hand and draw along its edge with the Pencil. The line is straight and lies on the edge, also when the board is zoomed in; strokes started a few centimetres away from the ruler are not pulled to it. The Mac shows the line but no ruler.
+
+If a ruler item fails, send a screen recording of the iPad and say whether the page ran in the iPad shell or from the Home Screen icon.
 
 ### Sync
 

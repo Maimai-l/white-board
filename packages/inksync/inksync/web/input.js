@@ -4,15 +4,19 @@
 //   * 默认只有 Apple Pencil 能画线，手指一律是平移 / 缩放，手掌搭上去也不会留痕；
 //     没有 Pencil 的人可以在工具栏上打开「手指书写」，此时单指画线、双指手势，
 //     第二根手指落下会撤掉刚起笔的那一下；
-//   * 鼠标左键书写，中键 / 右键 / 空格拖动画布，滚轮平移，⌘ / Ctrl + 滚轮缩放。
+//   * 鼠标左键书写，中键 / 右键 / 空格拖动画布，滚轮平移，⌘ / Ctrl + 滚轮缩放；
+//   * 尺子显示着时，落在尺身上的手指拖的是尺子，从尺边附近起的笔画贴着尺边
+//     （input-ruler.js）。
 //
 // 所有笔迹先落在本地画布上，再通过网络发出去，本地书写不等待任何回包。
 
 import { clearStrokeCache, TOOLS, pressureForFactor } from "./stroke.js";
 import { clamp, isTextField } from "./util.js";
+import { projectOntoLine } from "./ruler.js";
 import { installShellFallback } from "./shell-fallback.js";
 import { installErase } from "./input-erase.js";
 import { installGesture } from "./input-gesture.js";
+import { installRuler } from "./input-ruler.js";
 import { PAUSE_MS, PauseTracker, isLine, straighten, thinPoints } from "./shape.js";
 
 // Pencil 落笔期间以及抬笔后的这段时间里，手指 / 手掌一律不参与任何操作。
@@ -208,6 +212,9 @@ export class InputController {
     this.draw = null;
     this.erase = null;
     this.gesture = null;
+    // 尺子（ruler.js）：没接或者收起来时一切照旧；拖尺子的手指记在 rulerGrab 里
+    this.ruler = options.ruler || null;
+    this.rulerGrab = null;
     this.liveRef = null;
     this.spaceHeld = false;
     this.fingerDraw = !!options.fingerDraw;
@@ -445,12 +452,18 @@ export class InputController {
 
     let role = this.classify(event);
     if (role === "ignore") return;
+    // 尺子显示着时，落在尺身上的手指拖的是尺子（规则见 input-ruler.js）
+    role = this.routeRulerTouch(event, role);
     // 笔记模式：纸张之外不落笔，改成拖动画布。
     if (role === "draw" && !this.withinLimits(event)) role = "gesture";
 
     this.capture(event.pointerId, true);
     this.pointers.set(event.pointerId, { type: event.pointerType, role });
 
+    if (role === "ruler") {
+      this.startRulerPointer(event);
+      return;
+    }
     if (role === "draw") {
       const tool = this.getTool();
       if (tool.tool === "eraser") this.startErase(event);
@@ -502,6 +515,10 @@ export class InputController {
     if (entry.role === "draw") {
       if (this.erase) this.moveErase(event);
       else if (this.draw) this.moveDraw(event);
+      return;
+    }
+    if (entry.role === "ruler") {
+      this.moveRulerPointer(event);
       return;
     }
     this.moveGesture(event);
@@ -557,6 +574,10 @@ export class InputController {
       // 取消不补最后一段：那一下不是用户抬的笔，位置不代表他想擦到哪
       if (this.erase) this.endErase(canceled ? null : event);
       else if (this.draw) this.endDraw(event, canceled);
+      return;
+    }
+    if (entry.role === "ruler") {
+      this.endRulerPointer(event.pointerId);
       return;
     }
     this.endGesturePointer(event.pointerId);
@@ -732,7 +753,7 @@ export class InputController {
     let sp = draw.sp;
     for (const sample of samples) {
       const event = shellEvent(sample, pred.id, "move");
-      let [wx, wy] = this.toWorld(event);
+      let [wx, wy] = this.snapToRuler(this.toWorld(event));
       if (draw.limits) {
         wx = clamp(wx, draw.limits.x0, draw.limits.x1);
         if (wy < draw.limits.y0) wy = draw.limits.y0;
@@ -890,7 +911,10 @@ export class InputController {
   }
 
   startDraw(event, tool) {
-    const [wx, wy] = this.toWorld(event);
+    // 从尺边附近起笔：整笔都画在尺边上（见 input-ruler.js）
+    const snap = this.rulerSnap(event);
+    let [wx, wy] = this.toWorld(event);
+    if (snap) [wx, wy] = projectOntoLine(snap, wx, wy);
     const scale = (TOOLS[tool.tool] || TOOLS.pen).scale;
     const stroke = {
       id: this.newStrokeId(),
@@ -916,6 +940,8 @@ export class InputController {
       lastTime: event.timeStamp,
       lastScreen: this.toScreen(event),
       shell: !!event.fromShell,
+      // 贴着尺边的话是尺边在白板坐标里的直线，这一笔的每个点都投影上去
+      snap,
       // 形状识别：笔尖停在哪、从什么时候起停在那里（见 notePause）。wall 是同一个
       // 锚点按 performance.now() 记的时刻，笔停住不发事件时由每帧的 flushLive 判断
       pause: new PauseTracker(),
@@ -1023,11 +1049,11 @@ export class InputController {
     if (events && events.length) {
       this.stats.coalesced = events.length;
       for (const sample of events) {
-        const [wx, wy] = this.toWorld(sample);
+        const [wx, wy] = this.snapToRuler(this.toWorld(sample));
         this.addSample(sample, wx, wy);
       }
     } else {
-      const [wx, wy] = this.toWorld(event);
+      const [wx, wy] = this.snapToRuler(this.toWorld(event));
       this.addSample(event, wx, wy);
     }
   }
@@ -1038,7 +1064,7 @@ export class InputController {
     if (!canceled) {
       // 停住之后抬笔：抬笔那一下的时间戳减去笔停下的时刻，够半秒就变直
       if (this.shapeLines && !draw.straight) this.notePause(draw, ...this.toScreen(event), event.timeStamp);
-      let [wx, wy] = this.toWorld(event);
+      let [wx, wy] = this.snapToRuler(this.toWorld(event));
       if (draw.limits) {
         wx = clamp(wx, draw.limits.x0, draw.limits.x1);
         if (wy < draw.limits.y0) wy = draw.limits.y0;
@@ -1116,6 +1142,7 @@ export class InputController {
 // shellStalled / shellFallback）单独放在 shell-fallback.js 里，见那边的说明。
 installShellFallback(InputController.prototype, { SHELL_BRIDGE, penAltitude });
 
-// 擦除、平移缩放两部分各放一个文件，方法装回 InputController 上。
+// 擦除、平移缩放、尺子各放一个文件，方法装回 InputController 上。
 installErase(InputController.prototype, { penAltitude });
 installGesture(InputController.prototype);
+installRuler(InputController.prototype);

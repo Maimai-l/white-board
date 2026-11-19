@@ -299,6 +299,8 @@ export class UI {
       pk.onRedo = () => this.actions.onRedo();
       pk.allowClear = this.may("clear");
       pk.onClear = () => this.confirmClear();
+      // 尺子只在笔具盘里有，也就是只在 iPad 上有（见 isIPad）
+      pk.onRuler = (shown) => this.actions.onRuler(shown);
       pk.applyState({
         tool: this.tool.tool,
         color: this.ink.color,
