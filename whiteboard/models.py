@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from inksync.models import *  # noqa: F401,F403 - 白板应用和测试沿用 whiteboard.models 这个名字
 from inksync.models import (  # noqa: F401
     DOC_PAGE_GAP,
+    MAX_NAME,
     NOTE_WIDTH,
     _ID_RE,
     is_number,
@@ -155,6 +156,29 @@ def spec_for_kind(kind: str) -> Dict[str, Any]:
     if kind == "note":
         return {"canvas": {"mode": "column", "width": NOTE_WIDTH}}
     return {"canvas": {"mode": "infinite"}}
+
+
+# 没起名的白板在界面上显示的名字（与 static/js/ui-common.js 的 boardLabel 相同）
+KIND_NAMES = {"board": "白板", "note": "笔记", "doc": "文档"}
+COPY_SUFFIX = " 副本"
+
+
+def display_name(meta: Dict[str, Any]) -> str:
+    """界面上显示的名字：起了名就是名字；文档板退回原件的文件名（去掉扩展名）；
+    否则按类型叫「白板」「笔记」「文档」。"""
+    name = meta.get("name") if isinstance(meta, dict) else ""
+    if isinstance(name, str) and name:
+        return name
+    doc = doc_of(meta)
+    if doc is not None and doc["name"]:
+        dot = doc["name"].rfind(".")
+        return doc["name"][:dot] if dot > 0 else doc["name"]
+    return KIND_NAMES[kind_of(meta)]
+
+
+def copy_name(meta: Dict[str, Any]) -> str:
+    """复制出来的白板的名字：显示的名字加「 副本」，总长不超过名字的上限。"""
+    return display_name(meta)[: MAX_NAME - len(COPY_SUFFIX)].rstrip() + COPY_SUFFIX
 
 
 def to_v1(meta: Dict[str, Any]) -> Dict[str, Any]:

@@ -321,6 +321,8 @@ The first icon in the top-right group (白板) opens the board chooser: full-scr
 - Boards created inside a folder stay in that folder. A PDF or image dropped onto the window, or opened from Finder, goes into the folder the board chooser shows; with the chooser closed, it goes into the current board's folder.
 - Deleting a folder does not delete its boards; they move out of it. Boards in the trash keep the folder's name and go back into a recreated folder when restored.
 
+**Duplicating** a board makes a copy with the same ink, background and folder, right after the original. Its name is the original's name followed by 「副本」; a document board is copied with its original file. The current board does not change.
+
 **Trash.** Deleting a board moves it to the trash. A board in the trash can be restored or deleted permanently; boards in the trash for more than 30 days are deleted permanently when the app starts and once an hour while it runs. A board in the trash is never the current board: deleting the current board switches every device to the first board not in the trash, or to a new blank board. Opening a `.wbz` file of a board in the trash from Finder restores it.
 
 ### Documents (PDF and images)

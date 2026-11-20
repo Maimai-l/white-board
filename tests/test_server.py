@@ -1132,6 +1132,37 @@ def test_restore_purge_and_empty_the_trash_over_the_socket(tmp_path):
     run(main())
 
 
+def test_duplicate_over_the_socket_keeps_the_current_board(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            current = hub.current_id
+            mac = await client.ws_connect("/ws")
+            ipad = await client.ws_connect("/ws")
+            await hello_v2(mac, "mac-1")
+            await hello_v2(ipad, "ipad-1", device="ipad")
+            await mac.send_json({"t": "op", "cid": "s", "op": {"op": "add", "strokes": [stroke("s1")]}})
+            await receive_kind(mac, "ack")
+            await mac.send_json({"t": "rename", "board": current, "name": "第一章"})
+            await receive_kind(mac, "boards")
+            await receive_kind(ipad, "boards")
+
+            await mac.send_json({"t": "duplicate", "board": current})
+            listed = await receive_kind(mac, "boards")
+            assert listed["board"]["id"] == current
+            ids = [m["id"] for m in listed["boards"]]
+            assert ids[0] == current and len(ids) == 2
+            copy = listed["boards"][1]
+            assert copy["name"] == "第一章 副本"
+            assert (await receive_kind(ipad, "boards"))["board"]["id"] == current
+            assert hub.current_id == current
+            assert [s["id"] for s in await hub.strokes_of(copy["id"])] == ["s1"]
+            await mac.close()
+            await ipad.close()
+
+    run(main())
+
+
 def test_a_device_without_manage_cannot_use_the_trash_or_duplicate(tmp_path, remote):
     async def main():
         async with make_client(tmp_path) as (client, app):

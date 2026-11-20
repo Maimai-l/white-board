@@ -10,6 +10,7 @@ This file lists the notable changes to the board app and to inksync. The section
 
 ### Added
 
+- Boards: A board can be duplicated. The copy has the same ink, background and folder and is placed after the original; a document board is copied with its original file.
 - Export: The export button opens an export dialog that exports the selected pages as a PDF, one PNG file or a ZIP of PNG files.
 - Export: Infinite boards are divided into pages automatically from top to bottom. Each page is as wide as the writing in that part of the board. Note boards are cut by paper length. See README.md.
 - Export: Page frames can be moved, resized, added and deleted on the board before exporting.

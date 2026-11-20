@@ -237,6 +237,7 @@ Client to server (all need `manage`; a message without permission or without eff
 | `sel` | `board` | Makes `board` the current board; every following connection receives `switch`. Ignored if the board does not exist, is already current or is in the trash. A read-only board is read from disk again. |
 | `newboard` | `kind`, `folder` (optional) | Creates a board (a column canvas when `kind` is `note`, an infinite canvas otherwise), makes it current and sends `switch`. If `folder` names an existing folder, the new board goes into it. Document boards are created with `POST /api/doc`. |
 | `delboard` | `board` | Moves the board to the trash: sets `data.trashed` to the current time. Nothing is deleted. If it was the current board, the first board in order that is not in the trash becomes current (a new empty board is created if there is none) and `switch` is sent; otherwise `boards` is sent. Ignored for a board already in the trash. |
+| `duplicate` | `board` | Copies the board: a new ID with the same strokes, background, canvas and folder, placed right after the original. The name is the original's displayed name plus ` 副本` (an unnamed board is displayed as `白板`, `笔记` or the document's file name without extension, as `boardLabel` in the client). A document board's original and thumbnail are copied too. The current board does not change. Sends `boards`. Ignored for a board in the trash, the sketch board and a read-only board. |
 | `restore` | `board` | Takes the board out of the trash (removes `data.trashed`) and sends `boards`. The board keeps its folder; if that folder is no longer in the folder list, it is added again. The current board does not change. Ignored for a board not in the trash. |
 | `purge` | `board` | Deletes a board in the trash permanently: the board file, its thumbnail and its document original. Sends `boards`. Ignored for a board not in the trash. |
 | `emptytrash` | — | Deletes every board in the trash permanently, as `purge`. Sends `boards`. Ignored when the trash is empty. |
@@ -402,7 +403,7 @@ The whiteboard app maps four permissions onto this policy (user space):
 
 | Permission | Interface label | Allows |
 | --- | --- | --- |
-| `manage` | “管理白板” (Manage boards) | Opening boards other than the current one; the extension messages `sel`, `newboard`, `delboard`, `restore`, `purge`, `emptytrash`, `rename`, `folder`, `order`, `newfolder`, `delfolder`, `renamefolder`; `unlock`; `GET /api/info`, `GET /api/boards`, `GET /api/spaces/{app}/boards`, `GET`/`POST /api/thumb/{board}`, `POST /api/doc` |
+| `manage` | “管理白板” (Manage boards) | Opening boards other than the current one; the extension messages `sel`, `newboard`, `delboard`, `duplicate`, `restore`, `purge`, `emptytrash`, `rename`, `folder`, `order`, `newfolder`, `delfolder`, `renamefolder`; `unlock`; `GET /api/info`, `GET /api/boards`, `GET /api/spaces/{app}/boards`, `GET`/`POST /api/thumb/{board}`, `POST /api/doc` |
 | `settings` | “设置白板” (Board settings) | `meta` operation |
 | `clear` | “清空白板” (Clear board) | `clear` operation |
 | `export` | “导出白板” (Export board) | `GET`/`POST /api/export/{board}`, `GET /api/export/{board}/pages` |

@@ -5,6 +5,8 @@
 * **白板列表、文件夹、排序**：``boards`` 消息，以及 ``sel``、``newboard``、``delboard``、
   ``rename``、``folder``、``order``、``newfolder``、``delfolder``、``renamefolder``
   这些扩展消息（docs/protocol.md「白板管理」）。
+* **复制**：``duplicate`` 复制一块白板（笔画、背景、画布、文件夹，文档板连同原件），
+  排在原来那块后面，不换当前白板。
 * **回收站**：``delboard`` 把白板移进回收站（``meta.data.trashed`` 记下时间），
   ``restore``、``purge``、``emptytrash`` 恢复或彻底删除；在回收站里超过
   ``TRASH_TTL`` 的白板由后台任务彻底删除（``start_maintenance``）。回收站里的白板
@@ -116,6 +118,7 @@ class Hub:
             ("newfolder", self._on_new_folder),
             ("delfolder", self._on_delete_folder),
             ("renamefolder", self._on_rename_folder),
+            ("duplicate", self._on_duplicate),
             ("restore", self._on_restore),
             ("purge", self._on_purge),
             ("emptytrash", self._on_empty_trash),
@@ -386,6 +389,41 @@ class Hub:
         self.store.forget_board(board_id)
         return True
 
+    async def duplicate_board(self, board_id: str) -> Optional[Dict[str, Any]]:
+        """复制一块白板（不广播，不换当前白板），返回新白板的元数据。
+
+        新白板有新的 id，笔画、背景、画布、文件夹都一样，名字是原来显示的名字加
+        「 副本」；文档板连同原件和缩略图一起复制。新白板直接写成文件，不载入内存，
+        排在原来那块后面。速写板、回收站里的、读不全（只读）的白板不复制，返回 None。"""
+        if self.core.is_transient(board_id) or not self.core.exists(board_id) or self.is_trashed(board_id):
+            return None
+        runtime = await self.core.load(board_id)
+        if runtime is None:
+            return None
+        if runtime.locked:
+            log.warning("hub.duplicate_board：白板 %s 没有读全，不复制", board_id)
+            return None
+        source = self.core.board_meta(board_id) or runtime.meta
+        strokes = [dict(s) for s in runtime.stroke_list()]
+        new_id = models.new_id()
+        stamp = models.now()
+        data = {k: v for k, v in (source.get("data") or {}).items() if k != "trashed"}
+        meta = dict(source, id=new_id, name=models.copy_name(source), created=stamp, updated=stamp, data=data)
+        doc = models.doc_of(source)
+        if doc is not None:
+            meta["layers"] = models.doc_layers(new_id, doc)
+        meta = models.sanitize_meta(meta, self.core.policy.allow_src)
+        storage = self.store.core
+        mtime = await asyncio.to_thread(storage.write_file, meta, strokes)
+        storage.put_meta(meta, mtime)
+        try:
+            self.store.copy_files(board_id, new_id)
+        except OSError as exc:
+            log.error("hub.duplicate_board：复制白板 %s 的缩略图或原件失败：%s", board_id, exc)
+        self.store.put_after(new_id, board_id)
+        log.info("复制白板 %s 为 %s（%d 笔）", board_id, new_id, len(strokes))
+        return self.core.board_meta(new_id) or meta
+
     # ------------------------------------------------------------ 回收站
 
     async def trash_board(self, board_id: str) -> bool:
@@ -529,6 +567,11 @@ class Hub:
         previous = self.current_id
         if self._may(conn, "manage") and isinstance(board_id, str) and await self.trash_board(board_id):
             await self.announce(previous)
+
+    async def _on_duplicate(self, conn: Conn, msg: Dict[str, Any]) -> None:
+        board_id = msg.get("board")
+        if self._may(conn, "manage") and isinstance(board_id, str) and await self.duplicate_board(board_id):
+            await self.broadcast_boards()
 
     async def _on_restore(self, conn: Conn, msg: Dict[str, Any]) -> None:
         board_id = msg.get("board")

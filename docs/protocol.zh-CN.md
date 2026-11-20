@@ -237,6 +237,7 @@ WebSocket 握手请求先检查来源，不符合的返回 403、不建立连接
 | `sel` | `board` | 将 `board` 设为当前白板，所有跟随的连接收到 `switch`。白板不存在、已是当前白板或在回收站中时忽略。只读白板会从磁盘重新读取。 |
 | `newboard` | `kind`、`folder`（可选） | 新建白板（`kind` 为 `note` 时是 column 画布，其他值为无限画布）并设为当前白板，发送 `switch`。`folder` 为已有文件夹时，新白板放入该文件夹。文档板通过 `POST /api/doc` 新建。 |
 | `delboard` | `board` | 将白板移入回收站：把 `data.trashed` 设为当前时间，不删除任何文件。若它是当前白板，按顺序第一块不在回收站中的白板成为当前白板（没有则新建一块空白板）并发送 `switch`；否则发送 `boards`。已在回收站中的白板忽略。 |
+| `duplicate` | `board` | 复制白板：新的 id，笔画、背景、画布和文件夹都相同，排在原白板之后。名字是原白板显示的名字加 ` 副本`（未命名的白板显示为 `白板`、`笔记`，或去掉扩展名的文档文件名，与客户端的 `boardLabel` 相同）。文档板的原件和缩略图一并复制。当前白板不变。发送 `boards`。回收站中的白板、速写板和只读白板忽略。 |
 | `restore` | `board` | 将白板移出回收站（删除 `data.trashed`），发送 `boards`。白板保留原来的文件夹；该文件夹已不在文件夹名单中时重新加入。当前白板不变。不在回收站中的白板忽略。 |
 | `purge` | `board` | 彻底删除回收站中的一块白板：白板文件、缩略图和文档原件。发送 `boards`。不在回收站中的白板忽略。 |
 | `emptytrash` | — | 彻底删除回收站中的全部白板，同 `purge`。发送 `boards`。回收站为空时忽略。 |
@@ -402,7 +403,7 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 
 | 权限 | 界面名称 | 允许的动作 |
 | --- | --- | --- |
-| `manage` | 「管理白板」 | 打开当前白板以外的白板；扩展消息 `sel`、`newboard`、`delboard`、`restore`、`purge`、`emptytrash`、`rename`、`folder`、`order`、`newfolder`、`delfolder`、`renamefolder`；`unlock`；`GET /api/info`、`GET /api/boards`、`GET /api/spaces/{应用}/boards`、`GET`/`POST /api/thumb/{board}`、`POST /api/doc` |
+| `manage` | 「管理白板」 | 打开当前白板以外的白板；扩展消息 `sel`、`newboard`、`delboard`、`duplicate`、`restore`、`purge`、`emptytrash`、`rename`、`folder`、`order`、`newfolder`、`delfolder`、`renamefolder`；`unlock`；`GET /api/info`、`GET /api/boards`、`GET /api/spaces/{应用}/boards`、`GET`/`POST /api/thumb/{board}`、`POST /api/doc` |
 | `settings` | 「设置白板」 | `meta` 操作 |
 | `clear` | 「清空白板」 | `clear` 操作 |
 | `export` | 「导出白板」 | `GET`/`POST /api/export/{board}`、`GET /api/export/{board}/pages` |

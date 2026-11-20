@@ -385,3 +385,76 @@ def test_expired_trash_is_purged_at_start_and_then_periodically(tmp_path):
 
 
 # ------------------------------------------------------------ 复制
+
+
+def test_duplicating_a_board_copies_its_ink_and_settings(tmp_path):
+    async def main():
+        store = BoardStore(tmp_path)
+        hub = Hub(store)
+        original = hub.current_id
+        apply(hub.board(original), {"op": "add", "strokes": [stroke("a"), stroke("b")]})
+        await hub.core.edit_meta(original, {"name": "线性代数", "background": {"pattern": "dots"}})
+        await hub.move_board(original, "数学")
+        other = store.create_board(make_current=False)["id"]
+        assert [m["id"] for m in store.list_metas()] == [other, original]
+
+        copy = await hub.duplicate_board(original)
+        assert copy is not None and copy["id"] != original
+        assert copy["name"] == "线性代数 副本"
+        assert models.folder_of(copy) == "数学"
+        assert copy["background"]["pattern"] == "dots"
+        assert copy["canvas"] == hub.board(original).meta["canvas"]
+        assert hub.current_id == original  # 复制不换当前白板
+        assert [m["id"] for m in store.list_metas()] == [other, original, copy["id"]]
+        assert [s["id"] for s in await hub.strokes_of(copy["id"])] == ["a", "b"]
+        hub.save_all()
+        assert [s["id"] for s in BoardStore(tmp_path).load_board(copy["id"])[1]] == ["a", "b"]
+
+    run(main())
+
+
+def test_a_copy_of_an_unnamed_board_is_named_after_its_kind(tmp_path):
+    async def main():
+        hub = Hub(BoardStore(tmp_path))
+        board = hub.current_id
+        note = (await hub.create_board("note"))["id"]
+        assert (await hub.duplicate_board(board))["name"] == "白板 副本"
+        copy = await hub.duplicate_board(note)
+        assert copy["name"] == "笔记 副本"
+        assert models.kind_of(copy) == "note"
+
+    run(main())
+
+
+def test_a_trashed_board_cannot_be_duplicated(tmp_path):
+    async def main():
+        hub = Hub(BoardStore(tmp_path))
+        board = hub.current_id
+        await hub.trash_board(board)
+        count = len(hub.store.list_metas())
+        assert await hub.duplicate_board(board) is None
+        assert await hub.duplicate_board("ghost") is None
+        assert len(hub.store.list_metas()) == count
+
+    run(main())
+
+
+def test_duplicating_a_document_board_copies_the_original_and_thumbnail(tmp_path):
+    Image = pytest.importorskip("PIL.Image")
+    buffer = io.BytesIO()
+    Image.new("RGB", (400, 300), (200, 200, 200)).save(buffer, "PNG")
+
+    async def main():
+        store = BoardStore(tmp_path)
+        hub = Hub(store)
+        doc = store.import_doc(buffer.getvalue(), "讲义.png")
+        store.save_thumb(doc["id"], b"\x89PNG\r\n\x1a\nthumb")
+
+        copy = await hub.duplicate_board(doc["id"])
+        assert copy["name"] == "讲义 副本"
+        assert models.doc_of(copy) == models.doc_of(doc)
+        assert store.doc_path(copy["id"]).read_bytes() == store.doc_path(doc["id"]).read_bytes()
+        assert store.thumb_path(copy["id"]).read_bytes() == b"\x89PNG\r\n\x1a\nthumb"
+        assert all(layer["src"].startswith(f"/api/doc/{copy['id']}/") for layer in copy["layers"])
+
+    run(main())

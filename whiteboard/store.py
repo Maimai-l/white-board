@@ -235,6 +235,14 @@ class BoardStore:
         order = [b for b in self.order() if b != board_id]
         self.kv.set("order", [board_id] + order)
 
+    def put_after(self, board_id: str, after: str) -> None:
+        """把 ``board_id`` 排在 ``after`` 后面（复制出来的白板紧挨着原来那块）。
+        ``after`` 不存在时排在最前面。"""
+        order = [m["id"] for m in self.list_metas() if m["id"] != board_id]
+        position = order.index(after) + 1 if after in order else 0
+        order.insert(position, board_id)
+        self.kv.set("order", order)
+
     def edit_meta(self, board_id: str, **changes: Any) -> bool:
         """改一块没有载入内存的白板的元数据：同时改索引和白板文件。
 
@@ -406,6 +414,19 @@ class BoardStore:
         self.core.put_meta(meta, self.core.write_file(meta, []))
         self.put_front(meta["id"])
         return meta
+
+    def copy_files(self, source_id: str, board_id: str) -> None:
+        """复制白板时带上缩略图和文档原件。原件丢了只记日志：复制出来的和原来那块一样缺原件。"""
+        thumb = self.thumb_path(source_id)
+        if thumb.exists():
+            shutil.copy2(thumb, self.thumb_path(board_id))
+        if models.doc_of(self.get_meta(source_id) or {}) is None:
+            return
+        original = self.doc_path(source_id)
+        if original is None:
+            log.warning("store.copy_files：文档板 %s 的原件不见了，复制出来的 %s 也没有原件", source_id, board_id)
+            return
+        shutil.copy2(original, self.docs_dir / f"{_safe(board_id)}{original.suffix.lower()}")
 
     def copy_doc_original(self, path: Path, old_id: str, board_id: str, meta: Dict[str, Any]) -> None:
         """导入 ``.wbz`` 文档板时复制原件：在文件旁边的 ``docs/`` 或上一级的 ``docs/`` 里按原 id 查找。"""
