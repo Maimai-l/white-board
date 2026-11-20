@@ -99,12 +99,12 @@ def test_clear_asks_before_it_wipes_the_board(browser, server):
 
     ipad.click('button[title="清空白板"]')
     ipad.wait_for_selector(".dialog.ask")
-    assert ipad.locator(".dialog.ask .ask-text").inner_text() == "清空白板？"
+    assert ipad.locator(".dialog.ask .ask-text").inner_text() == "清空这块白板"
     ipad.click('.dialog button[title="取消"]')
     assert stroke_count(ipad) == 1  # 取消就是什么都没发生
 
     ipad.click('button[title="清空白板"]')
-    ipad.click('.dialog button[title="确定"]')
+    ipad.click('.dialog button[title="清空"]')
     wait_strokes(mac, 0)
 
     # 白板列表里那个垃圾桶问的是另一件事
@@ -113,7 +113,7 @@ def test_clear_asks_before_it_wipes_the_board(browser, server):
     mac.locator(".board-card").first.hover()  # 删除按钮悬停才出来
     mac.locator(".board-card .del").first.click()
     mac.wait_for_selector(".dialog.ask")
-    assert mac.locator(".dialog.ask .ask-text").inner_text() == "删除白板？"
+    assert mac.locator(".dialog.ask .ask-text").inner_text() == "删除这块白板"
 
 
 def test_dialog_stays_solid_while_the_scrim_darkens(browser, server):

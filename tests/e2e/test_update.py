@@ -33,9 +33,9 @@ def test_check_update_button_says_what_happened(browser, server):
         ({"status": "sparkle", "version": "1.3.0-alpha.20261119.153012"}, "更新窗口"),
         # 从源码运行没有 Sparkle
         ({"status": "source", "version": "1.0.0"}, "git pull"),
-        # 打包了却没带上能用的 Sparkle（本地构建）：说原因，指去更新日志
-        ({"status": "unavailable", "version": "1.3.0", "message": "framework 加载失败"}, "framework 加载失败"),
-        ({"status": "unavailable", "version": "1.3.0", "message": ""}, "请从「更新日志」下载新版本"),
+        # 打包了却没带上能用的 Sparkle（本地构建）：只说不能自动更新，原因 app.py 写进日志
+        ({"status": "unavailable", "version": "1.3.0", "message": "framework 加载失败"}, "这个版本不能自动更新"),
+        ({"status": "unavailable", "version": "1.3.0", "message": ""}, "这个版本不能自动更新"),
     ]
     for result, expected in cases:
         mac.evaluate(CHECK_STUB, [result])

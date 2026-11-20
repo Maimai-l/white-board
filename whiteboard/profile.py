@@ -162,7 +162,7 @@ def build_profile(url: str, label: str = DISPLAY_NAME, icon: bytes | None = None
         "PayloadUUID": str(uuid.uuid5(namespace, "profile")),
         "PayloadVersion": 1,
         "PayloadDisplayName": f"{label} · {url}",
-        "PayloadDescription": f"在主屏添加白板图标，指向 {url}",
+        "PayloadDescription": f"在主屏添加指向 {url} 的白板图标",
         "PayloadOrganization": "Whiteboard",
         "PayloadRemovalDisallowed": False,
         "PayloadContent": [payload],

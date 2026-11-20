@@ -498,7 +498,7 @@ def test_converting_a_1x_store_refuses_to_start_without_a_backup(tmp_path, monke
         raise OSError(28, "No space left on device")
 
     monkeypatch.setattr(backup, "_copy", fail)
-    with pytest.raises(backup.BackupError, match="没有启动"):
+    with pytest.raises(backup.BackupError, match="没能备份"):
         backup.backup_if_upgraded(config, "1.1.0")
     assert (config.data_dir / "index.json").exists() and not (config.data_dir / "index.sqlite").exists()
     monkeypatch.undo()

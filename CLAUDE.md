@@ -49,6 +49,7 @@ make plan FILES="whiteboard/app.py"   # 这些改动在 CI 里会跑哪些 job
 - 文档和代码在同一个提交里更新；`docs/` 下的用户文档中英两份同步（`*.md` 与 `*.zh-CN.md`）。
 - 自动化覆盖不到的（真机 Pencil、iPad 外壳、Sparkle 真正装上更新）写进发版检查表，说明看什么、失败时发回什么。
 - 改界面先画设计稿给用户确认，再写代码，做完用截图和设计稿对照。
+- 界面上的文字按 docs/ui-text.md 写，`tests/test_ui_text.py` 会检查。
 - 错误不能悄悄吞掉：捕获的地方至少记一行日志，写明位置。
 
 ## 提交

@@ -96,6 +96,12 @@ function isIPad() {
   return /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 }
 
+/** 消息条里的文字：一句是一个 span，两句时每句一行。 */
+function noticeText(text) {
+  if (!Array.isArray(text)) return el("span", { text });
+  return el("span", { class: "notice-lines" }, text.map((line) => el("span", { text: line })));
+}
+
 export class UI {
   constructor({ role, native, perms, actions }) {
     this.role = role;
@@ -126,7 +132,7 @@ export class UI {
     this.status = el("div", {
       id: "status",
       class: "offline",
-      title: "连接状态（连点三下显示诊断）",
+      title: "连接状态",
       onclick: () => this.countStatusTaps(),
     });
     this.root.append(this.status);
@@ -606,11 +612,13 @@ export class UI {
     setTimeout(() => node.remove(), 1600);
   }
 
-  /** 一条可点掉的提示，用于页面无能为力、只能让用户去改系统设置的情况。 */
-  /** 普通消息条：和 showNotice 不同，每次都会显示。 */
+  /**
+   * 普通消息条：和 showNotice 不同，每次都会显示。``text`` 可以是一句，也可以是
+   * 两句的数组（各占一行，docs/ui-text.md）。
+   */
   message(text, iconName = "info", ms = 4000) {
     const node = el("div", { class: "notice", html: icon(iconName) });
-    node.append(el("span", { text }));
+    node.append(noticeText(text));
     node.addEventListener("click", () => node.remove());
     this.root.append(node);
     const timer = setTimeout(() => node.remove(), ms);
@@ -620,6 +628,7 @@ export class UI {
     };
   }
 
+  /** 一条可点掉的提示，用于页面无能为力、只能让用户去改系统设置的情况。一天只提示一次。 */
   showNotice(key, text, iconName = "pen") {
     const stamp = `whiteboard.notice.${key}`;
     try {
@@ -629,7 +638,7 @@ export class UI {
       /* 记不住就每次都提示 */
     }
     const node = el("div", { class: "notice", html: icon(iconName) });
-    node.append(el("span", { text }));
+    node.append(noticeText(text));
     node.addEventListener("click", () => node.remove());
     this.root.append(node);
     setTimeout(() => node.remove(), 15000);

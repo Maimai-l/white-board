@@ -220,7 +220,7 @@ def test_pencilkit_picker_undo_and_clear(browser, server):
     wait_strokes(mac, 1)
     ipad.click(MORE)
     ipad.click("#pk-host .pk-pop [data-wb='clear']")
-    ipad.click('.dialog button[title="确定"]')
+    ipad.click('.dialog button[title="清空"]')
     wait_strokes(mac, 0)
 
     # 触摸设备上这条笔具盘就是唯一的工具栏，更多菜单里没有换回普通工具栏那一行

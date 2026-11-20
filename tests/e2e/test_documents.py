@@ -32,7 +32,7 @@ def test_the_export_button_downloads_a_png(browser, server):
     mac.wait_for_selector(".export-card")
     mac.click('.export-seg button:has-text("PNG")')
     with mac.expect_download() as info:
-        mac.click('.export-footer button:has-text("导出图片")')
+        mac.click('.export-footer button:has-text("导出 PNG")')
     download = info.value
     assert download.suggested_filename.endswith(".png")
     with open(download.path(), "rb") as handle:
@@ -59,6 +59,23 @@ def open_doc_board(mac, path):
         mac.click(".dialog.kinds .kind-tile:nth-child(3)")
     chooser.value.set_files(str(path))
     mac.wait_for_function(HAS_DOC, timeout=15000)
+
+
+def test_a_file_that_cannot_be_opened_says_which_without_details(browser, server, tmp_path):
+    """打不开的文件只说打不开哪个，原因（服务端的回复）不显示在界面上（docs/ui-text.md）。"""
+    bad = tmp_path / "坏的.pdf"
+    bad.write_bytes(b"not a pdf")
+    mac = open_mac(browser, server.port)
+    mac.click('button[title="白板"]')
+    mac.click(".board-card.add")
+    with mac.expect_file_chooser() as chooser:
+        mac.click('.dialog.kinds .kind-tile[title="打开 PDF 或图片"]')
+    with mac.expect_response(lambda r: "/api/doc" in r.url) as response:
+        chooser.value.set_files(str(bad))
+    assert response.value.status == 400
+    notice = mac.locator(".notice", has_text="打不开")
+    notice.wait_for(timeout=5000)
+    assert notice.inner_text() == "打不开 坏的.pdf"
 
 
 def test_doc_board_created_from_file_and_synced(browser, server, tmp_path):

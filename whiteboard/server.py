@@ -495,7 +495,7 @@ async def handle_doc_upload(request: web.Request) -> web.Response:
 
 
 class OpenFileError(Exception):
-    """文件打不开或不能建板；消息直接给用户看。"""
+    """文件打不开或不能建板。消息写进日志和接口的回复；界面上只说打不开哪个文件（docs/ui-text.md）。"""
 
 
 async def _create_doc(hub: Hub, body: bytes, filename: str, folder: str) -> Dict[str, Any]:
@@ -667,7 +667,8 @@ async def handle_export_pages(request: web.Request) -> web.Response:
     board_id, meta, strokes = await _export_source(request)
     paper = request.query.get("paper") or pagination.DEFAULT_PAPER
     try:
-        size = pagination.paper_size(paper)
+        # 「跟随内容」没有统一的纸张：每页的纸在页框里
+        size = None if pagination.is_content_paper(paper) else pagination.paper_size(paper)
         pages = await asyncio.to_thread(pagination.auto_pages, meta, strokes, paper)
     except ValueError as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
@@ -677,7 +678,7 @@ async def handle_export_pages(request: web.Request) -> web.Response:
         {
             "board": board_id,
             "kind": models.kind_of(meta),
-            "paper": [size[0], size[1]],
+            "paper": [size[0], size[1]] if size else pagination.CONTENT_PAPER,
             "margin": pagination.MARGIN,
             "pages": pages,
             "whole": whole,

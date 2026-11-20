@@ -190,6 +190,11 @@ function countMoved(ticks) {
   return moved;
 }
 
+/** 接管中的指针最近一次的位置：第二根手指落下时从这里接着平移。 */
+function claimSnapshot(event) {
+  return { pointerId: event.pointerId, pointerType: event.pointerType, clientX: event.clientX, clientY: event.clientY };
+}
+
 export class InputController {
   constructor(options) {
     this.stage = options.stage;
@@ -200,6 +205,9 @@ export class InputController {
     // 只读：白板文件没能完整读出来（服务端锁住了它）。落笔一律改成拖动画布，
     // 否则写上去的笔画服务端不收，重新打开就没了。
     this.readOnly = false;
+    // 宿主接管单指拖动（见 setClaim）：claimed 是正被接管的那个指针
+    this.claim = null;
+    this.claimed = null;
     this.hooks = options.hooks;
     this.strokePrefix = options.strokePrefix;
     this.device = options.device;
@@ -284,6 +292,7 @@ export class InputController {
     stage.addEventListener("pointerup", (e) => this.onUp(e));
     stage.addEventListener("pointercancel", (e) => this.onUp(e, true));
     stage.addEventListener("pointerleave", (e) => this.onLeave(e));
+    stage.addEventListener("lostpointercapture", (e) => this.onLostCapture(e));
     stage.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     // 触控板捏合：Chrome / Firefox 发的是 ctrl + wheel（在 onWheel 里），
     // WebKit（Safari 和 Mac 窗口用的 WKWebView）发的是这套非标准的 gesture 事件，
@@ -380,6 +389,43 @@ export class InputController {
     return [event.clientX - rect.left, event.clientY - rect.top];
   }
 
+  /**
+   * 让宿主接管画布上的单指拖动（例如导出时在白板上拖出页框）。``handler`` 为 null 时恢复原样。
+   *
+   * 接管的是「画布上只有这一个指针」时按下的那一下：Pencil、鼠标左键（没按住空格）、
+   * 一根手指（手掌屏蔽照旧）。之后这个指针的移动和抬起交给 ``handler``：
+   *
+   * * ``down(event)``：返回 false 就不接管，照常处理；
+   * * ``move(event)``；
+   * * ``end(event)``：正常抬起，或者鼠标在窗口外松开（之后的移动 ``buttons`` 为 0）、
+   *   指针捕获丢了；
+   * * ``cancel()``：这一下作废——系统取消了指针，或者第二根手指落下，两根手指照常
+   *   平移缩放白板。
+   *
+   * 两指手势、滚轮、触控板捏合、鼠标中键和空格拖动都不受影响。
+   */
+  setClaim(handler) {
+    if (this.claimed) this.dropClaim(true);
+    this.claim = handler || null;
+  }
+
+  /** 结束接管：``canceled`` 为真时告诉宿主这一下作废。 */
+  dropClaim(canceled, event = null) {
+    const claimed = this.claimed;
+    if (!claimed) return;
+    this.claimed = null;
+    this.pointers.delete(claimed.pointerId);
+    this.capture(claimed.pointerId, false);
+    if (!this.claim) return;
+    if (canceled) this.claim.cancel?.();
+    else this.claim.end?.(event || claimed.last);
+  }
+
+  onLostCapture(event) {
+    // 抬起时 onUp 已经收尾；还在接管却丢了捕获，说明这一下已经结束了
+    if (this.claimed && this.claimed.pointerId === event.pointerId) this.dropClaim(false);
+  }
+
   /** 手指是否书写。只作用于这块手写板；要记住这个设置由宿主自己保存。 */
   setFingerDraw(enabled) {
     this.fingerDraw = !!enabled;
@@ -450,8 +496,25 @@ export class InputController {
       this.endGesture(true);
     }
 
+    // 正在接管一根手指时第二根落下：这一下作废，两根手指照常平移缩放
+    if (this.claimed) {
+      if (this.claimed.type !== "touch" || event.pointerType !== "touch") return;
+      const first = this.claimed;
+      this.claimed = null;
+      this.claim?.cancel?.();
+      this.pointers.set(first.pointerId, { type: "touch", role: "gesture" });
+      this.startGesture(first.last);
+    }
+
     let role = this.classify(event);
     if (role === "ignore") return;
+    if (this.claim && !this.pointers.size && !this.gesture && !this.draw && !this.erase &&
+        (event.pointerType !== "mouse" || role === "draw") && this.claim.down(event) !== false) {
+      this.capture(event.pointerId, true);
+      this.pointers.set(event.pointerId, { type: event.pointerType, role: "claim" });
+      this.claimed = { pointerId: event.pointerId, type: event.pointerType, last: claimSnapshot(event) };
+      return;
+    }
     // 尺子显示着时，落在尺身上的手指拖的是尺子（规则见 input-ruler.js）
     role = this.routeRulerTouch(event, role);
     // 笔记模式：纸张之外不落笔，改成拖动画布。
@@ -512,6 +575,17 @@ export class InputController {
       return;
     }
     event.preventDefault();
+    if (entry.role === "claim") {
+      if (!this.claimed || this.claimed.pointerId !== event.pointerId) return;
+      // 在窗口外松开时页面收不到抬起，回到窗口的第一下移动按键已经松了：就此结束
+      if (event.buttons === 0) {
+        this.dropClaim(false);
+        return;
+      }
+      this.claimed.last = claimSnapshot(event);
+      this.claim?.move?.(event);
+      return;
+    }
     if (entry.role === "draw") {
       if (this.erase) this.moveErase(event);
       else if (this.draw) this.moveDraw(event);
@@ -548,6 +622,11 @@ export class InputController {
       else if (this.openShellId() !== null) this.watchShellStroke();
       else this.watchShellTap(snapPen(event));
       this.shell.safariDown = null;
+      return;
+    }
+    if (this.claimed && this.claimed.pointerId === event.pointerId) {
+      this.lastInputAt = performance.now();
+      this.dropClaim(canceled, event);
       return;
     }
     const entry = this.pointers.get(event.pointerId);

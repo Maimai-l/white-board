@@ -11,8 +11,12 @@ This file lists the notable changes to the board app and to inksync. The section
 ### Added
 
 - Export: The export button opens an export dialog that exports the selected pages as a PDF, one PNG file or a ZIP of PNG files.
-- Export: Infinite boards are divided into A4 or Letter pages automatically, one page per group of nearby strokes. Note boards are cut by paper length. See README.md.
+- Export: Infinite boards are divided into pages automatically from top to bottom. Each page is as wide as the writing in that part of the board. Note boards are cut by paper length. See README.md.
 - Export: Page frames can be moved, resized, added and deleted on the board before exporting.
+- Export: The whole board can be exported without pagination as one PDF page or one PNG image.
+- Export: The export dialog downloads the board file (`.wbz`). Opening it in the app shows the same board.
+- Export: Pages to export can be typed as page numbers, such as `1-5, 8`. The field and the thumbnails follow each other.
+- Export: Clear removes all page frames, and a drag on the board outside the frames draws a new one. Two fingers, the scroll wheel and the trackpad still move the board.
 - Export: PNG pages are exported at 150, 300 or 600 dpi.
 - Export: PDF pages of infinite and note boards contain vector ink, which stays sharp at any zoom.
 - Ink: With Shape recognition on, a stroke becomes a straight line when the Pencil stays still for 0.5 s at its end. One undo brings back the handwritten stroke.
@@ -23,8 +27,10 @@ This file lists the notable changes to the board app and to inksync. The section
 
 ### Changed
 
+- Interface: Labels and messages use consistent wording without full-width brackets or sentence punctuation. Error messages are short, and the details are written to the log file.
 - Updates: The Mac app checks for updates with Sparkle and downloads only the changed parts of the app when updating from one of the three previous versions.
 - Updates: The Check for updates button opens the update window, which shows the result and the release notes.
+- Export: The paper follows the content by default: each page is its frame plus a margin, so the writing keeps its size. A4 and Letter pages are portrait.
 - Export: Document boards are exported through the export dialog, where single pages of the original can be selected.
 - Export: Exporting a document board with many strokes takes about one third of the previous time.
 

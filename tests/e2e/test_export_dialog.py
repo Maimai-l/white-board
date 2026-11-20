@@ -88,10 +88,10 @@ def test_the_export_button_opens_the_dialog_with_the_auto_pages(browser, server)
 
 
 def test_deselected_pages_are_left_out_of_the_pdf(browser, server):
-    mac = board_with_groups(browser, server, [(150, 150), (1000, 150), (550, 650)])
+    mac = board_with_groups(browser, server, [(550, 100), (550, 400), (550, 700)])
     open_dialog(mac, 3)
     mac.locator(CARDS).nth(1).click()
-    assert mac.locator(".export-count").inner_text() == "已选 2 页"
+    assert mac.locator(".export-count").inner_text() == "已选 2 / 3 页"
     name, body = download(mac, "导出 PDF")
     assert name.endswith(".pdf")
     assert pdf_pages(body) == 2
@@ -110,22 +110,23 @@ def test_deselected_pages_are_left_out_of_the_pdf(browser, server):
 def test_png_gives_one_image_for_one_page_and_a_zip_for_several(browser, server):
     mac = board_with_groups(browser, server, [(150, 200), (1000, 600)])
     open_dialog(mac, 2)
+    mac.select_option(".export-popup select", "a4")
     mac.click('.export-seg button:has-text("PNG")')
-    assert mac.locator(".export-footer .primary").inner_text() == "导出图片"
+    assert mac.locator(".export-footer .primary").inner_text() == "导出 PNG"
     # 清晰度默认「高」（300 dpi），A4 横放就是 3508 × 2480
     assert mac.locator(".export-hint").inner_text() in ("每页 3508 × 2480 像素", "每页 2480 × 3508 像素")
     mac.click('.export-seg button:has-text("标准")')
     assert mac.locator(".export-hint").inner_text() in ("每页 1754 × 1240 像素", "每页 1240 × 1754 像素")
 
     mac.locator(CARDS).nth(1).click()
-    name, body = download(mac, "导出图片")
+    name, body = download(mac, "导出 PNG")
     assert name.endswith(".png")
     image = Image.open(io.BytesIO(body))
     assert image.format == "PNG" and sorted(image.size) == [1240, 1754]
 
     open_dialog(mac, 2)
     mac.click('.export-seg button:has-text("PNG")')
-    name, body = download(mac, "导出图片")
+    name, body = download(mac, "导出 PNG")
     assert name.endswith(".zip")
     assert len(zipfile.ZipFile(io.BytesIO(body)).namelist()) == 2
 
@@ -134,15 +135,15 @@ def test_changing_the_paper_fetches_new_pages(browser, server):
     mac = board_with_groups(browser, server, [(550, 400)])
     open_dialog(mac, 1)
     mac.click('.export-seg button:has-text("PNG")')
-    assert mac.locator(".export-popup > span").first.inner_text() == "A4，自动横竖"
+    assert mac.locator(".export-popup > span").first.inner_text() == "跟随内容"
     mac.select_option(".export-popup select", "letter")
-    assert mac.locator(".export-popup > span").first.inner_text() == "Letter，自动横竖"
+    assert mac.locator(".export-popup > span").first.inner_text() == "Letter"
     # Letter 是 8.5 × 11 英寸：300 dpi 下 2550 × 3300
     mac.wait_for_function(
         "() => ['每页 2550 × 3300 像素', '每页 3300 × 2550 像素']"
         ".includes(document.querySelector('.export-hint').textContent)"
     )
-    _, body = download(mac, "导出图片")
+    _, body = download(mac, "导出 PNG")
     assert sorted(Image.open(io.BytesIO(body)).size) == [2550, 3300]
 
 
@@ -156,7 +157,7 @@ def test_current_page_selects_the_page_in_the_middle_of_the_view(browser, server
     )
     open_dialog(mac, 2)
     mac.click('.text-btn:has-text("当前页")')
-    assert mac.locator(".export-count").inner_text() == "已选 1 页"
+    assert mac.locator(".export-count").inner_text() == "已选 1 / 2 页"
     _, body = download(mac, "导出 PDF")
     assert pdf_pages(body) == 1
 
@@ -188,7 +189,7 @@ def test_dragging_a_page_frame_changes_what_the_page_shows(browser, server):
     assert mac.evaluate("() => whiteboard.state.strokes.length") == 3
     mac.click('.export-bar button:has-text("完成")')
     mac.wait_for_selector(".export-dialog")
-    assert mac.locator(".export-paging").inner_text().startswith("手动调整过，1 页")
+    assert mac.locator(".export-paging").inner_text().startswith("手动分成 1 页")
     _, after = download(mac, "导出 PDF")
     assert pdf_pages(after) == 1
     assert dark_pixels(after) == 0
@@ -278,3 +279,14 @@ def test_no_export_entry_without_the_permission(browser, server):
     serve_with_perms(mac, "manage settings clear")
     assert mac.locator(EXPORT).count() == 0
     assert mac.locator(".export-dialog").count() == 0
+
+
+def test_scattered_notes_down_the_board_are_not_cut_into_many_small_pages(browser, server):
+    """用户的反馈（backlog 010）：东一块西一块往下写的大白板，第一版每块切一页、又碎又小。
+    现在从上往下按段分：一屏写下来的六块字放进同一页。"""
+    spots = [(300, 100), (700, 200), (400, 300), (800, 400), (350, 500), (650, 600)]
+    mac = board_with_groups(browser, server, spots)
+    open_dialog(mac, 1)
+    assert mac.locator(".export-paging").inner_text().startswith("自动分成 1 页")
+    _, body = download(mac, "导出 PDF")
+    assert pdf_pages(body) == 1

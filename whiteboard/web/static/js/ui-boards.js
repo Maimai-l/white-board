@@ -118,7 +118,7 @@ const methods = {
     const head = el("div", { class: "gallery-head" });
     // 进了文件夹，搜索框前面多一个返回；搜索本身始终在全部白板里找
     if (this.openFolder) {
-      const back = iconButton("back", "返回（把白板拖到这里就移出文件夹）", () => this.leaveFolder());
+      const back = iconButton("back", "返回", () => this.leaveFolder());
       back.dataset.dropOut = "";
       head.append(back);
     }
@@ -247,7 +247,7 @@ const methods = {
       {
         class: "board-card folder app",
         "data-app": name,
-        title: `应用：${name}`,
+        title: `打开 ${name}`,
         onclick: () => {
           this.openApp = { name, boards: [], total: 0 };
           this.renderBoards();
@@ -270,7 +270,7 @@ const methods = {
         this.openApp = null;
         this.renderBoards();
       }),
-      el("span", { class: "gallery-title", text: `应用：${app.name}` }),
+      el("span", { class: "gallery-title", text: app.name }),
       iconButton("close", "关闭", () => this.closeGallery()),
     ]);
     this.boardGrid = el("div", { class: "gallery-grid" });
@@ -344,7 +344,7 @@ const methods = {
       {
         class: "board-card folder",
         "data-folder": name,
-        title: `打开文件夹：${name}（也可以把白板拖进来）`,
+        title: `打开 ${name}`,
         onclick: () => this.enterFolder(name),
       },
       [
@@ -470,10 +470,10 @@ const methods = {
         text: `${this.boards.filter((board) => board.folder === name).length} 块`,
       }),
       iconButton("trash", "删除文件夹", () => {
-        this.confirm("trash", "删除文件夹？里面的白板会移到外面", () => {
+        this.confirm("trash", "删除这个文件夹", () => {
           this.openFolder = "";
           this.actions.onDeleteFolder(name);
-        });
+        }, { verb: "删除", note: "里面的白板会移到外面" });
       }),
     ]);
     return bar;
@@ -509,7 +509,7 @@ const methods = {
           title: "删除白板",
           onclick: (event) => {
             event.stopPropagation();
-            this.confirm("trash", "删除白板？", () => this.actions.onDeleteBoard(board.id));
+            this.confirm("trash", "删除这块白板", () => this.actions.onDeleteBoard(board.id), { verb: "删除" });
           },
         })
       );
@@ -550,7 +550,7 @@ const methods = {
     const folder = el("button", {
       class: `board-folder${board.folder ? " on" : ""}`,
       html: icon("folder", 17),
-      title: board.folder ? `文件夹：${board.folder}` : "归入文件夹",
+      title: board.folder ? "更换文件夹" : "归入文件夹",
       onclick: () => this.chooseFolder(board),
     });
 
@@ -665,19 +665,19 @@ const methods = {
       el("button", {
         class: "kind-tile",
         html: icon("board", 48),
-        title: "大白板：四个方向都无限延伸",
+        title: "新建大白板",
         onclick: () => pick("board"),
       }),
       el("button", {
         class: "kind-tile",
         html: icon("note", 48),
-        title: "笔记：宽度固定，只向下延伸",
+        title: "新建笔记",
         onclick: () => pick("note"),
       }),
       el("button", {
         class: "kind-tile",
         html: icon("doc", 48),
-        title: "打开 PDF / 图片，直接在上面写（也可以把文件拖进窗口）",
+        title: "打开 PDF 或图片",
         onclick: () => {
           scrim.remove();
           const folder = this.openFolder;

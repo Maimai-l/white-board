@@ -43,6 +43,10 @@ def test_a_board_that_cannot_be_read_opens_read_only_until_unlocked(browser, mak
         assert page.evaluate("() => whiteboard.locked.reason") == "corrupt"
     # 只有 Mac（有管理权限）才有「仍然编辑」；测试里两边都是本机，所以都有
     ipad.locator(".dialog.locked button.danger").wait_for()
+    # 两句话：出了什么事，能怎么办（docs/ui-text.md）
+    assert ipad.locator(".dialog.locked .ask-text").inner_text() == "这块白板没能完整读出来"
+    assert ipad.locator(".dialog.locked .ask-note").inner_text() == "仍然编辑会先备份原文件"
+    assert ipad.locator(".dialog.locked button.danger").get_attribute("title") == "仍然编辑"
 
     # 只读时落笔不生效，也不会发给服务端（合成事件直接发到画布上，不经过提示框）
     draw(ipad, [(300, 300), (360, 340), (430, 300)])
@@ -90,4 +94,4 @@ def test_a_device_without_manage_cannot_unlock(browser, make_server):
     serve_with_perms(ipad, "clear export settings")
     ipad.wait_for_selector(".dialog.locked")
     assert ipad.query_selector(".dialog.locked button.danger") is None
-    assert "需要在 Mac 上决定" in ipad.inner_text(".dialog.locked")
+    assert "可以在 Mac 上选择仍然编辑" in ipad.inner_text(".dialog.locked")

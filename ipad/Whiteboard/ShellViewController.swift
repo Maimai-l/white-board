@@ -379,7 +379,9 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         downloads.removeValue(forKey: download)
-        present(alert(title: "导出失败", message: error.localizedDescription), animated: true)
+        // 界面上只说导出失败（docs/ui-text.md），原因进日志
+        NSLog("白板外壳：下载导出文件失败 %@", error.localizedDescription)
+        present(alert(title: "导出失败", message: nil), animated: true)
     }
 
     /// 导出的文件交给系统的分享面板：存到「文件」、发出去，或者存进相册。
@@ -445,7 +447,7 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         guard !warnedIncompatible else { return }
         warnedIncompatible = true
         present(
-            alert(title: "外壳版本与白板版本不兼容，请更新外壳", message: "在更新之前，Pencil 按 Safari 的方式输入。"),
+            alert(title: "外壳需要更新", message: "更新之前 Pencil 按 Safari 的方式输入"),
             animated: true
         )
         if let mac = current {
@@ -463,7 +465,7 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
 
     private func offerUpdate(_ version: String, from mac: MacAddress) {
         guard presentedViewController == nil else { return }
-        let dialog = UIAlertController(title: "有新版本 \(version)，是否更新？", message: nil, preferredStyle: .alert)
+        let dialog = UIAlertController(title: "可以更新到 \(version)", message: nil, preferredStyle: .alert)
         dialog.addAction(UIAlertAction(title: "以后再说", style: .cancel) { [weak self] _ in
             self?.updates.decline()
         })
@@ -478,7 +480,7 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
         present(dialog, animated: true)
     }
 
-    private func alert(title: String, message: String) -> UIAlertController {
+    private func alert(title: String, message: String?) -> UIAlertController {
         let dialog = UIAlertController(title: title, message: message, preferredStyle: .alert)
         dialog.addAction(UIAlertAction(title: "好", style: .default))
         return dialog

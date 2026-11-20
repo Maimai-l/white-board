@@ -1,0 +1,19 @@
+{
+  "about": "PNG pixel sizes for a page of the given paper (pt) at the given dpi, as the server renders them (export.png_size). tests/test_export.py checks the server against these numbers and tests/js/export-pages.test.mjs checks the dialog's hint.",
+  "cases": [
+    {"paper": [595.28, 841.89], "dpi": 300, "size": [2480, 3508]},
+    {"paper": [841.89, 595.28], "dpi": 150, "size": [1754, 1240]},
+    {"paper": [612.0, 792.0], "dpi": 600, "size": [5100, 6600]},
+    {"paper": [830.0, 584.0], "dpi": 144, "size": [1660, 1168]},
+    {"paper": [523.5, 1011.25], "dpi": 300, "size": [2181, 4214]},
+    {"paper": [100.5, 72.5], "dpi": 72, "size": [100, 72]},
+    {"paper": [101.5, 72.0], "dpi": 72, "size": [102, 72]},
+    {"paper": [3864.0, 15093.0], "dpi": 150, "size": [3200, 12500]},
+    {"paper": [3864.0, 15093.0], "dpi": 300, "size": [3200, 12500]},
+    {"paper": [3864.0, 15093.0], "dpi": 600, "size": [3200, 12500]},
+    {"paper": [3686.4, 14400.0], "dpi": 300, "size": [3200, 12500]},
+    {"paper": [2000.0, 3000.0], "dpi": 600, "size": [5159, 7738]},
+    {"paper": [72.5, 14400.0], "dpi": 600, "size": [448, 89045]},
+    {"paper": [10001.0, 10001.0], "dpi": 300, "size": [6318, 6318]}
+  ]
+}

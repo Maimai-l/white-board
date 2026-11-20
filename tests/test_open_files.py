@@ -190,7 +190,7 @@ def _drain(opener):
     assert not opener._pending
 
 
-def test_files_opened_before_the_page_loads_wait_for_it(tmp_path):
+def test_files_opened_before_the_page_loads_wait_for_it(tmp_path, caplog):
     from whiteboard.app import FileOpener
 
     server = _FakeServer(fail={"/tmp/b.pdf"})
@@ -202,8 +202,10 @@ def test_files_opened_before_the_page_loads_wait_for_it(tmp_path):
     opener.on_loaded()
     _drain(opener)
     assert server.opened == [("/tmp/a.png", "课件"), ("/tmp/c.wbz", "课件")]
-    # 出错的那个给网页一条提示，不挡住后面的文件
-    assert any("打不开 b.pdf：坏了" in script for script in opener.window.scripts)
+    # 出错的那个给网页一条提示，不挡住后面的文件；原因写进日志，界面上只说打不开哪个
+    assert any('"打不开 b.pdf"' in script for script in opener.window.scripts)
+    assert not any("坏了" in script for script in opener.window.scripts)
+    assert "坏了" in caplog.text
 
 
 def test_the_open_files_handler_is_only_installed_on_macos(monkeypatch):

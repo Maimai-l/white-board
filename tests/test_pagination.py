@@ -24,109 +24,7 @@ def word(x, y, w=60.0, h=20.0):
     return (x, y, x + w, y + h)
 
 
-# ------------------------------------------------------------------ 聚组
-
-
-def test_cluster_joins_near_strokes_and_keeps_far_ones_apart():
-    boxes = [word(0, 0), word(80, 0), word(160, 30), word(1000, 0), word(1000, 60)]
-    assert pg.cluster(boxes) == [[0, 1, 2], [3, 4]]
-
-
-def test_cluster_gap_is_inclusive_on_both_axes():
-    gap = pg.CLUSTER_GAP
-    assert pg.cluster([word(0, 0), word(60 + gap, 0)]) == [[0, 1]]
-    assert pg.cluster([word(0, 0), word(60 + gap + 1, 0)]) == [[0], [1]]
-    # 斜着离开：两个方向都没超过 gap 才算近
-    assert pg.cluster([word(0, 0), word(60 + gap - 1, 20 + gap - 1)]) == [[0, 1]]
-
-
-def test_cluster_chains_through_neighbours():
-    boxes = [word(i * 100, 0) for i in range(30)]
-    assert pg.cluster(boxes) == [list(range(30))]
-
-
-def test_cluster_does_not_depend_on_input_order():
-    rng = random.Random(7)
-    boxes = [word(rng.uniform(-3000, 3000), rng.uniform(-3000, 3000)) for _ in range(300)]
-    shuffled = boxes[:]
-    rng.shuffle(shuffled)
-
-    def shapes(items):
-        return sorted(tuple(sorted(items[i] for i in group)) for group in pg.cluster(items))
-
-    assert shapes(boxes) == shapes(shuffled)
-
-
-def test_pack_merges_small_groups_that_fit_one_page():
-    boxes = [word(0, 0), word(300, 0), word(0, 400)]
-    groups = pg.cluster(boxes)
-    assert len(groups) == 3
-    assert pg.pack(boxes, groups, A4) == [[0, 1, 2]]
-
-
-def test_pack_keeps_groups_that_do_not_fit_together_apart():
-    boxes = [word(0, 0), word(900, 0), word(0, 1200)]
-    assert pg.pack(boxes, pg.cluster(boxes), A4) == [[0], [1], [2]]
-
-
-# ------------------------------------------------------------------ 放进一页
-
-
-def test_best_fit_turns_the_paper_to_the_shape_of_the_group():
-    scale, sheet = pg.best_fit((0, 0, 700, 300), A4)
-    assert scale == 1 and sheet[0] > sheet[1]  # 宽的横放
-    scale, sheet = pg.best_fit((0, 0, 300, 700), A4)
-    assert scale == 1 and sheet[0] < sheet[1]
-    scale, sheet = pg.best_fit((0, 0, 100, 100), A4)
-    assert scale == 1 and sheet[0] < sheet[1]  # 一样宽高时竖放
-
-
-def test_best_fit_never_enlarges_and_shrinks_only_as_needed():
-    scale, sheet = pg.best_fit((0, 0, 900, 500), A4)
-    assert sheet[0] > sheet[1]
-    assert scale == pytest.approx(min(AH / 900, AW / 500))
-    assert pg.best_fit((0, 0, 10, 10), A4)[0] == 1
-
-
-def test_a_group_that_fits_gets_one_page_centred_on_it():
-    box = (100, 200, 400, 300)
-    pages = pg.fit_group(box, A4)
-    assert len(pages) == 1
-    page = pages[0]
-    assert inside(box, page)
-    assert page["x"] + page["w"] / 2 == pytest.approx(250, abs=1e-3)
-    assert page["y"] + page["h"] / 2 == pytest.approx(250, abs=1e-3)
-    assert (page["w"], page["h"]) == (pytest.approx(AH, abs=1e-3), pytest.approx(AW, abs=1e-3))
-
-
-def test_a_slightly_too_big_group_is_shrunk_onto_one_page():
-    box = (0, 0, AH * 1.2, AW * 1.1)
-    pages = pg.fit_group(box, A4)
-    assert len(pages) == 1
-    scale, _, _ = pg.placement(pages[0])
-    assert pg.MIN_FIT_SCALE <= scale < 1
-    assert inside(box, pages[0], slack=1e-2)
-
-
-def test_a_huge_group_is_cut_into_a_grid_at_full_size():
-    box = (0, 0, 3000, 1000)
-    pages = pg.fit_group(box, A4)
-    # 横放：3000 / 769.89 → 4 列，1000 / 523.28 → 2 行；竖放要 6 × 2 = 12 页
-    assert len(pages) == 8
-    for page in pages:
-        assert pg.placement(page)[0] == pytest.approx(1)
-        assert page["paper"][0] > page["paper"][1]
-    # 网格铺满整组，页与页之间不重叠
-    xs = sorted({page["x"] for page in pages})
-    ys = sorted({page["y"] for page in pages})
-    assert len(xs) == 4 and len(ys) == 2
-    assert xs[0] <= 0 and xs[-1] + pages[0]["w"] >= 3000
-    assert ys[0] <= 0 and ys[-1] + pages[0]["h"] >= 1000
-    for a, b in zip(xs, xs[1:]):
-        assert b - a == pytest.approx(pages[0]["w"], abs=1e-2)
-    # 行优先：先排完第一行
-    assert [page["y"] for page in pages[:4]] == [ys[0]] * 4
-
+# ------------------------------------------------------------------ 纸面
 
 def test_placement_centres_horizontally_and_aligns_to_the_top():
     page = {"x": 0, "y": 0, "w": 100, "h": 100, "paper": [600, 800]}
@@ -141,58 +39,14 @@ def test_placement_centres_horizontally_and_aligns_to_the_top():
     assert pg.placement(dict(tall, margin=0))[2] == 0
 
 
-def test_settle_moves_the_frame_off_a_neighbour():
-    own = (0, 0, 200, 100)
-    page = pg.fit_group(own, A4)[0]
-    neighbour = (page["x"] + page["w"] - 50, 0, page["x"] + page["w"] + 200, 80)
-    assert pg.overlap_area(frame(page), neighbour) > 0
-    moved = pg.settle(page, own, [neighbour])
-    assert pg.overlap_area(frame(moved), neighbour) == 0
-    assert inside(own, moved)
-
-
-def test_settle_leaves_the_frame_alone_when_nothing_is_cut():
-    own = (0, 0, 200, 100)
-    page = pg.fit_group(own, A4)[0]
-    assert pg.settle(page, own, [(5000, 5000, 5100, 5100)]) == page
-
-
-def test_reading_order_is_rows_then_left_to_right():
-    units = [(500, 0, 600, 100), (0, 10, 100, 110), (0, 500, 100, 600), (300, -20, 400, 80)]
-    assert pg.reading_order(units) == [1, 3, 0, 2]
-
-
-# ------------------------------------------------------------------ 大白板
-
-
-def test_board_pages_keep_each_cluster_whole():
-    rng = random.Random(3)
-    clusters = []
-    boxes = []
-    for cx, cy in [(0, 0), (5000, 0), (0, 5000), (-7000, 3000)]:
-        members = []
-        for _ in range(25):
-            x, y = cx + rng.uniform(-200, 150), cy + rng.uniform(-150, 100)
-            members.append(len(boxes))
-            boxes.append(word(x, y, 50, 18))
-        clusters.append(members)
-    pages = pg.board_pages(boxes, A4)
-    assert len(pages) == 4
-    for members in clusters:
-        holders = {i for i, page in enumerate(pages) if all(inside(boxes[m], page) for m in members)}
-        assert holders
-    for page in pages:
-        assert tuple(page["paper"]) in SHEETS
-
-
-def test_board_pages_are_deterministic():
+def test_flow_pages_are_deterministic():
     rng = random.Random(11)
     boxes = [word(rng.uniform(-5000, 5000), rng.uniform(-5000, 5000)) for _ in range(200)]
-    assert pg.board_pages(boxes, A4) == pg.board_pages(list(boxes), A4)
+    assert pg.flow_pages(boxes, A4) == pg.flow_pages(list(boxes), A4)
 
 
 def test_empty_board_gets_one_blank_page():
-    pages = pg.board_pages([], A4)
+    pages = pg.flow_pages([], A4)
     assert len(pages) == 1
     assert pages[0]["x"] == pytest.approx(-AW / 2, abs=1e-3)
 
@@ -200,7 +54,11 @@ def test_empty_board_gets_one_blank_page():
 def test_auto_pages_dispatches_by_kind():
     stroke = {"id": "a", "tool": "pen", "w": 4, "p": [10, 10, 0.5, 200, 10, 0.5]}
     infinite = pg.auto_pages({"canvas": {"mode": "infinite"}}, [stroke])
-    assert len(infinite) == 1 and infinite[0]["w"] == pytest.approx(AH, abs=1e-2)  # 横的一笔，横放
+    # 大白板从上往下按段分（flow_pages），纸张竖放，一页至少一张纸的内容宽
+    assert len(infinite) == 1 and infinite[0]["paper"] == [595.28, 841.89]
+    assert infinite[0]["w"] == pytest.approx(AW, abs=1e-2)
+    content_note = pg.auto_pages({"canvas": {"mode": "column", "width": 1000}}, [stroke], "content")
+    assert content_note[0]["paper"] == [1000 + 2 * pg.MARGIN, round(content_note[0]["h"] + 2 * pg.MARGIN, 2)]
     note = pg.auto_pages({"canvas": {"mode": "column", "width": 1000}}, [stroke])
     assert note == [{"x": 0.0, "y": 0.0, "w": 1000.0, "h": pytest.approx(1000 * AH / AW, abs=1e-2), "paper": [595.28, 841.89]}]
     doc_meta = {"data": {"doc": {"type": "pdf", "pages": [[600, 800], [400, 500]]}}}
@@ -339,7 +197,7 @@ def test_whole_page_shrinks_to_the_largest_paper():
 
 
 def test_whole_page_of_an_empty_board_is_one_sheet():
-    assert pg.whole_page({}, []) == pg.board_pages([])[0]
+    assert pg.whole_page({}, []) == pg.blank_page()
 
 
 def test_whole_and_wbz_options():
@@ -357,3 +215,67 @@ def test_background_pattern_is_thinned_on_a_huge_frame():
     assert 0 < len(dots) <= export.MAX_PATTERN_DOTS
     xs, _ys, _dots = export._pattern_lines(page, "grid", 1.0, pixels=0.05)
     assert (xs[1] - xs[0]) * 0.05 >= export.MIN_PATTERN_PX
+
+
+# ------------------------------------------------------------------ 从上往下按段分页（backlog 010）
+
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+LONG_NOTES = json.loads(
+    (Path(__file__).parent / "fixtures" / "layouts" / "long-notes.json").read_text("utf-8")
+)["boxes"]
+
+
+def _inside(box, page):
+    return (page["x"] - 1e-6 <= box[0] and box[2] <= page["x"] + page["w"] + 1e-6
+            and page["y"] - 1e-6 <= box[1] and box[3] <= page["y"] + page["h"] + 1e-6)
+
+
+def test_flow_keeps_every_stroke_of_the_real_board_on_a_page():
+    pages = pg.flow_pages(LONG_NOTES, "content")
+    lost = [box for box in LONG_NOTES if not any(_inside(box, page) for page in pages)]
+    assert lost == []
+
+
+def test_flow_splits_the_real_board_into_a_few_pages_top_to_bottom():
+    """用户的白板：第一版切成 83 页，按段往下切是 7 页，一页接一页往下、不重叠。"""
+    pages = pg.flow_pages(LONG_NOTES, "content")
+    assert len(pages) == 7
+    for upper, lower in zip(pages, pages[1:]):
+        assert upper["y"] + upper["h"] <= lower["y"] + 1e-6
+
+
+def test_flow_pages_are_as_wide_as_their_own_section():
+    narrow = [(0, 0, 300, 40), (0, 60, 280, 100)]
+    wide = [(-900, 3000, 1500, 3040), (-900, 3060, 1400, 3100)]
+    first, second = pg.flow_pages(narrow + wide, "content")
+    assert first["w"] < 600 and first["y"] + first["h"] < 3000
+    assert second["w"] == pytest.approx(2400 + 2 * pg.FLOW_PAD)
+
+
+def test_flow_cuts_a_long_section_in_the_gap_between_lines():
+    lines = [(0, y, 500, y + 30) for y in range(0, 3000, 50)]
+    pages = pg.flow_pages(lines, "content")
+    assert len(pages) > 1
+    for page in pages[:-1]:
+        cut = page["y"] + page["h"]
+        assert not any(box[1] < cut < box[3] for box in lines)
+
+
+def test_content_paper_is_the_frame_plus_margins():
+    page = pg.flow_pages([(0, 0, 500, 300)], "content")[0]
+    assert page["paper"] == [round(page["w"] + 2 * pg.MARGIN, 2), round(page["h"] + 2 * pg.MARGIN, 2)]
+
+
+def test_fixed_paper_keeps_the_sheet_and_scales_the_frame():
+    page = pg.flow_pages([(0, 0, 2000, 300)], pg.PAPERS["a4"])[0]
+    assert page["paper"] == [595.28, 841.89]
+    scale, _, _ = pg.placement(page)
+    assert scale < 0.3
+
+
+def test_auto_pages_on_an_infinite_board_flows_top_to_bottom():
+    strokes = [{"p": [x, y, 0.5, x + 300, y + 20, 0.5]} for x, y in ((0, 0), (0, 3000))]
+    pages = pg.auto_pages({"canvas": {"mode": "infinite"}}, strokes, "content")
+    assert len(pages) == 2 and pages[0]["y"] < pages[1]["y"]

@@ -143,7 +143,8 @@ def test_a_spread_out_board_exports_strokes_at_full_width(tmp_path):
     async def main():
         async with make_client(tmp_path) as (client, _app):
             ws, board_id = await connect(client)
-            spots = [(0, 0), (9000, 0), (0, 7000), (-8000, -6000)]
+            # 上下隔得很远的四组：从上往下分页，各占一页
+            spots = [(0, 0), (0, 7000), (0, 14000), (0, -6000)]
             await draw(ws, [line(f"l{i}", x, y, x + 400, y) for i, (x, y) in enumerate(spots)])
             response = await export(client, board_id, format="pdf")
             assert response.status == 200, await response.text()
@@ -166,7 +167,7 @@ def test_selecting_pages_two_and_four_exports_exactly_those(tmp_path):
         async with make_client(tmp_path) as (client, _app):
             ws, board_id = await connect(client)
             for index, color in enumerate(COLORS):
-                await draw(ws, scribble(f"g{index}-", index * 4000, 0, color))
+                await draw(ws, scribble(f"g{index}-", 0, index * 4000, color))
             pages = await (await client.get(f"/api/export/{board_id}/pages")).json()
             response = await export(client, board_id, format="pdf", select=[1, 3])
             assert response.status == 200, await response.text()
@@ -179,8 +180,8 @@ def test_selecting_pages_two_and_four_exports_exactly_those(tmp_path):
 
     def color_on(page):
         for index, color in enumerate(COLORS):
-            x = index * 4000 + 150
-            if page["x"] <= x <= page["x"] + page["w"] and page["y"] <= 60 <= page["y"] + page["h"]:
+            x, y = 150, index * 4000 + 60
+            if page["x"] <= x <= page["x"] + page["w"] and page["y"] <= y <= page["y"] + page["h"]:
                 return color
         raise AssertionError(f"no group inside {page}")
 
@@ -244,7 +245,7 @@ def test_png_zip_holds_one_file_per_selected_page_in_page_order(tmp_path):
         async with make_client(tmp_path) as (client, _app):
             ws, board_id = await connect(client)
             for index, color in enumerate(COLORS[:4]):
-                await draw(ws, scribble(f"g{index}-", index * 5000, 0, color))
+                await draw(ws, scribble(f"g{index}-", 0, index * 5000, color))
             await ws.send_json({"t": "op", "cid": "name", "op": {"op": "meta", "meta": {"name": "周会"}}})
             await until(ws, "ack")
             response = await export(client, board_id, format="zip", select=[3, 0, 2], dpi=72)
@@ -371,7 +372,7 @@ def test_get_with_format_exports_like_post(tmp_path):
     async def main():
         async with make_client(tmp_path) as (client, _app):
             ws, board_id = await connect(client)
-            await draw(ws, scribble("a", 0, 0, COLORS[0]) + scribble("b", 6000, 0, COLORS[1]))
+            await draw(ws, scribble("a", 0, 0, COLORS[0]) + scribble("b", 0, 6000, COLORS[1]))
             response = await client.get(f"/api/export/{board_id}?format=pdf&select=1")
             assert response.status == 200, await response.text()
             body = await response.read()
@@ -657,7 +658,7 @@ def test_the_mac_window_saves_the_dialogs_export_under_the_servers_name(tmp_path
     server = ServerThread(config, advertise=False)
     server.start()
     try:
-        server.hub.board().apply({"op": "add", "strokes": [line("a", 0, 0, 300, 0), line("b", 9000, 0, 9300, 0)]})
+        server.hub.board().apply({"op": "add", "strokes": [line("a", 0, 0, 300, 0), line("b", 0, 9000, 300, 9000)]})
         api = NativeApi(config, server)
         asked = []
 
@@ -676,3 +677,41 @@ def test_the_mac_window_saves_the_dialogs_export_under_the_servers_name(tmp_path
         assert api.export_doc(board_id, {"format": "pdf"}) is None  # 用户取消
     finally:
         server.stop()
+
+
+def test_content_paper_exports_each_page_at_its_own_size(tmp_path):
+    """纸张「跟随内容」：自动分页的每页 PDF 就是那一段墨迹的大小（加四周留白），字不缩小。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            ws, board_id = await connect(client)
+            await draw(ws, [line("n", 0, 0, 300, 0), line("w", -1000, 5000, 1400, 5000)])
+            pages = await (await client.get(f"/api/export/{board_id}/pages?paper=content")).json()
+            response = await export(client, board_id, format="pdf", paper="content")
+            assert response.status == 200, await response.text()
+            body = await response.read()
+            await ws.close()
+        return pages, body
+
+    pages, body = run(main())
+    assert pages["paper"] == "content" and len(pages["pages"]) == 2
+    sizes = [(round(float(p.mediabox.width)), round(float(p.mediabox.height)))
+             for p in pypdf.PdfReader(io.BytesIO(body)).pages]
+    expected = [(round(p["paper"][0]), round(p["paper"][1])) for p in pages["pages"]]
+    assert sizes == expected
+    # 宽的那一段 2400 宽：纸宽就是 2400 + 两边留白，没有缩到 A4
+    assert sizes[1][0] > 2400
+
+
+def test_png_sizes_match_the_numbers_the_dialog_shows():
+    """导出对话框按同一份数预告 PNG 的像素尺寸（tests/js/export-pages.test.mjs 也读这份）。"""
+    import json
+    from pathlib import Path
+
+    from whiteboard import export
+
+    cases = json.loads((Path(__file__).parent / "fixtures" / "png-sizes.json").read_text("utf-8"))["cases"]
+    for case in cases:
+        size, _ = export.png_size({"paper": case["paper"]}, case["dpi"])
+        assert list(size) == case["size"], case
+        assert size[0] * size[1] <= export.MAX_PAGE_PIXELS

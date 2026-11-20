@@ -75,7 +75,8 @@ class Options:
     frames: Any = None  # None：自动分页；"whole"：整块一页；否则是页框列表
     select: Optional[List[int]] = None  # None：全部页
     dpi: Optional[float] = None  # None：默认（图片原件按原分辨率）
-    paper: Tuple[float, float] = pagination.PAPERS[pagination.DEFAULT_PAPER]
+    # 纸张 (宽, 高) pt；或者 ``pagination.CONTENT_PAPER``：每页的纸跟随页框
+    paper: Any = pagination.PAPERS[pagination.DEFAULT_PAPER]
     background: bool = True
 
 
@@ -88,10 +89,11 @@ def _number(value: Any, name: str) -> float:
     return float(value)
 
 
-def _frame(raw: Any, default_paper: Tuple[float, float]) -> Dict[str, Any]:
+def _frame(raw: Any, default_paper: Any) -> Dict[str, Any]:
     """校验一个页框：``{x, y, w, h}``，可选 ``paper``（[宽, 高] pt 或纸张名）和 ``margin``。
 
-    没给 ``paper`` 时用请求的纸张，横竖跟页框的形状走。
+    没给 ``paper`` 时用请求的纸张，横竖跟页框的形状走；请求的纸张是「跟随内容」时，
+    纸就是页框加四周留白。
     """
     if not isinstance(raw, Mapping):
         raise ExportError("each frame must be an object")
@@ -99,7 +101,9 @@ def _frame(raw: Any, default_paper: Tuple[float, float]) -> Dict[str, Any]:
     w, h = _number(raw.get("w"), "w"), _number(raw.get("h"), "h")
     if not (0 < w <= 1e6 and 0 < h <= 1e6) or abs(x) > 1e7 or abs(y) > 1e7:
         raise ExportError("frame size out of range")
-    if raw.get("paper") is None:
+    if raw.get("paper") is None and pagination.is_content_paper(default_paper):
+        paper = pagination.content_sheet(w, h, pagination.MARGIN)[0]
+    elif raw.get("paper") is None:
         paper = pagination.oriented(default_paper, w > h)
     else:
         try:
@@ -129,7 +133,7 @@ def parse_options(raw: Mapping[str, Any]) -> Options:
     * ``frames``：``"auto"``（默认）、``"whole"``（整块一页）或页框列表，见 :func:`_frame`；
     * ``select``：要导出的页（从 0 数），默认全部；
     * ``dpi``：PNG 的清晰度，36～600，默认 144；
-    * ``paper``：``a4``（默认）、``letter`` 或 ``[宽, 高]``（pt）；
+    * ``paper``：``a4``（默认）、``letter``、``content``（每页的纸跟随页框）或 ``[宽, 高]``（pt）；
     * ``background``：画不画纸色和背景纹理，默认画。
     """
     if not isinstance(raw, Mapping):
@@ -140,7 +144,8 @@ def parse_options(raw: Mapping[str, Any]) -> Options:
     if fmt not in FORMATS:
         raise ExportError("format must be one of pdf, zip, png, wbz")
     try:
-        paper = pagination.paper_size(raw.get("paper") or pagination.DEFAULT_PAPER)
+        given = raw.get("paper") or pagination.DEFAULT_PAPER
+        paper = pagination.CONTENT_PAPER if pagination.is_content_paper(given) else pagination.paper_size(given)
     except (TypeError, ValueError) as exc:
         raise ExportError(str(exc)) from exc
 
@@ -219,7 +224,8 @@ def pages_for(meta: Dict[str, Any], strokes: Sequence[Dict[str, Any]], options: 
         return [pagination.whole_page(meta, strokes)]
     if options.frames is not None:
         return options.frames
-    return pagination.auto_pages(meta, strokes, list(options.paper))
+    paper = options.paper if pagination.is_content_paper(options.paper) else list(options.paper)
+    return pagination.auto_pages(meta, strokes, paper)
 
 
 def selected(pages: Sequence[Dict[str, Any]], options: Options) -> List[int]:
@@ -476,6 +482,17 @@ def _pixels_per_pt(page: Dict[str, Any], dpi: float) -> float:
     return k
 
 
+def png_size(page: Dict[str, Any], dpi: float) -> Tuple[Tuple[int, int], float]:
+    """一页 PNG 的像素尺寸 ``(宽, 高)`` 和实际的每 pt 像素数。
+
+    导出对话框按同样的算法预告像素尺寸（export-pages.js 的 ``pixelSize``），两边的
+    数在 tests/fixtures/png-sizes.json 里对过。
+    """
+    k = _pixels_per_pt(page, dpi)
+    pw, ph = page["paper"]
+    return (max(1, round(pw * k)), max(1, round(ph * k))), k
+
+
 def _hex_rgb(color: str) -> Tuple[int, int, int]:
     return tuple(round(c * 255) for c in inkpdf.rgb(color))  # type: ignore[return-value]
 
@@ -486,9 +503,7 @@ def _board_png(meta, pairs, page, dpi: float, background: bool):
     from PIL import ImageDraw  # noqa: WPS433
 
     pattern, paper_color = background_of(meta)
-    k = _pixels_per_pt(page, dpi)
-    pw, ph = page["paper"]
-    size = (max(1, round(pw * k)), max(1, round(ph * k)))
+    size, k = png_size(page, dpi)
     fill = _hex_rgb(paper_color) + (255,) if background else (0, 0, 0, 0)
     canvas = Image.new("RGBA", size, fill)
 

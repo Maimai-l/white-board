@@ -311,7 +311,7 @@ The shell and the page agree on an integer interface version, `bridge`, during t
 | Shell version | Equal to the Mac version; both come from the same git tag. |
 | Supported range | The page declares `[min, max]`: `SHELL_BRIDGE = [1, 1]` in `input.js`. `BRIDGE` in `whiteboard/ipadshell.py` must be equal (`tests/test_ipadshell.py::test_bridge_range_matches_the_web_page`); `/ipad/version` reports it. |
 | In range | The shell replies `active: true`. |
-| Out of range | The shell replies `active: false`, shows the alert “外壳版本与白板版本不兼容，请更新外壳” (Shell and board versions are incompatible; update the shell) once per run, and runs the update check (section 8.3). |
+| Out of range | The shell replies `active: false`, shows the alert “外壳需要更新” (The shell needs an update) once per run, and runs the update check (section 8.3). |
 | Compatibility window | When the page raises `max`, it keeps support for the previous version until the next release. A shell that is one release behind the Mac therefore continues to work. |
 
 ## 7. Web page changes
@@ -391,7 +391,7 @@ The diagnostics panel (`perf.js`) shows the input source and, in the shell, the 
 |---|---|---|
 | `输入来源 <source>  外壳 <version>  bridge <n>` | Input source (`browser` or `shell`), shell version and `bridge` | Always; version part only when known |
 | `外壳 <n>/s  新位置 <n>/s` | Shell samples per second and new positions per second, computed like `penHz` and `penMoveHz` | Shell version known or source `shell` |
-| `坐标偏差 <d>px（对上 <n> 个）  力度更新 <n>  抬笔后丢弃 <n>` | Coordinate deviation and matched samples; applied estimate updates; updates discarded after lift | Same |
+| `坐标偏差 <d>px  对上 <n> 个  力度更新 <n>  抬笔后丢弃 <n>` | Coordinate deviation and matched samples; applied estimate updates; updates discarded after lift | Same |
 | `外壳断笔 <n>  Safari 补点 <n>` | Strokes closed by the page because the shell sent no `up`; samples filled in from Safari events. Both are 0 in normal operation. | Same |
 
 Coordinate deviation compares shell samples with Safari pen events of the same stroke; Safari pen events keep arriving while the shell is `active`:
@@ -455,7 +455,7 @@ Server endpoints (no permission required, `Cache-Control: no-store`):
 Update check:
 
 - The shell requests `/ipad/version` after each page load, on each return to the foreground while a page is loaded, and after an incompatible handshake. The request ignores the cache and times out after 5 s.
-- If `ipa` is `true` and `version` is newer than the shell's version, the shell shows “有新版本 X，是否更新？” (New version X available. Update?) with the buttons “更新” (Update) and “以后再说” (Later).
+- If `ipa` is `true` and `version` is newer than the shell's version, the shell shows “可以更新到 X” (X is available) with the buttons “更新” (Update) and “以后再说” (Later).
 - “更新” opens `apple-magnifier://install?url=http://<host>.local:<port>/ipad/Whiteboard.ipa`; TrollStore downloads and installs the IPA. This URL install interface exists since TrollStore 1.3 and requires URL Scheme to be enabled in TrollStore settings.
 - “以后再说” suppresses the prompt for the rest of the current run.
 

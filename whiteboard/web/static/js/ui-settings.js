@@ -9,11 +9,12 @@ import { iconButton } from "./ui-common.js";
 import { el } from "/inksync/util.js";
 
 // 可以放开给别的设备的权限，顺序就是设置面板里的顺序；键与 config.REMOTE_PERMISSIONS 一致。
+// 每一行只有名字，都是「动词 + 白板」，不加说明（docs/ui-text.md）。
 const PERMISSIONS = [
-  { key: "manage", title: "管理白板", note: "切换、新建或删除白板" },
-  { key: "settings", title: "设置白板", note: "背景纹理" },
-  { key: "clear", title: "清空白板", note: "" },
-  { key: "export", title: "导出白板", note: "" }, // 没有必要写note, 而且UI上的文字需要仔细推敲的, 不是让你在上面写random prose的, 比如至少短语结构应该统一
+  { key: "manage", title: "管理白板" },
+  { key: "settings", title: "设置白板" },
+  { key: "clear", title: "清空白板" },
+  { key: "export", title: "导出白板" },
 ];
 
 export function installSettings(proto) {
@@ -112,10 +113,10 @@ const methods = {
   },
 
   /**
-   * 一项权限一行：名字、一句话说明、一个开关。真正的拦截在服务端，
+   * 一项权限一行：名字和一个开关。真正的拦截在服务端，
    * 这里改的是本地进程里的配置。
    */
-  permissionRow({ key, title, note }) {
+  permissionRow({ key, title }) {
     const granted = (this.info && this.info.remote_permissions) || {};
     const input = el("input", { type: "checkbox" });
     input.checked = !!granted[key];
@@ -126,10 +127,7 @@ const methods = {
       if (this.info) this.info.remote_permissions = next;
     });
     return el("label", { class: "perm-row" }, [
-      el("span", { class: "perm-text" }, [
-        el("span", { class: "perm-title", text: title }),
-        note ? el("span", { class: "perm-note", text: note }) : null,
-      ]),
+      el("span", { class: "perm-text" }, [el("span", { class: "perm-title", text: title })]),
       input,
     ]);
   },

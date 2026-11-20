@@ -58,8 +58,8 @@ def backup_if_upgraded(config: Config, version: str) -> Optional[Path]:
         except OSError as exc:
             log.error("换版本前备份白板失败：%s", exc)
             if convert:
-                raise BackupError(f"升级前备份白板失败（{exc.strerror or exc}），为保护白板没有启动。"
-                                  f"请检查存储目录所在磁盘的剩余空间后重新打开。") from exc
+                # 显示在启动失败的窗口里：两句各占一行（docs/ui-text.md），原因已经记在上面的日志里
+                raise BackupError("升级前没能备份白板\n请检查存储目录所在磁盘的空间后重新打开") from exc
             return None
         log.info("版本 %s → %s，白板已备份到 %s", previous or "未知", version, target)
         _prune(target.parent)

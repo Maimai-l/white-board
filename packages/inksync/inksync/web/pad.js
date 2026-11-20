@@ -907,7 +907,7 @@ export class InkPad {
    * 载入后完成，服务端拒绝时失败。
    */
   async open(board, { create, readonly } = {}) {
-    if (!board) throw new Error("open：需要白板 id");
+    if (!board) throw new Error("open: 需要白板 id");
     if (this.opening) {
       this.opening.reject(new Error("superseded"));
       this.opening = null;
