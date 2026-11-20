@@ -78,7 +78,9 @@ export class ExportDialog {
     this.count = el("span", { class: "export-count" });
     // 全选和取消全选是同一个链接：全选上了就变成取消全选
     this.allLink = el("button", { class: "text-btn", type: "button", onclick: () => this.toggleAll() });
-    const head = el("div", { class: "export-pages-head" }, [this.count, el("span", { class: "spacer" }), this.allLink]);
+    // 当前页：视口中间那一页，导出正在看的那一页最快
+    const current = el("button", { class: "text-btn", type: "button", text: "当前页", onclick: () => this.selectCurrent() });
+    const head = el("div", { class: "export-pages-head" }, [this.count, el("span", { class: "spacer" }), this.allLink, current]);
     this.cards = el("div", { class: `export-cards${this.isDoc ? " is-grid" : ""}` });
     this.pagesPanel = el("div", { class: "export-pages" }, [head, this.cards]);
 
@@ -295,7 +297,8 @@ export class ExportDialog {
     const [cx, cy] = this.host.viewCenter();
     const index = currentPage(this.pages, cx, cy);
     this.selected = new Set(index >= 0 ? [this.pages[index].key] : []);
-    this.pageMode = "custom";
+    this.picked = new Set(this.selected);
+    this.pageMode = "picked";
     this.writePageText();
     this.syncCards();
     this.refresh();

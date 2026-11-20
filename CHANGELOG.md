@@ -10,6 +10,14 @@ This file lists the notable changes to the board app and to inksync. The section
 
 ### Added
 
+- Library: The Library replaces the board picker. A sidebar lists Recent, All Boards, folders, apps and the Trash. Boards are shown as a grid or a list and sorted by date modified, by name or by hand.
+- Library: Right-clicking a board on the Mac, or holding it on the iPad, opens a menu to open, rename, move, duplicate, export or trash it.
+- Library: Several boards are selected with Command-click and moved or trashed together.
+- Library: Boards are moved by dragging them onto a folder, onto All Boards or onto the Trash in the sidebar.
+- Library: Several PDF and image files can be dropped at once. A file dropped on a folder in the sidebar is imported into that folder.
+- Mac: The Connect iPad panel shows a QR code of the board address for the iPad camera, the connected devices and a link to install the iPad app.
+- Mac: A message appears when an iPad connects or disconnects.
+- Mac: The zoom control shows the zoom percentage. Clicking the percentage sets the zoom to 100%.
 - Boards: A board can be duplicated. The copy has the same ink, background and folder and is placed after the original; a document board is copied with its original file.
 - Export: The export button opens an export dialog that exports the selected pages as a PDF, one PNG file or a ZIP of PNG files.
 - Export: Infinite boards are divided into pages automatically from top to bottom. Each page is as wide as the writing in that part of the board. Note boards are cut by paper length. See README.md.
@@ -30,6 +38,12 @@ This file lists the notable changes to the board app and to inksync. The section
 
 ### Changed
 
+- Interface: On the Mac, a title bar shows the board name and its folder, with the Library, Connect iPad, Export and Board settings buttons.
+- Interface: Board settings and Connect iPad open as panels below their buttons.
+- Interface: The toolbar contains the four tools, the color button, Undo, Redo and More. Clear, About and moving the toolbar to the left side are in the More menu. The colors are the system colors.
+- iPad: The Library button is at the top left. The connection state is shown by the color of the connection button at the top right, which replaces the status dot.
+- Export: The export dialog lists the pages in a sidebar. Pages are exported as all pages, a typed range or the pages selected in the sidebar.
+- Sketch: The sketch page shows the connection state as text, and its copy button is named Copy as image.
 - Interface: Labels and messages use consistent wording without full-width brackets or sentence punctuation. Error messages are short, and the details are written to the log file.
 - Boards: Deleting a board moves it to the Trash, where it can be restored or deleted permanently. Boards in the Trash for more than 30 days are deleted permanently.
 - Mac: Failures that used to leave no trace, such as a board thumbnail that could not be uploaded or a port in the configuration file that is not a number, are written to the log file.

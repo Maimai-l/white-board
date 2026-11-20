@@ -29,6 +29,7 @@ Image = pytest.importorskip("PIL.Image")
 FIELD = 'input[aria-label="页码"]'
 ALL_RADIO = 'input[type="radio"][value="all"]'
 CUSTOM_RADIO = 'input[type="radio"][value="custom"]'
+PICKED_RADIO = 'input[type="radio"][value="picked"]'
 PRIMARY = ".export-footer .primary"
 ERROR = ".export-range-error"
 
@@ -101,7 +102,7 @@ def test_the_board_file_downloads_and_opens_as_the_same_board(browser, server, t
     assert not visible(mac, CARDS)
     assert not visible(mac, FIELD)
     assert not visible(mac, ".export-paging")
-    assert not visible(mac, '.export-seg button:has-text("整块")')
+    assert not visible(mac, '.export-seg button:has-text("整张长图")')
 
     filename, body = download(mac, "导出 WBZ")
     # 卡片上写的就是下载到的文件名（没起名的白板是 whiteboard-日期.wbz）
@@ -135,7 +136,7 @@ def test_whole_board_png_is_one_image_of_the_size_shown(browser, server):
     mac = board(browser, server, [(150, 150), (1000, 650)])
     open_dialog(mac, 2)
     pick(mac, "PNG")
-    pick(mac, "整块")
+    pick(mac, "整张长图")
     assert mac.locator(".export-whole-caption").inner_text() == "整块白板"
     assert not visible(mac, CARDS)
     assert not visible(mac, FIELD)
@@ -154,7 +155,7 @@ def test_whole_board_png_is_one_image_of_the_size_shown(browser, server):
 def test_whole_board_pdf_is_one_page(browser, server):
     mac = board(browser, server, [(150, 150), (1000, 650)])
     open_dialog(mac, 2)
-    pick(mac, "整块")
+    pick(mac, "整张长图")
     assert not visible(mac, ".export-hint")
     assert mac.locator(PRIMARY).inner_text() == "导出 PDF"
     body, request = export_with_request(mac, "导出 PDF")
@@ -202,26 +203,41 @@ def test_typing_page_numbers_selects_those_pages(browser, server):
     mac.fill(FIELD, "1-2、4")
     assert mac.locator(CUSTOM_RADIO).is_checked()
     assert selected_cards(mac) == [1, 2, 4]
-    assert mac.locator(".export-count").inner_text() == "已选 3 / 4 页"
+    assert mac.locator(".export-count").inner_text() == "已选 3 页"
     body, request = export_with_request(mac, "导出 PDF")
     assert request["select"] == [0, 1, 3]
     assert pdf_pages(body) == 3
 
 
-def test_clicking_thumbnails_rewrites_the_page_field(browser, server):
+def test_clicking_pages_in_the_sidebar_exports_the_selected_pages(browser, server):
+    """点边栏里的页：页面换到所选的页，后面写着几页；页码框跟着改写。
+    全选和取消全选是同一个链接。"""
     mac = four_pages(browser, server)
+    labels = mac.locator(".export-range .export-radio").all_inner_texts()
+    assert [text.split("\n")[0] for text in labels] == ["全部 4 页", "范围", "所选的页"]
+    assert mac.locator(f"{CARDS} .export-caption").all_inner_texts() == ["1 / 4", "2 / 4", "3 / 4", "4 / 4"]
+
     mac.locator(CARDS).nth(2).click()
-    assert mac.locator(CUSTOM_RADIO).is_checked()
+    assert mac.locator(PICKED_RADIO).is_checked()
+    assert "所选的 3 页" in mac.locator(".export-range").inner_text()
     assert mac.locator(FIELD).input_value() == "1-2, 4"
     mac.locator(CARDS).nth(0).click()
     assert mac.locator(FIELD).input_value() == "2, 4"
+    body, request = export_with_request(mac, "导出 PDF")
+    assert request["select"] == [1, 3]
+    assert pdf_pages(body) == 2
+
     mac.click('.text-btn:has-text("全选")')
     assert mac.locator(ALL_RADIO).is_checked()
     assert mac.locator(".export-count").inner_text() == "已选 4 页"
     mac.click('.text-btn:has-text("当前页")')
-    assert mac.locator(CUSTOM_RADIO).is_checked()
-    assert re.fullmatch(r"[1-4]", mac.locator(FIELD).input_value())
-    # 点「全部」又是全部
+    assert mac.locator(PICKED_RADIO).is_checked()
+    assert len(selected_cards(mac)) == 1
+    mac.click('.text-btn:has-text("全选")')
+    mac.click('.text-btn:has-text("取消全选")')
+    assert selected_cards(mac) == []
+    assert mac.locator(PRIMARY).is_disabled()
+    # 点全部又是全部
     mac.click(ALL_RADIO)
     assert selected_cards(mac) == [1, 2, 3, 4]
 
@@ -246,7 +262,7 @@ def test_the_page_field_works_on_document_boards(browser, server, tmp_path):
     mac = open_mac(browser, server.port)
     open_doc_board(mac, make_doc(tmp_path, pages=((595, 842),) * 3))
     open_dialog(mac, 3)
-    assert mac.locator('.export-seg button:has-text("整块")').count() == 0
+    assert mac.locator('.export-seg button:has-text("整张长图")').count() == 0
     assert mac.locator(FIELD).get_attribute("placeholder") == "例如 1-5, 8, 11-13"
     mac.fill(FIELD, "2-3")
     assert selected_cards(mac) == [2, 3]

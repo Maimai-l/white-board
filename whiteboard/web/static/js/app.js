@@ -149,7 +149,8 @@ class App extends InkPad {
       this.ui.setBoards(msg.boards.map(boardView), this.state.id, msg.folders);
     }
     if (msg.t === "perms") this.ui.setPerms(new Set(msg.perms || []));
-    if (msg.t === "devices") this.ui.setDevices(msg.devices || []);
+    // 连着这台 Mac 的别的设备：init / sync 里带着一份，之后有变化单独发 devices
+    if (Array.isArray(msg.devices)) this.ui.setDevices(msg.devices);
   }
 
   reloadWhenIdle(build) {

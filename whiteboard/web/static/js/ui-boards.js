@@ -1041,6 +1041,16 @@ const methods = {
         tile("note", "向下延伸", NOTE_ART),
         tile("board", "四向延伸", BOARD_ART),
       ]),
+      // iPad 上没有右键菜单，导入就放在这里（Mac 上空白处右键或 ⌘I 也行）
+      el("button", {
+        class: "link lib-import",
+        type: "button",
+        text: "导入 PDF 或图片…",
+        onclick: () => {
+          this.closeNewBoard();
+          this.pickDoc(folder || "");
+        },
+      }),
     ]);
     panel.addEventListener("click", (event) => event.stopPropagation());
     this.root.append(panel);

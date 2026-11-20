@@ -160,7 +160,9 @@ def test_the_library_lists_recent_boards_with_the_current_one_selected(browser, 
     assert rows[:2] == ["最近", "全部白板"] and rows[-1] == "回收站"
     assert mac.locator('.lib-side .lib-nav[data-folder=""] .lib-nav-count').inner_text() == "2"
     assert mac.evaluate(SHOWN_NAMES) == ["笔记", "白板"]  # 最近改过的在前
-    selected = "() => [...document.querySelectorAll('.board-card.selected')].map(c => c.closest('[data-board]').dataset.board)"
+    selected = (
+        "() => [...document.querySelectorAll('.board-card.selected')].map(c => c.closest('[data-board]').dataset.board)"
+    )
     assert mac.evaluate(selected) == [second]
 
     # 单击只是选中，界面不关
