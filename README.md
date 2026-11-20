@@ -415,7 +415,7 @@ Right-clicking the background opens a menu with 新建白板 (New board, ⌘N), 
 
 ### Documents (PDF and images)
 
-Drop a PDF or an image onto the window, choose 导入 PDF 或图片… (Import PDF or image, ⌘I) in the library's background menu, or open the file with the app from Finder, to create a document board (beta). The pages are laid out on the canvas, and connected devices switch to the new board.
+Drop a PDF or an image onto the window, choose 导入 PDF 或图片… (Import PDF or image, ⌘I) in the library's background menu or in the 新建白板 (New board) panel (the way to import on the iPad), or open the file with the app from Finder, to create a document board (beta). The pages are laid out on the canvas, and connected devices switch to the new board.
 
 - Several files can be dropped or chosen at once. Each becomes a new board, and the view ends on the last one.
 - While files are dragged over the window, an overlay reads 「导入为新白板」 (import as new board), or 「导入到 <folder>」 (import into) when the library shows a folder.
@@ -449,7 +449,7 @@ The export dialog (see [Export](#export)) uses the pages of the original. A PDF 
 
 | Part | Behaviour |
 | --- | --- |
-| Left column | When exporting pages, a thumbnail of every page with a checkbox pill on its bottom edge showing the page number, for example `1 / 7`. Tap a page to select or deselect it; 页面 (Pages) then switches to 所选的 N 页 (the N selected pages). Above the pages are 已选 N 页 (N selected) and 全选 (Select all), which reads 取消全选 (Deselect all) once every page is selected. For 整张长图 it shows a preview of the whole board, and for WBZ the file name. |
+| Left column | When exporting pages, a thumbnail of every page with a checkbox pill on its bottom edge showing the page number, for example `1 / 7`. Tap a page to select or deselect it; 页面 (Pages) then switches to 所选的 N 页 (the N selected pages). Above the pages are 已选 N 页 (N selected), 全选 (Select all), which reads 取消全选 (Deselect all) once every page is selected, and 当前页 (Current page), which selects the page in the middle of the view. For 整张长图 it shows a preview of the whole board, and for WBZ the file name. |
 | 格式 (Format) | PDF, PNG, or WBZ. With PNG, one selected page gives one PNG file and several give a ZIP with one PNG per page, named in page order. WBZ is the board file: it downloads the board's `.wbz` file unchanged; opening it in the app (double-click on the Mac) opens the same board. The export button follows the format: 导出 PDF, 导出 PNG or 导出 WBZ. |
 | 范围 (Range, infinite and note boards) | 按页 (by page) exports pages; 整张长图 (one long image) exports the whole board without pagination as one PDF page or one PNG, the size of all the ink plus a margin. |
 | 页面 (Pages) | 全部 N 页 (all N pages); 范围 (range) with the pages typed in the field, such as `1-5, 8, 11-13` (separated by `,` `、` `;` or spaces); or 所选的 N 页, the pages picked in the left column. The field and the thumbnails follow each other. A page number that does not exist shows a message under the field and disables the export button. |
