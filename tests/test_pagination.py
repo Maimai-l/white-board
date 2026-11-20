@@ -301,3 +301,59 @@ def test_base_name_is_safe_for_files():
     assert export.base_name({"name": ""}).startswith("whiteboard-")
     doc = {"data": {"doc": {"type": "pdf", "name": "讲义.pdf", "ext": ".pdf", "pages": [[1, 1]]}}}
     assert export.base_name(doc) == "讲义-批注"
+
+
+def test_raw_name_is_the_board_name_for_every_kind():
+    assert export.raw_name({"name": "课堂/笔记"}) == "课堂-笔记.wbz"
+    assert export.raw_name({"name": "讲义", "data": {"doc": {"type": "pdf", "name": "讲义.pdf"}}}) == "讲义.wbz"
+    assert export.raw_name({}).startswith("whiteboard-") and export.raw_name({}).endswith(".wbz")
+
+
+# ------------------------------------------------------------------ 整块
+
+
+def stroke_at(x0, y0, x1, y1, w=10.0):
+    return {"id": "s", "tool": "pen", "color": "#000000", "w": w, "p": [x0, y0, 0.5, x1, y1, 0.5]}
+
+
+def test_whole_page_frames_all_ink_at_scale_one():
+    page = pg.whole_page({}, [stroke_at(0, 0, 100, 0), stroke_at(-50.5, 300, 20, 400)])
+    # 包围盒外扩半个笔宽再取整：x -55.5→-56，右边 105；y -5，405
+    assert (page["x"], page["y"], page["w"], page["h"]) == (-56, -5, 161, 410)
+    assert page["paper"] == [161 + 2 * pg.MARGIN, 410 + 2 * pg.MARGIN] and page["margin"] == pg.MARGIN
+    assert pg.placement(page) == (1.0, pg.MARGIN, pg.MARGIN)
+
+
+def test_whole_page_of_a_note_spans_the_note_width():
+    meta = {"canvas": {"mode": "column", "width": 900}}
+    page = pg.whole_page(meta, [stroke_at(100, 50, 200, 50)])
+    assert (page["x"], page["w"], page["y"], page["h"]) == (0, 900, 45, 10)
+
+
+def test_whole_page_shrinks_to_the_largest_paper():
+    page = pg.whole_page({}, [stroke_at(0, 0, 100000, 0), stroke_at(0, 50000, 1, 50000)])
+    assert max(page["paper"]) == pytest.approx(pg.MAX_PAPER, abs=0.01)
+    scale, _left, _top = pg.placement(page)
+    assert scale == pytest.approx(pg.MAX_PAPER / (page["w"] + 2 * pg.MARGIN), rel=1e-4)
+    assert page["w"] * scale <= page["paper"][0] - 2 * page["margin"] + 0.01
+
+
+def test_whole_page_of_an_empty_board_is_one_sheet():
+    assert pg.whole_page({}, []) == pg.board_pages([])[0]
+
+
+def test_whole_and_wbz_options():
+    assert export.parse_options({"format": "png", "frames": "whole"}).frames == "whole"
+    assert export.options_from_query({"format": "pdf", "frames": "whole"}).frames == "whole"
+    with pytest.raises(export.ExportError):
+        export.options_from_query({"format": "pdf", "frames": "some"})
+    # 白板文件不看其余参数
+    assert export.parse_options({"format": "wbz", "dpi": "ignored"}).format == "wbz"
+
+
+def test_background_pattern_is_thinned_on_a_huge_frame():
+    page = {"x": 0, "y": 0, "w": 14000, "h": 14000, "paper": [14000, 14000], "margin": 0}
+    _xs, _ys, dots = export._pattern_lines(page, "dots", 1.0)
+    assert 0 < len(dots) <= export.MAX_PATTERN_DOTS
+    xs, _ys, _dots = export._pattern_lines(page, "grid", 1.0, pixels=0.05)
+    assert (xs[1] - xs[0]) * 0.05 >= export.MIN_PATTERN_PX

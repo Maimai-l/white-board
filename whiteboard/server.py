@@ -671,6 +671,8 @@ async def handle_export_pages(request: web.Request) -> web.Response:
         pages = await asyncio.to_thread(pagination.auto_pages, meta, strokes, paper)
     except ValueError as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
+    # 「整块」导出的那一页；文档板导出的总是原件的页，没有整块
+    whole = None if models.doc_of(meta) is not None else pagination.whole_page(meta, strokes)
     return web.json_response(
         {
             "board": board_id,
@@ -678,6 +680,7 @@ async def handle_export_pages(request: web.Request) -> web.Response:
             "paper": [size[0], size[1]],
             "margin": pagination.MARGIN,
             "pages": pages,
+            "whole": whole,
         },
         headers={"Cache-Control": "no-store"},
     )
@@ -686,7 +689,8 @@ async def handle_export_pages(request: web.Request) -> web.Response:
 async def handle_page_export(request: web.Request) -> web.StreamResponse:
     """分页导出：选中的页导出成 PDF、PNG 压缩包或单张 PNG（``whiteboard/export.py``）。
 
-    POST 的请求体是 JSON（可以带自己调整过的页框）；GET 用查询参数，页框只能自动分。
+    POST 的请求体是 JSON（可以带自己调整过的页框）；GET 用查询参数，页框只能自动分
+    或整块一页。``format=wbz`` 下载白板文件本身（:func:`_raw_board_file`）。
     """
     from . import docs, export
 
@@ -702,6 +706,8 @@ async def handle_page_export(request: web.Request) -> web.StreamResponse:
             options = export.options_from_query(request.query)
     except export.ExportError as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
+    if options.format == export.RAW_FORMAT:
+        return await _raw_board_file(request)
 
     board_id, meta, strokes = await _export_source(request)
     hub: Hub = request.app[HUB_KEY]
@@ -709,7 +715,7 @@ async def handle_page_export(request: web.Request) -> web.StreamResponse:
     if models.doc_of(meta) is not None and path is None:
         raise web.HTTPNotFound(text="原件已丢失")
     try:
-        body, content_type, name = await asyncio.to_thread(export.export, meta, strokes, options, path)
+        body, content_type, name, dpi = await asyncio.to_thread(export.export, meta, strokes, options, path)
     except export.ExportError as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
     except docs.DocError as exc:
@@ -722,9 +728,48 @@ async def handle_page_export(request: web.Request) -> web.StreamResponse:
     log.info(
         "分页导出 %s：%s，%d 笔，%.1f KB", board_id, options.format, len(strokes), len(body) / 1024
     )
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{urllib.parse.quote(name)}",
+        "Cache-Control": "no-store",
+    }
+    if dpi is not None:
+        # PNG 实际的清晰度：超过单页像素上限时比要的低，界面可以据此提示
+        headers["X-Export-Dpi"] = f"{dpi:g}"
+    return web.Response(body=body, content_type=content_type, headers=headers)
+
+
+async def _raw_board_file(request: web.Request) -> web.Response:
+    """``format=wbz``：白板文件本身，给开发者复现问题用。
+
+    先把内存里的改动存盘（``Hub.flush``，和自动保存、退出时走同一条路），再原样读文件，
+    所以下载到的就是此刻的白板。读不全而锁住的白板不会被存盘覆盖，下载到的是磁盘上
+    那份原文件。速写板不存盘，没有文件。文档板只有 ``.wbz``，原件不在里面：要在别处
+    打开，得把原件放进旁边的 ``docs/``（见 README「从访达打开文件」）。
+    """
+    from . import export
+
+    hub: Hub = request.app[HUB_KEY]
+    board_id = request.match_info["board_id"]
+    meta = hub.core.board_meta(board_id)
+    if not meta:
+        raise web.HTTPNotFound()
+    if hub.core.is_transient(board_id):
+        raise web.HTTPNotFound(text="临时白板不存盘，没有白板文件")
+    await hub.core.flush()
+    path = hub.store.core.board_path(board_id)
+    try:
+        body = await asyncio.to_thread(path.read_bytes)
+    except FileNotFoundError as exc:
+        log.warning("server._raw_board_file：白板 %s 没有文件 %s", board_id, path)
+        raise web.HTTPNotFound(text="白板文件不存在") from exc
+    except OSError as exc:
+        log.error("server._raw_board_file：读白板 %s 的文件失败：%s", board_id, exc)
+        raise web.HTTPInternalServerError(text="白板文件读不出来") from exc
+    name = export.raw_name(meta)
+    log.info("下载白板文件 %s：%.1f KB", board_id, len(body) / 1024)
     return web.Response(
         body=body,
-        content_type=content_type,
+        content_type=export.CONTENT_TYPES[export.RAW_FORMAT],
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{urllib.parse.quote(name)}",
             "Cache-Control": "no-store",

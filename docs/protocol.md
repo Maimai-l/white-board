@@ -456,8 +456,8 @@ The role (`mac` or `ipad`) selects the interface layout.
 | GET | `/apps/{app}/{path}` | — | Static files of an installed app; a directory returns its `index.html`. See [embed.md](embed.md). |
 | GET | `/sdk/inkpad.js` | — | The 1.0.1 address; redirects to `/inksync/inkpad.js`. |
 | GET | `/api/export/{board}` | `export` | Document board with ink merged into the original. With `?format=`: paged export, see [Paged export](#paged-export) |
-| POST | `/api/export/{board}` | `export` | Paged export of any board: selected pages as PDF, a ZIP of PNG files, or one PNG. See [Paged export](#paged-export). |
-| GET | `/api/export/{board}/pages?paper=<paper>` | `export` | Automatic page frames of a board, for previewing an export |
+| POST | `/api/export/{board}` | `export` | Paged export of any board: selected pages as PDF, a ZIP of PNG files, or one PNG; the whole board on one page; or the board file itself (`.wbz`). See [Paged export](#paged-export). |
+| GET | `/api/export/{board}/pages?paper=<paper>` | `export` | Automatic page frames of a board and the whole-board page, for previewing an export |
 | GET | `/sketch` | — | The sketch page; see [sketch.md](sketch.md). |
 | POST | `/api/sketch` | `manage` | Start or continue a sketch: when there is no sketch board `sketch`, create a blank temporary board, and switch following connections to it. Response: `{"board": <meta>, "id": "sketch"}`. |
 | DELETE | `/api/sketch` | `manage` | End the sketch: discard the sketch board; following connections still on it return to the current board, other connections receive `deleted`. Response: `{"ended": <boolean>}`. |
@@ -486,8 +486,8 @@ Request body (JSON):
 
 | Key | Values | Default |
 | --- | --- | --- |
-| `format` | `pdf`; `zip` (one PNG per page); `png` (exactly one selected page) | Required |
-| `frames` | `"auto"`, or a list of 1–400 page frames `{x, y, w, h, paper?, margin?}`. `paper` is a paper name or `[width, height]` in pt; without it the requested paper is used, turned to the shape of the frame. `margin` is 0–144 pt. Document boards accept only `"auto"`. | `"auto"` |
+| `format` | `pdf`; `zip` (one PNG per page); `png` (exactly one selected page); `wbz` (the board file itself, see [Board file](#board-file); the other keys are ignored) | Required |
+| `frames` | `"auto"`; `"whole"` (one page holding all ink, see [Whole board](#whole-board)); or a list of 1–400 page frames `{x, y, w, h, paper?, margin?}`. `paper` is a paper name or `[width, height]` in pt; without it the requested paper is used, turned to the shape of the frame. `margin` is 0–144 pt. Document boards accept only `"auto"`. | `"auto"` |
 | `select` | Page indices counted from 0. Duplicates are removed and the pages are exported in page order. | All pages |
 | `dpi` | PNG resolution, 36–600. A page above 40 million pixels is rendered at a lower resolution. | 144; an image document keeps its original resolution |
 | `paper` | `a4`, `letter`, or `[width, height]` in pt (72–14400) | `a4` |
@@ -498,16 +498,19 @@ Example:
 ```json
 {"format": "pdf", "select": [1, 3]}
 {"format": "zip", "frames": [{"x": -300, "y": -200, "w": 770, "h": 523}], "dpi": 300}
+{"format": "png", "frames": "whole", "dpi": 144}
+{"format": "wbz"}
 ```
 
-`GET /api/export/{board}?format=pdf&select=1,3&dpi=144&paper=a4&background=0` takes the same options as query parameters, with automatic page frames only, so a download link can use it.
+`GET /api/export/{board}?format=pdf&select=1,3&dpi=144&paper=a4&background=0` takes the same options as query parameters, so a download link can use it. `frames` can only be `auto` or `whole` there (`&frames=whole`); `?format=wbz` downloads the board file.
 
-Response: `Content-Type` `application/pdf`, `application/zip` or `image/png`; `Content-Disposition: attachment; filename*=UTF-8''<name>`; `Cache-Control: no-store`. `400` for an invalid request (the text gives the reason), `404` for an unknown board or a missing original.
+Response: `Content-Type` `application/pdf`, `application/zip`, `image/png` or `application/octet-stream` (`wbz`); `Content-Disposition: attachment; filename*=UTF-8''<name>`; `Cache-Control: no-store`. PNG and ZIP responses also have `X-Export-Dpi`: the resolution actually used, the lowest over the pages; it is below the requested `dpi` when a page was over the pixel limit. `400` for an invalid request (the text gives the reason), `404` for an unknown board or a missing original.
 
 | Board | File name |
 | --- | --- |
 | Document board | `<original name>-批注.pdf`, `.zip`, `-NN.png` |
 | Other boards | `<board name>.pdf` (`whiteboard-<date>` when unnamed), `.zip`, `-NN.png` |
+| Board file (`wbz`), any board | `<board name>.wbz` |
 
 Files in a ZIP are named `<name>-NN.png`, where `NN` is the page number counted from 1 with at least two digits, so that they sort in page order. A single PNG of a board with one page has no number.
 
@@ -525,10 +528,11 @@ One board unit is printed as 1 pt, as on document boards: a page at scale 1 show
 
 ```json
 {"board": "49b773c7c7c2", "kind": "board", "paper": [595.28, 841.89], "margin": 36.0,
- "pages": [{"x": -288.3, "y": -241.7, "w": 769.89, "h": 523.28, "paper": [841.89, 595.28]}]}
+ "pages": [{"x": -288.3, "y": -241.7, "w": 769.89, "h": 523.28, "paper": [841.89, 595.28]}],
+ "whole": {"x": -282, "y": -236, "w": 758, "h": 512, "paper": [830.0, 584.0], "margin": 36.0}}
 ```
 
-`paper` in each page is the sheet with its orientation. Pages of document boards also have `"margin": 0`.
+`paper` in each page is the sheet with its orientation. Pages of document boards also have `"margin": 0`. `whole` is the page that `"frames": "whole"` exports (`null` for document boards).
 
 Automatic page frames:
 
@@ -537,6 +541,24 @@ Automatic page frames:
 | Infinite board | Strokes whose bounding boxes are at most 72 units apart on both axes form a group. Groups that fit on one page together at scale 1 are merged, closest first. Each group gets one page at scale 1, portrait or landscape, whichever fits; a group that does not fit is scaled down to at most 0.7; a larger group is cut into a grid of pages at scale 1, in the orientation with fewer pages. A page with room to spare is moved within that room to cut as little of other ink as possible. Pages are ordered top to bottom in rows, left to right within a row. An empty board has one page centered on the origin. |
 | Note board | The page width is the note width, on portrait paper. Each page ends at the paper length, or in the middle of the lowest blank line within the last quarter of the page. The last page is a full sheet. |
 | Document board | One page per page of the original, on paper of the original page size, without margin. |
+
+#### Whole board
+
+`"frames": "whole"` exports the board without pagination: one page whose frame is the bounding box of all ink (each stroke widened by half its width, rounded out to whole units) and whose paper is that box plus a 36 pt margin on every side, at scale 1. A note board's frame spans at least the full note width. An empty board gives the same single sheet as automatic pagination. Document boards answer `400`.
+
+| Format | Result |
+| --- | --- |
+| `pdf` | One page of that size. A side longer than 14400 pt (the largest page PDF readers open) shrinks the whole page, margin included, to 14400 pt. |
+| `png` | One image of the page at `dpi`. Over 40 million pixels the resolution is lowered to fit, and `X-Export-Dpi` gives the resolution used. |
+| `zip` | A ZIP with that one PNG. |
+
+On a large page the background pattern gets coarser so it stays readable: grid lines at least 10 pt apart on paper and 8 pixels apart in a PNG, and at most 40,000 dots.
+
+#### Board file
+
+`"format": "wbz"` (or `GET ?format=wbz`) returns the board's `.wbz` file unchanged, for example to send a board to the developer. The server first saves the board's unsaved changes (the same save as autosave and quit), so the file holds the board as it is now. A board that could not be read completely and is open read-only is never saved over; the download is the file as it is on disk. The sketch board is not saved and has no file (`404`).
+
+The file of a document board does not contain the original. Opening it elsewhere imports it as a new board only when the original is in a `docs/` folder next to the file or one level up, named `<old board id>.<extension>` (see “Opening files from Finder” in the README).
 
 ## mDNS and Bonjour
 

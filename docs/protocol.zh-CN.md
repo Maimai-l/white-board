@@ -456,8 +456,8 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 | GET | `/apps/{应用}/{路径}` | — | 已安装应用的静态文件；目录返回其中的 `index.html`。见 [embed.zh-CN.md](embed.zh-CN.md)。 |
 | GET | `/sdk/inkpad.js` | — | 1.0.1 的地址，跳转到 `/inksync/inkpad.js`。 |
 | GET | `/api/export/{board}` | `export` | 笔迹合并到原件之后的文档板。带 `?format=` 时为分页导出，见[分页导出](#分页导出) |
-| POST | `/api/export/{board}` | `export` | 任意白板的分页导出：选中的页导出为 PDF、PNG 压缩包或单张 PNG。见[分页导出](#分页导出)。 |
-| GET | `/api/export/{board}/pages?paper=<纸张>` | `export` | 白板的自动页框，供导出预览 |
+| POST | `/api/export/{board}` | `export` | 任意白板的分页导出：选中的页导出为 PDF、PNG 压缩包或单张 PNG；整块白板导出为一页；或白板文件本身（`.wbz`）。见[分页导出](#分页导出)。 |
+| GET | `/api/export/{board}/pages?paper=<纸张>` | `export` | 白板的自动页框和整块导出的那一页，供导出预览 |
 | GET | `/sketch` | — | 速写页面，见 [sketch.zh-CN.md](sketch.zh-CN.md)。 |
 | POST | `/api/sketch` | `manage` | 开始或继续速写：没有速写板 `sketch` 时新建一块空白的临时白板，跟随的连接切过去。响应为 `{"board": <meta>, "id": "sketch"}`。 |
 | DELETE | `/api/sketch` | `manage` | 结束速写：丢弃速写板，还在上面的跟随连接回到当前白板，其他连接收到 `deleted`。响应为 `{"ended": <布尔值>}`。 |
@@ -486,8 +486,8 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 
 | 键 | 取值 | 默认值 |
 | --- | --- | --- |
-| `format` | `pdf`；`zip`（每页一张 PNG）；`png`（只能选一页） | 必填 |
-| `frames` | `"auto"`，或 1～400 个页框 `{x, y, w, h, paper?, margin?}` 的列表。`paper` 为纸张名称或以 pt 为单位的 `[宽, 高]`；省略时使用请求的纸张，横竖跟随页框的形状。`margin` 为 0～144 pt。文档板只接受 `"auto"`。 | `"auto"` |
+| `format` | `pdf`；`zip`（每页一张 PNG）；`png`（只能选一页）；`wbz`（白板文件本身，见[白板文件](#白板文件)；其余的键不看） | 必填 |
+| `frames` | `"auto"`；`"whole"`（一页框住全部笔迹，见[整块导出](#整块导出)）；或 1～400 个页框 `{x, y, w, h, paper?, margin?}` 的列表。`paper` 为纸张名称或以 pt 为单位的 `[宽, 高]`；省略时使用请求的纸张，横竖跟随页框的形状。`margin` 为 0～144 pt。文档板只接受 `"auto"`。 | `"auto"` |
 | `select` | 页的序号，从 0 开始。重复的序号会去掉，按页序导出。 | 全部页 |
 | `dpi` | PNG 的分辨率，36～600。超过 4000 万像素的页按较低的分辨率渲染。 | 144；图片原件保持原分辨率 |
 | `paper` | `a4`、`letter`，或以 pt 为单位的 `[宽, 高]`（72～14400） | `a4` |
@@ -498,16 +498,19 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 ```json
 {"format": "pdf", "select": [1, 3]}
 {"format": "zip", "frames": [{"x": -300, "y": -200, "w": 770, "h": 523}], "dpi": 300}
+{"format": "png", "frames": "whole", "dpi": 144}
+{"format": "wbz"}
 ```
 
-`GET /api/export/{board}?format=pdf&select=1,3&dpi=144&paper=a4&background=0` 以查询参数接受相同的选项，只能使用自动页框，可直接用作下载链接。
+`GET /api/export/{board}?format=pdf&select=1,3&dpi=144&paper=a4&background=0` 以查询参数接受相同的选项，可直接用作下载链接。其中 `frames` 只能是 `auto` 或 `whole`（`&frames=whole`）；`?format=wbz` 下载白板文件。
 
-响应：`Content-Type` 为 `application/pdf`、`application/zip` 或 `image/png`；`Content-Disposition: attachment; filename*=UTF-8''<文件名>`；`Cache-Control: no-store`。请求不合法时返回 `400`（正文说明原因），白板不存在或原件丢失时返回 `404`。
+响应：`Content-Type` 为 `application/pdf`、`application/zip`、`image/png` 或 `application/octet-stream`（`wbz`）；`Content-Disposition: attachment; filename*=UTF-8''<文件名>`；`Cache-Control: no-store`。PNG 和压缩包的响应还带 `X-Export-Dpi`：实际使用的分辨率，取各页中最低的；有页超过像素上限时低于请求的 `dpi`。请求不合法时返回 `400`（正文说明原因），白板不存在或原件丢失时返回 `404`。
 
 | 白板 | 文件名 |
 | --- | --- |
 | 文档板 | `<原文件名>-批注.pdf`、`.zip`、`-NN.png` |
 | 其他白板 | `<白板名称>.pdf`（未命名时为 `whiteboard-<日期>`）、`.zip`、`-NN.png` |
+| 白板文件（`wbz`），任何白板 | `<白板名称>.wbz` |
 
 压缩包中的文件名为 `<文件名>-NN.png`，`NN` 是从 1 开始的页码，至少两位，按文件名排序即为页序。只有一页的白板导出单张 PNG 时不带页码。
 
@@ -525,10 +528,11 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 
 ```json
 {"board": "49b773c7c7c2", "kind": "board", "paper": [595.28, 841.89], "margin": 36.0,
- "pages": [{"x": -288.3, "y": -241.7, "w": 769.89, "h": 523.28, "paper": [841.89, 595.28]}]}
+ "pages": [{"x": -288.3, "y": -241.7, "w": 769.89, "h": 523.28, "paper": [841.89, 595.28]}],
+ "whole": {"x": -282, "y": -236, "w": 758, "h": 512, "paper": [830.0, 584.0], "margin": 36.0}}
 ```
 
-每页的 `paper` 是带方向的纸张大小。文档板的页还带有 `"margin": 0`。
+每页的 `paper` 是带方向的纸张大小。文档板的页还带有 `"margin": 0`。`whole` 是 `"frames": "whole"` 导出的那一页（文档板为 `null`）。
 
 自动页框：
 
@@ -537,6 +541,24 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 | 大白板 | 包围盒在横向和纵向上都相距不超过 72 个单位的笔画归为一组。能按 1:1 同放一页的组从最近的开始合并。每组按 1:1 放进一页，横放或竖放取放得下的一种；放不下的组最多缩小到 0.7；更大的组按 1:1 切成网格，取页数较少的方向。页框比组大时，在余量范围内移动页框，尽量少切到其他笔迹。页按行从上到下、行内从左到右排列。空白板有一页，以原点为中心。 |
 | 笔记 | 页宽等于笔记宽度，纸张竖放。每页在纸张长度处结束，或在该页最后四分之一内最靠下的空白行中间结束。最后一页是完整的一张纸。 |
 | 文档板 | 原件的每一页为一页，纸张为原页面大小，不留白。 |
+
+#### 整块导出
+
+`"frames": "whole"` 不分页导出整块白板：只有一页，页框是全部笔迹的包围盒（每笔外扩半个笔宽，向外取整到整数单位），纸张是页框加四周各 36 pt 留白，缩放为 1。笔记的页框横向至少是整个笔记宽度。空白板与自动分页相同，是一张纸。文档板返回 `400`。
+
+| 格式 | 结果 |
+| --- | --- |
+| `pdf` | 这样大小的一页。任一边超过 14400 pt（PDF 阅读器能打开的最大页面）时，整页连同留白等比缩小到 14400 pt。 |
+| `png` | 按 `dpi` 渲染这一页的一张图。超过 4000 万像素时降低分辨率，`X-Export-Dpi` 给出实际的分辨率。 |
+| `zip` | 只装这一张 PNG 的压缩包。 |
+
+页面很大时背景纹理变疏，保持看得清：纸上方格间距至少 10 pt，PNG 里至少 8 像素，点阵最多 40000 个点。
+
+#### 白板文件
+
+`"format": "wbz"`（或 `GET ?format=wbz`）原样返回白板的 `.wbz` 文件，例如把白板发给开发者。服务端先把这块白板尚未存盘的改动存盘（与自动保存、退出时相同），所以文件就是此刻的白板。读不全而以只读方式打开的白板不会被存盘覆盖，下载到的是磁盘上的原文件。速写板不存盘，没有文件（`404`）。
+
+文档板的文件里不含原件。在别处打开时，只有原件位于文件旁边或上一级的 `docs/` 中、名为 `<原白板 id>.<扩展名>`，才会导入为新白板（见 README「从访达打开文件」）。
 
 ## mDNS 与 Bonjour
 

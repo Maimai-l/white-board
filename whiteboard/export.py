@@ -8,6 +8,11 @@
 * 文档板：PDF 原件走 ``docs.export_pdf``（笔迹追加到原页面上，原内容流不动），
   然后只留下选中的页；图片原件做成一页 PDF，或者按原分辨率出 PNG。
 
+* 整块（``frames: "whole"``）：不分页，一页框住全部墨迹（``pagination.whole_page``），
+  纸张就是墨迹的大小加四周留白，1:1；PNG 太大时按 ``MAX_PAGE_PIXELS`` 降清晰度。
+* 白板文件（``format: "wbz"``）：原样的 ``.wbz``，由服务端先存盘再读文件
+  （``server.handle_page_export``），这里只给文件名（:func:`raw_name`）。
+
 入口是 :func:`export`；请求参数的校验在 :func:`parse_options`，出错抛
 :class:`ExportError`，消息直接给调用方看。
 """
@@ -23,14 +28,21 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 from . import docs, inkpdf, inkraster, pagination
 
 log = logging.getLogger(__name__)
 
 FORMATS = ("pdf", "zip", "png")
-CONTENT_TYPES = {"pdf": "application/pdf", "zip": "application/zip", "png": "image/png"}
+# 白板文件本身：不经过 export()，由服务端存盘后原样读出来
+RAW_FORMAT = "wbz"
+CONTENT_TYPES = {
+    "pdf": "application/pdf",
+    "zip": "application/zip",
+    "png": "image/png",
+    RAW_FORMAT: "application/octet-stream",
+}
 DEFAULT_DPI = 144.0
 MIN_DPI = 36.0
 MAX_DPI = 600.0
@@ -44,6 +56,10 @@ PATTERN_STEP = 40.0
 PATTERN_COLOR = "#d7dbe6"
 PATTERN_LINE = 0.75
 MIN_PATTERN_PT = 10.0
+# PNG 里格子至少隔这么多像素：整块导出的大白板降了清晰度以后，格子不能糊成一片灰
+MIN_PATTERN_PX = 8.0
+# 点阵一页最多这么多个点，再多就把点距加倍：页框很大时 PDF 不至于有几百万个点
+MAX_PATTERN_DOTS = 40_000
 DOT_RADIUS = 1.2
 PAPER_COLOR = "#ffffff"
 PATTERNS = ("blank", "grid", "lines", "dots")
@@ -56,7 +72,7 @@ class ExportError(ValueError):
 @dataclass
 class Options:
     format: str
-    frames: Optional[List[Dict[str, Any]]] = None  # None：自动分页
+    frames: Any = None  # None：自动分页；"whole"：整块一页；否则是页框列表
     select: Optional[List[int]] = None  # None：全部页
     dpi: Optional[float] = None  # None：默认（图片原件按原分辨率）
     paper: Tuple[float, float] = pagination.PAPERS[pagination.DEFAULT_PAPER]
@@ -108,8 +124,9 @@ def _frame(raw: Any, default_paper: Tuple[float, float]) -> Dict[str, Any]:
 def parse_options(raw: Mapping[str, Any]) -> Options:
     """导出请求的参数（POST 的 JSON，或 GET 的查询参数换成的同样结构）。
 
-    * ``format``：``pdf``、``zip``（每页一张 PNG）或 ``png``（只能选一页）；
-    * ``frames``：``"auto"``（默认）或页框列表，见 :func:`_frame`；
+    * ``format``：``pdf``、``zip``（每页一张 PNG）、``png``（只能选一页）或 ``wbz``
+      （白板文件本身，其余参数都不看）；
+    * ``frames``：``"auto"``（默认）、``"whole"``（整块一页）或页框列表，见 :func:`_frame`；
     * ``select``：要导出的页（从 0 数），默认全部；
     * ``dpi``：PNG 的清晰度，36～600，默认 144；
     * ``paper``：``a4``（默认）、``letter`` 或 ``[宽, 高]``（pt）；
@@ -118,8 +135,10 @@ def parse_options(raw: Mapping[str, Any]) -> Options:
     if not isinstance(raw, Mapping):
         raise ExportError("the request must be a JSON object")
     fmt = raw.get("format")
+    if fmt == RAW_FORMAT:
+        return Options(format=RAW_FORMAT)
     if fmt not in FORMATS:
-        raise ExportError("format must be one of pdf, zip, png")
+        raise ExportError("format must be one of pdf, zip, png, wbz")
     try:
         paper = pagination.paper_size(raw.get("paper") or pagination.DEFAULT_PAPER)
     except (TypeError, ValueError) as exc:
@@ -128,12 +147,14 @@ def parse_options(raw: Mapping[str, Any]) -> Options:
     frames = raw.get("frames", "auto")
     if frames is None or frames == "auto":
         frames = None
+    elif frames == "whole":
+        pass
     elif isinstance(frames, list):
         if not frames or len(frames) > MAX_PAGES:
             raise ExportError(f"frames must list 1–{MAX_PAGES} pages")
         frames = [_frame(item, paper) for item in frames]
     else:
-        raise ExportError('frames must be "auto" or a list')
+        raise ExportError('frames must be "auto", "whole" or a list')
 
     select = raw.get("select")
     if select is not None:
@@ -158,11 +179,16 @@ def parse_options(raw: Mapping[str, Any]) -> Options:
 
 
 def options_from_query(query: Mapping[str, str]) -> Options:
-    """GET 的查询参数：``format``、``select=1,3``、``dpi``、``paper``、``background=0|1``。
+    """GET 的查询参数：``format``、``frames=whole``、``select=1,3``、``dpi``、``paper``、
+    ``background=0|1``。
 
-    页框只能自动分；要自己给页框用 POST。
+    页框只能自动分或整块一页；要自己给页框用 POST。
     """
     raw: Dict[str, Any] = {"format": query.get("format")}
+    if query.get("frames"):
+        if query["frames"] not in ("auto", "whole"):
+            raise ExportError('frames must be "auto" or "whole" in a query')
+        raw["frames"] = query["frames"]
     if query.get("select"):
         try:
             raw["select"] = [int(part) for part in query["select"].split(",") if part.strip()]
@@ -189,6 +215,8 @@ def pages_for(meta: Dict[str, Any], strokes: Sequence[Dict[str, Any]], options: 
         if options.frames is not None:
             raise ExportError("document boards export the pages of their original")
         return pagination.auto_pages(meta, strokes)
+    if options.frames == "whole":
+        return [pagination.whole_page(meta, strokes)]
     if options.frames is not None:
         return options.frames
     return pagination.auto_pages(meta, strokes, list(options.paper))
@@ -238,17 +266,22 @@ def strokes_in(pairs: Sequence[Tuple[Any, Dict[str, Any]]], page: Dict[str, Any]
     return [stroke for box, stroke in pairs if pagination.intersects(box, frame)]
 
 
-def _pattern_lines(page: Dict[str, Any], pattern: str, scale: float):
+def _pattern_lines(page: Dict[str, Any], pattern: str, scale: float, pixels: Optional[float] = None):
     """页框里的背景纹理（白板坐标）：返回 ``(竖线 x 列表, 横线 y 列表, 点列表)``。
 
     ``scale`` 是每个白板单位在纸上多少 pt。和 renderer.js 的 patternStep 一样，
     格子在纸上小于 ``MIN_PATTERN_PT`` 时逐级合并，页框再大也不会糊成一片灰。
+    PNG 再给 ``pixels``（每个白板单位多少像素）：格子也不能小于 ``MIN_PATTERN_PX``。
+    点阵的点数不超过 ``MAX_PATTERN_DOTS``。
     """
     step = PATTERN_STEP
-    while step * scale < MIN_PATTERN_PT:
+    while step * scale < MIN_PATTERN_PT or (pixels is not None and step * pixels < MIN_PATTERN_PX):
         step *= 2
     x0, y0 = page["x"], page["y"]
     x1, y1 = x0 + page["w"], y0 + page["h"]
+    if pattern == "dots":
+        while (page["w"] / step + 1) * (page["h"] / step + 1) > MAX_PATTERN_DOTS:
+            step *= 2
     xs = [k * step for k in range(math.ceil(x0 / step), math.floor(x1 / step) + 1)]
     ys = [k * step for k in range(math.ceil(y0 / step), math.floor(y1 / step) + 1)]
     if pattern == "grid":
@@ -436,6 +469,8 @@ def _pixels_per_pt(page: Dict[str, Any], dpi: float) -> float:
     pw, ph = page["paper"]
     if pw * ph * k * k > MAX_PAGE_PIXELS:
         lower = math.sqrt(MAX_PAGE_PIXELS / (pw * ph))
+        while round(pw * lower) * round(ph * lower) > MAX_PAGE_PIXELS:  # 四舍五入别把像素数又推过上限
+            lower *= 0.999
         log.info("export._pixels_per_pt：%.0f dpi 超过单页像素上限，降到 %.0f dpi", dpi, lower * 72)
         k = lower
     return k
@@ -446,6 +481,7 @@ def _hex_rgb(color: str) -> Tuple[int, int, int]:
 
 
 def _board_png(meta, pairs, page, dpi: float, background: bool):
+    """一张新纸的 PNG，返回 ``(图, 实际的每 pt 像素数)``。"""
     Image = docs._pil()
     from PIL import ImageDraw  # noqa: WPS433
 
@@ -461,7 +497,7 @@ def _board_png(meta, pairs, page, dpi: float, background: bool):
     x0, y0 = round(left * k), round(top * k)
     frame = Image.new("RGBA", (max(1, round(page["w"] * unit)), max(1, round(page["h"] * unit))), (0, 0, 0, 0))
     if background:
-        xs, ys, dots = _pattern_lines(page, pattern, scale)
+        xs, ys, dots = _pattern_lines(page, pattern, scale, pixels=unit)
         draw = ImageDraw.Draw(frame)
         color = _hex_rgb(PATTERN_COLOR) + (255,)
         line = max(1, round(PATTERN_LINE * unit))
@@ -477,10 +513,11 @@ def _board_png(meta, pairs, page, dpi: float, background: bool):
             draw.ellipse((px - radius, py - radius, px + radius, py + radius), fill=color)
     inkraster.paint_strokes(frame, strokes_in(pairs, page), origin=(page["x"], page["y"]), scale=unit)
     canvas.alpha_composite(frame, (x0, y0))
-    return canvas.convert("RGB") if background else canvas
+    return (canvas.convert("RGB") if background else canvas), k
 
 
 def _doc_png(strokes, pages, index: int, path: Path, dpi: Optional[float]):
+    """文档板的一页 PNG，返回 ``(图, 实际的每 pt 像素数)``。"""
     Image = docs._pil()
     page = pages[index]
     groups = docs.group_by_page(strokes, [{"x": p["x"], "y": p["y"], "w": p["w"], "h": p["h"]} for p in pages])
@@ -510,7 +547,7 @@ def _doc_png(strokes, pages, index: int, path: Path, dpi: Optional[float]):
             finally:
                 pdf.close()
     inkraster.paint_strokes(canvas, groups[index], origin=(page["x"], page["y"]), scale=k)
-    return canvas
+    return canvas, k
 
 
 def _png_bytes(image) -> bytes:
@@ -522,15 +559,25 @@ def _png_bytes(image) -> bytes:
 # ------------------------------------------------------------------ 入口
 
 
-def base_name(meta: Dict[str, Any]) -> str:
-    """导出文件的主名（不带扩展名）：文档板是「原件名-批注」，其他白板用白板名。"""
-    if docs.doc_of(meta) is not None:
-        return Path(docs.default_export_name(meta)).stem
-    name = (meta.get("name") or "").strip() if isinstance(meta, dict) else ""
+def safe_name(name: Any) -> str:
+    """白板名做成文件名：去掉文件系统不认的字符，最长 80 字；没有名字时是 ``whiteboard-日期``。"""
+    name = name.strip() if isinstance(name, str) else ""
     if not name:
         name = "whiteboard-" + time.strftime("%Y-%m-%d")
     name = re.sub(r'[\x00-\x1f/\\:*?"<>|]+', "-", name).strip(" .") or "whiteboard"
     return name[:80]
+
+
+def base_name(meta: Dict[str, Any]) -> str:
+    """导出文件的主名（不带扩展名）：文档板是「原件名-批注」，其他白板用白板名。"""
+    if docs.doc_of(meta) is not None:
+        return Path(docs.default_export_name(meta)).stem
+    return safe_name(meta.get("name") if isinstance(meta, dict) else "")
+
+
+def raw_name(meta: Dict[str, Any]) -> str:
+    """白板文件下载时的文件名：任何白板（文档板也是）都是 ``<白板名>.wbz``。"""
+    return safe_name(meta.get("name") if isinstance(meta, dict) else "") + ".wbz"
 
 
 def page_name(base: str, index: int, total: int) -> str:
@@ -538,17 +585,26 @@ def page_name(base: str, index: int, total: int) -> str:
     return f"{base}-{index + 1:0{digits}d}.png"
 
 
+class Exported(NamedTuple):
+    body: bytes
+    content_type: str
+    name: str
+    dpi: Optional[float] = None  # PNG 实际用的清晰度（几页里最低的）；超过像素上限时比要的低
+
+
 def export(
     meta: Dict[str, Any],
     strokes: Sequence[Dict[str, Any]],
     options: Options,
     doc_path: Optional[Path] = None,
-) -> Tuple[bytes, str, str]:
-    """按 ``options`` 导出，返回 ``(内容, Content-Type, 文件名)``。
+) -> Exported:
+    """按 ``options`` 导出，返回 :class:`Exported`（内容、Content-Type、文件名、PNG 的清晰度）。
 
     文档板要给 ``doc_path``（原件）。参数不对抛 :class:`ExportError`；原件读不了抛
-    ``docs.DocError``。
+    ``docs.DocError``。``wbz`` 不在这里导出（见 :func:`raw_name`）。
     """
+    if options.format not in FORMATS:
+        raise ExportError(f"{options.format} is not exported here")
     is_doc = docs.doc_of(meta) is not None
     if is_doc and doc_path is None:
         raise ExportError("the original of this document board is missing")
@@ -561,23 +617,28 @@ def export(
             body = _doc_pdf(strokes, pages, indices, doc_path)
         else:
             body = _board_pdf(meta, strokes, pages, indices, options.background)
-        return body, CONTENT_TYPES["pdf"], f"{base}.pdf"
+        return Exported(body, CONTENT_TYPES["pdf"], f"{base}.pdf")
 
     pairs = None if is_doc else boxed(strokes)
+    used: List[float] = []  # 每页实际的每 pt 像素数
 
-    def render(index: int):
+    def render(index: int) -> bytes:
         if is_doc:
-            return _doc_png(strokes, pages, index, doc_path, options.dpi)
-        return _board_png(meta, pairs, pages[index], options.dpi or DEFAULT_DPI, options.background)
+            image, k = _doc_png(strokes, pages, index, doc_path, options.dpi)
+        else:
+            image, k = _board_png(meta, pairs, pages[index], options.dpi or DEFAULT_DPI, options.background)
+        used.append(k)
+        return _png_bytes(image)
 
     if options.format == "png":
         index = indices[0]
         name = f"{base}.png" if len(pages) == 1 else page_name(base, index, len(pages))
-        return _png_bytes(render(index)), CONTENT_TYPES["png"], name
+        body = render(index)
+        return Exported(body, CONTENT_TYPES["png"], name, round(min(used) * 72, 2))
 
     buffer = io.BytesIO()
     # PNG 本身已经压缩过，压缩包里只存不压
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as archive:
         for index in indices:
-            archive.writestr(page_name(base, index, len(pages)), _png_bytes(render(index)))
-    return buffer.getvalue(), CONTENT_TYPES["zip"], f"{base}.zip"
+            archive.writestr(page_name(base, index, len(pages)), render(index))
+    return Exported(buffer.getvalue(), CONTENT_TYPES["zip"], f"{base}.zip", round(min(used) * 72, 2))
