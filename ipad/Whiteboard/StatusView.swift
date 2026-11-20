@@ -54,7 +54,7 @@ final class StatusView: UIView, UITableViewDataSource, UITableViewDelegate {
     // MARK: - 几种状态
 
     func showSearching() {
-        show(title: "正在查找 Mac", message: "请确认 Mac 上的白板已经打开，并且和这台 iPad 在同一个网络里。", busy: true)
+        show(title: "正在查找 Mac", message: "Mac 上的白板需要打开并和这台 iPad 在同一网络", busy: true)
     }
 
     func showConnecting(_ mac: MacAddress) {
@@ -67,7 +67,7 @@ final class StatusView: UIView, UITableViewDataSource, UITableViewDelegate {
         onPick: @escaping (MacAddress) -> Void,
         cancel: (() -> Void)? = nil
     ) {
-        show(title: "选择一台 Mac", message: "局域网里有 \(macs.count) 台 Mac 在运行白板。", busy: false)
+        show(title: "选择一台 Mac", message: "局域网里有 \(macs.count) 台 Mac 在运行白板", busy: false)
         self.macs = macs
         self.onPick = onPick
         table.isHidden = false
@@ -81,8 +81,7 @@ final class StatusView: UIView, UITableViewDataSource, UITableViewDelegate {
     func showNotFound(retry: @escaping () -> Void) {
         show(
             title: "没有找到 Mac",
-            message: "在 Mac 的白板窗口中打开「连接 iPad」，用这台 iPad 的 Safari 打开卡片上的外壳安装页地址，"
-                + "点「打开外壳」即可进入白板。\n\n外壳会继续在后台查找。",
+            message: "用这台 iPad 的 Safari 打开 Mac 白板窗口里显示的安装页地址\n外壳会在后台继续查找",
             busy: false
         )
         addButton("重新查找", action: retry)

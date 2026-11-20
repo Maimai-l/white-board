@@ -311,7 +311,7 @@ window.whiteboardShell && window.whiteboardShell.hello({"shellVersion": "1.3.0",
 | 外壳版本 | 与 Mac 端相同，由同一个 git tag 决定。 |
 | 支持范围 | 网页声明 `[最低, 最高]`，即 `input.js` 中的 `SHELL_BRIDGE = [1, 1]`。`whiteboard/ipadshell.py` 中的 `BRIDGE` 必须与之相同（`tests/test_ipadshell.py::test_bridge_range_matches_the_web_page`），`/ipad/version` 返回该范围。 |
 | 在范围内 | 外壳回复 `active: true`。 |
-| 不在范围内 | 外壳回复 `active: false`，每次运行显示一次提示「外壳版本与白板版本不兼容，请更新外壳」，并执行更新检查（8.3 节）。 |
+| 不在范围内 | 外壳回复 `active: false`，每次运行显示一次提示「外壳需要更新」，并执行更新检查（8.3 节）。 |
 | 兼容期 | 网页提高最高版本时，保留对上一个版本的支持，直到下一个版本发布。因此 Mac 端已更新而外壳尚未更新时，外壳仍可使用。 |
 
 ## 7. 网页端的改动
@@ -455,7 +455,7 @@ iPad 打开安装页的方式与获取描述文件的方式相同：Mac 窗口�
 更新检查：
 
 - 外壳在每次页面加载完成后、页面已加载时每次回到前台时，以及握手版本不兼容后，请求 `/ipad/version`。请求忽略缓存，超时时间为 5 秒。
-- `ipa` 为 `true` 且 `version` 比外壳自身版本新时，外壳显示「有新版本 X，是否更新？」，按钮为「更新」和「以后再说」。
+- `ipa` 为 `true` 且 `version` 比外壳自身版本新时，外壳显示「可以更新到 X」，按钮为「更新」和「以后再说」。
 - 点「更新」后，外壳打开 `apple-magnifier://install?url=http://<主机名>.local:<端口>/ipad/Whiteboard.ipa`，由 TrollStore 下载并安装。这是 TrollStore 1.3 起提供的 URL 安装接口，需要在 TrollStore 的设置中开启 URL Scheme。
 - 点「以后再说」后，本次运行期间不再提示。
 

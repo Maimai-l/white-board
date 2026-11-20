@@ -84,7 +84,7 @@ struct MacAddress: Equatable {
         // 白板本身不加前缀，和以前显示的一样；其他服务在前面标出 @名字
         let tag = source == MacAddress.defaultSource ? "" : "@\(source) · "
         if let name = name, !name.isEmpty {
-            return "\(tag)\(name)（\(place)）"
+            return "\(tag)\(name) · \(place)"
         }
         return "\(tag)\(place)"
     }
