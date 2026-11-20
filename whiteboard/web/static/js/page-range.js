@@ -1,5 +1,5 @@
-// 导出对话框「页面」那一栏的页码：把用户敲的「1-5、8、11-13」读成页的序号，
-// 再把选中的页写回同样的写法。纯函数，不碰页面，node 里直接测（tests/js/page-range.test.mjs）。
+// 导出对话框「页面」那一栏的页码：把用户敲的「1-5, 8, 11-13」读成页的序号，
+// 再把选中的页写回这种写法（界面文字的列表用半角逗号，见 docs/ui-text.md）。纯函数，不碰页面，node 里直接测（tests/js/page-range.test.mjs）。
 
 const RANGE = "[-–—~～－]";
 const SPACE_AROUND_RANGE = new RegExp(`\\s*(${RANGE})\\s*`, "g");
@@ -7,7 +7,7 @@ const SEPARATORS = /[、,，;；\s]+/;
 const NUMBER = /^\d+$/;
 const SPAN = new RegExp(`^(\\d+)${RANGE}(\\d+)$`);
 
-export const SYNTAX_ERROR = "页码写成 1-5、8 这样";
+export const SYNTAX_ERROR = "页码格式不对";
 
 /** 全角数字换成半角：中文输入法下敲出来的「１-３」也认。 */
 function halfWidth(text) {
@@ -47,7 +47,7 @@ export function parsePages(text, count) {
   return { pages: [...picked].sort((x, y) => x - y), error: null };
 }
 
-/** 把从 0 数的页序号写成「1-3、8」：连着的两页以上写成范围。 */
+/** 把从 0 数的页序号写成「1-3, 8」：连着的两页以上写成范围。 */
 export function formatPages(indices) {
   const sorted = [...new Set(indices)].sort((a, b) => a - b);
   const parts = [];
@@ -67,5 +67,5 @@ export function formatPages(indices) {
     prev = index;
   }
   flush();
-  return parts.join("、");
+  return parts.join(", ");
 }

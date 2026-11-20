@@ -191,7 +191,7 @@ def test_boards_can_be_filed_into_a_folder(browser, server):
 
     # 在文件夹里新建的白板跟着落在这个文件夹里
     mac.click(".board-card.add")
-    mac.click('.kind-tile[title^="笔记"]')
+    mac.click('.kind-tile[title="新建笔记"]')
     mac.wait_for_function("() => whiteboard.state.kind === 'note'")
     mac.wait_for_function("() => whiteboard.ui.boards.length === 2")
     assert mac.evaluate(all_in_folder(folder))
@@ -209,7 +209,9 @@ def test_deleting_a_folder_keeps_the_boards(browser, server):
 
     mac.click(".board-card.folder")
     mac.click('button[title="删除文件夹"]')
-    mac.click('.dialog button[title="确定"]')
+    assert mac.locator(".dialog.ask .ask-text").inner_text() == "删除这个文件夹"
+    assert mac.locator(".dialog.ask .ask-note").inner_text() == "里面的白板会移到外面"
+    mac.click('.dialog button[title="删除"]')
     mac.wait_for_function("() => whiteboard.ui.folders.length === 0")
     assert mac.evaluate("() => whiteboard.ui.boards.length") == 1
     assert mac.evaluate("() => whiteboard.ui.boards.every(b => !b.folder)")
@@ -314,7 +316,7 @@ def test_a_board_can_be_dragged_into_a_folder_and_back_out(browser, server):
     # 拖出来：进文件夹，把卡片拖到搜索框左边那个返回按钮上
     mac.click(".board-card.folder")
     mac.wait_for_selector(".folder-bar")
-    mouse_drag(mac, board, 'button[title^="返回"]', DROP_TARGET_LIT)
+    mouse_drag(mac, board, 'button[title="返回"]', DROP_TARGET_LIT)
     mac.wait_for_function("() => whiteboard.ui.boards.every(b => !b.folder)")
     assert mac.evaluate("() => whiteboard.ui.folders.length") == 1  # 文件夹还在，只是空了
 
@@ -537,7 +539,7 @@ def test_a_board_can_be_deleted_from_the_ipad(browser, server):
     mac, ipad, first, second = ipad_with_two_boards(browser, server)
     ipad.tap(f'.board-item[data-board="{first}"] .del')
     ipad.wait_for_selector(".dialog.ask")
-    ipad.tap('.dialog.ask button[title="确定"]')
+    ipad.tap('.dialog.ask button[title="删除"]')
     for page in (ipad, mac):
         page.wait_for_function(f"() => !whiteboard.ui.boards.some(b => b.id === '{first}')")
         page.wait_for_function("(id) => whiteboard.state.id === id", arg=second)

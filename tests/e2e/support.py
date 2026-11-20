@@ -278,7 +278,7 @@ def new_board(page, kind="笔记"):
     before = page.evaluate("() => whiteboard.state.id")
     open_gallery(page)
     page.click(".board-card.add")
-    page.click(f'.kind-tile[title^="{kind}"]')
+    page.click(f'.kind-tile[title="新建{kind}"]')
     page.wait_for_function("(was) => whiteboard.state.id !== was", arg=before)
     if kind == "笔记":
         page.wait_for_function("() => whiteboard.state.kind === 'note'")

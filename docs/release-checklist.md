@@ -29,7 +29,7 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 - [ ] Create an infinite board and a note board. Drag a PDF into the window to create a document board, write on the PDF, and export it.
 - [ ] Export (导出): export a PDF and a PNG with two pages selected. The save dialog suggests a name ending in `.pdf` or `.zip`, and the saved files open in Preview. If not, send the log file (关于 → 日志文件) and the suggested name.
 - [ ] Export → 调整: drag a page frame with the trackpad and resize it by a corner; panning with two fingers moves the board, not the frame. If a frame does not follow, send a screen recording.
-- [ ] Export → 白板文件: the save dialog suggests `<board name>.wbz`. Save it outside the storage directory, then double-click the saved file in Finder: the app opens it as a new board with the same content. If the name is wrong or the board does not open, send the log file and the saved `.wbz`.
+- [ ] Export → WBZ: the save dialog suggests `<board name>.wbz`. Save it outside the storage directory, then double-click the saved file in Finder: the app opens it as a new board with the same content. If the name is wrong or the board does not open, send the log file and the saved `.wbz`.
 
 ### Board chooser and settings
 

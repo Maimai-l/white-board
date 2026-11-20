@@ -117,7 +117,8 @@ def test_repeated_pen_interruptions_show_a_hint(browser, server):
 
     notice = ipad.locator(".notice")
     notice.wait_for(timeout=3000)
-    assert "随手写" in notice.inner_text()
+    # 两句各占一行：出了什么事，怎么办
+    assert notice.inner_text().split("\n") == ["笔迹被随手写打断", "在 iPad 设置的 Apple Pencil 中关闭随手写"]
     assert ipad.evaluate("() => whiteboard.input.stats.penCancel") == 3
     notice.click()
     assert notice.count() == 0

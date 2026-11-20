@@ -99,7 +99,7 @@ export class ExportDialog {
     ]);
 
     this.formatSeg = segmented(
-      [["PDF", "pdf"], ["PNG", "png"], ["白板文件", "wbz"]],
+      [["PDF", "pdf"], ["PNG", "png"], ["WBZ", "wbz"]],
       () => this.format,
       (value) => {
         this.format = value;
@@ -136,7 +136,7 @@ export class ExportDialog {
       type: "text",
       class: "export-range-field",
       "aria-label": "页码",
-      placeholder: this.isDoc ? "例如 1-5、8、11-13" : "例如 1-3、5",
+      placeholder: this.isDoc ? "例如 1-5, 8, 11-13" : "例如 1-3, 5",
       autocomplete: "off",
       spellcheck: "false",
     });
@@ -173,7 +173,7 @@ export class ExportDialog {
     // 每一行是 [标签, 控件]，只建一次，按选择显示或隐藏：输入框打字时不能被摘下来
     // 重新插进去（那样会丢焦点）
     const label = (text) => el("span", { class: "export-label", text });
-    const note = el("div", { class: "export-note", text: "原样保存这块白板，拖回白板应用就能打开" });
+    const note = el("div", { class: "export-note", text: "可以在白板应用中重新打开" });
     this.rows = {
       format: [label("格式"), this.formatSeg.node],
       note: [el("span"), note],
@@ -225,7 +225,7 @@ export class ExportDialog {
       payload = await response.json();
     } catch (err) {
       reportError("取导出页框失败", { message: String(err) });
-      this.ui.message(`导出失败：${String(err.message || err).slice(0, 80)}`, "close", 6000);
+      this.ui.message("导出失败", "close", 6000);
       return;
     }
     if (this.closed || paper !== this.paper) return;
@@ -456,7 +456,7 @@ export class ExportDialog {
     const paged = mode === "pages";
     const count = this.selected.size;
     const total = this.pages.length;
-    this.count.textContent = count === total ? `已选 ${count} 页` : `已选 ${count} 页，共 ${total} 页`;
+    this.count.textContent = count === total ? `已选 ${count} 页` : `已选 ${count} / ${total} 页`;
     this.formatSeg.sync();
     this.rangeSeg.sync();
     this.dpiSeg.sync();
@@ -489,11 +489,11 @@ export class ExportDialog {
     this.pixels.textContent = this.format === "png" ? this.pixelHint(mode) : "";
     if (!this.isDoc) {
       this.pagingText.textContent = this.adjusted
-        ? `手动调整过，${this.pages.length} 页`
+        ? `手动分成 ${this.pages.length} 页`
         : `自动分成 ${this.pages.length} 页`;
     }
 
-    this.primary.textContent = { pdf: "导出 PDF", png: "导出图片", wbz: "导出白板文件" }[this.format];
+    this.primary.textContent = { pdf: "导出 PDF", png: "导出 PNG", wbz: "导出 WBZ" }[this.format];
     const blocked = paged && (count === 0 || !!error);
     this.primary.toggleAttribute("disabled", blocked || !!this.busy);
   }
@@ -503,7 +503,7 @@ export class ExportDialog {
     if (mode === "whole") {
       if (!this.whole) return "";
       const [w, h] = pixelSize(this.whole, this.dpi);
-      return `1 张图片，${w} × ${h} 像素`;
+      return `${w} × ${h} 像素`;
     }
     const sizes = this.pages.filter((page) => this.selected.has(page.key)).map((page) => pixelSize(page, this.dpi));
     if (!sizes.length) return "";
@@ -561,7 +561,7 @@ export class ExportDialog {
           this.close();
           this.ui.toast("check");
         } else if (path === false) {
-          this.ui.message("导出失败，日志里有详细原因", "close", 6000);
+          this.ui.message("导出失败", "close", 6000);
         }
         return;
       }
@@ -582,7 +582,7 @@ export class ExportDialog {
     } catch (err) {
       done();
       reportError("导出失败", { message: String(err) });
-      this.ui.message(`导出失败：${String(err.message || err).slice(0, 80)}`, "close", 6000);
+      this.ui.message("导出失败", "close", 6000);
     } finally {
       this.busy = false;
       if (!this.closed) this.refresh();
@@ -685,7 +685,7 @@ class AdjustView {
       el("div", { class: "sep" }),
       el("button", { class: "bar-btn primary", text: "完成", onclick: () => this.finish() }),
     ]);
-    this.hint = el("div", { class: "export-adjust-hint", text: "在白板上拖出页框，双指移动白板" });
+    this.hint = el("div", { class: "export-adjust-hint", text: "在白板上拖出页框" });
     this.layer = el("div", { class: "export-adjust" }, [this.veil, this.frameLayer, this.bar, this.hint]);
     this.host.ui.root.append(this.layer);
     this.renderFrames();
@@ -709,7 +709,7 @@ class AdjustView {
       this.frames = await this.auto();
     } catch (err) {
       reportError("取导出页框失败", { message: String(err) });
-      this.host.ui.message(`导出失败：${String(err.message || err).slice(0, 80)}`, "close", 6000);
+      this.host.ui.message("导出失败", "close", 6000);
       return;
     }
     this.changed = false;

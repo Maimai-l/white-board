@@ -52,12 +52,12 @@ function detectRole() {
  * @param {object} options  见 docs/design/inksync-interface.zh-CN.md 4.1 节
  */
 export function createInkPad(container, options = {}) {
-  if (!container) throw new Error("createInkPad：缺少容器元素");
+  if (!container) throw new Error("createInkPad: 缺少容器元素");
   if (!options.board || !BOARD_RE.test(options.board)) {
-    throw new Error("createInkPad：board 必须符合 ^[A-Za-z0-9_-]{1,64}$");
+    throw new Error("createInkPad: board 必须符合 ^[A-Za-z0-9_-]{1,64}$");
   }
   const space = options.space || "";
-  if (!SPACE_RE.test(space)) throw new Error("createInkPad：space 必须符合 ^[a-z0-9-]{0,32}$");
+  if (!SPACE_RE.test(space)) throw new Error("createInkPad: space 必须符合 ^[a-z0-9-]{0,32}$");
   if (options.report !== undefined) setReportURL(options.report);
   installStyle();
 

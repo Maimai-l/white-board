@@ -203,7 +203,7 @@ def test_the_mac_views_app_boards_read_only(browser, demo):
     mac.click('button[title="白板"]')
     mac.click('.board-card.app[data-app="demo"]')
     mac.wait_for_selector(".board-card.app-board")
-    assert mac.inner_text(".gallery-title") == "应用：demo"
+    assert mac.inner_text(".gallery-title") == "demo"
     mac.click(".board-card.app-board")
     mac.wait_for_selector(".app-viewer")
     # 浮层里的手写板只读，看得到 iPad 上写的那一笔；Mac 自己的当前白板没有变

@@ -93,17 +93,17 @@ def test_the_board_file_downloads_and_opens_as_the_same_board(browser, server, t
 
     mac = board(browser, server, [(300, 300), (800, 500)])
     open_dialog(mac, 2)
-    pick(mac, "白板文件")
+    pick(mac, "WBZ")
     card = mac.locator(".export-file-name").inner_text()
-    assert mac.locator(".export-note").inner_text() == "原样保存这块白板，拖回白板应用就能打开"
-    assert mac.locator(PRIMARY).inner_text() == "导出白板文件"
+    assert mac.locator(".export-note").inner_text() == "可以在白板应用中重新打开"
+    assert mac.locator(PRIMARY).inner_text() == "导出 WBZ"
     # 只剩格式那一行：缩略图、范围、页面、纸张、分页都不显示
     assert not visible(mac, CARDS)
     assert not visible(mac, FIELD)
     assert not visible(mac, ".export-paging")
     assert not visible(mac, '.export-seg button:has-text("整块")')
 
-    filename, body = download(mac, "导出白板文件")
+    filename, body = download(mac, "导出 WBZ")
     # 卡片上写的就是下载到的文件名（没起名的白板是 whiteboard-日期.wbz）
     assert filename == card
     assert filename.endswith(".wbz")
@@ -141,11 +141,11 @@ def test_whole_board_png_is_one_image_of_the_size_shown(browser, server):
     assert not visible(mac, FIELD)
     assert not visible(mac, ".export-popup")
     assert not visible(mac, ".export-paging")
-    assert mac.locator(PRIMARY).inner_text() == "导出图片"
+    assert mac.locator(PRIMARY).inner_text() == "导出 PNG"
     hint = mac.locator(".export-hint").inner_text()
-    match = re.fullmatch(r"1 张图片，(\d+) × (\d+) 像素", hint)
+    match = re.fullmatch(r"(\d+) × (\d+) 像素", hint)
     assert match, hint
-    _, body = download(mac, "导出图片")
+    _, body = download(mac, "导出 PNG")
     image = Image.open(io.BytesIO(body))
     assert image.format == "PNG"
     assert image.size == (int(match.group(1)), int(match.group(2)))
@@ -198,11 +198,11 @@ def test_paper_follows_the_content_by_default(browser, server):
 def test_typing_page_numbers_selects_those_pages(browser, server):
     mac = four_pages(browser, server)
     assert mac.locator(ALL_RADIO).is_checked()
-    assert mac.locator(FIELD).get_attribute("placeholder") == "例如 1-3、5"
+    assert mac.locator(FIELD).get_attribute("placeholder") == "例如 1-3, 5"
     mac.fill(FIELD, "1-2、4")
     assert mac.locator(CUSTOM_RADIO).is_checked()
     assert selected_cards(mac) == [1, 2, 4]
-    assert mac.locator(".export-count").inner_text() == "已选 3 页，共 4 页"
+    assert mac.locator(".export-count").inner_text() == "已选 3 / 4 页"
     body, request = export_with_request(mac, "导出 PDF")
     assert request["select"] == [0, 1, 3]
     assert pdf_pages(body) == 3
@@ -212,9 +212,9 @@ def test_clicking_thumbnails_rewrites_the_page_field(browser, server):
     mac = four_pages(browser, server)
     mac.locator(CARDS).nth(2).click()
     assert mac.locator(CUSTOM_RADIO).is_checked()
-    assert mac.locator(FIELD).input_value() == "1-2、4"
+    assert mac.locator(FIELD).input_value() == "1-2, 4"
     mac.locator(CARDS).nth(0).click()
-    assert mac.locator(FIELD).input_value() == "2、4"
+    assert mac.locator(FIELD).input_value() == "2, 4"
     mac.click('.text-btn:has-text("全选")')
     assert mac.locator(ALL_RADIO).is_checked()
     assert mac.locator(".export-count").inner_text() == "已选 4 页"
@@ -232,7 +232,7 @@ def test_a_page_number_out_of_range_shows_a_message_and_disables_export(browser,
     assert mac.locator(ERROR).inner_text() == "只有 4 页"
     assert mac.locator(PRIMARY).is_disabled()
     mac.fill(FIELD, "1、x")
-    assert mac.locator(ERROR).inner_text() == "页码写成 1-5、8 这样"
+    assert mac.locator(ERROR).inner_text() == "页码格式不对"
     assert mac.locator(PRIMARY).is_disabled()
     mac.fill(FIELD, " 2 ，3 ")
     assert not visible(mac, ERROR)
@@ -247,9 +247,10 @@ def test_the_page_field_works_on_document_boards(browser, server, tmp_path):
     open_doc_board(mac, make_doc(tmp_path, pages=((595, 842),) * 3))
     open_dialog(mac, 3)
     assert mac.locator('.export-seg button:has-text("整块")').count() == 0
+    assert mac.locator(FIELD).get_attribute("placeholder") == "例如 1-5, 8, 11-13"
     mac.fill(FIELD, "2-3")
     assert selected_cards(mac) == [2, 3]
-    assert mac.locator(".export-count").inner_text() == "已选 2 页，共 3 页"
+    assert mac.locator(".export-count").inner_text() == "已选 2 / 3 页"
     _, body = download(mac, "导出 PDF")
     assert pdf_pages(body) == 2
 
@@ -296,7 +297,7 @@ def test_clearing_the_frames_and_drawing_one_exports_exactly_that_region(browser
     assert bar.first.inner_text() == "清空"
     mac.click('.export-bar button:has-text("清空")')
     assert mac.locator(".export-frame").count() == 0
-    assert mac.locator(".export-adjust-hint").inner_text() == "在白板上拖出页框，双指移动白板"
+    assert mac.locator(".export-adjust-hint").inner_text() == "在白板上拖出页框"
 
     # 一个页框都没有就完成：0 页，导出按钮是灰的
     mac.click('.export-bar button:has-text("完成")')

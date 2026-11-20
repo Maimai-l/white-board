@@ -69,7 +69,7 @@ Builds published from 1.3.0 on update through [Sparkle](https://sparkle-project.
 
 1.2.0 and earlier have their own updater: it reads `releases/latest` on GitHub and offers 1.3.0 in its update dialog. From 1.3.0 on, the app has no updater other than Sparkle. A build without Sparkle (running from source, or a local build without the public key) does not update itself; update it with `git pull` or install a new download.
 
-The About panel (关于, the last icon in the top-right corner) shows the app icon, name, version and address, links to the changelog and the log file, and has 检查更新 (Check for updates) at the bottom. In a packaged build the button opens Sparkle's window, and the line above the button says so. When running from source, the line says to update with `git pull`; in a packaged build without a working Sparkle, it gives the reason and points to the changelog link.
+The About panel (关于, the last icon in the top-right corner) shows the app icon, name, version and address, links to the changelog and the log file, and has 检查更新 (Check for updates) at the bottom. In a packaged build the button opens Sparkle's window, and the line above the button says so. When running from source, the line says to update with `git pull`; in a packaged build without a working Sparkle, it says that the build cannot update automatically, writes the reason to the log file, and new versions are downloaded from the changelog link.
 
 ### Running from source
 
@@ -354,12 +354,12 @@ The export icon in the top-right group (导出) opens the export dialog. It need
 | Part | Behaviour |
 | --- | --- |
 | Thumbnails | Thumbnails of every page on the left. Tap a page to select or deselect it; 全选 selects all, 当前页 selects the page in the middle of the view. |
-| 格式 (Format) | PDF, PNG, or 白板文件 (board file). With PNG, one selected page gives one PNG file and several give a ZIP with one PNG per page, named in page order. 白板文件 downloads the board's `.wbz` file unchanged; opening it in the app (double-click on the Mac) opens the same board. |
+| 格式 (Format) | PDF, PNG, or WBZ. With PNG, one selected page gives one PNG file and several give a ZIP with one PNG per page, named in page order. WBZ is the board file: it downloads the board's `.wbz` file unchanged; opening it in the app (double-click on the Mac) opens the same board. The export button follows the format: 导出 PDF, 导出 PNG or 导出 WBZ. |
 | 范围 (Range, infinite and note boards) | 分页 exports pages; 整块 exports the whole board without pagination as one PDF page or one PNG, the size of all the ink plus a margin. |
-| 页面 (Pages) | 全部, or the pages typed in the field, such as `1-5、8、11-13` (separated by 、 , ; or spaces). The field and the thumbnails follow each other. A page number that does not exist shows a message under the field and disables the export button. |
+| 页面 (Pages) | 全部, or the pages typed in the field, such as `1-5, 8, 11-13` (separated by `,` `、` `;` or spaces). The field and the thumbnails follow each other. A page number that does not exist shows a message under the field and disables the export button. |
 | 清晰度 (Resolution, PNG only) | 标准 150 dpi, 高 300 dpi (default), 最高 600 dpi. The line below shows the pixel size, lowered as the server does above 40 million pixels. |
 | 纸张 (Paper) | 跟随内容 (follow content, the default): each page's paper is its frame plus a margin, so the writing keeps its size. A4 or Letter: portrait sheets, with each frame scaled to fit. |
-| 分页 (Pagination) | Number of automatic pages, and 调整 to adjust them. |
+| 分页 (Pagination) | Number of pages (自动分成 N 页, or 手动分成 N 页 after adjusting), and 调整 to adjust them. |
 
 - One board unit prints as 1 pt, so a page shows the ink at the size seen at 100% zoom. PDF pages are vector and stay sharp at any zoom; PNG pages are rendered at the chosen resolution, however far the board is spread.
 - Automatic pages: an infinite board is read from top to bottom. Each page is as wide as the writing in that part of the board and is cut between lines where possible. A note board is cut by paper length, between lines where possible. A document board uses the pages of its original.
@@ -418,7 +418,7 @@ The server saves changes every 3 seconds, and once more when the window closes o
 A board whose file cannot be read completely (damaged, partly unreadable, or written by a newer version) opens as a read-only board.
 
 - The readable content is shown, and the file is never overwritten. The warning appears once per board each time it opens.
-- A device with the manage boards permission can choose 仍然编辑（先备份原文件） (Edit anyway, back up first) after a warning. The original file is first copied to `backups/locked/`.
+- A device with the manage boards permission can choose 仍然编辑 (Edit anyway) after a warning. The original file is first copied to `backups/locked/`.
 
 Details: [docs/format.md](docs/format.md).
 

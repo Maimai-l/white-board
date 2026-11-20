@@ -11,6 +11,8 @@ const FIT_DELAY = 120;
 const EXPORT = { scale: 2, background: false };
 const STATUS_NAMES = { online: "已连接", syncing: "同步中", offline: "未连接", local: "本地" };
 
+const NOT_RUNNING = ["连接不到白板应用", "请在 Mac 上打开白板应用"];
+
 const $ = (id) => document.getElementById(id);
 
 let pad = null;
@@ -30,10 +32,17 @@ function scheduleFit() {
   }, FIT_DELAY);
 }
 
-/** 浮在画布底部的提示。成功的几秒后消失，出错的一直留着。 */
+/**
+ * 浮在画布底部的提示。成功的几秒后消失，出错的一直留着。``text`` 是一句，
+ * 或者两句的数组（各占一行，docs/ui-text.md）。
+ */
 function notice(text, kind = "") {
   const el = $("notice");
-  el.textContent = text || "";
+  el.textContent = "";
+  for (const [index, line] of (Array.isArray(text) ? text : [text || ""]).entries()) {
+    if (index) el.append(document.createElement("br"));
+    el.append(line);
+  }
   el.dataset.kind = kind;
   clearTimeout(noticeTimer);
   if (text && kind !== "error") noticeTimer = setTimeout(() => (el.textContent = ""), 2500);
@@ -66,7 +75,8 @@ async function copy() {
     notice("已复制");
     window.dispatchEvent(new CustomEvent("sketch-copied", { detail: { size: blob.size } }));
   } catch (err) {
-    notice(`复制失败：${err && err.message ? err.message : err}`, "error");
+    console.warn("sketch.copy 复制失败", err);
+    notice("复制失败", "error");
   }
 }
 
@@ -74,7 +84,7 @@ async function copy() {
 async function start() {
   const response = await fetch("/api/sketch", { method: "POST" });
   if (response.status === 403) {
-    throw Object.assign(new Error("这台设备没有「管理白板」权限，不能开始速写。"), { fatal: true });
+    throw Object.assign(new Error("这台设备没有管理白板的权限"), { fatal: true });
   }
   if (!response.ok) throw new Error(`服务端返回 ${response.status}`);
   return response.json();
@@ -89,7 +99,8 @@ function restart() {
         await pad.open(SKETCH);
         notice("");
       } catch (err) {
-        notice(err.message || String(err), "error");
+        console.warn("sketch.restart 速写板没能重新开始", err);
+        notice(err.fatal ? err.message : NOT_RUNNING, "error");
       } finally {
         restarting = null;
         refresh();
@@ -103,8 +114,9 @@ async function main() {
   try {
     await start();
   } catch (err) {
+    console.warn("sketch.main 开始速写失败", err);
     setStatus("offline");
-    notice(err.fatal ? err.message : "连接不到白板应用。请确认 Mac 上的白板应用正在运行。", "error");
+    notice(err.fatal ? err.message : NOT_RUNNING, "error");
     return;
   }
   pad = createInkPad($("pad"), { board: SKETCH, storage: "inksync:sketch:" });
@@ -122,7 +134,7 @@ async function main() {
   pad.on("deleted", () => restart());
   pad.on("error", ({ reason }) => {
     if (reason === "board") restart();
-    else if (reason === "denied") notice("这台设备不能打开速写板。", "error");
+    else if (reason === "denied") notice("这台设备不能打开速写板", "error");
   });
 
   $("copy").addEventListener("click", copy);

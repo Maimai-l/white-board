@@ -122,8 +122,7 @@ class App extends InkPad {
     this.on("interrupted", () => {
       this.ui.showNotice(
         "scribble",
-        "笔迹被系统打断了几次。iPad 的「随手写」会抢走 Apple Pencil 的输入，" +
-          "在 设置 → Apple Pencil 里关掉它即可。"
+        ["笔迹被随手写打断", "在 iPad 设置的 Apple Pencil 中关闭随手写"]
       );
     });
     this.on("locked", ({ locked, unlock }) => {
@@ -264,10 +263,12 @@ class App extends InkPad {
       });
       if (!response.ok) {
         const text = (await response.text()) || `${response.status}`;
-        this.ui.message(`打不开：${text.slice(0, 80)}`, "close", 6000);
+        reportError("app.importDoc 打不开文件", { name: file.name, message: text.slice(0, 200) });
+        this.ui.message(`打不开 ${file.name}`, "close", 6000);
       }
     } catch (err) {
-      this.ui.message(`打不开：${String(err).slice(0, 80)}`, "close", 6000);
+      reportError("app.importDoc 上传文件失败", { name: file.name, message: String(err) });
+      this.ui.message(`打不开 ${file.name}`, "close", 6000);
     } finally {
       done();
       this.importing = false;
@@ -350,7 +351,7 @@ class App extends InkPad {
     };
     const title = document.createElement("span");
     title.className = "app-viewer-title";
-    title.textContent = `${space} · ${board.name || board.id}（只读）`;
+    title.textContent = `${space} · ${board.name || board.id} · 只读`;
     const shut = document.createElement("button");
     shut.className = "icon-btn";
     shut.title = "关闭";
@@ -366,7 +367,10 @@ class App extends InkPad {
     overlay.append(head, body);
     document.body.append(overlay);
     const pad = createInkPad(body, { space, board: board.id, readonly: true, role: this.role });
-    pad.on("error", ({ reason }) => (title.textContent = `打不开：${reason}`));
+    pad.on("error", ({ reason }) => {
+      reportError("app.viewAppBoard 打不开应用的白板", { space, board: board.id, reason: String(reason) });
+      title.textContent = "打不开这块白板";
+    });
     addEventListener("keydown", onKey, true);
     this.appViewer = { pad, close };
   }
@@ -393,11 +397,12 @@ class App extends InkPad {
         const result = (await api.check_update_now()) || {};
         switch (result.status) {
           case "sparkle":
-            return `正在检查，结果显示在更新窗口里（当前 v${result.version || ""}）`;
+            return "结果显示在更新窗口";
           case "source":
-            return `源码运行（v${result.version || ""}），更新请用 git pull`;
+            return "源码运行时用 git pull 更新";
           case "unavailable":
-            return `这个构建没有自动更新${result.message ? `（${result.message}）` : ""}，请从「更新日志」下载新版本`;
+            // 原因（result.message）app.py 的 check_update_now 已经写进日志
+            return "这个版本不能自动更新";
           default:
             return "检查失败";
         }

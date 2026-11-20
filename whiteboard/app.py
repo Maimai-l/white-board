@@ -296,7 +296,8 @@ class FileOpener:
             try:
                 self.server.open_file(path, self._folder())
             except OpenFileError as exc:
-                self._message(f"打不开 {Path(path).name}：{exc}")
+                log.warning("app.FileOpener 打不开 %s：%s", path, exc)
+                self._message(f"打不开 {Path(path).name}")
             except Exception:  # noqa: BLE001 - 一个文件出错不该挡住后面的
                 log.exception("打开文件出错：%s", path)
                 self._message(f"打不开 {Path(path).name}")
@@ -349,7 +350,8 @@ def _error_page(message: str) -> str:
     return (
         "<!doctype html><meta charset='utf-8'><body style='font:15px -apple-system,sans-serif;"
         "padding:28px;color:#1b1b1f;background:#fdfbff'><h3 style='margin-top:0'>白板没有启动</h3>"
-        f"<p>{html.escape(message)}</p></body>"
+        + "".join(f"<p>{html.escape(line)}</p>" for line in message.splitlines())
+        + "</body>"
     )
 
 

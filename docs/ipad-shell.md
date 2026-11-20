@@ -391,7 +391,7 @@ The diagnostics panel (`perf.js`) shows the input source and, in the shell, the 
 |---|---|---|
 | `输入来源 <source>  外壳 <version>  bridge <n>` | Input source (`browser` or `shell`), shell version and `bridge` | Always; version part only when known |
 | `外壳 <n>/s  新位置 <n>/s` | Shell samples per second and new positions per second, computed like `penHz` and `penMoveHz` | Shell version known or source `shell` |
-| `坐标偏差 <d>px（对上 <n> 个）  力度更新 <n>  抬笔后丢弃 <n>` | Coordinate deviation and matched samples; applied estimate updates; updates discarded after lift | Same |
+| `坐标偏差 <d>px  对上 <n> 个  力度更新 <n>  抬笔后丢弃 <n>` | Coordinate deviation and matched samples; applied estimate updates; updates discarded after lift | Same |
 | `外壳断笔 <n>  Safari 补点 <n>` | Strokes closed by the page because the shell sent no `up`; samples filled in from Safari events. Both are 0 in normal operation. | Same |
 
 Coordinate deviation compares shell samples with Safari pen events of the same stroke; Safari pen events keep arriving while the shell is `active`:

@@ -67,7 +67,9 @@ An entry describes an effect a user can observe or an action a user must take. R
 
 Start every entry with the area it affects, followed by a colon. Use one of:
 
-`iPad`, `Mac`, `Boards`, `Ink`, `Eraser`, `Tool picker`, `Documents`, `Export`, `Sketch`, `Sync`, `Storage`, `Settings`, `Updates`, `Extension`, `Embedding`, `inksync`.
+`iPad`, `Mac`, `Interface`, `Boards`, `Ink`, `Eraser`, `Tool picker`, `Documents`, `Export`, `Sketch`, `Sync`, `Storage`, `Settings`, `Updates`, `Extension`, `Embedding`, `inksync`.
+
+`Interface` is for changes that affect the labels or layout of the whole app rather than one feature.
 
 Add an area to this list before using a new one. Do not combine two areas in one prefix.
 

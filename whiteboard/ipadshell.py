@@ -58,13 +58,13 @@ def install_page(host: str, port: int, releases: str) -> str:
     if ipa_path() is not None:
         install = (
             f'<a class="button primary" href="{esc(install_url(host, port))}">安装白板外壳</a>'
-            '<p class="note">由 TrollStore 安装。点了没有反应的话，先在 TrollStore 的设置里'
-            "打开 URL Scheme。</p>"
+            '<p class="note">由 TrollStore 安装</p>'
+            '<p class="note">没有反应时先在 TrollStore 设置中打开 URL Scheme</p>'
         )
     else:
         install = (
-            '<p class="note">这个版本没有附带外壳，请从 Release 下载：'
-            f'<a href="{esc(releases)}">{esc(releases)}</a></p>'
+            '<p class="note">这个版本没有附带外壳</p>'
+            f'<p class="note"><a href="{esc(releases)}">从 GitHub Release 下载</a></p>'
         )
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -98,7 +98,8 @@ def install_page(host: str, port: int, releases: str) -> str:
   <section>{install}</section>
   <section>
     <a class="button" href="{esc(connect_url(host, port))}">打开外壳</a>
-    <p class="note">已经装好外壳时点这里，外壳会记住这台 Mac 并直接进入白板。</p>
+    <p class="note">已经装好外壳时点这里</p>
+    <p class="note">外壳会记住这台 Mac 并直接进入白板</p>
   </section>
 </main>
 </body>

@@ -22,6 +22,10 @@ def test_permission_switches_are_separate(browser, server):
     assert mac.evaluate(
         "() => [...document.querySelectorAll('.sheet .perm-title')].map(s => s.textContent)"
     ) == ["管理白板", "设置白板", "清空白板", "导出白板"]
+    # 每一行只有名字和开关，不加说明（docs/ui-text.md）
+    assert mac.evaluate(
+        "() => [...document.querySelectorAll('.sheet .perm-row')].map(r => r.innerText.trim())"
+    ) == ["管理白板", "设置白板", "清空白板", "导出白板"]
 
     mac.locator(".sheet .perm-row input").nth(3).click()
     mac.wait_for_function("() => whiteboard.ui.info.remote_permissions.export === true")

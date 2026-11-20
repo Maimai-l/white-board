@@ -495,7 +495,7 @@ async def handle_doc_upload(request: web.Request) -> web.Response:
 
 
 class OpenFileError(Exception):
-    """文件打不开或不能建板；消息直接给用户看。"""
+    """文件打不开或不能建板。消息写进日志和接口的回复；界面上只说打不开哪个文件（docs/ui-text.md）。"""
 
 
 async def _create_doc(hub: Hub, body: bytes, filename: str, folder: str) -> Dict[str, Any]:

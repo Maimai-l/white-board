@@ -605,7 +605,6 @@ html, body {
 .perm-row + .perm-row { border-top: .5px solid var(--outline); }
 .perm-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .perm-title { font-size: 13.5px; color: var(--on-surface); }
-.perm-note { font-size: 12px; line-height: 1.4; color: var(--on-surface-variant); }
 
 /* 白板选择界面：满屏缩略图，只有图标 */
 .gallery {
@@ -1056,6 +1055,7 @@ body.dropping::after {
   animation: pop var(--motion);
 }
 .notice svg { flex: 0 0 auto; color: var(--primary); }
+.notice-lines { display: flex; flex-direction: column; }
 
 /* 问一句再动手：图标、一句话、两个按钮，竖着排 */
 .dialog.ask {
