@@ -14,6 +14,9 @@
   再把它从「新需求」移到「已转入 backlog」，写上文件名和状态。做完回写状态。
 - **迭代按 agent 的速度走**：一个需求一个工作分支，CI 全绿就合进 `dev`，`dev` 会自动发 alpha 更新到 Mac
   （docs/design/ci-and-updates.zh-CN.md）。一天可以有很多轮。
+- **合进 `dev` 之后确认 alpha 真的发出去了**：`dev` 上的运行不属于任何 PR，失败了没有人会收到通知。
+  合并后等那次运行结束，看 `updates` 是否成功、https://maimai-l.github.io/white-board/appcast.xml
+  最上面是不是这次的版本；没发出去就当成红的 CI 处理。
 
 ## 分支和发布
 

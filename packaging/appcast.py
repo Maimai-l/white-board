@@ -127,23 +127,25 @@ def fetch(site: str, folder: Path) -> int:
     (folder / "appcast.xml").write_bytes(data)
     items = parse(data.decode("utf-8"))
     print(f"线上的 appcast 有 {len(items)} 个版本")
+    # 完整包和增量包都要取：generate_appcast 会保留旧条目里的增量包，文件不在就发布不了
     for item in items:
-        if item.archive is None:
-            continue
-        name = file_name(item.archive.url)
-        if name is None:
-            print(f"跳过文件名不合规的包：{item.archive.url}")
-            continue
-        target = folder / name
-        if target.exists():
-            continue
-        body = _get(item.archive.url, timeout=300)
-        if body is None:
-            # 包丢了：这个版本没法做增量包，generate_appcast 会把它从 appcast 里去掉
-            print(f"::warning::{item.archive.url} 不存在")
-            continue
-        target.write_bytes(body)
-        print(f"取回 {name}（{len(body) / 1e6:.1f} MB，{item.channel} {item.display}）")
+        enclosures = ([item.archive] if item.archive else []) + item.deltas
+        for enclosure in enclosures:
+            name = file_name(enclosure.url)
+            if name is None:
+                print(f"跳过文件名不合规的文件：{enclosure.url}")
+                continue
+            target = folder / name
+            if target.exists():
+                continue
+            body = _get(enclosure.url, timeout=300)
+            if body is None:
+                # 完整包丢了，这个版本没法做增量包，generate_appcast 会把它从 appcast 里去掉；
+                # 增量包丢了，verify 会报出来
+                print(f"::warning::{enclosure.url} 不存在")
+                continue
+            target.write_bytes(body)
+            print(f"取回 {name}（{len(body) / 1e6:.1f} MB，{item.channel} {item.display}）")
     return 0
 
 
