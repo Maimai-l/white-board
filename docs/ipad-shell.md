@@ -439,7 +439,7 @@ The install page `GET /ipad` lets an iPad install the shell with TrollStore and 
 
 The host is the `host` query parameter if present, otherwise `netinfo.local_hostname()`, the same value as for `/profile.mobileconfig`. The port is the server's actual port.
 
-The iPad reaches the install page in the same way as the configuration profile: the “连接 iPad” (Connect iPad) card in the Mac window shows `外壳安装页 <url>ipad` next to the profile download button. The configuration profile remains available for iPads without TrollStore.
+The iPad reaches the install page in the same way as the configuration profile: in the “连接 iPad” (Connect iPad) panel in the Mac window, “在 iPad 上安装白板” (Install on iPad) switches the QR code to `<url>ipad`, which the iPad camera opens. The configuration profile remains available for iPads without TrollStore.
 
 ### 8.3 Updates
 
@@ -607,7 +607,7 @@ Q2 findings and measures:
 | Part | Location |
 |---|---|
 | Shell (section 4) | `ipad/Whiteboard/`: `AppDelegate.swift` (window, URL scheme, foreground), `PencilCapture.swift` (4.2, 5.1), `ShellViewController.swift` (4.1, 4.1.1, 4.3, 5.2, 8.3), `StatusView.swift` (search, list, error screens), `MacDiscovery.swift` (Bonjour browsing, update check), `MacAddress.swift` (address, saved settings, version comparison), `Settings.bundle` (“重新查找 Mac”, version, current Mac), `Info.plist`; `ipad/project.yml`, `ipad/make_icon.py` |
-| Web page (section 7) | `input.js` shell input section (input source, coordinate deviation, estimate updates, prediction), `shell-fallback.js` (fallback for 0.9.43 shells), `shell.js` (handshake), `recorder.js` (7.3), `perf.js` (7.4), `ui.js` (tool picker, settings button in the shell), `ui-settings.js` (“Mac” group, install page address on the Connect iPad card), `exporter.js` (4.1.1) |
+| Web page (section 7) | `input.js` shell input section (input source, coordinate deviation, estimate updates, prediction), `shell-fallback.js` (fallback for 0.9.43 shells), `shell.js` (handshake), `recorder.js` (7.3), `perf.js` (7.4), `ui.js` (tool picker, settings button in the shell), `ui-settings.js` (“Mac” section, install page QR code in the Connect iPad panel, connection status and “换一台 Mac” on the iPad), `exporter.js` (4.1.1) |
 | Mac server (section 8) | `whiteboard/ipadshell.py` (`/ipad`, `/ipad/version`, `/ipad/Whiteboard.ipa`), routes in `whiteboard/server.py`, `netinfo.BonjourService` (8.4), `runner.py`, `run.py` (`--no-bonjour`) |
 | Build (section 8.1) | `ipad` and `package` jobs in `.github/workflows/ci.yml`; `packaging/whiteboard.spec`; `packaging/smoke_ipad.py` (checks that the packaged app serves the IPA and the install page) |
 | Tests | `tests/e2e/test_shell_input.py` (web page, including A2 and A4), `tests/test_ipadshell.py` (install page, version endpoint, Bonjour registration, bridge range, download handling) |

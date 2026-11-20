@@ -27,6 +27,7 @@ Whiteboard is a Mac app that serves a handwriting board to the local network. Th
 - **Shape recognition.** With it turned on, a stroke whose pen stays still for half a second at the end becomes a straight line; one undo brings back the handwriting. It is off by default and turned on per device next to finger drawing.
 - **Two erasers.** The object eraser deletes the stroke it touches; the pixel eraser removes only the swept area and keeps the ink as vectors.
 - **Three board kinds**, including document boards for annotating a PDF or an image and exporting it with the ink.
+- **Library.** Folders, search, sorting, duplicating and a trash; right-click menus, multiple selection and shortcuts on the Mac, long-press menus on the iPad.
 - **Offline writing.** Strokes queue locally and in IndexedDB and are sent in order when the connection returns.
 - **Permissions.** Any device on the network can write. Managing boards, changing settings, clearing and exporting are each granted separately on the Mac.
 - **Sketch.** Write freely on the iPad, then copy a PNG from the sketch that pops up from the Edge toolbar on the Mac into Claude or other pages; it is discarded when closed and never stored. See [docs/sketch.md](docs/sketch.md).
@@ -56,7 +57,7 @@ The first launch shows two system prompts. Each appears once.
 
 ### Updates
 
-Builds published from 1.3.0 on update through [Sparkle](https://sparkle-project.org). The app reads `appcast.xml` from the project's GitHub Pages site, downloads only the changed parts of the app when it updates from one of the three previous builds, and checks the EdDSA signature of every download. Sparkle's own window shows the new version and its release notes; 检查更新 (Check for updates) in the About panel opens it.
+Builds published from 1.3.0 on update through [Sparkle](https://sparkle-project.org). The app reads `appcast.xml` from the project's GitHub Pages site, downloads only the changed parts of the app when it updates from one of the three previous builds, and checks the EdDSA signature of every download. Sparkle's own window shows the new version and its release notes; 检查更新 (Check for updates) in 关于白板 (About) opens it.
 
 | Channel | Published | Checked |
 | --- | --- | --- |
@@ -69,7 +70,7 @@ Builds published from 1.3.0 on update through [Sparkle](https://sparkle-project.
 
 1.2.0 and earlier have their own updater: it reads `releases/latest` on GitHub and offers 1.3.0 in its update dialog. From 1.3.0 on, the app has no updater other than Sparkle. A build without Sparkle (running from source, or a local build without the public key) does not update itself; update it with `git pull` or install a new download.
 
-The About panel (关于, the last icon in the top-right corner) shows the app icon, name, version and address, links to the changelog and the log file, and has 检查更新 (Check for updates) at the bottom. In a packaged build the button opens Sparkle's window, and the line above the button says so. When running from source, the line says to update with `git pull`; in a packaged build without a working Sparkle, it says that the build cannot update automatically, writes the reason to the log file, and new versions are downloaded from the changelog link.
+关于白板 (About) exists only in the Mac window and opens from the toolbar's 更多 (More) menu. This small window shows the app icon, name and version, plus the build when it differs from the version (`branch@commit` when running from source), followed by 检查更新 (Check for updates) and two links: 更新日志 (changelog) and 日志文件 (log file). The address for the iPad is under 连接 iPad (Connect iPad). After 检查更新 is clicked, the line above the button shows the result: in a packaged build it reads 结果显示在更新窗口 (see the update window) and Sparkle's window opens; when running from source it says to update with `git pull`; in a packaged build without a working Sparkle it reads 这个版本不能自动更新 (this build cannot update automatically), the reason goes to the log file, and new versions are downloaded from the changelog link.
 
 ### Running from source
 
@@ -108,7 +109,7 @@ python run.py                 # opens the Mac window and serves on the LAN
 > **Note**
 > `--port` and `--data-dir` apply to one run only and are not written to the configuration. To change the storage directory permanently, choose it in board settings. A port that rolls over because it is taken is also used for that run only; the next launch tries the configured port again.
 
-The iPad button in the window's top-right corner shows the address for the iPad, in the form `http://your-mac-name.local:8848/`.
+连接 iPad (Connect iPad) on the right of the title bar shows the address for the iPad, in the form `http://your-mac-name.local:8848/`, and its QR code.
 
 ### Building
 
@@ -135,9 +136,23 @@ The packaged app and source runs share `~/Library/Application Support/Whiteboard
 
 ## Connecting an iPad
 
+In the Mac window, click 连接 iPad (Connect iPad) on the right of the title bar. A panel opens under the button:
+
+| Part | Content |
+| --- | --- |
+| QR code | The board's address. Scan it with the iPad camera to open the board in Safari. |
+| Address | For example `your-mac-name.local:8848`; 拷贝 (Copy) next to it copies the full address. |
+| 已连接 (Connected) | Other devices that have the board open (`iPad` or `浏览器`, browser); 没有连接的设备 (no connected devices) when there are none. |
+| 在 iPad 上安装白板 (Install on iPad) | Switches the QR code to the install page of the [iPad shell](#ipad-shell); 扫码连接白板 (scan to connect) switches back. |
+| 存储描述文件 (Save profile) | Saves the [home screen profile](#home-screen-profile). |
+
+- While another device is connected, the 连接 iPad icon is blue. When a device connects or disconnects, a message such as 「iPad 已连接」 (iPad connected) or 「iPad 已断开」 (iPad disconnected) appears in the window.
+- 连接 iPad appears only in the Mac window. Clicking outside, pressing Esc, or clicking the button again closes the panel.
+- Clicking 连接 iPad three times opens the diagnostics panel; see [Diagnostics panel](#diagnostics-panel).
+
 ### Home screen profile
 
-1. In the Mac window, click the iPad icon in the top-right corner (连接 iPad), then the download button on the card to get `whiteboard.mobileconfig`. Safari on the iPad can also open `http://your-mac-name.local:8848/profile.mobileconfig` directly.
+1. In the Mac window, click 连接 iPad, then 存储描述文件 (Save profile) at the bottom of the panel to save `whiteboard.mobileconfig`. Safari on the iPad can also open `http://your-mac-name.local:8848/profile.mobileconfig` directly.
 2. On the iPad, open the profile, then **Settings** → **Profile Downloaded** → **Install**. The profile is unsigned; confirm the installation.
 3. A **Whiteboard** icon appears on the home screen. It opens the board full screen, without Safari's address bar.
 
@@ -154,18 +169,36 @@ The iPad shell is an optional native app that wraps a `WKWebView`. It loads the 
 
 The shell installs through TrollStore, so the iPad must run a version TrollStore supports: iPadOS 14.0 beta 2 through 16.6.1, 16.7 RC, or 17.0. Without TrollStore, use the home screen profile; the features are the same.
 
-1. The 连接 iPad card in the Mac window shows the install page address, `http://your-mac-name.local:8848/ipad`. Open it in Safari on the iPad.
+1. In the 连接 iPad panel in the Mac window, click 在 iPad 上安装白板 (Install on iPad). The QR code changes to the install page, `http://your-mac-name.local:8848/ipad`. Scan it with the iPad camera, or open the address in Safari on the iPad.
 2. In TrollStore's settings, enable URL schemes. Then tap **安装白板外壳** (Install shell).
 3. Open the shell. With one Mac on the network, it connects directly; with several, it lists them. If the router blocks Bonjour, return to the install page and tap **打开外壳** (Open shell).
 
 - **Updates.** After the Mac is updated, the shell offers to update on its next launch and passes the package to TrollStore.
-- **Another Mac.** Use 换一台 Mac (Switch Mac) in board settings, or turn on 重新查找 Mac (Find Mac again) under Whiteboard in the iPadOS Settings app. Either way the shell lists what it finds, even a single Mac, so you can confirm the choice.
+- **Another Mac.** Use 换一台 Mac (Switch Mac) in the Mac section of board settings or in the connection status at the top right, or turn on 重新查找 Mac (Find Mac again) under Whiteboard in the iPadOS Settings app. Either way the shell lists what it finds, even a single Mac, so you can confirm the choice.
 - **Discovery.** The Mac registers `_whiteboard._tcp` through the system mDNS responder. `--no-bonjour` turns this off; the install page is then the only way in.
 - **Exports.** The shell receives exported files as downloads and opens the system share sheet, so they can be saved to Files or sent.
 
 Design and acceptance criteria: [docs/ipad-shell.md](docs/ipad-shell.md).
 
 ## Usage
+
+### Window
+
+The interface follows the system controls: frosted glass and the system blue accent. The chrome differs by device. Each entry appears only if the device has the matching permission: 白板库 (Library) needs Manage boards, 导出 (Export) needs Export board, and 白板设置 (Board settings) needs Board settings (it always appears in the Mac window and in the iPad shell).
+
+**Mac window and desktop browsers**
+
+- **Title bar (top):** on the left, 白板库 (Library) and the board name, with its folder under the name. On the right, 连接 iPad (Connect iPad; only in the Mac window, see [Connecting an iPad](#connecting-an-ipad)), 导出 (Export) and 白板设置 (Board settings). In the Mac window, dragging the title bar moves the window.
+- **Toolbar (bottom center):** see below.
+- **Zoom (bottom right):** 缩小 (zoom out), the current percentage, 放大 (zoom in) and 回到内容 (back to content). Clicking the percentage (for example `100%`) returns to actual size.
+- **Connection status:** in a desktop browser, a red dot appears next to the board name while the connection to the Mac is lost, yellow while connecting, and nothing while connected. The Mac window has no dot.
+
+**iPad and other touch devices**
+
+- **Top left:** the back button 白板库 (Library).
+- **Top right:** connection status, 导出 (Export) and 白板设置 (Board settings). The status icon is blue while connected to the Mac and gray otherwise; tapping it shows 「已连接到 <host>:<port>」 (connected to) or 「未连接」 (not connected), and in the iPad shell also 换一台 Mac (Switch Mac).
+- **Toolbar:** the tool picker on the iPad, the classic toolbar on other touch devices. Touch devices have no zoom control; pinch to zoom.
+- When the tool picker is moved over the top-right group, the group fades out until the picker moves away.
 
 ### Toolbars
 
@@ -174,14 +207,19 @@ The iPad uses the **tool picker**; every other device uses the **classic toolbar
 | | Tool picker (iPad) | Classic toolbar (other devices) |
 | --- | --- | --- |
 | Tools | Pen, marker, highlighter, eraser; each keeps its own color and width | Pen, marker, highlighter, eraser |
-| Other controls | Undo, redo, ruler; ⋯ menu with auto-minimize, finger drawing and clear board | Toolbar position, color, width, undo, redo, clear board; finger drawing on touch devices |
-| Position | Docks to any of the four edges, or shrinks to a circle in a corner | Top or bottom edge, remembered on the device; panels open away from the edge |
+| Color and width | Tap the tool in use for the width panel; tap the rainbow swatch for the color picker | 颜色与粗细 (Color and width): 8 colors and 5 widths; with the eraser selected, a choice between the object eraser and the pixel eraser instead |
+| Other controls | Undo, redo, ruler; ⋯ menu with auto-minimize, finger drawing, shape recognition and clear board | 撤销 (Undo), 重做 (Redo) and the 更多 (More) menu |
+| Position | Docks to any of the four edges, or shrinks to a circle in a corner | Bottom or left edge, remembered on the device; panels open away from the edge |
 
-Around the toolbar:
+The classic toolbar's 更多 (More) menu:
 
-- **Top-right group:** boards, board settings (白板设置) and export. The Mac window also shows 连接 iPad and 关于. On touch devices the group uses tinted icons. Each entry appears only if the device has the matching permission.
-- **Bottom-right group (Mac only):** zoom in, back to content, zoom out.
-- **Connection dot (top left):** green connected, yellow syncing, red offline. Triple-tap it for the diagnostics panel.
+| Item | Detail |
+| --- | --- |
+| 手指书写 (Finger drawing), 形状识别 (Shape recognition) | Switches, only on touch devices without the tool picker. |
+| 工具栏移到左侧 / 工具栏移到底部 (Move toolbar to the left / bottom) | Moves the toolbar. |
+| 回到内容 (Back to content) | Same as in the zoom control. |
+| 清空白板… (Clear board) | Clears the whole board after confirmation; needs the Clear board permission. |
+| 关于白板 (About) | Only in the Mac window; see [Updates](#updates). |
 
 The tool picker is the implementation in [static/vendor](whiteboard/web/static/vendor/README.md), with these additions:
 
@@ -189,10 +227,10 @@ The tool picker is the implementation in [static/vendor](whiteboard/web/static/v
 - Dragging the grip docks the picker to any of the four edges; the top edge uses the bottom layout with panels opening downward. An edge becomes the target after a dwell of 250 ms inside its zone. A flick continues by inertia past the release point; animations can be interrupted at any point. The constants are in `TUNING` at the top of `static/js/pkpicker.js`.
 - Dropped in a corner, the picker shrinks to a circle showing the current tool and expands when the Pencil or the cursor comes near. A finger has no hover and taps the circle.
 - Undo and redo use the board's own history; the buttons follow its state.
-- The picker is hidden while the board chooser or the settings sheet is open.
+- The picker is hidden while the library is open.
 - The vendor canvas, ruler and lasso are not used. The vendor's ruler button is kept and turns on the board's own ruler, which has the same look as the vendor ruler (see [Ruler](#ruler)). Opacity is not available because the stroke format has no field for it.
 
-The interface follows the system controls: frosted glass and the system blue accent. Background blur is turned off while a stroke is in progress. The tool picker is never frosted, because it sits over the writing area.
+Background blur is turned off while a stroke is in progress. The tool picker is never frosted, because it sits over the writing area.
 
 ### Pencil, finger and palm
 
@@ -268,66 +306,120 @@ Measurements and details: [docs/eraser.md](docs/eraser.md), [docs/format.md](doc
 
 - Pinch zoom works in both event models: Chrome and Firefox send `ctrl + wheel`; WebKit (Safari and the packaged app's `WKWebView`) sends `gesturestart`/`gesturechange`/`gestureend`. On the wheel path, one event's `deltaY` is clamped to 25, because a trackpad reports a few pixels per event and a mouse wheel notch reports 100.
 - Shortcuts and Space-to-pan are ignored while a text field has focus, so `⌘Z` there undoes typing.
-- Board settings (白板设置) hold the background (blank, grid, lines, dots), the storage directory and the permissions for other devices.
-- Clearing a board (“清空白板？”) and deleting a board (“删除白板？”) ask for confirmation; the confirm button uses the warning color.
+- Clearing a board (「清空这块白板」), deleting a board permanently, emptying the trash and deleting a folder ask for confirmation; the confirm button uses the warning color. Moving a board to the trash does not ask, because the board can be restored from the trash.
+
+### Board settings
+
+Clicking 白板设置 (Board settings) opens a panel under the button. Clicking outside, pressing Esc, or clicking the button again closes it. The panel shows these sections, depending on the device:
+
+| Section | Content | Shown on |
+| --- | --- | --- |
+| 背景 (Background) | 空白, 方格, 横线, 点阵 (blank, grid, lines, dots) | Devices with the Board settings permission; not for document boards |
+| iPad 可以 (iPad can) | Switches for other devices' permissions: 管理白板, 设置白板, 清空白板, 导出白板; see [Permissions for other devices](#permissions-for-other-devices) | The Mac window |
+| 存储位置 (Storage) | The storage directory, with 更改… (Change) and 在访达中显示 (Show in Finder) | The Mac window |
+| iPad 首页 (iPad home) | Whether the iPad opens the whiteboard or an app; see [docs/embed.md](docs/embed.md) | The Mac window, when apps are installed |
+| Mac | The Mac in use and 换一台 Mac (Switch Mac) | The iPad shell |
 
 ### Board kinds
 
-The kind is chosen when a board is created and cannot change.
+The kind is chosen when a board is created and cannot change. In 新建白板 (New board), 向下延伸 (extends downward) creates a note board and 四向延伸 (extends in four directions) creates an infinite board; a document board comes from an imported PDF or image.
 
 | Kind | Extent | Initial view |
 | --- | --- | --- |
-| Infinite board | Infinite in all four directions; zoom 0.05×–8× | Fit to content on the Mac, 1:1 on the iPad |
-| Note board | One page wide (1000 units), infinite downward | Page width, at the top |
+| Infinite board (四向延伸) | Infinite in all four directions; zoom 0.05×–8× | Fit to content on the Mac, 1:1 on the iPad |
+| Note board (向下延伸) | One page wide (1000 units), infinite downward | Page width, at the top |
 | Document board (beta) | Fixed, from a PDF or an image | Page width, first page |
 
 - On a note board, ink cannot go outside the page; dragging at the edge turns the page, and the view cannot scroll past the first page.
 - Page turns continue by inertia above about 350 px/s. When a page nearly fills the width, zoom snaps to page width on release.
-- The middle button in the bottom-right group returns to the content.
+- 回到内容 (Back to content) is in the zoom control at the bottom right and in the toolbar's 更多 (More) menu.
 
-### Board chooser
+### Library
 
-The first icon in the top-right group (白板) opens the board chooser: full-screen thumbnails, each marked with its kind, and a **+** tile that creates a board (choose the kind first) or a folder.
+白板库 (Library; on the left of the title bar on the Mac, at the top left on the iPad) opens the library. It needs the Manage boards permission. It opens at the folder that holds the current board (or at 最近, Recent, when the board is in no folder), with the current board selected.
 
-- **Names and dates.** Each thumbnail shows the name and the time of the last stroke. Today shows only the time; this year omits the year.
-- **Default names.** Unnamed boards show a gray default name (白板, 笔记, 文档). Boards created from a PDF or an image are named after the file, without the extension.
-- **Renaming.** Click a name to edit it. Enter or clicking elsewhere commits, Escape cancels, and an empty name returns to the default. Enter and Escape during IME composition are left to the input method. Any board can be renamed without switching to it; only the list is broadcast.
-- **Search.** The search box matches the name, the default name, the folder and the document's original file name. Search covers every board and shows a flat list. Escape clears the search without closing the chooser.
-- **Reopening.** The chooser opens at the level that holds the current board.
+**Sidebar**
 
-**Dragging** works the same with a finger, a Pencil, a mouse or a trackpad. The card lifts out of the grid and follows the pointer, and a gap shows where it will land.
-
-| Pointer | Drag starts when |
+| Item | Content |
 | --- | --- |
-| Mouse, trackpad | The pointer moves a few pixels. |
-| Finger, Pencil | The pointer moves sideways (the list scrolls only vertically), or the card is held still for 220 ms. A vertical swipe scrolls. |
+| 最近 (Recent) | Every board by modification time, grouped into 今天 (Today), 本周 (This week) and 更早 (Earlier). |
+| 全部白板 (All boards) | Every board, with the count. |
+| 文件夹 (Folders) | One row per folder with its count, sorted by name. |
+| 应用 (Apps) | One row per installed app; lists the app's boards page by page and opens them read-only. Shown only when apps are installed. |
+| 回收站 (Trash) | Boards moved to the trash, with the count. |
+
+On the iPad, the button at the top left hides and shows the sidebar. On a narrow screen it starts hidden and closes again after a row is chosen.
+
+**Header**
+
+- The title, followed by 已选择 N 项 (N selected) when several boards are selected.
+- View: icons (thumbnail grid) or list (name, folder and modification time columns). Remembered on the device.
+- Sort: 修改时间 (Date modified), 名称 (Name) or 手动排列 (Manual), remembered on the device. 最近 and the trash have no sort menu.
+- Search: matches the name, the default name, the folder and the document's original file name across all boards, and shows a flat list. Escape clears the search.
+- 新建白板 (New board): a popover with 向下延伸, which creates a note board, and 四向延伸, which creates an infinite board. A board created inside a folder goes into that folder. In the trash, the button is 清空回收站 (Empty trash) instead.
+
+**Board cards** show the thumbnail, the name, a kind icon (extends downward, extends in four directions, or document) and the time of the last stroke: today shows only the time, yesterday shows 昨天 (yesterday) and the time, and this year omits the year. Unnamed boards show a default name (白板, 笔记). Boards created from a PDF or an image are named after the file, without the extension.
+
+| Action | Mac | iPad |
+| --- | --- | --- |
+| Select | Click; ⌘-click adds or removes | — |
+| Open | Double-click, or select and press Return or ⌘O | Tap |
+| Menu | Right-click | Long-press without moving, then release |
+| Drag | Press and drag | Long-press, then move |
+
+The board menu:
+
+| Item | Detail |
+| --- | --- |
+| 打开 (Open) | Opens the board. |
+| 重命名 (Rename) | Turns the name into a text field. Return or clicking elsewhere commits, Escape cancels, and an empty name returns to the default. Return and Escape during IME composition are left to the input method. |
+| 移到文件夹 ▸ (Move to folder) | Submenu: 不放在文件夹中 (not in a folder), each folder, and 新建文件夹 (New folder), which creates a folder, moves the board into it and starts editing the folder's name. |
+| 复制 (Duplicate) | Makes a copy with the same ink, background and folder, right after the original. Its name is the original's name followed by 「 副本」 (copy), for example 「讲义 副本」; a document board is copied with its original file. The current board does not change. |
+| 导出… (Export) | Switches to the board and opens the export dialog; needs the Export board permission. |
+| 移到回收站 (Move to Trash) | Does not ask for confirmation. |
+
+With several boards selected, the menu has only 移到文件夹 and 移到回收站, which apply to all of them. Any board can be renamed without switching to it; only the list is broadcast.
+
+Right-clicking the background opens a menu with 新建白板 (New board, ⌘N), 新建文件夹 (New folder, ⇧⌘N), 导入 PDF 或图片… (Import PDF or image, ⌘I), and 以图标显示 / 以列表显示 (as icons / as list). Other keys:
+
+| Key | Action |
+| --- | --- |
+| Return, ⌘O, ⌘↓ | Opens the selected board |
+| ⌘⌫ | Moves the selected boards to the trash |
+| ⌘F | Moves to the search field |
+| Esc | Clears the selection; pressed again, closes the library |
+
+**Folders** are one level deep and are listed in the sidebar.
+
+- To create a folder, click **+** next to 文件夹 in the sidebar, or press ⇧⌘N. As in Finder, the new folder's name field is selected for editing with the default name 「未命名文件夹」 (Untitled folder): type a name and press Return, or click elsewhere. Esc keeps the default name. A name already in use shows 「已经有同名的文件夹了」 (a folder with that name exists) and, after Return, stays in edit mode.
+- A folder's menu (right-click, or long-press on the iPad): 重命名 (Rename), 在此新建白板 (New board here), 删除文件夹 (Delete folder). Double-clicking a folder also renames it; Esc cancels.
+- A folder's name is its identity. Renaming a folder renames it on every board inside; a name already in use is rejected.
+- Deleting a folder asks for confirmation. Its boards are not deleted: they stay in 全部白板 and are no longer in any folder. Boards in the trash keep the folder's name and go back into a recreated folder when restored.
+
+**Dragging** a card organizes boards; in the list view, drag the thumbnail at the start of the row. Dropping one of several selected boards on the sidebar moves all of them.
 
 | Drop target | Result |
 | --- | --- |
-| Middle of a folder card | Moves the board into the folder. The folder's edges do not count. |
-| Back button or folder bar (inside a folder) | Moves the board out of the folder. |
-| Between two boards | Reorders. Other cards move aside only after the pointer rests in one place. |
+| A folder in the sidebar | Moves the board into the folder. |
+| 全部白板 in the sidebar | Moves the board out of its folder. |
+| 回收站 in the sidebar | Moves the board to the trash. |
+| Between two boards | Reorders. Only with the 手动排列 (Manual) sort, outside 最近 and the trash, and without a search; other cards move aside only after the pointer rests in one place. |
 | Near the top or bottom edge | Scrolls the list. |
 
-- The order is stored in `space.json` on the Mac, so it is the same on every device and survives restarts. Folders are sorted by name and are not reordered by dragging.
+- With a mouse or trackpad, a drag starts after the pointer moves a few pixels. A finger or Pencil starts a drag by moving sideways or by holding the card still for 220 ms; a vertical swipe scrolls.
+- The order is stored in `space.json` on the Mac, so it is the same on every device and survives restarts.
 - Dragging uses pointer events, not browser drag and drop, which iOS Safari does not implement. Timings and spring curves are at the top of `static/js/dragsort.js`.
 - `static/lab/drag.html` is a standalone copy for tuning those values on an iPad. It is available only when running from source; the packaged app excludes `static/lab/`.
 
-**Folders** are one level deep and appear as cards in the same grid. Opening a folder shows only its boards.
-
-- To create a folder, choose the folder tile in the new-board dialog (top level only). The new folder's name field is selected for editing, as in Finder: type a name and press Return, or click elsewhere. Esc keeps the default name 「未命名文件夹」 (Untitled folder); a name already in use shows a message and stays in edit mode.
-- To file a board, drag it onto the folder, or use the folder icon next to its name and pick a folder or type a new name, which creates the folder.
-- A folder's name is its identity. Renaming a folder renames it on every board inside; a name already in use is rejected.
-- Boards created inside a folder stay in that folder. A PDF or image dropped onto the window, or opened from Finder, goes into the folder the board chooser shows; with the chooser closed, it goes into the current board's folder.
-- Deleting a folder does not delete its boards; they move out of it. Boards in the trash keep the folder's name and go back into a recreated folder when restored.
-
-**Duplicating** a board makes a copy with the same ink, background and folder, right after the original. Its name is the original's name followed by 「副本」; a document board is copied with its original file. The current board does not change.
-
-**Trash.** Deleting a board moves it to the trash. A board in the trash can be restored or deleted permanently; boards in the trash for more than 30 days are deleted permanently when the app starts and once an hour while it runs. A board in the trash is never the current board: deleting the current board switches every device to the first board not in the trash, or to a new blank board. Opening a `.wbz` file of a board in the trash from Finder restores it.
+**Trash.** Boards moved to the trash appear under 回收站 in the sidebar, sorted by when they were moved there, with that time on the card. Their menu has 恢复 (Restore, back into the original folder) and 永久删除 (Delete permanently); 清空回收站 (Empty trash) deletes all of them permanently. Dragging a board from the trash onto a folder or 全部白板 in the sidebar also restores it there. Boards in the trash for more than 30 days are deleted permanently when the app starts and once an hour while it runs. A board in the trash is never the current board: deleting the current board switches every device to the first board not in the trash, or to a new blank board. Opening a `.wbz` file of a board in the trash from Finder restores it.
 
 ### Documents (PDF and images)
 
-Drop a PDF or an image onto the Mac window, choose the document tile in the new-board dialog, or open the file with the app from Finder, to create a document board (beta). The pages are laid out on the canvas, and connected devices switch to the new board.
+Drop a PDF or an image onto the window, choose 导入 PDF 或图片… (Import PDF or image, ⌘I) in the library's background menu, or open the file with the app from Finder, to create a document board (beta). The pages are laid out on the canvas, and connected devices switch to the new board.
+
+- Several files can be dropped or chosen at once. Each becomes a new board, and the view ends on the last one.
+- While files are dragged over the window, an overlay reads 「导入为新白板」 (import as new board), or 「导入到 <folder>」 (import into) when the library shows a folder.
+- Where the new board goes: with the library open, into the folder it shows, or into a sidebar folder the files are dropped on; with the library closed, into the current board's folder. Files opened from Finder likewise go into the folder the library shows, or the current board's folder.
 
 **Opening files from Finder.** The packaged app is listed under “打开方式” (Open With) for PDF, png, jpeg, gif, bmp, webp and tiff files as an alternative app, so it does not replace the default app. `.wbz` files belong to the app and open with a double-click.
 
@@ -353,21 +445,21 @@ The export dialog (see [Export](#export)) uses the pages of the original. A PDF 
 
 ### Export
 
-The export icon in the top-right group (导出) opens the export dialog. It needs the Export board permission.
+导出 (Export; on the right of the title bar on the Mac, at the top right on the iPad) opens the export dialog. It needs the Export board permission. 导出… in a board's menu in the library switches to that board first. The left column of the dialog shows what is exported; the options are on the right.
 
 | Part | Behaviour |
 | --- | --- |
-| Thumbnails | Thumbnails of every page on the left. Tap a page to select or deselect it; 全选 selects all, 当前页 selects the page in the middle of the view. |
+| Left column | When exporting pages, a thumbnail of every page with a checkbox pill on its bottom edge showing the page number, for example `1 / 7`. Tap a page to select or deselect it; 页面 (Pages) then switches to 所选的 N 页 (the N selected pages). Above the pages are 已选 N 页 (N selected) and 全选 (Select all), which reads 取消全选 (Deselect all) once every page is selected. For 整张长图 it shows a preview of the whole board, and for WBZ the file name. |
 | 格式 (Format) | PDF, PNG, or WBZ. With PNG, one selected page gives one PNG file and several give a ZIP with one PNG per page, named in page order. WBZ is the board file: it downloads the board's `.wbz` file unchanged; opening it in the app (double-click on the Mac) opens the same board. The export button follows the format: 导出 PDF, 导出 PNG or 导出 WBZ. |
-| 范围 (Range, infinite and note boards) | 分页 exports pages; 整块 exports the whole board without pagination as one PDF page or one PNG, the size of all the ink plus a margin. |
-| 页面 (Pages) | 全部, or the pages typed in the field, such as `1-5, 8, 11-13` (separated by `,` `、` `;` or spaces). The field and the thumbnails follow each other. A page number that does not exist shows a message under the field and disables the export button. |
+| 范围 (Range, infinite and note boards) | 按页 (by page) exports pages; 整张长图 (one long image) exports the whole board without pagination as one PDF page or one PNG, the size of all the ink plus a margin. |
+| 页面 (Pages) | 全部 N 页 (all N pages); 范围 (range) with the pages typed in the field, such as `1-5, 8, 11-13` (separated by `,` `、` `;` or spaces); or 所选的 N 页, the pages picked in the left column. The field and the thumbnails follow each other. A page number that does not exist shows a message under the field and disables the export button. |
 | 清晰度 (Resolution, PNG only) | 标准 150 dpi, 高 300 dpi (default), 最高 600 dpi. The line below shows the pixel size, lowered as the server does above 40 million pixels. |
 | 纸张 (Paper) | 跟随内容 (follow content, the default): each page's paper is its frame plus a margin, so the writing keeps its size. A4 or Letter: portrait sheets, with each frame scaled to fit. |
-| 分页 (Pagination) | Number of pages (自动分成 N 页, or 手动分成 N 页 after adjusting), and 调整 to adjust them. |
+| 分页 (Pagination) | Number of pages (自动分成 N 页, or 手动分成 N 页 after adjusting), and 调整… (Adjust) to adjust them. |
 
 - One board unit prints as 1 pt, so a page shows the ink at the size seen at 100% zoom. PDF pages are vector and stay sharp at any zoom; PNG pages are rendered at the chosen resolution, however far the board is spread.
 - Automatic pages: an infinite board is read from top to bottom. Each page is as wide as the writing in that part of the board and is cut between lines where possible. A note board is cut by paper length, between lines where possible. A document board uses the pages of its original.
-- 调整 shows the page frames on the board: drag a frame to move it, drag a corner to resize it (with A4 or Letter the paper's proportions are kept), and use the delete button to remove it. Drag on the board outside the frames with one finger, the Pencil or the mouse to draw a new frame; with A4 or Letter it has the paper's proportions, portrait or landscape by the shape of the drag. 清空 removes all frames, 添加一页 adds a page in the middle of the view, 自动分页 restores the automatic pages, and 完成 returns to the dialog. Two fingers, the scroll wheel and the trackpad still pan and zoom the board; nothing is drawn while adjusting.
+- 调整… shows the page frames on the board: drag a frame to move it, drag a corner to resize it (with A4 or Letter the paper's proportions are kept), and use the delete button to remove it. Drag on the board outside the frames with one finger, the Pencil or the mouse to draw a new frame; with A4 or Letter it has the paper's proportions, portrait or landscape by the shape of the drag. 清空 removes all frames, 添加一页 adds a page in the middle of the view, 自动分页 restores the automatic pages, and 完成 returns to the dialog. Two fingers, the scroll wheel and the trackpad still pan and zoom the board; nothing is drawn while adjusting.
 - In the Mac window the file is saved through the save dialog; elsewhere it is downloaded (the iPad shell opens the share sheet).
 
 ## Permissions for other devices
@@ -376,7 +468,7 @@ Any device that opens the address can write. Every other action must be granted 
 
 | Permission | Allows | Enforced at |
 | --- | --- | --- |
-| Manage boards (管理白板) | Switch, create, delete, rename, file into folders, create from a PDF or image | `/api/info`, `/api/boards`, `/api/thumb`, uploads to `/api/doc`, and the matching WebSocket operations |
+| Manage boards (管理白板) | Open the library; switch, create, duplicate, rename, file into folders, move to the trash, restore, delete permanently, create from a PDF or image | `/api/info`, `/api/boards`, `/api/thumb`, uploads to `/api/doc`, and the matching WebSocket operations |
 | Board settings (设置白板) | Change the background | `meta` operations |
 | Clear board (清空白板) | Erase a whole board at once | `clear` operations |
 | Export board (导出白板) | Download a whole board, including the original file | `/api/export` |
@@ -385,7 +477,7 @@ Any device that opens the address can write. Every other action must be granted 
 - Every request's source is checked too: requests from other web pages in a browser (carrying another site's `Origin`), and requests whose `Host` is not an IP address, `localhost`, `*.local` or this machine's host name, get 403. Otherwise any web page open on the Mac could read or delete boards with this machine's permissions. To open the whiteboard under another name (for example a VPN domain), add it to `allowed_hosts` in the config file (`~/Library/Application Support/Whiteboard/config.json`), for example `"allowed_hosts": ["mac.example.ts.net"]`, then restart the app. Details: [docs/protocol.md](docs/protocol.md#request-sources).
 - Writing is always allowed: the page, the WebSocket, page images, the profile and diagnostics reports need no permission.
 - The page receives the granted permissions in a `data-perms` attribute and shows only the allowed entries. This only affects the display; the server enforces the permissions.
-- Update checks and the storage directory choice use the local pywebview bridge, which other devices cannot reach. 关于 and 连接 iPad therefore appear only in the Mac window.
+- Update checks and the storage directory choice use the local pywebview bridge, which other devices cannot reach. 关于白板 (About) and 连接 iPad (Connect iPad) therefore appear only in the Mac window.
 
 ## Data
 
@@ -400,7 +492,7 @@ boards-data/
   space.json             order, folder names and the current board
   spaces/<app name>/     boards of installed apps, same layout
   apps/<app name>/       installed apps (see docs/embed.md)
-  thumbs/<id>.png        chooser thumbnails
+  thumbs/<id>.png        library thumbnails
   docs/<id>.<ext>        original file of a document board
   backups/upgrade/       copies made before a new version first runs
   backups/locked/        copies made before editing a read-only board
@@ -448,7 +540,7 @@ To check your boards before upgrading, run `python tools/check_boards.py`.
 
 ### Diagnostics panel
 
-Triple-tap the connection dot, or add `?debug=1` to the address, to open the diagnostics panel. It shows frame rate and longest frame gap, render time, sample rate, strokes started, strokes interrupted by the system, event intervals, disk write times, and the Pencil's raw tilt and altitude readings with the angle in use.
+Open the diagnostics panel in any of these ways: in the Mac window, click 连接 iPad (Connect iPad) three times; on the iPad, tap the connection status at the top right three times; in a desktop browser, click the red dot next to the board name three times while it shows; or add `?debug=1` to the address. It shows frame rate and longest frame gap, render time, sample rate, strokes started, strokes interrupted by the system, event intervals, disk write times, and the Pencil's raw tilt and altitude readings with the angle in use.
 
 While the panel is open, stutter reports are also sent to the Mac's terminal. Page errors are sent in any case. Read the `[诊断]` lines in the Mac terminal or log:
 
@@ -517,11 +609,11 @@ whiteboard/
   app.py        pywebview window and native file dialogs
   web/          front end (native ES modules, no build step)
     static/js/                      interface; the pad is loaded from /inksync/
-      app.js                        whiteboard app on top of the pad: chooser,
+      app.js                        whiteboard app on top of the pad: library,
                                     settings, import / export, updates
       boards.js                     board kind, folder and document in the interface
-      ui.js, ui-*.js                toolbar and tool picker; board chooser,
-                                    dialogs, settings
+      ui.js, ui-*.js                chrome, toolbar and tool picker; library,
+                                    dialogs, settings, menus
       ruler-view.js                 how the ruler looks (styles in css/app.css)
     static/lab/                     tuning pages (source runs only)
 ipad/           the iPad shell (Swift, project generated by XcodeGen)

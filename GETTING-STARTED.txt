@@ -25,17 +25,10 @@ On first launch, macOS shows two prompts:
 
 Updates
 -------
-The app checks for a new version at launch. When one is available, an update
-dialog shows the release notes and three choices:
-  - "跳过这个版本" (Skip this version): no further prompts for this version.
-  - "退出应用时安装" (Install on quit): the update is installed when the app quits.
-  - "安装并重启应用" (Install and restart): the update is installed now and
-    the app reopens.
-The switch "以后自动下载更新" (Download updates automatically) is off by
-default. When it is on, the update is downloaded in the background before
-the dialog appears.
-To check manually: "关于" (About), the last icon at the top right, then
-"检查更新" (Check for updates).
+The app checks for new versions automatically (Sparkle). When one is
+available, Sparkle's window shows the new version and its release notes.
+To check manually: "更多" (More) in the bottom toolbar, then "关于白板"
+(About), then "检查更新" (Check for updates).
 
 Run from source (optional)
 --------------------------
@@ -47,13 +40,19 @@ Run from source (optional)
   a browser.
 If macOS blocks a script, right-click it and choose Open.
 
+Open the board on the iPad
+--------------------------
+In the Mac window, click "连接 iPad" (Connect iPad) on the right of the title
+bar at the top. The panel shows a QR code and the address, for example
+<computer-name>.local:8848. Scan the QR code with the iPad camera to open the
+board in Safari.
+
 Add the board to the iPad Home Screen
 -------------------------------------
-1. In the Mac window, click the iPad icon at the top right ("连接 iPad",
-   Connect iPad). The card shows the address, for example
-   http://<computer-name>.local:8848/
-2. Click the download button on the card and send the profile to the iPad
-   with AirDrop. Alternatively, open this address in Safari on the iPad:
+1. In the Mac window, click "连接 iPad" (Connect iPad).
+2. Click "存储描述文件" (Save profile) at the bottom of the panel and send the
+   profile to the iPad with AirDrop. Alternatively, open this address in
+   Safari on the iPad:
    http://<computer-name>.local:8848/profile.mobileconfig
 3. On the iPad: Settings > Profile Downloaded > Install. The profile is
    unsigned; confirm the installation.
@@ -67,7 +66,10 @@ iPad:
     marker, highlighter, eraser, and colors. Tap the selected tool to change
     its width. Drag the tool picker to another edge or corner.
   - "更多" (More) in the tool picker contains auto-minimize, finger drawing,
-    and clear board.
+    shape recognition, and clear board.
+  - "白板库" (Library) at the top left opens the library. At the top right:
+    the connection status (blue while connected to the Mac), "导出"
+    (Export), and "白板设置" (Board settings).
   - By default only the Apple Pencil draws. One finger pans, two fingers
     zoom, and a resting palm leaves no mark.
   - Without an Apple Pencil, turn on finger drawing: one finger draws, and
@@ -76,19 +78,29 @@ iPad:
     setting up, clearing, or exporting boards, turn on the matching
     permission in "白板设置" (Board settings) on the Mac.
 Mac and other devices (classic toolbar):
-  - The toolbar contains pen, marker, highlighter, eraser, color and width,
-    undo, redo, and clear board. On touch devices it also contains the
-    finger drawing switch.
+  - The bottom toolbar contains pen, marker, highlighter, eraser, "颜色与粗细"
+    (Color and width), undo, redo, and "更多" (More). More moves the toolbar
+    to the left, returns to the content, and clears the board; in the Mac
+    window it also has "关于白板" (About), and on touch devices the finger
+    drawing and shape recognition switches.
   - Mouse: the left button draws. Space + drag or the middle button pans.
     The scroll wheel pans. Cmd + scroll wheel zooms.
   - Keys: Cmd+Z undo, Cmd+Shift+Z redo, Cmd+= / Cmd+- zoom, Cmd+0 fit content.
-  - Top right, in order: board chooser, "白板设置" (Board settings:
-    background, storage directory, permissions), export PNG, connect iPad,
-    and about. Connect iPad and about appear only in the Mac window.
-  - Bottom right: zoom in, "回到内容" (Fit content), zoom out.
-  - New board: choose an infinite board (extends in all four directions) or
-    a note board (fixed width, extends downward). Drag a PDF or an image into
-    the window to create a document board.
+  - Title bar at the top: on the left, "白板库" (Library) and the board name;
+    on the right, "连接 iPad" (Connect iPad, only in the Mac window), "导出"
+    (Export), and "白板设置" (Board settings: background, permissions,
+    storage location).
+  - Bottom right: zoom out, the current percentage (click it for 100%), zoom
+    in, "回到内容" (Back to content).
+  - Library: the sidebar lists Recent, All boards, folders, and the trash.
+    Click "新建白板" (New board) and choose "四向延伸" (an infinite board) or
+    "向下延伸" (a note board, fixed width). On the Mac, right-click a board
+    or the background for a menu (rename, move to folder, duplicate, move to
+    trash, and more); on the iPad, long-press a board.
+  - Drag a PDF or an image into the window to create a document board;
+    several files can be dropped at once.
+  - Boards moved to the trash can be restored from it; they are deleted
+    permanently after 30 days.
 
 Storage
 -------

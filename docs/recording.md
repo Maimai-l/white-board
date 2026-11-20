@@ -8,7 +8,7 @@ Input recording captures raw Apple Pencil input on the iPad, together with the b
 
 Recording is available whenever the diagnostics panel is open.
 
-1. Tap the connection status dot in the top-left corner three times, with no more than 1.2 s between taps. The diagnostics panel opens, and a “录制输入” (Record input) cell appears in the bottom-left corner.
+1. Tap the connection status at the top right three times (in the Mac window, “连接 iPad” (Connect iPad) in the title bar), with no more than 1.2 s between taps. The diagnostics panel opens, and a “录制输入” (Record input) cell appears in the bottom-left corner.
 2. Tap “录制输入”. The cell shows the number of recorded events (“N 条”).
 3. Perform the actions that show the problem.
 4. Tap “停止录制” (Stop recording). The cell shows “已存到 <path>” (Saved to) or “已下载” (Downloaded).
