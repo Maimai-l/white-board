@@ -38,9 +38,7 @@ def main(argv: list[str]) -> int:
                 cache[size] = icon_png(size, mac=True)
             (iconset / name).write_bytes(cache[size])
         try:
-            result = subprocess.run(
-                ["iconutil", "-c", "icns", str(iconset), "-o", str(out)], check=False
-            )
+            result = subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(out)], check=False)
         except FileNotFoundError:
             print("找不到 iconutil：只有 macOS 能生成 .icns", file=sys.stderr)
             return 1

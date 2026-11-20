@@ -150,8 +150,9 @@ class _Single(Spaces):
 class Session:
     """一条 WebSocket 连接的协议处理。"""
 
-    def __init__(self, spaces: Spaces, ws: web.WebSocketResponse, request: Any,
-                 authenticate: Authenticate, info: Optional[Info]):
+    def __init__(
+        self, spaces: Spaces, ws: web.WebSocketResponse, request: Any, authenticate: Authenticate, info: Optional[Info]
+    ):
         self.spaces = spaces
         self.ws = ws
         self.request = request
@@ -183,12 +184,12 @@ class Session:
         try:
             await self.dispatch(msg)
         except Exception:  # noqa: BLE001 - 一条坏消息不能断开连接
-            log.exception("处理消息出错（%s）：%.200s", self.conn.id if self.conn else "-",
-                          json.dumps(msg, default=str))
+            log.exception(
+                "处理消息出错（%s）：%.200s", self.conn.id if self.conn else "-", json.dumps(msg, default=str)
+            )
             if msg.get("t") == "op" and self.conn is not None:
                 board = msg.get("board") if isinstance(msg.get("board"), str) else self.conn.board
-                await self.conn.send({"t": "ack", "cid": msg.get("cid"), "board": board, "seq": 0,
-                                      "rejected": "error"})
+                await self.conn.send({"t": "ack", "cid": msg.get("cid"), "board": board, "seq": 0, "rejected": "error"})
 
     async def dispatch(self, msg: Dict[str, Any]) -> None:
         kind = msg.get("t")
@@ -249,8 +250,16 @@ class Session:
         device = msg.get("device") if isinstance(msg.get("device"), str) else ""
         if legacy:
             device = msg.get("role") if msg.get("role") in ("mac", "ipad") else "mac"
-        conn = Conn(hub, client_id, self.ws, principal, request=self.request, device=device[:32],
-                    readonly=msg.get("readonly") is True, legacy=legacy)
+        conn = Conn(
+            hub,
+            client_id,
+            self.ws,
+            principal,
+            request=self.request,
+            device=device[:32],
+            readonly=msg.get("readonly") is True,
+            legacy=legacy,
+        )
 
         follow = legacy or msg.get("follow") is True or msg.get("board") is None
         if follow:
@@ -268,8 +277,14 @@ class Session:
         self.hub = hub
         self.conn = conn
         hub.attach(conn)
-        log.info("连接建立：%s（空间 %r，%s%s，在线 %d）", client_id, hub.name, device or "-",
-                 "，只读" if conn.readonly else "", len(hub.conns))
+        log.info(
+            "连接建立：%s（空间 %r，%s%s，在线 %d）",
+            client_id,
+            hub.name,
+            device or "-",
+            "，只读" if conn.readonly else "",
+            len(hub.conns),
+        )
         extra = {
             "v": PROTOCOL,
             "server": server_field(),
@@ -298,8 +313,9 @@ class Session:
         self.conn = None
 
 
-async def serve_ws(request: web.Request, spaces: Spaces, authenticate: Authenticate,
-                   info: Optional[Info]) -> web.WebSocketResponse:
+async def serve_ws(
+    request: web.Request, spaces: Spaces, authenticate: Authenticate, info: Optional[Info]
+) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=20.0, max_msg_size=MAX_WS_MESSAGE)
     await ws.prepare(request)
     session = Session(spaces, ws, request, authenticate, info)

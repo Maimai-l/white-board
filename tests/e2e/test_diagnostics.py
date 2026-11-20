@@ -39,8 +39,10 @@ def test_page_errors_are_reported_to_the_server(browser, server):
         ipad.evaluate("() => setTimeout(() => { throw new Error('故意炸一个'); }, 0)")
 
     # 渲染循环不能因为一次异常就停摆：出错的那一帧之后还在接着画
-    ipad.evaluate("() => { const t = whiteboard.renderer.tick.bind(whiteboard.renderer); window.__ticks = 0;"
-                  "whiteboard.renderer.tick = () => { if (window.__ticks++ === 0) throw new Error('单帧异常'); return t(); }; }")
+    ipad.evaluate(
+        "() => { const t = whiteboard.renderer.tick.bind(whiteboard.renderer); window.__ticks = 0;"
+        "whiteboard.renderer.tick = () => { if (window.__ticks++ === 0) throw new Error('单帧异常'); return t(); }; }"
+    )
     ipad.wait_for_function("() => window.__ticks >= 3")
     draw(ipad, [(300, 300), (380, 350), (460, 300)])
     wait_strokes(mac, 1)
@@ -71,7 +73,9 @@ def test_debug_overlay_toggles(browser, server):
     assert ipad.evaluate("() => !!document.getElementById('perf')") is False
     toggle_diagnostics(ipad)
     assert ipad.evaluate("() => whiteboard.perf.enabled") is True
-    ipad.wait_for_function("() => { const n = document.getElementById('perf'); return n && n.textContent.includes('帧'); }")
+    ipad.wait_for_function(
+        "() => { const n = document.getElementById('perf'); return n && n.textContent.includes('帧'); }"
+    )
     toggle_diagnostics(ipad)
     assert ipad.evaluate("() => whiteboard.perf.enabled") is False
 
@@ -156,9 +160,7 @@ def test_recorder_replays_an_erase_exactly(browser, server):
     assert any(s.get("m") for s in after), "这一下应该留下遮罩"
 
     # 回放：先把板恢复成录制开始时的样子，再把事件按时序喂回去
-    replayed = ipad.evaluate(
-        "async ([data]) => whiteboard.recorder.replay(data, { wait: false })", [data]
-    )
+    replayed = ipad.evaluate("async ([data]) => whiteboard.recorder.replay(data, { wait: false })", [data])
     assert replayed == after
 
 

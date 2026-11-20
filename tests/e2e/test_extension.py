@@ -122,11 +122,16 @@ def test_popup_embeds_the_sketch_and_copies_from_inside(extension_context, serve
         popup = open_popup(context, ext, server.port)
         frame = sketch_frame(popup)
         ipad.wait_for_function("() => whiteboard.state.id === 'sketch'")
-        assert frame.evaluate("() => Array.from(document.querySelectorAll('button')).map((b) => b.id)") == ["clear", "copy"]
+        assert frame.evaluate("() => Array.from(document.querySelectorAll('button')).map((b) => b.id)") == [
+            "clear",
+            "copy",
+        ]
 
         draw(ipad, [(300, 300), (420, 360), (540, 300)])
         frame.wait_for_function("() => sketchPad.snapshot().strokes.length === 1")
-        frame.evaluate("() => { window.copied = null; addEventListener('sketch-copied', (e) => { window.copied = e.detail; }); }")
+        frame.evaluate(
+            "() => { window.copied = null; addEventListener('sketch-copied', (e) => { window.copied = e.detail; }); }"
+        )
         frame.click("#copy")
         frame.wait_for_function("() => document.getElementById('notice').textContent.length > 0")
         notice = frame.evaluate("() => document.getElementById('notice').textContent")

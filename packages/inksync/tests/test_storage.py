@@ -13,9 +13,7 @@ from inksync.storage import FileStorage
 
 
 def write_v1(path, meta, strokes=()):
-    payload = {"v": 1, "meta": meta, "strokes": [
-        {**s, "p": codec.encode_points_b64(s["p"])} for s in strokes
-    ]}
+    payload = {"v": 1, "meta": meta, "strokes": [{**s, "p": codec.encode_points_b64(s["p"])} for s in strokes]}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(zlib.compress(json.dumps(payload).encode()))
 
@@ -99,14 +97,32 @@ def test_list_orders_and_prefix(tmp_path):
 
 def test_v1_files_are_converted_on_read(tmp_path):
     boards = tmp_path / "boards"
-    write_v1(boards / "note1.wbz", {"id": "note1", "name": "笔记", "kind": "note", "background": "lines",
-                                     "folder": "数学", "created": 1, "updated": 2})
-    write_v1(boards / "doc1.wbz", {"id": "doc1", "kind": "doc", "background": "blank",
-                                    "doc": {"type": "pdf", "name": "a.pdf", "ext": ".pdf",
-                                            "pages": [[600, 800], [500, 700]]}})
-    write_v1(boards / "q1.wbz", {"id": "q1", "kind": "board", "app": "qb",
-                                  "underlay": {"src": "/apps/qb/q.png", "width": 800}},
-             [{"id": "s1", "tool": "pen", "color": "#000000", "w": 3.0, "p": [0.0, 0.0, 0.5], "n": 0}])
+    write_v1(
+        boards / "note1.wbz",
+        {
+            "id": "note1",
+            "name": "笔记",
+            "kind": "note",
+            "background": "lines",
+            "folder": "数学",
+            "created": 1,
+            "updated": 2,
+        },
+    )
+    write_v1(
+        boards / "doc1.wbz",
+        {
+            "id": "doc1",
+            "kind": "doc",
+            "background": "blank",
+            "doc": {"type": "pdf", "name": "a.pdf", "ext": ".pdf", "pages": [[600, 800], [500, 700]]},
+        },
+    )
+    write_v1(
+        boards / "q1.wbz",
+        {"id": "q1", "kind": "board", "app": "qb", "underlay": {"src": "/apps/qb/q.png", "width": 800}},
+        [{"id": "s1", "tool": "pen", "color": "#000000", "w": 3.0, "p": [0.0, 0.0, 0.5], "n": 0}],
+    )
     added = []
     store = FileStorage(tmp_path, convert_meta=lambda m: added.append(m["id"]) or m)
     note = store.get_meta("note1")

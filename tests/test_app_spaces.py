@@ -43,8 +43,12 @@ def stroke(stroke_id, x=0.0):
     return {"id": stroke_id, "tool": "pen", "color": "#000000", "w": 3.0, "p": [x, 0.0, 0.5, x + 10, 0.0, 0.5]}
 
 
-QUESTION = {"name": "第 3 题", "canvas": {"mode": "fixed", "width": 800, "height": 1200},
-            "layers": [{"src": "/apps/qb/q3.png", "x": 0, "y": 0, "width": 800}], "data": {"q": 3}}
+QUESTION = {
+    "name": "第 3 题",
+    "canvas": {"mode": "fixed", "width": 800, "height": 1200},
+    "layers": [{"src": "/apps/qb/q3.png", "x": 0, "y": 0, "width": 800}],
+    "data": {"q": 3},
+}
 
 
 async def hello(client, board, space="qb", create=QUESTION, client_id="pad-one", **extra):
@@ -146,8 +150,9 @@ def test_1x_pinned_hellos_are_refused(tmp_path):
         async with make_client(tmp_path) as (client, app, config):
             install_app(config)
             ws = await client.ws_connect("/ws")
-            await ws.send_json({"t": "hello", "role": "ipad", "client": "pad-one", "board": None,
-                                "pin": {"board": "q3", "app": "qb"}})
+            await ws.send_json(
+                {"t": "hello", "role": "ipad", "client": "pad-one", "board": None, "pin": {"board": "q3", "app": "qb"}}
+            )
             assert await ws.receive_json() == {"t": "error", "reason": "pin"}
             await ws.close()
 

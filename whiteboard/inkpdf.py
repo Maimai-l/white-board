@@ -104,9 +104,7 @@ def simplify(points: Sequence[Tuple[float, float, float]], eps: float):
     return [p for p, k in zip(points, keep) if k]
 
 
-def outline_path(
-    points: Sequence[Tuple[float, float, float]], tool: str, width: float, cut: int = 0
-):
+def outline_path(points: Sequence[Tuple[float, float, float]], tool: str, width: float, cut: int = 0):
     """笔画的形状，和 stroke.js 的 buildPath 画同一个东西。
 
     返回一串路径指令：``('m', x, y)`` / ``('l', x, y)`` /
@@ -128,10 +126,7 @@ def outline_path(
         return []
 
     half = max(width, 0.6)
-    pts = [
-        (x * INK_SCALE, y * INK_SCALE, radius(tool, width, pr) / max(width, 1e-6))
-        for x, y, pr in points
-    ]
+    pts = [(x * INK_SCALE, y * INK_SCALE, radius(tool, width, pr) / max(width, 1e-6)) for x, y, pr in points]
     outline = freehand.get_stroke(
         pts,
         size=half * INK_SCALE,
@@ -158,12 +153,17 @@ def quad_commands(pts: Sequence[Tuple[float, float]]) -> List[Tuple]:
         a = pts[i]
         b = pts[i + 1]
         end = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-        cmds.append((
-            "c",
-            cur[0] + 2 / 3 * (a[0] - cur[0]), cur[1] + 2 / 3 * (a[1] - cur[1]),
-            end[0] + 2 / 3 * (a[0] - end[0]), end[1] + 2 / 3 * (a[1] - end[1]),
-            end[0], end[1],
-        ))
+        cmds.append(
+            (
+                "c",
+                cur[0] + 2 / 3 * (a[0] - cur[0]),
+                cur[1] + 2 / 3 * (a[1] - cur[1]),
+                end[0] + 2 / 3 * (a[0] - end[0]),
+                end[1] + 2 / 3 * (a[1] - end[1]),
+                end[0],
+                end[1],
+            )
+        )
         cur = end
     return cmds
 
@@ -222,8 +222,10 @@ def _segment_distance(ax, ay, bx, by, cx, cy, dx, dy) -> float:
         return math.hypot(px - (qx + ux * t), py - (qy + uy * t))
 
     return min(
-        point_seg(ax, ay, cx, cy, dx, dy), point_seg(bx, by, cx, cy, dx, dy),
-        point_seg(cx, cy, ax, ay, bx, by), point_seg(dx, dy, ax, ay, bx, by),
+        point_seg(ax, ay, cx, cy, dx, dy),
+        point_seg(bx, by, cx, cy, dx, dy),
+        point_seg(cx, cy, ax, ay, bx, by),
+        point_seg(dx, dy, ax, ay, bx, by),
     )
 
 
@@ -238,7 +240,11 @@ def mask_clips(chains: Sequence[Sequence[float]], bbox: Tuple[float, float, floa
     clips = []
     for group in _disjoint_groups(_capsules(chains)):
         cmds: List[Tuple] = [
-            ("m", x0, y0), ("l", x1, y0), ("l", x1, y1), ("l", x0, y1), ("l", x0, y0),
+            ("m", x0, y0),
+            ("l", x1, y0),
+            ("l", x1, y1),
+            ("l", x0, y1),
+            ("l", x0, y0),
         ]
         for ax, ay, bx, by, r in group:
             if abs(bx - ax) < 1e-9 and abs(by - ay) < 1e-9:
@@ -274,12 +280,17 @@ def _arc(cmds: List[Tuple], cx: float, cy: float, r: float, start: float, sweep:
         nxt = angle + piece
         ex = cx + math.cos(nxt) * r
         ey = cy + math.sin(nxt) * r
-        cmds.append((
-            "c",
-            x - math.sin(angle) * k, y + math.cos(angle) * k,
-            ex + math.sin(nxt) * k, ey - math.cos(nxt) * k,
-            ex, ey,
-        ))
+        cmds.append(
+            (
+                "c",
+                x - math.sin(angle) * k,
+                y + math.cos(angle) * k,
+                ex + math.sin(nxt) * k,
+                ey - math.cos(nxt) * k,
+                ex,
+                ey,
+            )
+        )
         angle, x, y = nxt, ex, ey
     return (x, y)
 
@@ -295,10 +306,12 @@ def flatten(cmds: Sequence[Tuple], steps: int = 8) -> List[Tuple[float, float]]:
             for i in range(1, steps + 1):
                 t = i / steps
                 u = 1 - t
-                poly.append((
-                    u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
-                    u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3,
-                ))
+                poly.append(
+                    (
+                        u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
+                        u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3,
+                    )
+                )
             cursor = (x3, y3)
         else:
             cursor = (cmd[1], cmd[2])
@@ -347,10 +360,7 @@ class _Writer:
             self.alpha = alpha
         if color != self.color:
             r, g, b = rgb(color)
-            self.parts.append(
-                b"%s %s %s rg %s %s %s RG\n"
-                % (_num(r), _num(g), _num(b), _num(r), _num(g), _num(b))
-            )
+            self.parts.append(b"%s %s %s rg %s %s %s RG\n" % (_num(r), _num(g), _num(b), _num(r), _num(g), _num(b)))
             self.color = color
 
     def fill(self, cmds: Sequence[Tuple], color: str, alpha: float) -> None:
@@ -371,9 +381,7 @@ class _Writer:
             return
         self.parts.append(b"".join(out) + b"h f\n")
 
-    def fill_clipped(
-        self, cmds: Sequence[Tuple], clips: Sequence[Sequence[Tuple]], color: str, alpha: float
-    ) -> None:
+    def fill_clipped(self, cmds: Sequence[Tuple], clips: Sequence[Sequence[Tuple]], color: str, alpha: float) -> None:
         """依次叠加几条 even-odd 裁剪，再填充。裁剪只在 q/Q 之间生效。"""
         self.parts.append(b"q\n")
         # 裁剪路径本身不画出来：W* 之后跟 n（什么都不画）
@@ -383,10 +391,7 @@ class _Writer:
                 if cmd[0] == "c":
                     clip_out.append(b" ".join(self._c(v) for v in cmd[1:]) + b" c\n")
                 else:
-                    clip_out.append(
-                        self._c(cmd[1]) + b" " + self._c(cmd[2])
-                        + (b" m\n" if cmd[0] == "m" else b" l\n")
-                    )
+                    clip_out.append(self._c(cmd[1]) + b" " + self._c(cmd[2]) + (b" m\n" if cmd[0] == "m" else b" l\n"))
             self.parts.append(b"".join(clip_out) + b"h W* n\n")
         # q 会把图形状态一起存下来，Q 之后颜色和透明度都要重新设
         self.color = ""
@@ -425,8 +430,7 @@ def content_stream(
         points = simplify(points, epsilon(width) if eps is None else eps)
         color = stroke.get("color", "#1b1b1f")
         shift = lambda path: [
-            (cmd[0],) + tuple(v - (ox if i % 2 == 0 else oy) for i, v in enumerate(cmd[1:]))
-            for cmd in path
+            (cmd[0],) + tuple(v - (ox if i % 2 == 0 else oy) for i, v in enumerate(cmd[1:])) for cmd in path
         ]
         outline = outline_path(points, tool, width, int(stroke.get("cut") or 0))
         cmds = shift(outline)

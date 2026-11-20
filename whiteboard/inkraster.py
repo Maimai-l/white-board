@@ -111,8 +111,6 @@ def erase_mask(
             if length < 1e-9:
                 continue
             nx, ny = -(by - ay) / length * r, (bx - ax) / length * r
-            draw.polygon(
-                [(ax + nx, ay + ny), (bx + nx, by + ny), (bx - nx, by - ny), (ax - nx, ay - ny)], fill=255
-            )
+            draw.polygon([(ax + nx, ay + ny), (bx + nx, by + ny), (bx - nx, by - ny), (ax - nx, ay - ny)], fill=255)
     hole = hole.resize(tile.size, Image.LANCZOS)
     return ImageChops.subtract(tile, hole)

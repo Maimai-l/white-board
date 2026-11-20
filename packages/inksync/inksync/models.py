@@ -258,8 +258,11 @@ def sanitize_meta(raw: Dict[str, Any], allow_src: Callable[[str], bool] = defaul
     return meta
 
 
-def new_board_meta(board_id: Optional[str] = None, spec: Optional[Dict[str, Any]] = None,
-                   allow_src: Callable[[str], bool] = default_allow_src) -> Dict[str, Any]:
+def new_board_meta(
+    board_id: Optional[str] = None,
+    spec: Optional[Dict[str, Any]] = None,
+    allow_src: Callable[[str], bool] = default_allow_src,
+) -> Dict[str, Any]:
     """按 ``create`` 的内容建一份新元数据；内容不合法时抛 ValueError。"""
     spec = spec or {}
     if not isinstance(spec, dict):
@@ -286,8 +289,9 @@ def new_board_meta(board_id: Optional[str] = None, spec: Optional[Dict[str, Any]
     }
 
 
-def apply_meta_patch(meta: Dict[str, Any], patch: Any,
-                     allow_src: Callable[[str], bool] = default_allow_src) -> Optional[Dict[str, Any]]:
+def apply_meta_patch(
+    meta: Dict[str, Any], patch: Any, allow_src: Callable[[str], bool] = default_allow_src
+) -> Optional[Dict[str, Any]]:
     """把 meta 操作的 ``patch`` 合进 ``meta``，返回新的元数据；patch 不合法时返回 None。
 
     只处理可修改的字段（:data:`EDITABLE`），其余键忽略。"""
@@ -340,9 +344,7 @@ def convert_v1_meta(raw: Dict[str, Any]) -> Dict[str, Any]:
     白板应用自己的字段（folder、app、doc）移进 ``data``；文档页的图片层由白板应用
     的 ``convert_meta`` 钩子补上，这里只定画布。
     """
-    out: Dict[str, Any] = {
-        key: raw[key] for key in ("id", "name", "created", "updated") if key in raw
-    }
+    out: Dict[str, Any] = {key: raw[key] for key in ("id", "name", "created", "updated") if key in raw}
     kind = raw.get("kind", "board")
     data: Dict[str, Any] = {}
     if kind == "note":

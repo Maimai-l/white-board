@@ -189,8 +189,11 @@ def test_prune_drops_delta_entries_whose_files_generate_appcast_removed(tmp_path
 
 def test_prune_keeps_delta_entries_whose_files_are_there(tmp_path):
     (tmp_path / "appcast.xml").write_text(FEED, "utf-8")
-    for name in ("Whiteboard-1.3.0-alpha.20261120.090000.zip", "Whiteboard-1.2.0.zip",
-                 "Whiteboard20261120.090000-20261119.153012.delta"):
+    for name in (
+        "Whiteboard-1.3.0-alpha.20261120.090000.zip",
+        "Whiteboard-1.2.0.zip",
+        "Whiteboard20261120.090000-20261119.153012.delta",
+    ):
         (tmp_path / name).write_bytes(b"x")
     assert appcast.prune(tmp_path) == 0
     assert (tmp_path / "appcast.xml").read_text("utf-8") == FEED

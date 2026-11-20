@@ -8,10 +8,13 @@ from helpers import hello, local, receive, remote, send_op, serve, stroke
 
 from inksync import DefaultPolicy
 
-FIXED = {"name": "第 3 题", "canvas": {"mode": "fixed", "width": 800, "height": 1200},
-         "background": {"pattern": "blank", "paper": "#FFFFFF"},
-         "layers": [{"src": "/static/q3.png", "x": 0, "y": 0, "width": 800}],
-         "data": {"paper": "9709", "question": 3}}
+FIXED = {
+    "name": "第 3 题",
+    "canvas": {"mode": "fixed", "width": 800, "height": 1200},
+    "background": {"pattern": "blank", "paper": "#FFFFFF"},
+    "layers": [{"src": "/static/q3.png", "x": 0, "y": 0, "width": 800}],
+    "data": {"paper": "9709", "question": 3},
+}
 
 
 def run(coro):
@@ -216,7 +219,7 @@ def test_default_policy_limits_remote_meta_and_creation_rate(tmp_path):
             ws, reply = await hello(client, "q3", {})
             assert reply == {"t": "error", "reason": "rate"}
             await ws.close()
-            ws, init = await hello(client, "q1", {})   # 已有的照样能打开
+            ws, init = await hello(client, "q1", {})  # 已有的照样能打开
             assert init["t"] == "init"
             ack = await send_op(ws, "c1", {"op": "meta", "meta": {"name": "改名"}})
             assert ack["rejected"] == "denied"
@@ -233,7 +236,7 @@ def test_version_and_space_errors(tmp_path):
             assert await ws.receive_json() == {"t": "error", "reason": "version", "supported": [2]}
             await ws.close()
             ws = await client.ws_connect("/ws")
-            await ws.send_json({"t": "hello", "client": "pad-one", "board": "q"})   # 1.0.x
+            await ws.send_json({"t": "hello", "client": "pad-one", "board": "q"})  # 1.0.x
             assert (await ws.receive_json())["reason"] == "version"
             await ws.close()
             ws, reply = await hello(client, "q", {}, space="other")

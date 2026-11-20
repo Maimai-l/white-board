@@ -99,7 +99,8 @@ def test_the_outline_is_drawn_as_curves_not_chords(browser, server):
     像素要明显不一样。用真机录的那一笔量，它的采样点隔开几十个单位，差别最明显。
     """
     mac = open_mac(browser, server.port)
-    out = mac.evaluate("""([flat, width]) => {
+    out = mac.evaluate(
+        """([flat, width]) => {
       const stroke = { id: 'x', tool: 'pen', color: '#000', w: width, p: flat };
       const pts = whiteboard.strokeOutline(stroke);
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -116,7 +117,9 @@ def test_the_outline_is_drawn_as_curves_not_chords(browser, server):
       let area = 0, diff = 0;
       for (let i = 0; i < curve.length; i++) { area += curve[i]; diff += curve[i] !== lines[i]; }
       return { area, diff, n: pts.length };
-    }""", [flat(REAL_FAST_STROKE), 13.0])
+    }""",
+        [flat(REAL_FAST_STROKE), 13.0],
+    )
     assert out["n"] > 50, out
     # 两份形状必须真的不一样：换成 lineTo 的话这个数会是 0
     assert out["diff"] > out["area"] * 0.02, out
@@ -133,7 +136,8 @@ def test_a_stroke_never_has_holes_in_it(browser, server):
     围住的洞。换渲染实现也不会假红。
     """
     ipad = open_touch(browser, server.port)
-    holes = ipad.evaluate("""([flat, width]) => {
+    holes = ipad.evaluate(
+        """([flat, width]) => {
       const S = 4;
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (let i = 0; i < flat.length; i += 3) {
@@ -158,7 +162,9 @@ def test_a_stroke_never_has_holes_in_it(browser, server):
       let trapped = 0, solid = 0;
       for (let k = 0; k < W * H; k++) { solid += ink[k]; if (!ink[k] && !seen[k]) trapped++; }
       return { trapped: Math.round(trapped / (S * S)), ink: Math.round(solid / (S * S)) };
-    }""", [flat(REAL_HOOK_STROKE), 13.0])
+    }""",
+        [flat(REAL_HOOK_STROKE), 13.0],
+    )
     assert holes["ink"] > 500, holes
     assert holes["trapped"] == 0, holes
 

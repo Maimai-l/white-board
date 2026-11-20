@@ -205,8 +205,12 @@ class FileStorage:
     返回补充之后的元数据（白板应用用它为文档板生成页面图片层）。
     """
 
-    def __init__(self, root: os.PathLike | str, convert_meta: Optional[ConvertMeta] = None,
-                 allow_src: Callable[[str], bool] = models.default_allow_src):
+    def __init__(
+        self,
+        root: os.PathLike | str,
+        convert_meta: Optional[ConvertMeta] = None,
+        allow_src: Callable[[str], bool] = models.default_allow_src,
+    ):
         self.root = Path(root).expanduser()
         self.boards_dir = self.root / "boards"
         self.boards_dir.mkdir(parents=True, exist_ok=True)
@@ -310,8 +314,9 @@ class FileStorage:
             return len(self._metas)
         return sum(1 for board_id in self._metas if board_id.startswith(prefix))
 
-    def list(self, offset: int = 0, limit: Optional[int] = 100, prefix: str = "",
-             order: Any = "updated") -> List[Dict[str, Any]]:
+    def list(
+        self, offset: int = 0, limit: Optional[int] = 100, prefix: str = "", order: Any = "updated"
+    ) -> List[Dict[str, Any]]:
         """元数据列表。``order``：``updated``、``created``（从新到旧）、``name``（升序），
         或一个白板 id 的列表（列表中的在前、按列表顺序，其余按 ``created`` 从新到旧排在前面）。"""
         metas = [m for board_id, m in self._metas.items() if not prefix or board_id.startswith(prefix)]
@@ -461,8 +466,9 @@ class FileStorage:
         }
         return zlib.compress(json.dumps(payload, ensure_ascii=False).encode("utf-8"), 6)
 
-    def write_file(self, meta: Dict[str, Any], strokes: List[Dict[str, Any]],
-                   skip: Optional[Callable[[], bool]] = None) -> Optional[float]:
+    def write_file(
+        self, meta: Dict[str, Any], strokes: List[Dict[str, Any]], skip: Optional[Callable[[], bool]] = None
+    ) -> Optional[float]:
         """写白板文件，返回文件修改时间。``skip()`` 在写入前调用，返回 True 时放弃写入
         并返回 None（白板在编码期间被删除）。"""
         blob = self.encode(meta, strokes)

@@ -426,7 +426,7 @@ from inksync.codec import decode_points_b64
 
 payload = json.loads(zlib.decompress(open("boards/xxx.wbz", "rb").read()))
 for stroke in payload["strokes"]:
-    points = decode_points_b64(stroke["p"])   # [x, y, pressure, ...]
+    points = decode_points_b64(stroke["p"])  # [x, y, pressure, ...]
     print(stroke["tool"], stroke["color"], len(points) // 3, "points")
 ```
 

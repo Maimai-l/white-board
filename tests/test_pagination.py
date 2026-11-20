@@ -26,6 +26,7 @@ def word(x, y, w=60.0, h=20.0):
 
 # ------------------------------------------------------------------ 纸面
 
+
 def test_placement_centres_horizontally_and_aligns_to_the_top():
     page = {"x": 0, "y": 0, "w": 100, "h": 100, "paper": [600, 800]}
     scale, left, top = pg.placement(page)
@@ -60,7 +61,9 @@ def test_auto_pages_dispatches_by_kind():
     content_note = pg.auto_pages({"canvas": {"mode": "column", "width": 1000}}, [stroke], "content")
     assert content_note[0]["paper"] == [1000 + 2 * pg.MARGIN, round(content_note[0]["h"] + 2 * pg.MARGIN, 2)]
     note = pg.auto_pages({"canvas": {"mode": "column", "width": 1000}}, [stroke])
-    assert note == [{"x": 0.0, "y": 0.0, "w": 1000.0, "h": pytest.approx(1000 * AH / AW, abs=1e-2), "paper": [595.28, 841.89]}]
+    assert note == [
+        {"x": 0.0, "y": 0.0, "w": 1000.0, "h": pytest.approx(1000 * AH / AW, abs=1e-2), "paper": [595.28, 841.89]}
+    ]
     doc_meta = {"data": {"doc": {"type": "pdf", "pages": [[600, 800], [400, 500]]}}}
     doc = pg.auto_pages(doc_meta, [stroke])
     assert doc[1] == {"x": 100.0, "y": 824.0, "w": 400.0, "h": 500.0, "paper": [400.0, 500.0], "margin": 0.0}
@@ -222,14 +225,18 @@ def test_background_pattern_is_thinned_on_a_huge_frame():
 import json  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-LONG_NOTES = json.loads(
-    (Path(__file__).parent / "fixtures" / "layouts" / "long-notes.json").read_text("utf-8")
-)["boxes"]
+LONG_NOTES = json.loads((Path(__file__).parent / "fixtures" / "layouts" / "long-notes.json").read_text("utf-8"))[
+    "boxes"
+]
 
 
 def _inside(box, page):
-    return (page["x"] - 1e-6 <= box[0] and box[2] <= page["x"] + page["w"] + 1e-6
-            and page["y"] - 1e-6 <= box[1] and box[3] <= page["y"] + page["h"] + 1e-6)
+    return (
+        page["x"] - 1e-6 <= box[0]
+        and box[2] <= page["x"] + page["w"] + 1e-6
+        and page["y"] - 1e-6 <= box[1]
+        and box[3] <= page["y"] + page["h"] + 1e-6
+    )
 
 
 def test_flow_keeps_every_stroke_of_the_real_board_on_a_page():

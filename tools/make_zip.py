@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """打一个可以直接解压使用的 zip（保留 .command 的可执行权限）。
 
-    python tools/make_zip.py [输出路径]
+python tools/make_zip.py [输出路径]
 """
 
 from __future__ import annotations

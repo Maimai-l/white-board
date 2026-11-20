@@ -178,9 +178,7 @@ class MDNSAdvertiser:
                 port=self.port,
                 properties=self.properties,
             )
-            await asyncio.wait_for(
-                self._azc.async_register_service(self._info), timeout=REGISTER_TIMEOUT
-            )
+            await asyncio.wait_for(self._azc.async_register_service(self._info), timeout=REGISTER_TIMEOUT)
         except Exception as exc:  # noqa: BLE001 - 广播失败不该影响白板本身
             log.warning("mDNS 广播失败（不影响使用）：%s", exc)
             await self.stop()
@@ -302,9 +300,18 @@ class _DNSSD:
         ref = ctypes.c_void_p()
         buffer = ctypes.create_string_buffer(txt, len(txt))
         error = self._register(
-            ctypes.byref(ref), 0, 0, name.encode("utf-8"), regtype.encode("ascii"),
-            None, None, socket.htons(port), len(txt), ctypes.cast(buffer, ctypes.c_void_p),
-            None, None,
+            ctypes.byref(ref),
+            0,
+            0,
+            name.encode("utf-8"),
+            regtype.encode("ascii"),
+            None,
+            None,
+            socket.htons(port),
+            len(txt),
+            ctypes.cast(buffer, ctypes.c_void_p),
+            None,
+            None,
         )
         if error != 0:
             raise OSError(f"DNSServiceRegister 返回 {error}")
@@ -346,13 +353,9 @@ class BonjourService:
                 bonjour_fields, self.port, self.version, self.source, self.path, self.name
             )
             if sys.platform == "darwin":
-                await asyncio.wait_for(
-                    asyncio.to_thread(self._register_system), timeout=REGISTER_TIMEOUT
-                )
+                await asyncio.wait_for(asyncio.to_thread(self._register_system), timeout=REGISTER_TIMEOUT)
             else:
-                self._zeroconf = MDNSAdvertiser(
-                    self.port, self.fields["name"], BONJOUR_TYPE, dict(self.fields)
-                )
+                self._zeroconf = MDNSAdvertiser(self.port, self.fields["name"], BONJOUR_TYPE, dict(self.fields))
                 if not await self._zeroconf.start():
                     self._zeroconf = None
                     return False
@@ -365,9 +368,7 @@ class BonjourService:
 
     def _register_system(self) -> None:
         self._dnssd = _DNSSD()
-        self._ref = self._dnssd.register(
-            self.fields["name"], BONJOUR_TYPE, self.port, txt_record(self.fields)
-        )
+        self._ref = self._dnssd.register(self.fields["name"], BONJOUR_TYPE, self.port, txt_record(self.fields))
 
     async def stop(self) -> None:
         ref, dnssd = self._ref, self._dnssd

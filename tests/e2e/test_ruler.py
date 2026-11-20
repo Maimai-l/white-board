@@ -128,7 +128,9 @@ def test_two_fingers_rotate_the_ruler_and_show_the_angle(browser, server):
     assert abs(turned["angle"] - 30) < 0.01
     # 两指绕中点转：尺子中心不动，画布也不动
     assert abs(turned["cx"] - ruler["cx"]) < 0.5 and abs(turned["cy"] - ruler["cy"]) < 0.5
-    assert ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y, whiteboard.viewport.scale]") == view_before
+    assert (
+        ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y, whiteboard.viewport.scale]") == view_before
+    )
 
     # 往回转过 0° 到另一边，显示的是和水平线的夹角（0–90），和 iPad 一样
     rotate_on_ruler(ipad, turned, -70)
@@ -146,9 +148,7 @@ def test_the_angle_shows_only_while_the_ruler_turns(browser, server):
     show_ruler(ipad)
     assert label_opacity(ipad) == 0
     rotate_on_ruler(ipad, ruler_on_screen(ipad), 30)
-    ipad.wait_for_function(
-        "(s) => Number(getComputedStyle(document.querySelector(s)).opacity) > 0.8", arg=LABEL
-    )
+    ipad.wait_for_function("(s) => Number(getComputedStyle(document.querySelector(s)).opacity) > 0.8", arg=LABEL)
     ipad.wait_for_function(
         "(s) => Number(getComputedStyle(document.querySelector(s)).opacity) === 0", arg=LABEL, timeout=3000
     )

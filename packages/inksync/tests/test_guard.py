@@ -17,15 +17,25 @@ def run(coro):
     return asyncio.run(coro)
 
 
-@pytest.mark.parametrize("host", [
-    "127.0.0.1:8848", "127.0.0.1", "[::1]:8848", "192.168.1.20:8848", "localhost:8848",
-    "Mac-Mini.local:8848", "mac-mini.LOCAL",
-])
+@pytest.mark.parametrize(
+    "host",
+    [
+        "127.0.0.1:8848",
+        "127.0.0.1",
+        "[::1]:8848",
+        "192.168.1.20:8848",
+        "localhost:8848",
+        "Mac-Mini.local:8848",
+        "mac-mini.LOCAL",
+    ],
+)
 def test_hosts_accepted_by_default(host):
     assert host_allowed(host)
 
 
-@pytest.mark.parametrize("host", ["evil.example:8848", "evil.example", "127.0.0.1.evil.example", "", "local", "x.localhost.evil"])
+@pytest.mark.parametrize(
+    "host", ["evil.example:8848", "evil.example", "127.0.0.1.evil.example", "", "local", "x.localhost.evil"]
+)
 def test_hosts_rejected_by_default(host):
     assert not host_allowed(host)
 
@@ -46,17 +56,20 @@ def test_normalize_origin():
     assert normalize_origin("not an origin") is None
 
 
-@pytest.mark.parametrize("origin,host,ok", [
-    (None, "127.0.0.1:8848", True),                          # 不是网页发的
-    ("http://127.0.0.1:8848", "127.0.0.1:8848", True),       # 同源
-    ("http://mac.local:8848", "Mac.local:8848", True),
-    ("http://[::1]:8848", "[::1]:8848", True),
-    ("https://qb.example.com", "qb.example.com", True),      # https 反向代理：Host 不写端口
-    ("http://127.0.0.1:9000", "127.0.0.1:8848", False),      # 同一台机器的其他端口也是其他网页
-    ("http://evil.example", "127.0.0.1:8848", False),
-    ("null", "127.0.0.1:8848", False),                       # 沙盒 iframe、本地文件
-    ("garbage", "127.0.0.1:8848", False),
-])
+@pytest.mark.parametrize(
+    "origin,host,ok",
+    [
+        (None, "127.0.0.1:8848", True),  # 不是网页发的
+        ("http://127.0.0.1:8848", "127.0.0.1:8848", True),  # 同源
+        ("http://mac.local:8848", "Mac.local:8848", True),
+        ("http://[::1]:8848", "[::1]:8848", True),
+        ("https://qb.example.com", "qb.example.com", True),  # https 反向代理：Host 不写端口
+        ("http://127.0.0.1:9000", "127.0.0.1:8848", False),  # 同一台机器的其他端口也是其他网页
+        ("http://evil.example", "127.0.0.1:8848", False),
+        ("null", "127.0.0.1:8848", False),  # 沙盒 iframe、本地文件
+        ("garbage", "127.0.0.1:8848", False),
+    ],
+)
 def test_origin_rules(origin, host, ok):
     assert origin_allowed(origin, host) is ok
 
@@ -94,7 +107,12 @@ def test_websocket_handshake_checks_origin_and_host(tmp_path):
             assert await _handshake(client, {"Origin": own}) == 101
             assert await _handshake(client, {"Origin": "http://evil.example"}) == 403
             assert await _handshake(client, {"Origin": "null"}) == 403
-            assert await _handshake(client, {"Host": f"evil.example:{client.port}", "Origin": f"http://evil.example:{client.port}"}) == 403
+            assert (
+                await _handshake(
+                    client, {"Host": f"evil.example:{client.port}", "Origin": f"http://evil.example:{client.port}"}
+                )
+                == 403
+            )
             # 允许名单可以在运行中修改（白板设置里添加插件之后立即生效）
             extension = "chrome-extension://abcdefghijklmnop"
             assert await _handshake(client, {"Origin": extension}) == 403

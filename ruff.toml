@@ -1,0 +1,11 @@
+# ruff 的设置（版本在 requirements-test.lock 里固定）。make checks 跑 ruff check 和 ruff format --check。
+# 行宽 120：现有代码就是按这个宽度写的，格式化的改动最少（docs/backlog/005-lint-and-format.md）。
+line-length = 120
+target-version = "py310"
+# 兼容性夹具是旧版本写出的数据和生成脚本，原样保留（CLAUDE.md）
+extend-exclude = ["tests/fixtures"]
+
+[lint]
+# 只开「真错误」类规则（语法错误、未定义的名字）和「吞掉异常」两条（S110 try-except-pass、
+# BLE001 except Exception）；ruff 管不到的 except / catch 由 tests/test_no_silent_catch.py 检查
+select = ["E9", "F63", "F7", "F82", "S110", "BLE001"]

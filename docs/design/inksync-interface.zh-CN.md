@@ -36,7 +36,7 @@ ROOT = Path(__file__).parent
 
 def authenticate(request: web.Request) -> Principal:
     return Principal(
-        id=request.cookies.get("qb_user"),          # 使用者自己的身份，可以为 None
+        id=request.cookies.get("qb_user"),  # 使用者自己的身份，可以为 None
         local=is_local_request(request),
         address=request.remote or "",
     )
@@ -55,7 +55,7 @@ hub = Hub(FileStorage(ROOT / "data" / "ink"), policy=QbPolicy())
 mount(app, hub, path="/ws", authenticate=authenticate)
 serve_sdk(app, prefix="/inksync/")
 app.router.add_static("/static/", ROOT / "static")
-advertise(app, port=PORT, source="qb", path="/")      # iPad 外壳中「来源」填 @qb
+advertise(app, port=PORT, source="qb", path="/")  # iPad 外壳中「来源」填 @qb
 web.run_app(app, port=PORT)
 ```
 
@@ -86,9 +86,15 @@ web.run_app(app, port=PORT)
 
 ```python
 from inksync import (
-    FileStorage, Hub, Spaces,              # 存储、单个空间、多个空间
-    Policy, DefaultPolicy, Principal,      # 规则与身份
-    mount, serve_sdk, guard_middleware,    # 挂载同步接口、提供前端文件、检查请求来源
+    FileStorage,
+    Hub,
+    Spaces,  # 存储、单个空间、多个空间
+    Policy,
+    DefaultPolicy,
+    Principal,  # 规则与身份
+    mount,
+    serve_sdk,
+    guard_middleware,  # 挂载同步接口、提供前端文件、检查请求来源
     __version__,
 )
 from inksync.netinfo import advertise, is_local_request

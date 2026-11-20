@@ -244,8 +244,7 @@ def view(page):
 def screen_of_first_stroke(page):
     """第一条笔画起点在屏幕上的位置。"""
     return page.evaluate(
-        "() => { const s = whiteboard.state.strokes[0];"
-        " return whiteboard.viewport.toScreen(s.p[0], s.p[1]); }"
+        "() => { const s = whiteboard.state.strokes[0]; return whiteboard.viewport.toScreen(s.p[0], s.p[1]); }"
     )
 
 
@@ -260,10 +259,7 @@ def pick_pixel_eraser(page):
 
 def mask_chains(op):
     """``wait_for_function`` 用：某条笔画的遮罩链数满足 op（如 ``"> 0"``）。参数是 ``[id]``。"""
-    return (
-        "([id]) => { const s = whiteboard.state.byId.get(id);"
-        f" return !!s && (s.m || []).length {op}; }}"
-    )
+    return f"([id]) => {{ const s = whiteboard.state.byId.get(id); return !!s && (s.m || []).length {op}; }}"
 
 
 # ----------------------------------------------------------------- 白板选择界面
@@ -388,9 +384,7 @@ def settled_center(page, selector=GRIP):
 
 
 def picker_top(page):
-    return page.evaluate(
-        f"() => document.querySelector('{PICKER}').getBoundingClientRect().top"
-    )
+    return page.evaluate(f"() => document.querySelector('{PICKER}').getBoundingClientRect().top")
 
 
 def pk_form(page):
@@ -480,7 +474,8 @@ def serve_with_perms(page, perms):
               if (apply()) observer.disconnect();
             }).observe(document, { childList: true });
           }
-        })();""" % perms
+        })();"""
+        % perms
     )
     reload(page)
     assert page.evaluate("() => document.documentElement.dataset.perms") == perms
@@ -508,6 +503,4 @@ def as_native(page):
     """把这一页变成「本地进程里的那个窗口」，重新加载后生效。"""
     page.add_init_script(NATIVE_STUB)
     reload(page)
-    page.wait_for_function(
-        "() => whiteboard.ui.info && whiteboard.ui.info.native === true", timeout=15000
-    )
+    page.wait_for_function("() => whiteboard.ui.info && whiteboard.ui.info.native === true", timeout=15000)

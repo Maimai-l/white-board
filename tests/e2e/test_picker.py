@@ -103,10 +103,10 @@ def test_ipad_keeps_the_board_entries_when_the_picker_hides_the_toolbar(browser,
         状态点可见: !!dot && getComputedStyle(dot).display !== 'none',
       };
     }""")
-    assert out["工具栏隐藏"], out           # 笔具盘模式，普通工具栏收起来了
+    assert out["工具栏隐藏"], out  # 笔具盘模式，普通工具栏收起来了
     assert out["条目"] == ["白板", "白板设置", "导出"], out
     assert "tinted" in out["类名"], out
-    assert out["状态点可见"], out           # 诊断和录制的入口还在
+    assert out["状态点可见"], out  # 诊断和录制的入口还在
     # 图标用强调色，不是默认的灰色
     r, g, b = [int(v) for v in out["图标颜色"].replace("rgb(", "").rstrip(")").split(",")]
     assert (r, g, b) == (0, 122, 255), out
@@ -211,7 +211,7 @@ def test_pencilkit_picker_undo_and_clear(browser, server):
 
     draw(ipad, [(320, 320), (400, 360), (480, 320)])
     wait_strokes(mac, 1)
-    ipad.wait_for_function(f"() => !document.querySelector(\"{UNDO}\").disabled")
+    ipad.wait_for_function(f'() => !document.querySelector("{UNDO}").disabled')
     ipad.click(UNDO)
     wait_strokes(mac, 0)
 
@@ -234,10 +234,10 @@ def test_picker_redo_and_the_more_menu_switches(browser, server):
     enable_pk_picker(ipad)
     draw(ipad, [(320, 320), (400, 360), (480, 320)])
     wait_strokes(mac, 1)
-    ipad.wait_for_function(f"() => !document.querySelector(\"{UNDO}\").disabled")
+    ipad.wait_for_function(f'() => !document.querySelector("{UNDO}").disabled')
     ipad.click(UNDO)
     wait_strokes(mac, 0)
-    ipad.wait_for_function(f"() => !document.querySelector(\"{REDO}\").disabled")
+    ipad.wait_for_function(f'() => !document.querySelector("{REDO}").disabled')
     ipad.click(REDO)
     wait_strokes(mac, 1)
 

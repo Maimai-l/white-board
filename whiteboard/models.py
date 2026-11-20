@@ -103,14 +103,16 @@ def doc_layers(board_id: str, doc: Dict[str, Any], gap: float = DOC_PAGE_GAP) ->
     layers = []
     y = 0.0
     for index, (width, height) in enumerate(pages):
-        layers.append({
-            "src": f"/api/doc/{board_id}/{index}?w={{w}}",
-            "x": round((widest - float(width)) / 2, 2),
-            "y": round(y, 2),
-            "width": float(width),
-            "height": float(height),
-            "sheet": True,
-        })
+        layers.append(
+            {
+                "src": f"/api/doc/{board_id}/{index}?w={{w}}",
+                "x": round((widest - float(width)) / 2, 2),
+                "y": round(y, 2),
+                "width": float(width),
+                "height": float(height),
+                "sheet": True,
+            }
+        )
         y += float(height) + gap
     return layers
 

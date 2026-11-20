@@ -146,4 +146,3 @@ def test_the_scanners_see_what_they_should(tmp_path):
     )
     silent = silent_js_catches(js, tmp_path)
     assert [item.split(":")[1] for item in silent] == ["1", "2"], silent
-

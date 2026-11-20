@@ -165,9 +165,13 @@ def free_gaps(boxes: Sequence[Box]) -> List[Tuple[float, float]]:
     return gaps
 
 
-def column_pages(width: float, boxes: Sequence[Box],
-                 paper: Tuple[float, float] = PAPERS[DEFAULT_PAPER],
-                 margin: float = MARGIN, top: float = 0.0) -> List[Page]:
+def column_pages(
+    width: float,
+    boxes: Sequence[Box],
+    paper: Tuple[float, float] = PAPERS[DEFAULT_PAPER],
+    margin: float = MARGIN,
+    top: float = 0.0,
+) -> List[Page]:
     """笔记（固定宽度、向下延伸）的分页：页宽就是笔记宽，竖放的纸，按纸张长度往下切。
 
     每页的切口在这页最后 ``NOTE_CUT_SEARCH`` 那一段里找：有空白行就切在离纸底最近的
@@ -287,10 +291,7 @@ def flow_pages(boxes: Sequence[Box], paper: Any = CONTENT_PAPER, margin: float =
 
 def doc_pages(boxes: Sequence[Dict[str, float]]) -> List[Page]:
     """文档板：原件的每一页就是一页，纸张就是原页面的大小，不留白。"""
-    return [
-        _page(box["x"], box["y"], box["w"], box["h"], (box["w"], box["h"]), margin=0.0)
-        for box in boxes
-    ]
+    return [_page(box["x"], box["y"], box["w"], box["h"], (box["w"], box["h"]), margin=0.0) for box in boxes]
 
 
 # ------------------------------------------------------------------ 整块

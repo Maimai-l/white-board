@@ -141,12 +141,13 @@ mount(app, spaces, path="/ws")
 ```python
 @dataclass(frozen=True)
 class Principal:
-    id: str | None          # 使用者定义的身份，例如用户 id；None 表示匿名
-    local: bool             # 请求来自本机（netinfo.is_local_request）
-    address: str            # 对端地址，用于匿名身份的速率限制
+    id: str | None  # 使用者定义的身份，例如用户 id；None 表示匿名
+    local: bool  # 请求来自本机（netinfo.is_local_request）
+    address: str  # 对端地址，用于匿名身份的速率限制
     attrs: Mapping[str, Any] = {}
 
-authenticate: Callable[[web.Request], Principal]     # mount 参数，默认只判断是否本机，id 为 None
+
+authenticate: Callable[[web.Request], Principal]  # mount 参数，默认只判断是否本机，id 为 None
 ```
 
 `Policy` 的方法（每个方法都有默认实现，使用者按需覆盖）：

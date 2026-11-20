@@ -165,8 +165,7 @@ def test_a_sprawling_sketch_is_exported_within_size_limits(browser, server):
     sketch = open_sketch(browser, server.port)
     wait_on_sketch(ipad)
     for i, (x, y) in enumerate([(-6000, -4000), (6000, 4000), (0, 0)]):
-        stroke = {"id": f"far-{i}", "tool": "pen", "color": "#000000", "w": 4,
-                  "p": [x, y, 0.6, x + 300, y + 200, 0.6]}
+        stroke = {"id": f"far-{i}", "tool": "pen", "color": "#000000", "w": 4, "p": [x, y, 0.6, x + 300, y + 200, 0.6]}
         ipad.evaluate("(s) => whiteboard.net.sendOp({ op: 'add', strokes: [s] })", stroke)
     sketch_strokes(sketch, 3, timeout=10000)
     image = copy_and_read(sketch)

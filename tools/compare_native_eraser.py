@@ -25,12 +25,14 @@
 我们的印记 = 按 input.json 的原始触摸重放一遍，用 input-erase.js 的 ERASER_CURVE 算半径、
 沿采样点扫出胶囊链。两边都画到 renderRect 上，scale 相同。
 """
+
 import json, math, os, re, sys
 from PIL import Image, ImageChops, ImageDraw
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "sessions"
-JS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                  "..", "packages", "inksync", "inksync", "web", "input-erase.js")
+JS = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "packages", "inksync", "inksync", "web", "input-erase.js"
+)
 
 
 def our_curve():
@@ -216,29 +218,32 @@ def compare(name):
     oa = sum(o)
     union = na + oa - inter
     print(f"\n=== {name} ===")
-    print(f"  原生擦掉 {na:8d} px   我们擦掉 {oa:8d} px   面积比 {oa/na:.3f}" if na else "  原生没擦")
+    print(f"  原生擦掉 {na:8d} px   我们擦掉 {oa:8d} px   面积比 {oa / na:.3f}" if na else "  原生没擦")
     if outside:
         print(f"  走廊外另有 {outside} px 判成「原生擦掉」，是墨迹重建的误差，不计入")
     if union:
-        print(f"  交集 {inter:8d}   并集 {union:8d}   IoU {inter/union:.3f}")
-        print(f"  我们多擦 {oa-inter:7d} px ({100*(oa-inter)/union:.1f}%)   "
-              f"我们漏擦 {na-inter:7d} px ({100*(na-inter)/union:.1f}%)")
+        print(f"  交集 {inter:8d}   并集 {union:8d}   IoU {inter / union:.3f}")
+        print(
+            f"  我们多擦 {oa - inter:7d} px ({100 * (oa - inter) / union:.1f}%)   "
+            f"我们漏擦 {na - inter:7d} px ({100 * (na - inter) / union:.1f}%)"
+        )
     out = Image.new("RGB", native.size, (255, 255, 255))
     px = out.load()
     W = native.size[0]
     for i, (a, b) in enumerate(zip(n, o)):
-        if a and b:   px[i % W, i // W] = (210, 210, 210)   # 都擦了
-        elif a:       px[i % W, i // W] = (220, 60, 50)     # 只有原生擦了：我们漏
-        elif b:       px[i % W, i // W] = (40, 110, 220)    # 只有我们擦了：我们多
+        if a and b:
+            px[i % W, i // W] = (210, 210, 210)  # 都擦了
+        elif a:
+            px[i % W, i // W] = (220, 60, 50)  # 只有原生擦了：我们漏
+        elif b:
+            px[i % W, i // W] = (40, 110, 220)  # 只有我们擦了：我们多
     out.save(os.path.join(ROOT, name + "-diff.png"))
 
 
 def main():
     for name in sorted(os.listdir(ROOT)):
         base = os.path.join(ROOT, name)
-        if os.path.isfile(os.path.join(base, "meta.json")) or os.path.isfile(
-            os.path.join(base, name, "meta.json")
-        ):
+        if os.path.isfile(os.path.join(base, "meta.json")) or os.path.isfile(os.path.join(base, name, "meta.json")):
             compare(name)
 
 

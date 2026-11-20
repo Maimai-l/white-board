@@ -89,8 +89,9 @@ def _rot_around(a: Vec2, c: Vec2, r: float) -> Vec2:
     return (px * k - py * s + c[0], px * s + py * k + c[1])
 
 
-def stroke_radius(size: float, thinning: float, pressure: float,
-                  easing: Callable[[float], float] = lambda t: t) -> float:
+def stroke_radius(
+    size: float, thinning: float, pressure: float, easing: Callable[[float], float] = lambda t: t
+) -> float:
     return size * easing(0.5 - thinning * (0.5 - pressure))
 
 
@@ -105,8 +106,9 @@ class StrokePoint:
         self.running_length = running_length
 
 
-def get_stroke_points(points: Sequence[Sequence[float]], size: float = 16.0,
-                      streamline: float = 0.5, last: bool = False) -> List[StrokePoint]:
+def get_stroke_points(
+    points: Sequence[Sequence[float]], size: float = 16.0, streamline: float = 0.5, last: bool = False
+) -> List[StrokePoint]:
     """和 JS 的 getStrokePoints 一一对应。"""
     if not points:
         return []
@@ -128,9 +130,7 @@ def get_stroke_points(points: Sequence[Sequence[float]], size: float = 16.0,
             return p[2]
         return default
 
-    out = [StrokePoint((pts[0][0], pts[0][1]),
-                       pressure_of(pts[0], DEFAULT_FIRST_PRESSURE),
-                       UNIT_OFFSET, 0.0, 0.0)]
+    out = [StrokePoint((pts[0][0], pts[0][1]), pressure_of(pts[0], DEFAULT_FIRST_PRESSURE), UNIT_OFFSET, 0.0, 0.0)]
 
     reached_min = False
     running = 0.0
@@ -150,8 +150,9 @@ def get_stroke_points(points: Sequence[Sequence[float]], size: float = 16.0,
             if running < size:
                 continue
             reached_min = True
-        prev = StrokePoint(point, pressure_of(pts[i], DEFAULT_PRESSURE),
-                           _uni(_sub(prev.point, point)), distance, running)
+        prev = StrokePoint(
+            point, pressure_of(pts[i], DEFAULT_PRESSURE), _uni(_sub(prev.point, point)), distance, running
+        )
         out.append(prev)
 
     out[0].vector = out[1].vector if len(out) > 1 else (0.0, 0.0)
@@ -187,8 +188,7 @@ def _draw_flat_start_cap(center: Vec2, left_point: Vec2, right_point: Vec2) -> L
     return [_sub(center, a), _sub(center, b), _add(center, b), _add(center, a)]
 
 
-def _draw_round_end_cap(center: Vec2, direction: Vec2, radius: float,
-                        segments: int) -> List[Vec2]:
+def _draw_round_end_cap(center: Vec2, direction: Vec2, radius: float, segments: int) -> List[Vec2]:
     cap: List[Vec2] = []
     start = _prj(center, direction, radius)
     step = 1 / segments
@@ -333,19 +333,24 @@ def get_stroke_outline_points(
     return left + end_cap + list(reversed(right)) + start_cap
 
 
-def get_stroke(points: Sequence[Sequence[float]], size: float = 16.0,
-               thinning: float = 0.5, smoothing: float = 0.5,
-               streamline: float = 0.5, cap_start: bool = True,
-               cap_end: bool = True, last: bool = False,
-               start_noise: Optional[float] = None) -> List[Vec2]:
+def get_stroke(
+    points: Sequence[Sequence[float]],
+    size: float = 16.0,
+    thinning: float = 0.5,
+    smoothing: float = 0.5,
+    streamline: float = 0.5,
+    cap_start: bool = True,
+    cap_end: bool = True,
+    last: bool = False,
+    start_noise: Optional[float] = None,
+) -> List[Vec2]:
     """先 get_stroke_points 再 get_stroke_outline_points，和 stroke.js 一样。
 
     ``start_noise`` 是起笔处先丢掉多长一段。原版 ``getStroke`` 拿 ``size`` 兼任这个
     值，但「挡落笔抖动」和「笔有多粗」是两件事——按笔宽算的话，13 宽的笔要走满
     13 个单位才开始出墨，写小字时每个笔画的头都被吞掉一截。默认沿用原版的行为。
     """
-    sp = get_stroke_points(points, size=size if start_noise is None else start_noise,
-                           streamline=streamline, last=last)
-    return get_stroke_outline_points(sp, size=size, thinning=thinning,
-                                     smoothing=smoothing, cap_start=cap_start,
-                                     cap_end=cap_end, last=last)
+    sp = get_stroke_points(points, size=size if start_noise is None else start_noise, streamline=streamline, last=last)
+    return get_stroke_outline_points(
+        sp, size=size, thinning=thinning, smoothing=smoothing, cap_start=cap_start, cap_end=cap_end, last=last
+    )

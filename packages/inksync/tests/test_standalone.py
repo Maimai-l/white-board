@@ -26,7 +26,11 @@ def test_inksync_does_not_import_the_whiteboard_app():
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
     result = subprocess.run(
         [sys.executable, "-c", code, str(PACKAGE), "/tmp/inksync-standalone"],
-        cwd="/", capture_output=True, text=True, env=env, timeout=60,
+        cwd="/",
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
     )
     assert result.stdout.strip() == "ok", result.stderr
 
@@ -35,7 +39,16 @@ def test_public_names():
     import inksync
 
     assert set(inksync.__all__) == {
-        "BoardFileError", "DefaultPolicy", "FileStorage", "Hub", "Policy", "Principal", "Spaces",
-        "guard_middleware", "mount", "serve_sdk", "__version__",
+        "BoardFileError",
+        "DefaultPolicy",
+        "FileStorage",
+        "Hub",
+        "Policy",
+        "Principal",
+        "Spaces",
+        "guard_middleware",
+        "mount",
+        "serve_sdk",
+        "__version__",
     }
     assert inksync.__version__ == "0.3.0"

@@ -427,9 +427,7 @@ def test_a_finger_can_drag_a_board_into_a_new_order(browser, server):
     ipad.wait_for_function("() => document.querySelectorAll('.board-item[data-board]').length === 3")
 
     before = board_ids(ipad)
-    ipad.evaluate(
-        TOUCH_DRAG, [BOARD_CARD, ".board-item[data-board]:nth-child(3) .board-card", 500, 8, SLOT_MOVED]
-    )
+    ipad.evaluate(TOUCH_DRAG, [BOARD_CARD, ".board-item[data-board]:nth-child(3) .board-card", 500, 8, SLOT_MOVED])
     ipad.wait_for_function(f"(was) => !({SAME_ORDER})(was)", arg=before)
     after = board_ids(ipad)
     assert sorted(after) == sorted(before) and after != before

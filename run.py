@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """白板启动入口。
 
-    python run.py                # 打开 Mac 窗口（pywebview）并启动局域网服务
-    python run.py --headless     # 只跑服务端，用浏览器访问
-    python run.py --port 9000 --data-dir ~/Documents/白板
+python run.py                # 打开 Mac 窗口（pywebview）并启动局域网服务
+python run.py --headless     # 只跑服务端，用浏览器访问
+python run.py --port 9000 --data-dir ~/Documents/白板
 """
 
 from __future__ import annotations

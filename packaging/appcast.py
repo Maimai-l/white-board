@@ -158,7 +158,7 @@ def notes(folder: Path, archive: str, source: Path) -> int:
 
 # generate_appcast 写出的增量包条目：一行一个自闭合的 <enclosure>，带 sparkle:deltaFrom
 _DELTA_ENTRY = re.compile(r'\n?[ \t]*<enclosure\b[^>]*\burl="([^"]+)"[^>]*\bsparkle:deltaFrom="[^"]*"[^>]*/>')
-_EMPTY_DELTAS = re.compile(r'\n?[ \t]*<sparkle:deltas>\s*</sparkle:deltas>')
+_EMPTY_DELTAS = re.compile(r"\n?[ \t]*<sparkle:deltas>\s*</sparkle:deltas>")
 
 
 def drop_missing_deltas(text: str, folder: Path) -> str:
@@ -215,14 +215,14 @@ def index(folder: Path) -> int:
         if item and item.archive:
             name = html.escape(file_name(item.archive.url) or "")
             rows.append(
-                f"<li>{channel}：<a href=\"{name}\">{html.escape(item.display)}</a>"
+                f'<li>{channel}：<a href="{name}">{html.escape(item.display)}</a>'
                 f"（{item.archive.length / 1e6:.0f} MB）</li>"
             )
     page = (
-        "<!doctype html><meta charset=\"utf-8\"><title>白板更新</title>"
+        '<!doctype html><meta charset="utf-8"><title>白板更新</title>'
         "<h1>白板</h1><p>已安装的应用会自动更新。第一次安装从这里下载：</p>"
         f"<ul>{''.join(rows) or '<li>还没有发布</li>'}</ul>"
-        "<p><a href=\"appcast.xml\">appcast.xml</a></p>\n"
+        '<p><a href="appcast.xml">appcast.xml</a></p>\n'
     )
     (folder / "index.html").write_text(page, "utf-8")
     (folder / ".nojekyll").write_text("", "utf-8")
@@ -235,8 +235,10 @@ def keygen(folder: Path) -> int:
 
     folder.mkdir(parents=True, exist_ok=True)
     seed = os.urandom(32)  # Sparkle 新格式的私钥就是 32 字节种子的 base64（common_cli/Secret.swift）
-    public = Ed25519PrivateKey.from_private_bytes(seed).public_key().public_bytes(
-        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    public = (
+        Ed25519PrivateKey.from_private_bytes(seed)
+        .public_key()
+        .public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     )
     (folder / "private.key").write_text(base64.b64encode(seed).decode() + "\n")
     (folder / "public.key").write_text(base64.b64encode(public).decode() + "\n")

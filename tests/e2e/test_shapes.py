@@ -176,7 +176,7 @@ def test_undo_brings_back_the_handwriting_on_both_devices(browser, server):
     assert_straight(mac, ipad)
 
     # 撤销一次：回到手写的那一笔，另一端跟着换回去
-    ipad.wait_for_function(f"() => !document.querySelector(\"{UNDO}\").disabled")
+    ipad.wait_for_function(f'() => !document.querySelector("{UNDO}").disabled')
     ipad.click(UNDO)
     mac.wait_for_function(f"() => whiteboard.state.strokes.length === 1 && ({SHAPE})().dev > 5")
     hand = assert_handwritten(ipad)
@@ -189,7 +189,7 @@ def test_undo_brings_back_the_handwriting_on_both_devices(browser, server):
     wait_strokes(mac, 0)
 
     # 重做两次：先回来手写的，再变成直线
-    ipad.wait_for_function(f"() => !document.querySelector(\"{REDO}\").disabled")
+    ipad.wait_for_function(f'() => !document.querySelector("{REDO}").disabled')
     ipad.click(REDO)
     mac.wait_for_function(f"() => whiteboard.state.strokes.length === 1 && ({SHAPE})().dev > 5")
     ipad.click(REDO)

@@ -198,6 +198,6 @@ class ServerThread:
 
 async def _call_save(hub, spaces=None) -> None:
     hub.save_all()
-    for name, space in (spaces.hubs().items() if spaces is not None else ()):
+    for name, space in spaces.hubs().items() if spaces is not None else ():
         if name:
             await space.flush()
