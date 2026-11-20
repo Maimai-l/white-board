@@ -136,6 +136,47 @@ def test_two_fingers_rotate_the_ruler_and_show_the_angle(browser, server):
     assert abs(ruler_on_screen(ipad)["angle"] + 40) < 0.01
 
 
+def label_opacity(page):
+    return float(page.evaluate("(s) => getComputedStyle(document.querySelector(s)).opacity", LABEL))
+
+
+def test_the_angle_shows_only_while_the_ruler_turns(browser, server):
+    """角度和 iPad 一样只在转动时浮现：刚打开时看不到，转的时候出现，停下一会儿后淡出。"""
+    ipad = open_touch(browser, server.port, picker=True)
+    show_ruler(ipad)
+    assert label_opacity(ipad) == 0
+    rotate_on_ruler(ipad, ruler_on_screen(ipad), 30)
+    ipad.wait_for_function(
+        "(s) => Number(getComputedStyle(document.querySelector(s)).opacity) > 0.8", arg=LABEL
+    )
+    ipad.wait_for_function(
+        "(s) => Number(getComputedStyle(document.querySelector(s)).opacity) === 0", arg=LABEL, timeout=3000
+    )
+    assert angle_label(ipad) == "30°"
+
+
+def test_the_ruler_button_is_drawn_like_the_pens(browser, server):
+    """笔具盘里的尺子按钮和笔、橡皮一样是那份 PencilKit 复刻里画好的工具图，打开时升起来。"""
+    ipad = open_touch(browser, server.port, picker=True)
+    enable_pk_picker(ipad)
+    art = ipad.evaluate(
+        """() => [...document.querySelectorAll('#pk-host [data-tool="eraser"], #pk-host button[title="尺子"]')]
+            .map((b) => {
+              const img = b.querySelector('img.pk-art-base');
+              return img && img.complete && img.naturalWidth > 0 ? img.getBoundingClientRect().bottom : null;
+            })"""
+    )
+    assert None not in art and len(art) == 2
+    # 两个工具图的底边对齐（站在同一排里）
+    assert abs(art[0] - art[1]) < 1
+    ipad.click(RULER_BUTTON)
+    ipad.wait_for_selector(RULER, state="visible")
+    assert ipad.get_attribute(RULER_BUTTON, "aria-pressed") == "true"
+    ipad.click(RULER_BUTTON)
+    ipad.wait_for_selector(RULER, state="hidden")
+    assert ipad.get_attribute(RULER_BUTTON, "aria-pressed") == "false"
+
+
 def test_a_stroke_along_the_ruler_is_straight_on_both_devices(browser, server):
     """笔沿尺边画一笔：存下来的笔画上所有点到尺边的距离不超过 1 个白板单位；Mac 端看到同一条线。"""
     mac, ipad = open_pages(browser, server.port, picker=True)

@@ -18,7 +18,7 @@ This file lists the notable changes to the board app and to inksync. The section
 - Ink: With Shape recognition on, a stroke becomes a straight line when the Pencil stays still for 0.5 s at its end. One undo brings back the handwritten stroke.
 - Tool picker: Shape recognition is turned on in the More menu, next to Draw with finger. It is off by default and remembered per device.
 - Settings: `update_channel` in the configuration file selects `alpha` test builds or `stable` releases.
-- iPad: The Ruler button in the tool picker shows a ruler. Two fingers move and rotate it, and the ruler shows its angle.
+- iPad: The Ruler button in the tool picker shows a ruler. Two fingers move and rotate it, and the ruler shows its angle while it turns.
 - iPad: An Apple Pencil stroke started on the ruler or near its edge is drawn as a straight line along the edge. The line syncs; the ruler is not shown on the Mac.
 
 ### Changed

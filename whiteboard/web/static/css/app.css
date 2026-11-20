@@ -122,21 +122,13 @@ html, body {
 #live { pointer-events: none; }
 
 /* ------------------------------------------------------------- 尺子
- * iPad 上的尺子（js/ruler-view.js 画，笔具盘里那个尺子小图开关）。尺子的样子全在
- * 这一节：换外观只改这里和 ruler-view.js。尺身的厚度是判定范围的一部分，在
- * inksync 的 ruler.js（RULER_WIDTH）里，由 js 写进行内样式。
- *
- * 纸面在深色模式下也是白的，所以尺身只有浅色这一套，不跟系统配色变。
- * 刻度按屏幕像素画（尺子固定在屏幕上）：小刻度每 10、中刻度每 50、大刻度每 100，
- * 两条长边都有——两条边都能沿着画。三种刻度各占一层渐变、互不重叠，叠在一起
- * 不会把颜色加深。尺身中心正好落在一道大刻度上：ruler-view.js 把尺身长度取成
- * 200 的整数倍，中心离左端就是 100 的整数倍。 */
+ * iPad 上的尺子（js/ruler-view.js 画，笔具盘里的尺子按钮开关）。样子照 vendor 里那份
+ * PencilKit 复刻的直尺（pencilkit-picker.js 的 .pk-ruler）：半透明的系统灰，背后的
+ * 内容微微模糊，两条长边上有刻度（每 10 一道短的、每 50 一道长的，ruler-view.js 画成
+ * SVG，中心正好是一道长的）。角度只在转动时浮现在尺子上离屏幕中心最近的地方，停下
+ * 0.7 秒后淡出。尺身的厚度是判定范围的一部分，在 inksync 的 ruler.js（RULER_WIDTH）
+ * 里，由 js 写进行内样式。纸面在深色模式下也是白的，所以尺子只有这一套。 */
 .ruler {
-  --ruler-body: rgba(246, 246, 248, .9);
-  --ruler-border: rgba(0, 0, 0, .08);
-  --tick-minor: rgba(60, 60, 67, .28);
-  --tick-medium: rgba(60, 60, 67, .42);
-  --tick-major: rgba(60, 60, 67, .62);
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -144,94 +136,40 @@ html, body {
 }
 .ruler[hidden] { display: none; }
 .ruler-bar {
-  /* 每一种刻度：一个周期里只画属于它的那几道，1px 宽 */
-  --ticks-minor: repeating-linear-gradient(to right,
-    transparent 0 10px, var(--tick-minor) 10px 11px,
-    transparent 11px 20px, var(--tick-minor) 20px 21px,
-    transparent 21px 30px, var(--tick-minor) 30px 31px,
-    transparent 31px 40px, var(--tick-minor) 40px 41px,
-    transparent 41px 50px);
-  --ticks-medium: repeating-linear-gradient(to right,
-    transparent 0 50px, var(--tick-medium) 50px 51px, transparent 51px 100px);
-  --ticks-major: repeating-linear-gradient(to right,
-    var(--tick-major) 0 1px, transparent 1px 100px);
   position: absolute;
   left: 0;
   top: 0;
   /* ruler-view.js 写的变换以尺子中心为原点，要从元素左上角算起 */
   transform-origin: 0 0;
-  box-sizing: border-box;
-  border: 1px solid var(--ruler-border);
   border-radius: 6px;
-  background-color: var(--ruler-body);
-  background-image:
-    var(--ticks-major), var(--ticks-medium), var(--ticks-minor),
-    var(--ticks-major), var(--ticks-medium), var(--ticks-minor);
-  /* 刻度从元素外沿量起；挪半个像素，让中心那道大刻度骑在中线上 */
-  background-origin: border-box;
-  background-repeat: no-repeat;
-  background-size: 100% 22px, 100% 14px, 100% 8px, 100% 22px, 100% 14px, 100% 8px;
-  background-position:
-    -0.5px top, -0.5px top, -0.5px top,
-    -0.5px bottom, -0.5px bottom, -0.5px bottom;
-  box-shadow:
-    0 0 3px rgba(20, 20, 30, .05),
-    0 1px 4px rgba(20, 20, 30, .05),
-    0 6px 32px rgba(20, 20, 30, .07);
+  background: rgba(142, 142, 147, .28);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, .14), inset 0 0 0 .5px rgba(0, 0, 0, .25);
+  animation: ruler-in .25s ease;
+}
+@keyframes ruler-in { from { opacity: 0; } }
+.ruler-ticks {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
 }
 .ruler-angle {
   position: absolute;
-  left: 50%;
   top: 50%;
-  width: 64px;
-  height: 28px;
-  margin: -14px 0 0 -32px;
-  border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .10);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font: 600 15px/1 -apple-system, "SF Pro Text", system-ui, sans-serif;
+  transform: translate(-50%, -50%);
+  font: 600 18px/1 -apple-system, "SF Pro Text", system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
   color: #1c1c1e;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity .2s;
 }
-
-/* 笔具盘里开关尺子的那一格（js/pkpicker.js 摆位置）：和笔一样站在工具那一排里，
- * 底边和笔的图对齐，平时沉下去，打开时和选中的笔一样升起来（升降是那份实现的
- * .pk-tool-art 做的）。 */
-#pk-host .pk-ruler-tool {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
-  --ruler-tool-fill: #ececf0;
-  --ruler-tool-line: #c7c7cc;
-  --ruler-tool-tick: rgba(60, 60, 67, .45);
-}
-#pk-host.pk-root[data-pk-theme="dark"] .pk-ruler-tool {
-  --ruler-tool-fill: #3a3a3c;
-  --ruler-tool-line: #545458;
-  --ruler-tool-tick: rgba(235, 235, 245, .45);
-}
-#pk-host .pk-ruler-art {
-  position: absolute;
-  left: 3px;
-  bottom: 0;
-  width: 24px;
-  height: 88px;
-  box-sizing: border-box;
-  border: 1px solid var(--ruler-tool-line);
-  border-bottom: 0;
-  border-radius: 4px 4px 0 0;
-  background-color: var(--ruler-tool-fill);
-  /* 左边一列短刻度：每 6px 一道，7px 长，从顶上 10px 开始 */
-  background-image: repeating-linear-gradient(to bottom,
-    var(--ruler-tool-tick) 0 1px, transparent 1px 6px);
-  background-origin: border-box;
-  background-repeat: no-repeat;
-  background-size: 7px calc(100% - 10px);
-  background-position: 0 10px;
+.ruler[data-rotating] .ruler-angle { opacity: .85; }
+@media (prefers-reduced-motion: reduce) {
+  .ruler-bar { animation: none; }
+  .ruler-angle { transition: none; }
 }
 
 #ui { position: fixed; inset: 0; pointer-events: none; z-index: 10; }

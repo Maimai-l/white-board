@@ -111,7 +111,7 @@ function controller({ scale = 1, x = 0, y = 0 } = {}) {
     startGesture: (event) => started.push(event),
   });
   input.started = started;
-  const r = new Ruler();
+  const r = new Ruler({ width: 80 });
   r.setBounds(1000, 800); // 中心 (500, 400)，角度 0：上边 y = 360，下边 y = 440
   r.show(true);
   input.setRuler(r);

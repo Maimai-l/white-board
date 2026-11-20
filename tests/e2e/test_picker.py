@@ -170,9 +170,9 @@ def test_pencilkit_picker_drives_the_board(browser, server):
     enable_pk_picker(ipad)
 
     assert ipad.is_hidden("#toolbar")  # 原来那条收起来了
-    # 套索和那份实现自带的直尺去掉了；尺子是白板自己的按钮，见 test_ruler.py
+    # 套索去掉了；尺子按钮是那份实现自己的，开关的是白板的尺子，见 test_ruler.py
     assert ipad.query_selector('#pk-host [data-tool="lasso"]') is None
-    assert ipad.query_selector('#pk-host [data-tool="ruler"]') is None
+    assert ipad.get_attribute('#pk-host [data-tool="ruler"]', "title") == "尺子"
 
     # 画布在工具盘下面，笔迹照常同步
     draw(ipad, [(300, 300), (380, 340), (460, 300)])
