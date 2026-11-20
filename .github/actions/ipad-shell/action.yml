@@ -1,0 +1,60 @@
+name: 编译 iPad 外壳
+description: >-
+  编译 iPad 外壳并打成 IPA（伪签名），上传成 Whiteboard-ipad。ipad job 和 package job 共用：
+  打包时 Mac 应用要带上同版本的外壳，在 package 里直接编译，省掉一台 macOS 机器的排队。
+inputs:
+  version:
+    description: 文件名里的版本号
+    required: true
+  marketing:
+    description: MARKETING_VERSION
+    required: true
+  build:
+    description: CURRENT_PROJECT_VERSION
+    required: true
+outputs:
+  ipa:
+    description: 打好的 IPA 的绝对路径
+    value: ${{ steps.pack.outputs.ipa }}
+runs:
+  using: composite
+  steps:
+    - name: 安装 XcodeGen 和 ldid
+      shell: bash
+      run: brew install xcodegen ldid
+    - name: 生成图标和工程
+      shell: bash
+      run: |
+        python3 ipad/make_icon.py
+        cd ipad && xcodegen generate
+    - name: 编译
+      shell: bash
+      run: |
+        xcodebuild \
+          -project ipad/WhiteboardShell.xcodeproj \
+          -target Whiteboard \
+          -configuration Release \
+          -sdk iphoneos \
+          SYMROOT="$PWD/ipad/build" \
+          MARKETING_VERSION="${{ inputs.marketing }}" \
+          CURRENT_PROJECT_VERSION="${{ inputs.build }}" \
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+          build
+    - name: 伪签名并打包 IPA
+      id: pack
+      shell: bash
+      run: |
+        app=ipad/build/Release-iphoneos/Whiteboard.app
+        ldid -S "$app/Whiteboard"
+        mkdir -p ipa/Payload
+        cp -R "$app" ipa/Payload/
+        ipa="$GITHUB_WORKSPACE/Whiteboard-${{ inputs.version }}-ipad.ipa"
+        # zip 会把环境变量 ZIP、ZIPOPT 当成命令行选项：清掉，不受调用它的 job 影响
+        (cd ipa && env -u ZIP -u ZIPOPT zip -qry "$ipa" Payload)
+        ls -l "$ipa"
+        echo "ipa=$ipa" >> "$GITHUB_OUTPUT"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: Whiteboard-ipad
+        path: ${{ steps.pack.outputs.ipa }}
+        if-no-files-found: error

@@ -120,3 +120,35 @@ def test_a_missing_signature_is_reported_as_missing(tmp_path, capsys):
     (tmp_path / "appcast.xml").write_text(feed)
     assert appcast.verify(tmp_path, (tmp_path / "keys" / "public.key").read_text()) == 1
     assert "没有 EdDSA 签名" in capsys.readouterr().out
+
+
+def _bundle(root):
+    """一个带符号链接目录的小应用包：Resources/lib 指回 Frameworks/lib，和 PyInstaller 打的包一样。"""
+    (root / "Contents" / "Frameworks" / "lib").mkdir(parents=True)
+    (root / "Contents" / "Resources").mkdir(parents=True)
+    (root / "Contents" / "Frameworks" / "lib" / "a.py").write_text("print(1)\n")
+    (root / "Contents" / "Resources" / "lib").symlink_to("../Frameworks/lib")
+    exe = root / "Contents" / "MacOS" / "app"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    return root
+
+
+def test_tree_diff_passes_identical_bundles_with_linked_directories(tmp_path, capsys):
+    a, b = _bundle(tmp_path / "a"), _bundle(tmp_path / "b")
+    assert appcast.main(["appcast.py", "treediff", str(a), str(b)]) == 0
+    assert "一致" in capsys.readouterr().out
+
+
+def test_tree_diff_reports_content_link_and_mode_changes(tmp_path, capsys):
+    a, b = _bundle(tmp_path / "a"), _bundle(tmp_path / "b")
+    (b / "Contents" / "Frameworks" / "lib" / "a.py").write_text("print(2)\n")
+    (b / "Contents" / "Resources" / "lib").unlink()
+    (b / "Contents" / "Resources" / "lib").symlink_to("../Frameworks")
+    (b / "Contents" / "MacOS" / "app").chmod(0o644)
+    (b / "Contents" / "extra.txt").write_text("x")
+    assert appcast.main(["appcast.py", "treediff", str(a), str(b)]) == 1
+    out = capsys.readouterr().out
+    for name in ("Contents/Frameworks/lib/a.py", "Contents/Resources/lib", "Contents/MacOS/app", "Contents/extra.txt"):
+        assert name in out

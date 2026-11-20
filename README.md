@@ -584,7 +584,7 @@ make plan FILES="whiteboard/app.py docs/sketch.md"   # which CI jobs a change wo
 | Push to `dev`, or a `v*` tag | all, then publish an update (`alpha` or `stable`) |
 
 - Pick jobs by hand with `[ci: e2e,webkit]` or `[ci: all]` in the commit message, or with the `jobs` input of a manual run.
-- Other branches rehearse the update publishing (`updates-dry-run`): a delta update is generated with a temporary key, its signature is checked, and it is applied to the previous build.
+- Other branches rehearse the update publishing at the end of the `package` job: a delta update is generated with a temporary key, its signature is checked, and it is applied to the previous build.
 - Failed end-to-end tests upload a screenshot of every open page as the `test-results-*` artifact.
 
 ## Non-goals

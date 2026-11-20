@@ -7,6 +7,7 @@
     appcast.py index  <目录>                写一个列出各通道最新版本下载链接的 index.html
     appcast.py keygen <目录>                演练用：生成一对临时 EdDSA 密钥（private.key / public.key）
     appcast.py verify <目录> <公钥>          核对 appcast 里每个包和增量包的 EdDSA 签名
+    appcast.py treediff <甲> <乙>           演练用：两个应用包逐项比较（不跟随符号链接）
 
 站点上的文件名只接受字母、数字、点、- 和 _（不以点开头），其余一律跳过：文件名来自网络。
 """
@@ -14,6 +15,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import html
 import os
 import re
@@ -246,6 +248,42 @@ def verify(folder: Path, public_key: str) -> int:
     return 1 if problems or not checked else 0
 
 
+def _tree(root: Path) -> Dict[str, str]:
+    """目录树里每一项的样子：符号链接记指向，文件记可执行位和 SHA-256，目录只记存在。不跟随链接。"""
+    entries: Dict[str, str] = {}
+    for current, dirs, files in os.walk(root, followlinks=False):
+        base = Path(current)
+        for name in dirs + files:
+            path = base / name
+            rel = path.relative_to(root).as_posix()
+            if path.is_symlink():
+                entries[rel] = f"link -> {os.readlink(path)}"
+            elif path.is_dir():
+                entries[rel] = "dir"
+            else:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                mode = "x" if os.access(path, os.X_OK) else "-"
+                entries[rel] = f"file {mode} {digest}"
+    return entries
+
+
+def treediff(a: Path, b: Path) -> int:
+    """增量包应用之后和新版本逐项比较。不用 diff -r：macOS 26 的 diff 遇到指向包内的目录链接
+    报「Directory loop detected」后跳过，退出码却是 0，应用包里大半内容没比到。"""
+    left, right = _tree(a), _tree(b)
+    problems = []
+    for rel in sorted(set(left) | set(right)):
+        if left.get(rel) != right.get(rel):
+            problems.append(f"{rel}：{left.get(rel, '没有')} ≠ {right.get(rel, '没有')}")
+    for line in problems[:40]:
+        print(line)
+    if problems:
+        print(f"不一致 {len(problems)} 项（共 {len(left)} 项）")
+        return 1
+    print(f"逐项一致：{len(left)} 项")
+    return 0
+
+
 def main(argv: Sequence[str]) -> int:
     if len(argv) < 3:
         print(__doc__, file=sys.stderr)
@@ -261,6 +299,8 @@ def main(argv: Sequence[str]) -> int:
         return index(Path(args[0]))
     if command == "keygen" and len(args) == 1:
         return keygen(Path(args[0]))
+    if command == "treediff" and len(args) == 2:
+        return treediff(Path(args[0]), Path(args[1]))
     if command == "verify" and len(args) == 2:
         return verify(Path(args[0]), Path(args[1]).read_text() if Path(args[1]).exists() else args[1])
     print(__doc__, file=sys.stderr)
