@@ -67,12 +67,12 @@ async def draw(ws, strokes):
     await until(ws, "ack")
 
 
-def line(stroke_id, x0, y0, x1, y1, color="#1b1b1f", width=12.0, tool="marker", steps=12):
+def line(stroke_id, x0, y0, x1, y1, color="#1b1b1f", width=12.0, tool="marker", steps=12, pressure=0.5):
     """一条直线。马克笔的粗细不随压感变，量得出准确的宽度。"""
     flat = []
     for i in range(steps + 1):
         t = i / steps
-        flat += [x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, 0.5]
+        flat += [x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, pressure]
     return {"id": stroke_id, "tool": tool, "color": color, "w": width, "p": flat}
 
 
@@ -407,6 +407,8 @@ def test_document_board_exports_only_the_selected_original_pages(tmp_path):
             png_body = await png.read()
             framed = await export(client, board_id, format="pdf", frames=[{"x": 0, "y": 0, "w": 10, "h": 10}])
             assert framed.status == 400
+            assert (await export(client, board_id, format="png", frames="whole")).status == 400
+            assert (await (await client.get(f"/api/export/{board_id}/pages")).json())["whole"] is None
             await ws.close()
         return pages, pdf_body, png_body
 
@@ -472,12 +474,171 @@ def test_export_needs_the_export_permission(tmp_path, remote):
             assert (await client.get(f"/api/export/{board_id}/pages")).status == 403
             assert (await export(client, board_id, format="pdf")).status == 403
             assert (await client.get(f"/api/export/{board_id}?format=pdf")).status == 403
+            assert (await export(client, board_id, format="wbz")).status == 403
+            assert (await client.get(f"/api/export/{board_id}?format=wbz")).status == 403
 
             app[CONFIG_KEY].set_remote_permission("export", True)
             assert (await client.get(f"/api/export/{board_id}/pages")).status == 200
             assert (await export(client, board_id, format="pdf")).status == 200
+            assert (await export(client, board_id, format="wbz")).status == 200
 
     run(main())
+
+
+# ------------------------------------------------------------------ 白板文件、整块（docs/backlog/010-export-v2.md）
+
+
+def stroke_fields(strokes):
+    return [(s["id"], s["tool"], s["color"], s["w"], list(s["p"])) for s in strokes]
+
+
+def test_board_file_download_is_current_and_reopens_with_the_same_strokes(tmp_path):
+    """下载白板文件发给开发者：刚画的笔画（还没到自动保存）也在里面，导入成新白板后笔画一模一样。
+
+    坐标取整数、压感取 1，存盘的量化不改变数值，所以能逐个比较。
+    """
+    first = [
+        line("a", 0, 0, 400, 0, steps=4, pressure=1.0),
+        line("b", 100, 50, 300, 250, color=COLORS[0], tool="pen", width=3.0, steps=4, pressure=1.0),
+    ]
+    later = line("c", -200, 600, 200, 600, color=COLORS[2], steps=4, pressure=1.0)
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            ws, board_id = await connect(client)
+            await draw(ws, first)
+            await hub.rename_board(board_id, "课堂/笔记")
+            response = await export(client, board_id, format="wbz")
+            assert response.status == 200, await response.text()
+            assert response.content_type == "application/octet-stream"
+            disposition = response.headers["Content-Disposition"]
+            assert disposition == "attachment; filename*=UTF-8''%E8%AF%BE%E5%A0%82-%E7%AC%94%E8%AE%B0.wbz"
+            downloads = [await response.read()]
+            await draw(ws, [later])
+            again = await client.get(f"/api/export/{board_id}?format=wbz")  # 下载链接用的 GET
+            assert again.status == 200, await again.text()
+            downloads.append(await again.read())
+            original = await hub.strokes_of(board_id)
+
+            outside = tmp_path / "outside"
+            outside.mkdir()
+            imported = []
+            for index, body in enumerate(downloads):
+                path = outside / f"{index}.wbz"
+                path.write_bytes(body)
+                meta = await hub.import_board_file(path)
+                assert meta["id"] != board_id
+                imported.append((meta["name"], await hub.strokes_of(meta["id"])))
+            await ws.close()
+        return original, imported
+
+    original, imported = run(main())
+    (name1, strokes1), (name2, strokes2) = imported
+    assert name1 == name2 == "课堂/笔记"
+    assert stroke_fields(strokes1) == stroke_fields(first)
+    assert stroke_fields(strokes2) == stroke_fields(first + [later]) == stroke_fields(original)
+
+
+def corner_lines():
+    """四个角各一条颜色不同的横线，左边再远远地放一条。"""
+    spots = [(0, 0), (3000, 0), (0, 2000), (3000, 2000), (-1500, 1000)]
+    return [line(f"k{i}", x, y, x + 400, y, color=COLORS[i]) for i, (x, y) in enumerate(spots)], spots
+
+
+def test_whole_board_png_is_one_image_of_all_ink(tmp_path):
+    """整块导出 PNG：不分页，一张图框住全部墨迹，大小是（墨迹包围盒 + 四周留白）× 清晰度。"""
+    strokes, spots = corner_lines()
+
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            ws, board_id = await connect(client)
+            await draw(ws, strokes)
+            whole = (await (await client.get(f"/api/export/{board_id}/pages")).json())["whole"]
+            response = await export(client, board_id, format="png", frames="whole", dpi=36)
+            assert response.status == 200, await response.text()
+            assert response.headers["X-Export-Dpi"] == "36"
+            body = await response.read()
+            by_get = await client.get(f"/api/export/{board_id}?format=png&frames=whole&dpi=36")
+            assert by_get.status == 200 and await by_get.read() == body
+            await ws.close()
+        return whole, body
+
+    whole, body = run(main())
+    # 包围盒是笔画外扩半个笔宽（6）再取整
+    assert (whole["x"], whole["y"], whole["w"], whole["h"]) == (-1506, -6, 4912, 2012)
+    assert whole["paper"] == [4912 + 72, 2012 + 72] and whole["margin"] == 36
+    image = Image.open(io.BytesIO(body)).convert("RGB")
+    k = 36 / 72
+    assert abs(image.width - whole["paper"][0] * k) <= 1 and abs(image.height - whole["paper"][1] * k) <= 1
+    for index, (x, y) in enumerate(spots):
+        left = (x - whole["x"] + 36) * k
+        top = (y - whole["y"] + 36) * k
+        near = image.crop((int(left) - 4, int(top) - 8, int(left + 400 * k) + 4, int(top) + 8))
+        assert count_color(near, COLORS[index]) > 100, (index, x, y)
+
+
+def test_whole_board_pdf_is_one_page_the_size_of_the_ink(tmp_path):
+    strokes, _spots = corner_lines()
+
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            ws, board_id = await connect(client)
+            await draw(ws, strokes)
+            response = await export(client, board_id, format="pdf", frames="whole")
+            assert response.status == 200, await response.text()
+            assert "X-Export-Dpi" not in response.headers
+            body = await response.read()
+            await ws.close()
+        return body
+
+    body = run(main())
+    pages = pypdf.PdfReader(io.BytesIO(body)).pages
+    assert len(pages) == 1
+    box = pages[0].mediabox
+    assert (round(float(box.width), 2), round(float(box.height), 2)) == (4912 + 72, 2012 + 72)
+    image = pdf_images(body, scale=0.5)[0]
+    for color in COLORS:
+        assert count_color(image, color) > 100, color
+
+
+def solid(prefix, x, y, color, size=3000):
+    """一大块实心墨迹（最粗的笔一行挨一行）：缩到很小也看得出颜色。"""
+    return [line(f"{prefix}{r}", x, y + r * 80, x + size, y + r * 80, color=color, width=96.0, steps=4)
+            for r in range(size // 80 + 1)]
+
+
+def test_a_huge_board_is_shrunk_to_fit_instead_of_failing(tmp_path, monkeypatch):
+    """二十万单位宽的白板整块导出：PNG 降清晰度到像素上限以内（响应头说实际的 dpi），
+    PDF 的纸张缩到阅读器打得开的大小；两边的墨迹都在。"""
+    monkeypatch.setattr("whiteboard.export.MAX_PAGE_PIXELS", 2_000_000)  # 上限调小，测试跑得快
+    strokes = solid("p", 0, 0, COLORS[0]) + solid("q", 200000, 150000, COLORS[2])
+
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            ws, board_id = await connect(client)
+            for start in range(0, len(strokes), 20):
+                await draw(ws, strokes[start:start + 20])
+            png = await export(client, board_id, format="png", frames="whole", dpi=144)
+            assert png.status == 200, await png.text()
+            dpi = float(png.headers["X-Export-Dpi"])
+            png_body = await png.read()
+            pdf = await export(client, board_id, format="pdf", frames="whole")
+            assert pdf.status == 200, await pdf.text()
+            pdf_body = await pdf.read()
+            await ws.close()
+        return dpi, png_body, pdf_body
+
+    dpi, png_body, pdf_body = run(main())
+    image = Image.open(io.BytesIO(png_body)).convert("RGB")
+    assert image.width * image.height <= 2_000_000 and dpi < 144
+    assert image.width / image.height == pytest.approx((200000 + 3000) / (150000 + 3000), rel=0.02)
+    assert count_color(image, COLORS[0]) > 20 and count_color(image, COLORS[2]) > 20
+    pages = pypdf.PdfReader(io.BytesIO(pdf_body)).pages
+    assert len(pages) == 1
+    assert max(float(pages[0].mediabox.width), float(pages[0].mediabox.height)) == pytest.approx(14400, abs=0.5)
+    page_image = pdf_images(pdf_body, scale=0.1)[0]
+    assert count_color(page_image, COLORS[0]) > 20 and count_color(page_image, COLORS[2]) > 20
 
 
 # ------------------------------------------------------------------ Mac 窗口

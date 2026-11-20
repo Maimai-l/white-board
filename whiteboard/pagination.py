@@ -21,6 +21,8 @@
 * 笔记（固定宽度向下延伸）：宽度就是纸宽，按纸张长度往下切；切口尽量落在两行字
   之间的空白里（:func:`column_pages`）。
 * 文档板：原件有几页就是几页（:func:`doc_pages`）。
+
+不分页的「整块」导出是一页框住全部墨迹（:func:`whole_page`）。
 """
 
 from __future__ import annotations
@@ -44,6 +46,8 @@ CLUSTER_GAP = 72.0
 MIN_FIT_SCALE = 0.7
 # 笔记切页时，切口在一页的最后这一段里找空白行；找不到就硬切在纸张长度处。
 NOTE_CUT_SEARCH = 0.25
+# 纸张一边最长多少 pt：PDF 阅读器（Acrobat）认的页面上限，``paper_size`` 也按这个查
+MAX_PAPER = 14400.0
 _EPS = 1e-6
 
 
@@ -62,7 +66,7 @@ def paper_size(paper: Any = DEFAULT_PAPER) -> Tuple[float, float]:
         return PAPERS[key]
     if isinstance(paper, (list, tuple)) and len(paper) == 2:
         w, h = (float(v) for v in paper)
-        if not (72.0 <= w <= 14400.0 and 72.0 <= h <= 14400.0):
+        if not (72.0 <= w <= MAX_PAPER and 72.0 <= h <= MAX_PAPER):
             raise ValueError("paper must be 72–14400 pt on each side")
         return (min(w, h), max(w, h))
     raise ValueError(f"unknown paper: {paper!r}")
@@ -461,6 +465,35 @@ def doc_pages(boxes: Sequence[Dict[str, float]]) -> List[Page]:
         _page(box["x"], box["y"], box["w"], box["h"], (box["w"], box["h"]), margin=0.0)
         for box in boxes
     ]
+
+
+# ------------------------------------------------------------------ 整块
+
+
+def whole_page(meta: Dict[str, Any], strokes: Sequence[Dict[str, Any]], margin: float = MARGIN) -> Page:
+    """整块白板一页：页框是全部墨迹的包围盒（取整到整数），纸张就是页框加四周 ``margin``，1:1。
+
+    笔记的页框横向至少是整个笔记宽。纸张任一边超过 ``MAX_PAPER`` 时整页等比缩小
+    （留白一起缩），PDF 阅读器才打得开。空白板和自动分页一样，给以原点为中心的一张纸。
+    文档板不用这个（导出的是原件的页）。
+    """
+    from . import models
+
+    boxes = boxes_of(strokes)
+    if not boxes:
+        return board_pages([], PAPERS[DEFAULT_PAPER], margin)[0]
+    box = boxes[0]
+    for other in boxes[1:]:
+        box = union(box, other)
+    canvas = meta.get("canvas") if isinstance(meta, dict) else None
+    if isinstance(canvas, dict) and canvas.get("mode") in ("column", "fixed"):
+        width = float(canvas.get("width") or models.NOTE_WIDTH)
+        box = (min(0.0, box[0]), box[1], max(width, box[2]), box[3])
+    x0, y0 = math.floor(box[0]), math.floor(box[1])
+    w, h = math.ceil(box[2]) - x0, math.ceil(box[3]) - y0
+    pw, ph = w + 2 * margin, h + 2 * margin
+    shrink = min(1.0, MAX_PAPER / max(pw, ph))
+    return _page(x0, y0, w, h, (pw * shrink, ph * shrink), margin=round(margin * shrink, 3))
 
 
 # ------------------------------------------------------------------ 入口
