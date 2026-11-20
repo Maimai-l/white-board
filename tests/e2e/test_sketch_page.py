@@ -96,7 +96,7 @@ def wait_on_sketch(*pages):
 
 def copy_and_read(sketch):
     sketch.click("#copy")
-    sketch.wait_for_function("() => document.getElementById('notice').textContent.includes('已复制')")
+    sketch.wait_for_function("() => document.getElementById('notice').textContent.includes('已拷贝')")
     return sketch.evaluate(READ_CLIPBOARD_PNG)
 
 

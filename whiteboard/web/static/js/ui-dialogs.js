@@ -5,6 +5,7 @@
 
 import { icon } from "./icons.js";
 import { iconButton } from "./ui-common.js";
+import { closeMenu } from "./ui-menu.js";
 import { el } from "/inksync/util.js";
 import { reportError } from "/inksync/report.js";
 
@@ -13,36 +14,34 @@ export function installDialogs(proto) {
 }
 
 const methods = {
-  /** 关于：图标、名字、版本，以及更新相关的入口都收在这里。 */
-  /** 关于：图标、名字、一句说明、几行信息，链接在下面，检查更新在最底下。 */
+  /**
+   * 关于：一个小窗口的样子，图标、名字、版本、构建号，下面是检查更新和两个链接。
+   * 地址不放这里，在连接 iPad 里。
+   */
   openAbout() {
-    this.closeSheet();
+    closeMenu();
+    this.closePanel();
     const info = this.info || {};
-    const rows = [["版本", info.version || "—"]];
     // 从源码跑的时候，页面上那份 data-build 是「分支@提交」，和版本号不是一回事，
     // 两个都给才说得清手上这一份到底是什么。打包版两者相同，就不重复显示了。
     const build = document.documentElement.dataset.build || "";
-    if (build && build !== info.version) rows.push(["构建", build]);
-    if (info.hostname) rows.push(["地址", `${info.hostname}:${info.port || ""}`]);
-
-    const link = (text, onclick) => el("button", { class: "link", text, onclick });
-    const scrim = el("div", { class: "scrim", onclick: () => scrim.remove() });
-    const dialog = el("div", { class: "dialog about" }, [
+    const link = (text, onclick) => el("button", { class: "link", type: "button", text, onclick });
+    const scrim = el("div", { class: "scrim clear", onclick: () => scrim.remove() });
+    const dialog = el("div", { class: "dialog about", role: "dialog", "aria-label": "关于白板" }, [
+      el("div", { class: "about-lights" }, [
+        el("button", { class: "about-close", type: "button", title: "关闭", "aria-label": "关闭", onclick: () => scrim.remove() }),
+        el("span", { "aria-hidden": "true" }),
+        el("span", { "aria-hidden": "true" }),
+      ]),
       el("img", { class: "about-icon", src: "/icon.png", alt: "" }),
       el("div", { class: "about-name", text: "白板" }),
-      el(
-        "div",
-        { class: "about-rows" },
-        rows.flatMap(([key, value]) => [
-          el("span", { class: "about-key", text: key }),
-          el("span", { class: "about-val", text: String(value) }),
-        ])
-      ),
+      el("div", { class: "about-version", text: `版本 ${info.version || "—"}` }),
+      build && build !== info.version ? el("div", { class: "about-build", text: build }) : null,
+      this.updateRow(),
       el("div", { class: "about-links" }, [
         link("更新日志", () => this.actions.onOpenReleases()),
         link("日志文件", () => this.actions.onOpenLog()),
       ]),
-      this.updateRow(),
     ]);
     dialog.addEventListener("click", (event) => event.stopPropagation());
     scrim.append(dialog);
@@ -52,7 +51,7 @@ const methods = {
 
   updateRow() {
     const note = el("span", { class: "check-note" });
-    const button = el("button", { class: "btn", text: "检查更新" });
+    const button = el("button", { class: "lib-btn tinted", type: "button", text: "检查更新" });
     button.addEventListener("click", async () => {
       button.setAttribute("disabled", "");
       note.textContent = "检查中…";

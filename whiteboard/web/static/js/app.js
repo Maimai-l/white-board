@@ -88,6 +88,7 @@ class App extends InkPad {
     }, 5000);
 
     this.bindKeys();
+    this.watchZoom();
     this.watchNativeInfo();
     this.start();
   }
@@ -105,6 +106,10 @@ class App extends InkPad {
       // 换了白板：导出对话框是给上一块开的，关掉
       const dialog = this.ui.exportDialog;
       if (dialog && dialog.boardId !== this.state.id) dialog.close();
+      if (this.pendingExport && this.pendingExport === this.state.id) {
+        this.pendingExport = null;
+        this.openExport();
+      }
     });
     this.on("info", (info) => this.ui.setInfo(info));
     this.on("shell", (shell) => {
@@ -144,6 +149,7 @@ class App extends InkPad {
       this.ui.setBoards(msg.boards.map(boardView), this.state.id, msg.folders);
     }
     if (msg.t === "perms") this.ui.setPerms(new Set(msg.perms || []));
+    if (msg.t === "devices") this.ui.setDevices(msg.devices || []);
   }
 
   reloadWhenIdle(build) {
@@ -180,12 +186,15 @@ class App extends InkPad {
       } else if (meta && (event.key === "0" || event.key === ")")) {
         event.preventDefault();
         this.fit();
+        this.syncZoom();
       } else if (meta && (event.key === "=" || event.key === "+")) {
         event.preventDefault();
         this.zoom(1.25);
+        this.syncZoom();
       } else if (meta && event.key === "-") {
         event.preventDefault();
         this.zoom(0.8);
+        this.syncZoom();
       }
     });
     addEventListener("pagehide", () => {
@@ -208,6 +217,21 @@ class App extends InkPad {
     this.ruler.show(shown);
   }
 
+  /**
+   * 缩放按钮中间的百分比。视口在很多地方会变（滚轮、触控板捏合、手势、换白板、
+   * 回到内容），没有统一的事件，所以在这些输入之后各量一次，比每帧轮询省。
+   */
+  watchZoom() {
+    const later = () => requestAnimationFrame(() => this.syncZoom());
+    for (const type of ["wheel", "pointerup", "gestureend", "resize"]) addEventListener(type, later, { passive: true });
+    this.on("meta", later);
+    later();
+  }
+
+  syncZoom() {
+    if (this.viewport) this.ui.setZoom(this.viewport.scale || 1);
+  }
+
   /** 版本号这类只有本地进程知道的信息，取回来给设置界面用。 */
   async refreshNativeInfo() {
     const api = nativeApi();
@@ -227,7 +251,10 @@ class App extends InkPad {
     setTimeout(() => this.refreshNativeInfo(), 1200);
   }
 
-  /** 把 PDF / 图片拖进窗口就新建一块文档板。 */
+  /**
+   * 把 PDF / 图片拖进窗口：每个文件新建一块文档板。拖着经过时界面上盖一层提示
+   * （ui-boards.js 的 showDrop），白板库开着时可以直接放到边栏的文件夹上。
+   */
   bindDrop() {
     const accept = (event) => {
       const items = event.dataTransfer && event.dataTransfer.types;
@@ -237,27 +264,36 @@ class App extends InkPad {
       if (!accept(event)) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
-      document.body.classList.add("dropping");
+      this.ui.showDrop(event);
     });
     addEventListener("dragleave", (event) => {
-      if (event.relatedTarget === null) document.body.classList.remove("dropping");
+      if (event.relatedTarget === null) this.ui.showDrop(null);
     });
     addEventListener("drop", (event) => {
       if (!accept(event)) return;
       event.preventDefault();
-      document.body.classList.remove("dropping");
-      const file = event.dataTransfer.files && event.dataTransfer.files[0];
-      if (file) this.importDoc(file, this.ui.dropFolder(this.state.id));
+      this.ui.showDrop(null);
+      const files = [...((event.dataTransfer && event.dataTransfer.files) || [])];
+      if (files.length) this.importDocs(files, this.ui.dropFolder(this.state.id, event));
     });
+  }
+
+  /** 一个一个上传；服务端每建好一块就广播切换，最后停在最后那一块上。 */
+  async importDocs(files, folder = "") {
+    if (this.importing) return;
+    this.importing = true;
+    try {
+      await uploadThumb(this.state, this.state.id);
+      for (const file of files) await this.importDoc(file, folder);
+    } finally {
+      this.importing = false;
+    }
   }
 
   /** 上传一份 PDF / 图片，服务端建好板之后会广播切换，这里不用自己跳。 */
   async importDoc(file, folder = "") {
-    if (this.importing) return;
-    this.importing = true;
-    const done = this.ui.message(`正在打开 ${file.name}…`, "doc", 60000);
+    const done = this.ui.message(`正在导入 ${file.name}…`, "doc", 60000);
     try {
-      await uploadThumb(this.state, this.state.id);
       const query = `name=${encodeURIComponent(file.name)}&folder=${encodeURIComponent(folder)}`;
       const response = await fetch(`/api/doc?${query}`, {
         method: "POST",
@@ -273,7 +309,6 @@ class App extends InkPad {
       this.ui.message(`打不开 ${file.name}`, "close", 6000);
     } finally {
       done();
-      this.importing = false;
     }
   }
 
@@ -422,8 +457,18 @@ class App extends InkPad {
       onUndo: () => this.undo(),
       onRedo: () => this.redo(),
       onClear: () => this.clearBoard(),
-      onZoom: (factor) => this.zoom(factor),
-      onFit: () => this.fit(),
+      onZoom: (factor) => {
+        this.zoom(factor);
+        this.syncZoom();
+      },
+      onZoomReset: () => {
+        this.zoom(1 / (this.viewport.scale || 1));
+        this.syncZoom();
+      },
+      onFit: () => {
+        this.fit();
+        this.syncZoom();
+      },
       onBoardsOpen: () => uploadThumb(this.state, this.state.id),
       onSelectBoard: async (boardId) => {
         if (boardId === this.state.id) return;
@@ -434,7 +479,22 @@ class App extends InkPad {
         await uploadThumb(this.state, this.state.id);
         this.net.send({ t: "newboard", kind, folder });
       },
+      // 删除是移进回收站；回收站里的再删才是永久删除（purge）
       onDeleteBoard: (boardId) => this.net.send({ t: "delboard", board: boardId }),
+      onRestoreBoard: (boardId) => this.net.send({ t: "restore", board: boardId }),
+      onPurgeBoard: (boardId) => this.net.send({ t: "purge", board: boardId }),
+      onEmptyTrash: () => this.net.send({ t: "emptytrash" }),
+      onDuplicateBoard: (boardId) => this.net.send({ t: "duplicate", board: boardId }),
+      onExportBoard: async (boardId) => {
+        if (boardId === this.state.id) {
+          this.openExport();
+          return;
+        }
+        // 导出别的白板：先切过去，切换到了再开导出（见 bindPad 里的 meta）
+        this.pendingExport = boardId;
+        await uploadThumb(this.state, this.state.id);
+        this.net.send({ t: "sel", board: boardId });
+      },
       onRenameBoard: (boardId, name) => this.net.send({ t: "rename", board: boardId, name }),
       onMoveBoard: (boardId, folder) => this.net.send({ t: "folder", board: boardId, folder }),
       onReorderBoards: (ids) => this.net.send({ t: "order", ids }),
@@ -456,7 +516,7 @@ class App extends InkPad {
         }
         this.setMeta(patch);
       },
-      onNewDoc: (file, folder) => this.importDoc(file, folder),
+      onNewDoc: (files, folder) => this.importDocs([].concat(files), folder),
       onViewAppBoard: (space, board) => this.viewAppBoard(space, board),
       onExport: () => this.openExport(),
       onProfile: async () => {

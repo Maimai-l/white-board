@@ -1,6 +1,7 @@
 // 白板应用对白板元数据的理解（inksync 0.2 的元数据，见 whiteboard/models.py）：
 //
 //   data.folder  所在的文件夹
+//   data.trashed 移进回收站的时刻（秒），不在回收站里没有这一项
 //   data.doc     文档板的原件信息 {type, name, ext, pages}
 //   canvas.mode  column 是笔记，其余按大白板处理（文档板另外由 data.doc 判断）
 //
@@ -38,6 +39,10 @@ export function boardView(meta) {
   else delete view.folder;
   const doc = docOf(meta);
   if (doc) view.doc = doc;
+  // 在回收站里：data.trashed 是移进去的时刻（秒）
+  const trashed = meta.data && Number(meta.data.trashed);
+  if (trashed > 0) view.trashed = trashed;
+  else delete view.trashed;
   return view;
 }
 

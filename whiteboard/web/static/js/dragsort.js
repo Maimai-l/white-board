@@ -214,6 +214,11 @@ function settle(item, card, anchor, point, into, onDone) {
  *   ``onFile(id, folder)``  落在文件夹或者「移出」上
  *   ``onReorder(ids)``  顺序变了，参数是格子里现在的先后
  *   ``onRefresh()``     拖动被系统取消，重铺一遍退回原样
+ *   ``reorder``         false 时别的卡片不让位，只能拖进文件夹（白板库按时间或名字排着）
+ *   ``onStill()``       手指按住拎起来、没挪就松开了：iPad 上这一下是长按，弹菜单
+ *
+ * 落点是带 ``data-folder`` 的元素。默认只认它中间那一块（格子里的文件夹卡片），
+ * 带 ``data-drop-row`` 的整行都算（边栏里那一行行文件夹），也不放大。
  */
 export function startCardDrag(event, ctx) {
   if (event.isPrimary === false || event.button > 0) return;
@@ -221,6 +226,7 @@ export function startCardDrag(event, ctx) {
   if (!item || !item.isConnected) return;
   const at = { x: event.clientX, y: event.clientY };
   const mouse = event.pointerType === "mouse";
+  ctx.mouse = mouse;
   let timer = 0;
   let press = null;
 
@@ -343,20 +349,22 @@ function drag(ctx, at, pointerId, startScale) {
   let pendingRef;
   let pendingTimer = 0;
 
+  let travelled = 0; // 拎起来以后离起点最远走了多远，判断是不是长按
   const follow = () => {
+    travelled = Math.max(travelled, Math.hypot(pos.x - at.x, pos.y - at.y));
     item.style.translate = `${pos.x - at.x}px ${pos.y - at.y}px`;
   };
   const light = (node, name) => {
     if (target === node) return;
     if (target) {
       target.classList.remove("drop-target");
-      pop(target, 1);
+      if (target.dataset.dropRow === undefined) pop(target, 1);
     }
     target = node;
     folder = name;
     if (target) {
       target.classList.add("drop-target");
-      pop(target, TUNING.FOLDER_SCALE);
+      if (target.dataset.dropRow === undefined) pop(target, TUNING.FOLDER_SCALE);
     }
   };
   const clearPending = () => {
@@ -402,7 +410,7 @@ function drag(ctx, at, pointerId, startScale) {
     const into = under.closest("[data-folder]");
     if (into) {
       clearPending();
-      const hit = inCenter(into);
+      const hit = into.dataset.dropRow !== undefined || inCenter(into);
       return light(hit ? into : null, hit ? into.dataset.folder : null);
     }
     const out = under.closest("[data-drop-out]");
@@ -411,6 +419,7 @@ function drag(ctx, at, pointerId, startScale) {
       return light(out, "");
     }
     light(null, null);
+    if (ctx.reorder === false) return clearPending();
     const over = under.closest(".board-item[data-board]");
     if (!over || over === slot) return clearPending();
     const box = over.getBoundingClientRect();
@@ -470,7 +479,7 @@ function drag(ctx, at, pointerId, startScale) {
     const moved = folder !== null && ctx.folderOf(id) !== folder;
     if (target) {
       target.classList.remove("drop-target");
-      pop(target, 1);
+      if (target.dataset.dropRow === undefined) pop(target, 1);
     }
     // 空位可能还在让位动画里，先让它走完，才量得到最终位置
     for (const anim of slot.getAnimations()) anim.finish();
@@ -486,6 +495,8 @@ function drag(ctx, at, pointerId, startScale) {
     settle(item, card, anchor, point, moved, restore);
 
     swallowNextClick();
+    const still = !ctx.mouse && !moved && travelled < TUNING.HOLD_SLOP && event && event.type === "pointerup";
+    if (still && ctx.onStill) ctx.onStill();
     if (moved) ctx.onFile(id, folder);
     else if (folder === null && sorted) ctx.onReorder(orderOf(grid, slot, id));
   };
