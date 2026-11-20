@@ -490,7 +490,7 @@ Request body (JSON):
 | `frames` | `"auto"`; `"whole"` (one page holding all ink, see [Whole board](#whole-board)); or a list of 1–400 page frames `{x, y, w, h, paper?, margin?}`. `paper` is a paper name or `[width, height]` in pt; without it the requested paper is used, turned to the shape of the frame. `margin` is 0–144 pt. Document boards accept only `"auto"`. | `"auto"` |
 | `select` | Page indices counted from 0. Duplicates are removed and the pages are exported in page order. | All pages |
 | `dpi` | PNG resolution, 36–600. A page above 40 million pixels is rendered at a lower resolution. | 144; an image document keeps its original resolution |
-| `paper` | `a4`, `letter`, or `[width, height]` in pt (72–14400) | `a4` |
+| `paper` | `a4`, `letter`, `content` (each page's paper is its frame plus the margin, at scale 1), or `[width, height]` in pt (72–14400) | `a4` |
 | `background` | Draw the paper color and the background pattern (grid, lines or dots) | `true` |
 
 Example:

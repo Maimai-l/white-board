@@ -11,7 +11,7 @@ This file lists the notable changes to the board app and to inksync. The section
 ### Added
 
 - Export: The export button opens an export dialog that exports the selected pages as a PDF, one PNG file or a ZIP of PNG files.
-- Export: Infinite boards are divided into A4 or Letter pages automatically, one page per group of nearby strokes. Note boards are cut by paper length. See README.md.
+- Export: Infinite boards are divided into pages automatically from top to bottom. Each page is as wide as the writing in that part of the board. Note boards are cut by paper length. See README.md.
 - Export: Page frames can be moved, resized, added and deleted on the board before exporting.
 - Export: PNG pages are exported at 150, 300 or 600 dpi.
 - Export: PDF pages of infinite and note boards contain vector ink, which stays sharp at any zoom.

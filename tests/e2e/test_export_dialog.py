@@ -88,7 +88,7 @@ def test_the_export_button_opens_the_dialog_with_the_auto_pages(browser, server)
 
 
 def test_deselected_pages_are_left_out_of_the_pdf(browser, server):
-    mac = board_with_groups(browser, server, [(150, 150), (1000, 150), (550, 650)])
+    mac = board_with_groups(browser, server, [(550, 100), (550, 400), (550, 700)])
     open_dialog(mac, 3)
     mac.locator(CARDS).nth(1).click()
     assert mac.locator(".export-count").inner_text() == "已选 2 页"
@@ -278,3 +278,14 @@ def test_no_export_entry_without_the_permission(browser, server):
     serve_with_perms(mac, "manage settings clear")
     assert mac.locator(EXPORT).count() == 0
     assert mac.locator(".export-dialog").count() == 0
+
+
+def test_scattered_notes_down_the_board_are_not_cut_into_many_small_pages(browser, server):
+    """用户的反馈（backlog 010）：东一块西一块往下写的大白板，第一版每块切一页、又碎又小。
+    现在从上往下按段分：一屏写下来的六块字放进同一页。"""
+    spots = [(300, 100), (700, 200), (400, 300), (800, 400), (350, 500), (650, 600)]
+    mac = board_with_groups(browser, server, spots)
+    open_dialog(mac, 1)
+    assert mac.locator(".export-paging").inner_text().startswith("自动分成 1 页")
+    _, body = download(mac, "导出 PDF")
+    assert pdf_pages(body) == 1

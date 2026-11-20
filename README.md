@@ -360,7 +360,7 @@ The export icon in the top-right group (导出) opens the export dialog. It need
 | 分页 (Pages) | Number of automatic pages, and 调整 to adjust them. |
 
 - One board unit prints as 1 pt, so a page shows the ink at the size seen at 100% zoom. PDF pages are vector and stay sharp at any zoom; PNG pages are rendered at the chosen resolution, however far the board is spread.
-- Automatic pages: on an infinite board, strokes close to each other form a group, and each group gets a page, landscape or portrait. A group larger than a page is shrunk to at most 70%, then split into several pages. A note board is cut by paper length, between lines where possible. A document board uses the pages of its original.
+- Automatic pages: an infinite board is read from top to bottom. Each page is as wide as the writing in that part of the board and is cut between lines where possible. A note board is cut by paper length, between lines where possible. A document board uses the pages of its original.
 - 调整 shows the page frames on the board: drag a frame to move it, drag a corner to resize it (the paper's proportions are kept), and use the delete button to remove it. 添加一页 adds a page in the middle of the view, 自动分页 restores the automatic pages, and 完成 returns to the dialog. The board can still be panned and zoomed; nothing is drawn while adjusting.
 - In the Mac window the file is saved through the save dialog; elsewhere it is downloaded (the iPad shell opens the share sheet).
 
