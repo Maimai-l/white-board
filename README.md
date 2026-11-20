@@ -201,7 +201,7 @@ The tool picker is the implementation in [static/vendor](whiteboard/web/static/v
 - Dropped in a corner, the picker shrinks to a circle showing the current tool and expands when the Pencil or the cursor comes near. A finger has no hover and taps the circle.
 - Undo and redo use the board's own history; the buttons follow its state.
 - The picker is hidden while the board chooser or the settings sheet is open.
-- The vendor canvas, ruler and lasso are not used; the ruler button turns on the board's own ruler (see [Ruler](#ruler)). Opacity is not available because the stroke format has no field for it.
+- The vendor canvas, ruler and lasso are not used. The vendor's ruler button is kept and turns on the board's own ruler, which has the same look as the vendor ruler (see [Ruler](#ruler)). Opacity is not available because the stroke format has no field for it.
 
 The interface follows the system controls: frosted glass and the system blue accent. Background blur is turned off while a stroke is in progress. The tool picker is never frosted, because it sits over the writing area.
 
@@ -226,7 +226,7 @@ The ruler button in the tool picker shows or hides a ruler on the iPad, like the
 | Input | Behavior |
 | --- | --- |
 | One finger on the ruler | Moves the ruler. |
-| Two fingers on the ruler | Move and rotate the ruler. The angle to the horizontal (0° to 90°) is shown on the ruler; it snaps to multiples of 45° within 2°. |
+| Two fingers on the ruler | Move and rotate the ruler. While the ruler turns, the angle to the horizontal (0° to 90°) is shown on it and fades out shortly after it stops; the angle snaps to multiples of 45° within 2°. |
 | Fingers that start off the ruler | Pan and zoom the board as usual. If the first finger is on the ruler and the second lands off it, both pan and zoom the board. |
 | Pencil starting on the ruler or within 24 pt of an edge | Draws along that edge: every point of the stroke lies on the edge line. The distance is measured on the screen, so it does not change with the zoom. |
 | Pencil starting farther away | Draws as usual. |

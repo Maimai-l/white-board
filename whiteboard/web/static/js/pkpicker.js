@@ -13,23 +13,21 @@
 // 松手分「甩」和「慢放」两种：甩的时候先飞到位再展开、带回弹；慢放时飞行、转笔、展开
 // 几乎同时进行、不回弹。动画进行中可以随时拿起。手感参数都在下面。
 //
-// 没接的：不透明度（笔迹格式里还没有这个字段）、那份实现自带的直尺和套索（套索白板
-// 没有；尺子是白板自己的，见 ruler-view.js 和 inksync 的 ruler.js。笔具盘里开关它的
-// 是橡皮后面一格的尺子小图，用 css/app.css 画，不用那份实现的图片）。撤销和重做都接到
-// 白板自己的历史栈上。
+// 没接的：不透明度（笔迹格式里还没有这个字段）、套索（白板没有）。尺子按钮用那份
+// 实现自己的（图、升起、深色都和笔一致），只把开关转给白板：画在画布上的尺子是白板
+// 自己的，见 ruler-view.js 和 inksync 的 ruler.js。撤销和重做都接到白板自己的历史栈上。
 
 import { clamp } from "/inksync/util.js";
 
-// 去掉套索和直尺之后的布局，数值取自 vendor 里的 PK_LAYOUT；橡皮后面多出一格放
-// 尺子（rulerToggle，和笔一样占一格工具位：30×105，间距 52），后面的色块和「更多」
-// 整体挪 52。
+// 去掉套索之后的布局，数值取自 vendor 里的 PK_LAYOUT：尺子挪进套索那一格（尺子的图
+// 比笔宽，35×105，中心和套索对齐），后面的色块和「更多」整体挪 52。
 const LAYOUT = {
   h: {
     W: 596,
     H: 105,
     items: {
       more: { x: 542, y: 37, w: 31, h: 31, r: 0 },
-      rulerToggle: { x: 326, y: 0, w: 30, h: 105, r: 0 },
+      ruler: { x: 324, y: 0, w: 35, h: 105, r: 0 },
       eraser: { x: 274, y: 0, w: 30, h: 105, r: 0 },
       pencil: { x: 220, y: 0, w: 30, h: 105, r: 0 },
       marker: { x: 168, y: 0, w: 30, h: 105, r: 0 },
@@ -52,7 +50,7 @@ const LAYOUT = {
     H: 551,
     items: {
       more: { x: 36, y: 495, w: 31, h: 31, r: 0 },
-      rulerToggle: { x: 38, y: 264, w: 30, h: 105, r: 90 },
+      ruler: { x: 35, y: 264, w: 35, h: 105, r: 90 },
       eraser: { x: 38, y: 212, w: 30, h: 105, r: 90 },
       pencil: { x: 38, y: 160, w: 30, h: 105, r: 90 },
       marker: { x: 38, y: 107, w: 30, h: 105, r: 90 },
@@ -75,7 +73,7 @@ const LAYOUT = {
     H: 551,
     items: {
       more: { x: 36, y: 495, w: 31, h: 31, r: 0 },
-      rulerToggle: { x: 38, y: 264, w: 30, h: 105, r: 270 },
+      ruler: { x: 35, y: 264, w: 35, h: 105, r: 270 },
       eraser: { x: 38, y: 212, w: 30, h: 105, r: 270 },
       pencil: { x: 38, y: 160, w: 30, h: 105, r: 270 },
       marker: { x: 38, y: 107, w: 30, h: 105, r: 270 },
@@ -223,36 +221,21 @@ function makeClass(Base) {
       for (const node of [this.ink, this.live, this.rulerEl]) node.remove();
       this.ink = this.live = document.createElement("canvas");
       this.inkCtx = this.liveCtx = this.ink.getContext("2d");
-      // 套索白板没有，尺子用白板自己的（见下面的尺子按钮）：vendor 的这两个按钮
-      // 从 DOM 里摘掉就行，对象要留着——
+      // 套索白板没有：按钮从 DOM 里摘掉就行，对象要留着——
       // 它的 _renderUI 会遍历整份工具清单，删了会空指针
-      for (const key of ["lasso", "ruler"]) {
-        if (this.el[key]) this.el[key].remove();
-      }
+      if (this.el.lasso) this.el.lasso.remove();
       // 笔迹还没有不透明度这个字段，统一按不透明处理（工具上那个「80」就不显示了）
       for (const cfg of Object.values(this.tools)) {
         if (cfg && cfg.opacity !== undefined) cfg.opacity = 1;
       }
-      // 尺子：和笔一样站在工具那一排里的一个小图（样子在 css/app.css 的「尺子」一节）。
-      // 借用 pk-tool / pk-tool-art 这两个类，打开时和选中的笔一样升起来；不带 data-tool，
-      // 那份实现的点击处理就不会把它当成工具。位置由 _layoutBar 按 rulerToggle 摆。
-      const ruler = document.createElement("button");
-      ruler.type = "button";
-      ruler.className = "pk-el pk-tool pk-ruler-tool";
-      ruler.title = "尺子";
-      ruler.setAttribute("aria-label", "尺子");
-      ruler.setAttribute("aria-pressed", "false");
-      ruler.innerHTML = '<span class="pk-tool-art"><span class="pk-ruler-art"></span></span>';
-      ruler.addEventListener("click", () => this.toggleRuler());
-      this.el.rulerToggle = ruler;
-      this.bar.append(ruler);
-      this.rulerShown = false;
       for (const [art, tool] of Object.entries(ART_TOOL)) {
         const button = this.el[art];
         if (!button) continue;
         button.title = TITLES[tool];
         button.setAttribute("aria-label", TITLES[tool]);
       }
+      this.el.ruler.title = "尺子";
+      this.el.ruler.setAttribute("aria-label", "尺子");
       // 动画的时长和曲线交给 css/app.css 里 #pk-host 那几段使用，数值只在本文件顶部的 TUNING 里维护
       this._applyTuning();
     }
@@ -907,18 +890,19 @@ function makeClass(Base) {
       this.onChange(next);
     }
 
-    /** 点尺子按钮：开或关，交给白板去显示（onRuler）。 */
-    toggleRuler() {
-      this.setRulerShown(!this.rulerShown);
-      if (this.onRuler) this.onRuler(this.rulerShown);
+    /**
+     * 点尺子按钮（那份实现的 _onTool 调到这里）：按钮升起或落下，尺子交给白板去显示
+     * （onRuler）。那份实现自己的直尺元素已经摘掉了，不碰它。
+     */
+    setRuler(on) {
+      this.rulerOn = !!on;
+      this._renderUI();
+      if (this.onRuler) this.onRuler(this.rulerOn);
     }
 
-    /** 尺子按钮的亮灭。 */
-    setRulerShown(shown) {
-      this.rulerShown = !!shown;
-      const button = this.el.rulerToggle;
-      button.classList.toggle("is-on", this.rulerShown);
-      button.setAttribute("aria-pressed", String(this.rulerShown));
+    /** 那份实现的直尺不存在：滚轮转直尺那段就永远不接手，滚轮照常缩放白板。 */
+    _inRuler() {
+      return false;
     }
 
     /** 撤销 / 重做都交给白板的历史栈。 */
