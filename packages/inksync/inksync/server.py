@@ -128,7 +128,7 @@ class Spaces:
             self._task.cancel()
             try:
                 await self._task
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # 忽略：刚刚自己取消的，等它真正停下
                 pass
             self._task = None
         for hub in list(self._hubs.values()):
@@ -170,8 +170,8 @@ class Session:
         try:
             await self.ws.send_json({"t": "error", "reason": reason, **extra})
             await self.ws.close()
-        except (ConnectionResetError, RuntimeError):
-            pass
+        except (ConnectionResetError, RuntimeError) as exc:
+            log.debug("Session._refuse：对方已经断开，拒绝原因 %s 没送到：%s", reason, exc)
 
     async def safe_dispatch(self, msg: Dict[str, Any]) -> None:
         """处理一条消息；出了任何没想到的错只记日志，连接不断。
@@ -309,7 +309,8 @@ async def serve_ws(request: web.Request, spaces: Spaces, authenticate: Authentic
                 continue
             try:
                 payload = json.loads(msg.data)
-            except ValueError:
+            except ValueError as exc:
+                log.debug("serve_ws：收到的消息不是 JSON，丢掉：%s", exc)
                 continue
             if isinstance(payload, dict):
                 await session.safe_dispatch(payload)

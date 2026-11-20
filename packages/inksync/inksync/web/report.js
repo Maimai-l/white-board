@@ -24,9 +24,9 @@ export function reportError(kind, detail) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind, ...detail }),
       keepalive: true,
-    }).catch(() => {});
+    }).catch(() => {}); // 忽略：上报本身失败了没有别处可报，再报只会绕圈
   } catch (err) {
-    /* 上报失败就算了 */
+    /* 忽略：同上 */
   }
 }
 

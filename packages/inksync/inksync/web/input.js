@@ -367,7 +367,7 @@ export class InputController {
       if (on) this.stage.setPointerCapture(pointerId);
       else this.stage.releasePointerCapture(pointerId);
     } catch (err) {
-      /* 捕获失败不影响绘制 */
+      /* 忽略：捕获失败不影响绘制，见上面的说明 */
     }
   }
 

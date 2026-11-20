@@ -73,7 +73,7 @@ export class Net {
       try {
         this.ws.close();
       } catch (err) {
-        /* 本来就要丢掉这条连接 */
+        /* 忽略：本来就要丢掉这条连接 */
       }
       this.ws = null;
     }
@@ -147,6 +147,7 @@ export class Net {
       try {
         msg = JSON.parse(event.data);
       } catch (err) {
+        console.warn("net 收到的消息不是 JSON，丢掉", err);
         return;
       }
       this._receive(msg);
@@ -163,7 +164,7 @@ export class Net {
       try {
         ws.close();
       } catch (err) {
-        /* onclose 会接着处理 */
+        /* 忽略：onclose 会接着处理 */
       }
     };
   }
@@ -219,7 +220,7 @@ export class Net {
         try {
           this.ws.close();
         } catch (err) {
-          /* 同上 */
+          /* 忽略：onclose 会接着重连 */
         }
         return;
       }
@@ -238,6 +239,7 @@ export class Net {
       this.ws.send(JSON.stringify(msg));
       return true;
     } catch (err) {
+      console.warn(`net.send 发不出 ${msg && msg.t}`, err);
       return false;
     }
   }

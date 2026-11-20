@@ -120,9 +120,9 @@ export class PerfMonitor {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
         keepalive: true,
-      }).catch(() => {});
+      }).catch(() => {}); // 忽略：诊断数据丢一条无所谓，下一秒还有
     } catch (err) {
-      /* 上报失败无所谓 */
+      /* 忽略：同上 */
     }
   }
 

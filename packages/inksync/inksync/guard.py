@@ -35,7 +35,7 @@ def _split(netloc: str) -> Tuple[Optional[str], Optional[int]]:
     try:
         parts = urlsplit("//" + netloc)
         port = parts.port
-    except ValueError:
+    except ValueError:  # 忽略：Host 头是对方发来的，拆不开就返回 None，由调用方拒绝
         return None, None
     host = (parts.hostname or "").lower() or None
     return host, (None if port in _DEFAULT_PORTS else port)
@@ -46,7 +46,7 @@ def normalize_origin(origin: str) -> Optional[str]:
     try:
         parts = urlsplit(origin.strip())
         port = parts.port
-    except ValueError:
+    except ValueError:  # 忽略：Origin 是对方发来的，不合格式就返回 None，由调用方拒绝
         return None
     if not parts.scheme or not parts.hostname or parts.path not in ("", "/"):
         return None
@@ -74,7 +74,7 @@ def host_allowed(host: Optional[str], allowed_hosts: AllowedHosts = None) -> boo
     try:
         ipaddress.ip_address(name.split("%")[0])
         return True
-    except ValueError:
+    except ValueError:  # 忽略：不是 IP 地址，接着按主机名判断
         pass
     if name == "localhost" or name.endswith(".local") or name in own_hostnames():
         return True

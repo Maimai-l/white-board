@@ -61,7 +61,7 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 
 | job | 内容 | 机器 |
 | --- | --- | --- |
-| checks | ruff（只开语法错误、未定义名字这类真错误）+ CHANGELOG 和提交说明的检查 | ubuntu |
+| checks | ruff（只开语法错误、未定义名字这类真错误，以及吞掉异常的 S110、BLE001）+ CHANGELOG 和提交说明的检查 | ubuntu |
 | unit | `pytest tests --ignore=tests/e2e` | ubuntu |
 | e2e | `pytest tests/e2e`（Chromium） | ubuntu |
 | webkit | 主要流程用 WebKit 再跑一遍 | ubuntu |

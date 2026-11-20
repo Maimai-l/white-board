@@ -123,7 +123,7 @@ def stroke_box(stroke: Dict[str, Any]) -> Optional[Box]:
     ys = flat[1::3]
     try:
         r = max(0.3, float(stroke.get("w", 3.0)) / 2)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # 忽略：笔宽读进来时已经校验过，这里只给坏数据一个默认笔宽
         r = 1.5
     return (min(xs) - r, min(ys) - r, max(xs) + r, max(ys) + r)
 

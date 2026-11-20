@@ -528,7 +528,7 @@ class Hub:
         if runtime is not None and runtime.saving is not None:
             try:
                 await asyncio.wrap_future(runtime.saving)
-            except Exception:  # noqa: BLE001 - 保存失败也照样删
+            except Exception:  # noqa: BLE001, S110 - 忽略：保存失败已在 _save_done 里记过日志，照样删
                 pass
         self._runtimes.pop(board_id, None)
         self._retained.pop(board_id, None)
@@ -841,7 +841,7 @@ class Hub:
             if runtime.saving is not None:
                 try:
                     runtime.saving.result()
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001, S110 - 忽略：失败已在 _save_done 里记过日志，下面会重存
                     pass
             if not runtime.dirty or runtime.locked or board_id in self._deleted or board_id in self._transient:
                 continue
@@ -861,7 +861,7 @@ class Hub:
         for fut in pending:
             try:
                 await asyncio.wrap_future(fut)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S110 - 忽略：失败已在 _save_done 里记过日志，save_all 会重存
                 pass
         self.save_all()
         self.storage.flush()
@@ -898,7 +898,7 @@ class Hub:
             self._task.cancel()
             try:
                 await self._task
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # 忽略：刚刚自己取消的，等它真正停下
                 pass
             self._task = None
         await self.flush()

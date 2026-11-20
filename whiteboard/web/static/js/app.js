@@ -151,6 +151,7 @@ class App extends InkPad {
       if (sessionStorage.getItem("inksync.reloaded") === build) return; // 同一个版本只重新载入一次
       sessionStorage.setItem("inksync.reloaded", build);
     } catch (err) {
+      // 忽略：sessionStorage 用不了时记不住重新载入过没有，干脆不自动重新载入，免得反复刷新
       return;
     }
     const attempt = () => {
@@ -215,7 +216,8 @@ class App extends InkPad {
       const native = await api.info();
       this.ui.setInfo({ ...(this.ui.info || {}), ...native });
     } catch (err) {
-      /* 取不到就不显示版本号 */
+      // 取不到就不显示版本号
+      reportError("app.refreshNativeInfo 取不到本地信息", { message: String(err) });
     }
   }
 

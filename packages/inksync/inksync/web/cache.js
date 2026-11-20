@@ -53,7 +53,7 @@ export class Cache {
           this.db = await openDb(this.name);
           if (this.name === "inksync:") await this._migrate();
         } catch (err) {
-          this.db = null; // 隐私模式等环境下没有 IndexedDB，降级为不缓存
+          this.db = null; // 忽略：隐私模式等环境下没有 IndexedDB，降级为不缓存
         }
         return this.db;
       })();
@@ -73,6 +73,7 @@ export class Cache {
       if (!store) return null;
       return (await idbRequest(store.get(key))) ?? null;
     } catch (err) {
+      console.warn(`cache.get 读不出 ${key}`, err);
       return null;
     }
   }
@@ -84,6 +85,7 @@ export class Cache {
       await idbRequest(store.put(value, key));
       return true;
     } catch (err) {
+      console.warn(`cache.set 存不下 ${key}`, err);
       return false;
     }
   }
@@ -95,6 +97,7 @@ export class Cache {
       await idbRequest(store.delete(key));
       return true;
     } catch (err) {
+      console.warn(`cache.remove 删不掉 ${key}`, err);
       return false;
     }
   }
@@ -155,6 +158,7 @@ export class Cache {
     try {
       names = (await indexedDB.databases()).map((db) => db.name);
     } catch (err) {
+      console.warn("cache._migrate 列不出 IndexedDB 的库，下次再迁", err);
       return;
     }
     if (!names.includes(LEGACY_DB)) return;
@@ -162,6 +166,7 @@ export class Cache {
     try {
       legacy = await openDb(LEGACY_DB);
     } catch (err) {
+      console.warn("cache._migrate 打不开 1.0.x 的库，下次再迁", err);
       return;
     }
     try {
@@ -199,13 +204,14 @@ export class Cache {
           if (key.startsWith("whiteboard.view.")) localStorage.removeItem(key);
         }
       } catch (err) {
-        /* 读写不了 localStorage 就算了 */
+        /* 忽略：读写不了 localStorage 就留着旧的视图位置，不影响使用 */
       }
     } catch (err) {
+      console.warn("cache._migrate 迁移 1.0.x 的数据失败，保留旧库下次再试", err);
       try {
         legacy.close();
       } catch (closeErr) {
-        /* 已经关了 */
+        /* 忽略：已经关了 */
       }
     }
   }
@@ -223,6 +229,7 @@ export class Views {
     try {
       this.data = JSON.parse(localStorage.getItem(this.key) || "{}") || {};
     } catch (err) {
+      // 忽略：读不了或存的东西坏了，就当没记过视图位置
       this.data = {};
     }
     return this.data;
@@ -244,7 +251,7 @@ export class Views {
     try {
       localStorage.setItem(this.key, JSON.stringify(data));
     } catch (err) {
-      /* 存不下就算了，不影响使用 */
+      /* 忽略：存不下就算了，不影响使用 */
     }
   }
 }

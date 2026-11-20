@@ -229,8 +229,8 @@ def running_build() -> str:
         commit = run("git", "rev-parse", "--short", "HEAD")
         if branch and commit:
             return f"{branch}@{commit}"
-    except Exception:
-        pass
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.debug("server.running_build：读不到 git 信息，显示版本号：%s", exc)
     return __version__
 
 
@@ -400,7 +400,10 @@ def list_apps(config: Config) -> list:
     root = apps_dir(config)
     try:
         entries = sorted(root.iterdir())
-    except OSError:
+    except FileNotFoundError:  # 忽略：还没装过应用时没有 apps 文件夹
+        return []
+    except OSError as exc:
+        log.warning("server.list_apps：读不了 %s：%s", root, exc)
         return []
     return [
         entry.name

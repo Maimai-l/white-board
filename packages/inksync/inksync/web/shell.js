@@ -26,6 +26,7 @@ export function shellCommand(type) {
   try {
     handler.postMessage({ type });
   } catch (err) {
+    console.warn(`shellCommand 发不给外壳：${type}`, err);
     return false;
   }
   return true;
@@ -69,6 +70,7 @@ export function connectShell(app) {
   try {
     handler.postMessage({ type: "hello", bridge: SHELL_BRIDGE });
   } catch (err) {
+    console.warn("connectShell 外壳不接 hello，按不在外壳里处理", err);
     return false;
   }
   return true;

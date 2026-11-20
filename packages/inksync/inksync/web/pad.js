@@ -55,6 +55,7 @@ export function deviceClientId(storage = "inksync:") {
     localStorage.setItem(key, id);
     return id;
   } catch (err) {
+    // 忽略：localStorage 用不了时每次打开算一台新设备，只影响服务端日志里的设备名
     return uid(12);
   }
 }

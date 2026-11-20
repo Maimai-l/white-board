@@ -137,7 +137,8 @@ class _Index:
             for board_id, text, mtime in rows:
                 try:
                     out[board_id] = (json.loads(text), float(mtime))
-                except ValueError:
+                except ValueError as exc:
+                    log.warning("_Index.load：索引里白板 %s 的元数据读不出来，从文件重建：%s", board_id, exc)
                     continue
             return out
 
@@ -247,7 +248,8 @@ class FileStorage:
                 continue
             try:
                 on_disk[path.stem] = path.stat().st_mtime
-            except OSError:
+            except OSError as exc:
+                log.debug("FileStorage._open_index：%s 读不到修改时间（可能刚被删掉），跳过：%s", path.name, exc)
                 continue
 
         stale = [board_id for board_id in rows if board_id not in on_disk]
@@ -511,7 +513,8 @@ class FileStorage:
         try:
             if path.resolve().parent != self.boards_dir.resolve() or path.suffix != BOARD_SUFFIX:
                 return None
-        except OSError:
+        except OSError as exc:
+            log.debug("FileStorage.owns：%s 解析不了路径，当作不是本存储的文件：%s", path, exc)
             return None
         return path.stem if path.stem in self._metas else None
 
