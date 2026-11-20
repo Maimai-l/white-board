@@ -8,7 +8,8 @@ on:
   push:
     branches: [dev, "claude/**"]
     tags: ["v*"]
-  pull_request:
+  # 不监听 pull_request：PR 都来自本仓库的 claude/** 分支，push 那次运行已经覆盖，检查结果也显示在
+  # PR 上。两个事件都监听时，同一个提交跑两遍（并发组不同，互不取消），macOS 机器要排两份队
   workflow_dispatch:
     inputs:
       jobs:
@@ -169,49 +170,28 @@ jobs:
 
   # iPad 外壳（docs/ipad-shell.md 8.1 节）：不签名编译，ldid 伪签名，打成 IPA。
   # 版本号与 Mac 端相同；package 要把它放进应用里。
+  # 只改了 iPad 外壳、没有打包的时候单独编译；要打包时由 package 一起编译（省一次 macOS 排队）
   ipad:
     needs: plan
-    if: needs.plan.outputs.ipad == 'true'
+    if: needs.plan.outputs.ipad == 'true' && needs.plan.outputs.package != 'true'
     runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: 安装 XcodeGen 和 ldid
-        run: brew install xcodegen ldid
-      - name: 生成图标和工程
-        run: |
-          python3 ipad/make_icon.py
-          cd ipad && xcodegen generate
-      - name: 编译
-        run: |
-          xcodebuild \
-            -project ipad/WhiteboardShell.xcodeproj \
-            -target Whiteboard \
-            -configuration Release \
-            -sdk iphoneos \
-            SYMROOT="$PWD/ipad/build" \
-            MARKETING_VERSION="${{ needs.plan.outputs.marketing }}" \
-            CURRENT_PROJECT_VERSION="${{ needs.plan.outputs.build }}" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build
-      - name: 伪签名并打包 IPA
-        run: |
-          app=ipad/build/Release-iphoneos/Whiteboard.app
-          ldid -S "$app/Whiteboard"
-          mkdir -p ipa/Payload
-          cp -R "$app" ipa/Payload/
-          (cd ipa && zip -qry "../Whiteboard-${{ needs.plan.outputs.version }}-ipad.ipa" Payload)
-      - uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/ipad-shell
         with:
-          name: Whiteboard-ipad
-          path: Whiteboard-*-ipad.ipa
-          if-no-files-found: error
+          version: ${{ needs.plan.outputs.version }}
+          marketing: ${{ needs.plan.outputs.marketing }}
+          build: ${{ needs.plan.outputs.build }}
 
+  # 打包、带上同版本的 iPad 外壳、冒烟测试；不在 dev 也不是 tag 时接着演练发布。全在一台机器上：
+  # macOS 机器每排一次队要等 0、5 或 10 分钟（docs/backlog/004），串起来的 macOS job 越少越快
   package:
-    needs: [plan, ipad]
+    needs: plan
     if: needs.plan.outputs.package == 'true'
-    # 只出 Apple 芯片的包。macos-14 上的 job 一启动就被取消（2026-11-19 连续两次，没有日志），换成 macos-15
-    runs-on: macos-15
+    # 只出 Apple 芯片的包。macos-14 上的 job 一启动就被取消（2026-11-19 连续两次，没有日志）；
+    # macos-26 和 iPad 外壳要的 Xcode 一致，排队也最短
+    runs-on: macos-26
     timeout-minutes: 45
     env:
       VERSION: ${{ needs.plan.outputs.version }}
@@ -236,11 +216,13 @@ jobs:
         run: python packaging/make_icns.py packaging/whiteboard.icns
 
       # 每个版本的 Mac 应用都自带同版本的外壳，iPad 从这台 Mac 上安装和更新
-      - uses: actions/download-artifact@v4
+      - uses: ./.github/actions/ipad-shell
+        id: ipad
         with:
-          name: Whiteboard-ipad
-          path: packaging/ipad
-      - run: mv packaging/ipad/Whiteboard-*-ipad.ipa packaging/ipad/Whiteboard.ipa
+          version: ${{ needs.plan.outputs.version }}
+          marketing: ${{ needs.plan.outputs.marketing }}
+          build: ${{ needs.plan.outputs.build }}
+      - run: mkdir -p packaging/ipad && cp "${{ steps.ipad.outputs.ipa }}" packaging/ipad/Whiteboard.ipa
 
       - uses: actions/cache@v4
         with:
@@ -323,6 +305,17 @@ jobs:
           path: ${{ env.ZIP }}
           if-no-files-found: error
 
+      # 不在 dev 也不是 tag：演练发布，不发布任何东西（第 3.4 节）
+      - name: 演练：装 cryptography
+        if: needs.plan.outputs.publish == 'dry-run'
+        run: python -m pip install cryptography
+      - name: 演练：生成 appcast 和增量包，核对签名，应用增量包
+        if: needs.plan.outputs.publish == 'dry-run'
+        run: |
+          packaging/delta_dry_run.sh "$ZIP" build/sparkle "$RUNNER_TEMP/dry-run" | tee dry-run.log
+          echo "### 发布演练" >> "$GITHUB_STEP_SUMMARY"
+          grep -E "增量包可用|核对了" dry-run.log | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+
   # Edge / Chrome 插件（docs/sketch.md）：解压后在扩展页面「加载解压缩的扩展」
   extension:
     needs: plan
@@ -341,33 +334,6 @@ jobs:
           path: Whiteboard-sketch-extension-*.zip
           if-no-files-found: error
 
-  # 不在 dev 也不是 tag：演练发布，不发布任何东西（第 3.4 节）
-  updates-dry-run:
-    needs: [plan, package]
-    if: needs.plan.outputs.publish == 'dry-run' && needs.package.result == 'success'
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: Whiteboard-macos-arm64
-          path: dist
-      - uses: actions/cache@v4
-        with:
-          path: build/sparkle
-          key: sparkle-${{ hashFiles('packaging/fetch_sparkle.sh') }}
-      - run: packaging/fetch_sparkle.sh build/sparkle
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install cryptography
-      - name: 演练：生成 appcast 和增量包，核对签名，应用增量包
-        run: |
-          packaging/delta_dry_run.sh dist/Whiteboard-*-macos-arm64.zip build/sparkle "$RUNNER_TEMP/dry-run" | tee dry-run.log
-          echo "### 发布演练" >> "$GITHUB_STEP_SUMMARY"
-          grep -E "增量包可用|核对了" dry-run.log | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
-
   # dev → alpha，tag → stable：等所有检查都通过，再把 appcast 和更新包发布到 GitHub Pages
   updates:
     needs: [plan, checks, unit, e2e, webkit, js, inksync, ipad, package, extension]
@@ -377,7 +343,7 @@ jobs:
       && needs.package.result == 'success'
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     concurrency:
       group: pages-updates

@@ -407,12 +407,12 @@ InkProbe 四份会话的统计（只计 Pencil 的 80 笔，共 19139 个等待�
 
 ### 8.1 在 CI 中构建 IPA
 
-`.github/workflows/ci.yml` 的 `ipad`、`package` 和 `release` 任务构建 IPA，将其打包进 Mac 应用，并一同发布。`ipad/**` 有改动或需要打包 Mac 应用时，`plan` 任务会运行 `ipad`（见 docs/design/ci-and-updates.zh-CN.md）。
+`.github/workflows/ci.yml` 的 `ipad`、`package` 和 `release` 任务构建 IPA，将其打包进 Mac 应用，并一同发布。编译步骤在 `.github/actions/ipad-shell`。需要打包 Mac 应用时由 `package` 自己编译 IPA；单独的 `ipad` 任务只在 `ipad/**` 有改动、又不打包时运行（见 docs/design/ci-and-updates.zh-CN.md）。
 
 | 任务 | Runner | 步骤 |
 |---|---|---|
-| `ipad` | `macos-26` | 从 `plan` 取版本号；`brew install xcodegen ldid`；`python3 ipad/make_icon.py`；`xcodegen generate`；`xcodebuild -sdk iphoneos -configuration Release` 不签名编译；`ldid -S` 伪签名；把 `Payload/` 打包为 `Whiteboard-<版本>-ipad.ipa`；上传构建产物 `Whiteboard-ipad`。 |
-| `package` | `macos-15`（arm64），依赖 `ipad` | 把 IPA 下载到 `packaging/ipad/Whiteboard.ipa`；PyInstaller（`packaging/whiteboard.spec`）将其放入应用资源目录的 `whiteboard/ipad/Whiteboard.ipa`；用 `packaging/smoke_ipad.py` 做冒烟测试。 |
+| `ipad` | `macos-26`，只在不打包时 | 从 `plan` 取版本号；`brew install xcodegen ldid`；`python3 ipad/make_icon.py`；`xcodegen generate`；`xcodebuild -sdk iphoneos -configuration Release` 不签名编译；`ldid -S` 伪签名；把 `Payload/` 打包为 `Whiteboard-<版本>-ipad.ipa`；上传构建产物 `Whiteboard-ipad`。 |
+| `package` | `macos-26`（arm64） | 用同样的步骤编译 IPA，复制到 `packaging/ipad/Whiteboard.ipa`；PyInstaller（`packaging/whiteboard.spec`）将其放入应用资源目录的 `whiteboard/ipad/Whiteboard.ipa`；用 `packaging/smoke_ipad.py` 做冒烟测试。 |
 | `release` | `ubuntu-latest`，只在 tag 时运行，在更新发布之后 | 在 GitHub Release 中发布 Mac 的 zip 和 IPA。IPA 同时单独发布，用于首次安装。带 `-` 的 tag 发布为预发布版。 |
 
 版本号：

@@ -67,19 +67,20 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 | webkit | 主要流程用 WebKit 再跑一遍 | ubuntu |
 | js | `node --test tests/js` | ubuntu |
 | inksync | 单独安装 inksync 再测，确认它不依赖白板应用 | ubuntu |
-| ipad | 编译 iPad 外壳，打成 IPA | macos-26 |
-| package | PyInstaller 打包、放入 Sparkle、签名、冒烟测试、压缩 | macos-15 |
+| ipad | 编译 iPad 外壳，打成 IPA（只在不打包时单独跑） | macos-26 |
+| package | 编译 iPad 外壳、PyInstaller 打包、放入 Sparkle、签名、冒烟测试、压缩；其他分支接着演练发布 | macos-26 |
 | extension | 打包浏览器插件 | ubuntu |
-| publish | 生成 appcast 和增量包，发布到 GitHub Pages | macos-15 |
+| updates | 生成 appcast 和增量包，发布到 GitHub Pages（dev 和 tag） | macos-26 |
 | release | 发 GitHub Release（只有 tag） | ubuntu |
 
 ### 2.3 触发、并发和缓存
 
-- 触发：推送到 `dev` 和 `claude/**`、推 tag `v*`、PR、手动。`stable` 只接收已经在 dev 通过的提交，不再单独跑。
+- 触发：推送到 `dev` 和 `claude/**`、推 tag `v*`、手动。不监听 PR：PR 都来自本仓库的分支，push 那次运行已经覆盖，检查结果显示在 PR 上；两个都监听时同一个提交跑两遍，macOS 机器要排两份队。`stable` 只接收已经在 dev 通过的提交，不再单独跑。
 - 并发：同一个分支上新的推送会取消正在跑的那次（`cancel-in-progress`），tag 除外。发布到 Pages 的步骤用一个独立的并发组排队，不取消。
 - 缓存：Python 依赖用 `setup-python` 的 pip 缓存。测试依赖写在 `requirements-test.txt`，本地和 CI 用同一份。
 - 浏览器测试（e2e、webkit）在 `mcr.microsoft.com/playwright/python:v<版本>-noble` 容器里跑（`.github/actions/playwright`）：浏览器和系统依赖都在镜像里。GitHub 机器上 apt 只有 60–220 kB/s，WebKit 要装 126 MB 系统包，第一次运行时装不完。make 仍在机器上跑，`PY` 换成容器里的 python。镜像版本取自 `requirements-test.txt` 里固定的 `playwright==` 版本，升级只改那一行。
 - 共用的安装步骤放在 `.github/actions/setup-python-deps`，每个 job 只写自己跑什么。
+- macOS 机器：每排一次队要等 0、5 或 10 分钟，等满 15 分钟这个 job 就被取消（2026-11-19 前后 30 次运行的统计，docs/backlog/004）。所以串起来的 macOS job 越少越好：工作分支上只有 package 一个（iPad 外壳和发布演练都在里面，外壳的编译步骤在 `.github/actions/ipad-shell`，和单独的 ipad job 共用），dev 上是 package 加 updates。
 - 每个 job 都有 `timeout-minutes`：卡住的 job 最多占几十分钟，而不是默认的 6 小时。
 
 ### 2.4 结果要能直接看
@@ -136,7 +137,7 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 
 ### 3.4 演练（其他分支）
 
-在 `claude/**` 等分支上，publish 以演练模式运行，不发布任何东西：
+在 `claude/**` 等分支上，发布以演练模式运行，作为 package job 的最后几步，不发布任何东西：
 
 1. 生成一对临时密钥。
 2. 复制一份应用，改掉版本号和一个文件后重新签名，作为「下一个版本」。

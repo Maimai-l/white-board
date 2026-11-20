@@ -583,7 +583,7 @@ make plan FILES="whiteboard/app.py docs/sketch.md"   # 这些改动在 CI 里会
 | 推送到 `dev`，或 `v*` tag | 全部，然后发布更新（`alpha` 或 `stable`） |
 
 - 可以在提交说明里写 `[ci: e2e,webkit]` 或 `[ci: all]` 手动指定，也可以在手动运行时填写 `jobs`。
-- 其他分支演练更新发布（`updates-dry-run`）：用临时密钥生成增量包、核对签名，并把增量包应用到上一个构建上。
+- 其他分支在 `package` job 的最后演练更新发布：用临时密钥生成增量包、核对签名，并把增量包应用到上一个构建上。
 - 端到端测试失败时，每个打开的页面都会截图，上传为 `test-results-*` 产物。
 
 ## 不做的事
