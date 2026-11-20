@@ -91,7 +91,7 @@ def test_deselected_pages_are_left_out_of_the_pdf(browser, server):
     mac = board_with_groups(browser, server, [(550, 100), (550, 400), (550, 700)])
     open_dialog(mac, 3)
     mac.locator(CARDS).nth(1).click()
-    assert mac.locator(".export-count").inner_text() == "已选 2 页"
+    assert mac.locator(".export-count").inner_text() == "已选 2 页，共 3 页"
     name, body = download(mac, "导出 PDF")
     assert name.endswith(".pdf")
     assert pdf_pages(body) == 2
@@ -110,6 +110,7 @@ def test_deselected_pages_are_left_out_of_the_pdf(browser, server):
 def test_png_gives_one_image_for_one_page_and_a_zip_for_several(browser, server):
     mac = board_with_groups(browser, server, [(150, 200), (1000, 600)])
     open_dialog(mac, 2)
+    mac.select_option(".export-popup select", "a4")
     mac.click('.export-seg button:has-text("PNG")')
     assert mac.locator(".export-footer .primary").inner_text() == "导出图片"
     # 清晰度默认「高」（300 dpi），A4 横放就是 3508 × 2480
@@ -134,9 +135,9 @@ def test_changing_the_paper_fetches_new_pages(browser, server):
     mac = board_with_groups(browser, server, [(550, 400)])
     open_dialog(mac, 1)
     mac.click('.export-seg button:has-text("PNG")')
-    assert mac.locator(".export-popup > span").first.inner_text() == "A4，自动横竖"
+    assert mac.locator(".export-popup > span").first.inner_text() == "跟随内容"
     mac.select_option(".export-popup select", "letter")
-    assert mac.locator(".export-popup > span").first.inner_text() == "Letter，自动横竖"
+    assert mac.locator(".export-popup > span").first.inner_text() == "Letter"
     # Letter 是 8.5 × 11 英寸：300 dpi 下 2550 × 3300
     mac.wait_for_function(
         "() => ['每页 2550 × 3300 像素', '每页 3300 × 2550 像素']"
@@ -156,7 +157,7 @@ def test_current_page_selects_the_page_in_the_middle_of_the_view(browser, server
     )
     open_dialog(mac, 2)
     mac.click('.text-btn:has-text("当前页")')
-    assert mac.locator(".export-count").inner_text() == "已选 1 页"
+    assert mac.locator(".export-count").inner_text() == "已选 1 页，共 2 页"
     _, body = download(mac, "导出 PDF")
     assert pdf_pages(body) == 1
 

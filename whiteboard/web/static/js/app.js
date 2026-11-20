@@ -316,10 +316,14 @@ class App extends InkPad {
     this.renderer.requestFull();
   }
 
-  /** 调整页框时不落笔：在白板上按下拖动就是平移（input.js 对只读的处理）。 */
-  setExportAdjusting(on) {
+  /**
+   * 调整页框时不落笔（input.js 对只读的处理）。``claim`` 是调整视图接管单指拖动的
+   * 处理器（InputController.setClaim）：在白板上单指拖动拖出页框，两指和滚轮照旧平移缩放。
+   */
+  setExportAdjusting(on, claim = null) {
     this.exportAdjusting = !!on;
     this.ui.root.toggleAttribute("data-adjusting", this.exportAdjusting);
+    this.input.setClaim(this.exportAdjusting ? claim : null);
     this.updateReadOnly();
   }
 

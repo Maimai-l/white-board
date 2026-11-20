@@ -42,5 +42,16 @@ raw file，给你用来测试。」
 - `claude/export-v2-pages`：大白板改成从上往下按段分页（`pagination.flow_pages`），纸张多了
   `content`；去掉了旧的聚组分页。用户白板的笔画包围盒（没有笔迹内容）存成
   `tests/fixtures/layouts/long-notes.json`，分页结果固定成测试（7 页、每笔都在页内、不重叠）。
-- 下一步：对话框的设计稿（格式加「白板文件」、范围「分页 / 整块」、纸张「跟随内容」默认、
-  调整视图里清空页框和拖出新框），用户确认后再写界面。
+- 设计稿（ExportV2-Pages / Whole / File / Adjust / Range）用户确认过：格式加「白板文件」、
+  范围「分页 / 整块」、纸张「跟随内容」默认、所有白板加「页面」输入框、调整视图里清空页框和拖出新框。
+- `claude/export-v2-ui`：照设计稿做了对话框和调整视图。
+  - 页码输入框的读写是纯函数（`page-range.js`）；整块 PNG 的像素尺寸和服务端用同一个算法，
+    两边的数在 `tests/fixtures/png-sizes.json` 里对过（`export.png_size`）。
+  - 拖出页框：白板输入（inksync `InputController.setClaim`）把画布上的单指拖动交给调整视图，
+    Pencil（含外壳送来的笔）、鼠标左键、一根手指都算；第二根手指落下时这一下作废、变成双指平移；
+    滚轮、触控板、中键和空格拖动不变。
+  - 纸张跟随内容时，拖角缩放和拖出来的页框都不保持比例，纸跟着页框走（页框不带纸发给服务端，
+    由服务端按页框加留白配纸）；选了 A4 / Letter 时保持纸张比例。
+  - 文档板页多，缩略图改成两列小图（设计稿 Range）。
+  - 黑盒测试在 `tests/e2e/test_export_dialog_v2.py`，改动之前 11 条全部失败。
+- 下一步：真机上过发版检查表里新加的两条（Mac 上保存 `.wbz` 再双击打开；iPad 上手指和 Pencil 拖出页框）。

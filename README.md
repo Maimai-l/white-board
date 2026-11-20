@@ -353,15 +353,17 @@ The export icon in the top-right group (导出) opens the export dialog. It need
 
 | Part | Behaviour |
 | --- | --- |
-| Pages | Thumbnails of every page on the left. Tap a page to select or deselect it; 全选 selects all, 当前页 selects the page in the middle of the view. |
-| 格式 (Format) | PDF, or PNG. With PNG, one selected page gives one PNG file and several give a ZIP with one PNG per page, named in page order. |
-| 清晰度 (Resolution, PNG only) | 标准 150 dpi, 高 300 dpi (default), 最高 600 dpi. The line below shows the pixel size of a page. |
-| 纸张 (Paper) | A4 or Letter. Each page is turned to portrait or landscape to fit its content. |
-| 分页 (Pages) | Number of automatic pages, and 调整 to adjust them. |
+| Thumbnails | Thumbnails of every page on the left. Tap a page to select or deselect it; 全选 selects all, 当前页 selects the page in the middle of the view. |
+| 格式 (Format) | PDF, PNG, or 白板文件 (board file). With PNG, one selected page gives one PNG file and several give a ZIP with one PNG per page, named in page order. 白板文件 downloads the board's `.wbz` file unchanged; opening it in the app (double-click on the Mac) opens the same board. |
+| 范围 (Range, infinite and note boards) | 分页 exports pages; 整块 exports the whole board without pagination as one PDF page or one PNG, the size of all the ink plus a margin. |
+| 页面 (Pages) | 全部, or the pages typed in the field, such as `1-5、8、11-13` (separated by 、 , ; or spaces). The field and the thumbnails follow each other. A page number that does not exist shows a message under the field and disables the export button. |
+| 清晰度 (Resolution, PNG only) | 标准 150 dpi, 高 300 dpi (default), 最高 600 dpi. The line below shows the pixel size, lowered as the server does above 40 million pixels. |
+| 纸张 (Paper) | 跟随内容 (follow content, the default): each page's paper is its frame plus a margin, so the writing keeps its size. A4 or Letter: portrait sheets, with each frame scaled to fit. |
+| 分页 (Pagination) | Number of automatic pages, and 调整 to adjust them. |
 
 - One board unit prints as 1 pt, so a page shows the ink at the size seen at 100% zoom. PDF pages are vector and stay sharp at any zoom; PNG pages are rendered at the chosen resolution, however far the board is spread.
 - Automatic pages: an infinite board is read from top to bottom. Each page is as wide as the writing in that part of the board and is cut between lines where possible. A note board is cut by paper length, between lines where possible. A document board uses the pages of its original.
-- 调整 shows the page frames on the board: drag a frame to move it, drag a corner to resize it (the paper's proportions are kept), and use the delete button to remove it. 添加一页 adds a page in the middle of the view, 自动分页 restores the automatic pages, and 完成 returns to the dialog. The board can still be panned and zoomed; nothing is drawn while adjusting.
+- 调整 shows the page frames on the board: drag a frame to move it, drag a corner to resize it (with A4 or Letter the paper's proportions are kept), and use the delete button to remove it. Drag on the board outside the frames with one finger, the Pencil or the mouse to draw a new frame; with A4 or Letter it has the paper's proportions, portrait or landscape by the shape of the drag. 清空 removes all frames, 添加一页 adds a page in the middle of the view, 自动分页 restores the automatic pages, and 完成 returns to the dialog. Two fingers, the scroll wheel and the trackpad still pan and zoom the board; nothing is drawn while adjusting.
 - In the Mac window the file is saved through the save dialog; elsewhere it is downloaded (the iPad shell opens the share sheet).
 
 ## Permissions for other devices

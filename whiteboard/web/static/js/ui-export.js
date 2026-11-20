@@ -1,8 +1,8 @@
-// 导出对话框和调整页框的视图（docs/backlog/001-export-redesign.md）。
+// 导出对话框和调整页框的视图（docs/backlog/001-export-redesign.md、010-export-v2.md）。
 //
-// 分页和出文件都在服务端（POST /api/export/{board}，见 docs/protocol.md「分页导出」）；
-// 这里只管：取自动页框、在本机画缩略图、选页、选格式和清晰度、调整页框，最后把
-// 页框和选中的页交给服务端。
+// 分页和出文件都在服务端（POST /api/export/{board}，见 docs/protocol.md「Paged export」）；
+// 这里只管：取自动页框、在本机画缩略图、选页（缩略图和页码输入框）、选格式（PDF、
+// PNG、白板文件）、范围（分页或整块）和清晰度、调整页框，最后把页框和选中的页交给服务端。
 //
 // ``host`` 是白板应用（app.js 的 App）：用它的 state / viewport 画缩略图和页框，
 // 用它的 ui 弹提示，用 host.native() 判断是不是 Mac 窗口（那边走原生的保存对话框）。
@@ -12,28 +12,35 @@ import { icon } from "./icons.js";
 import {
   PAPERS,
   currentPage,
+  drawnFrame,
   exportRequest,
   filenameOf,
   frameAt,
   pixelSize,
   placement,
+  rawName,
   resizeFrame,
 } from "./export-pages.js";
+import { formatPages, parsePages } from "./page-range.js";
 import { downloadURL } from "/inksync/exporter.js";
 import { Renderer } from "/inksync/renderer.js";
 import { reportError } from "/inksync/report.js";
 import { el } from "/inksync/util.js";
 
 const THUMB_WIDTH = 200;
+// 文档板页多：缩略图小一些，排两列
+const GRID_THUMB_WIDTH = 98;
+// 整块白板的预览最大多大（CSS 像素）
+const WHOLE_BOX = [200, 330];
 const DPI = [
   ["标准", 150],
   ["高", 300],
   ["最高", 600],
 ];
-const PAPER_LABELS = { a4: "A4，自动横竖", letter: "Letter，自动横竖" };
-const PAPER_NAMES = { a4: "A4", letter: "Letter" };
+const PAPER_NAMES = { content: "跟随内容", a4: "A4", letter: "Letter" };
 // 文档板的页图按这一档取，和白板上显示的档位共用缓存（layers.js 的 BUCKETS）
 const DOC_THUMB_BUCKET = 640;
+const FILE_ICON = `<svg width="72" height="88" viewBox="0 0 72 88" aria-hidden="true"><path d="M8 4h38l18 18v58a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4z" fill="#ffffff" stroke="rgba(60,60,67,.3)" stroke-width="1.5"/><path d="M46 4v14a4 4 0 0 0 4 4h14" fill="none" stroke="rgba(60,60,67,.3)" stroke-width="1.5"/><path d="M16 46c6-8 10 6 16-2s10-6 14 0 6 4 10-2" fill="none" stroke="#1c1c1e" stroke-width="2.2" stroke-linecap="round"/><path d="M16 58c8-4 14 4 22 0s10-2 16 2" fill="none" stroke="#1c1c1e" stroke-width="2.2" stroke-linecap="round"/></svg>`;
 
 let nextKey = 1;
 
@@ -48,10 +55,18 @@ export class ExportDialog {
     this.boardId = host.state.id;
     this.isDoc = !!docOf(host.state.meta);
     this.format = "pdf";
+    // 范围：分页或整块（文档板只有分页）
+    this.range = "pages";
     this.dpi = 300;
-    this.paper = "a4";
+    // 大白板和笔记默认纸张跟随内容；文档板用原件的页，纸张不用选
+    this.paper = this.isDoc ? "a4" : "content";
     this.pages = [];
+    this.whole = null;
     this.selected = new Set();
+    // 「页面」那一栏：全部，或者输入框里写的页码（和缩略图的选中双向同步）
+    this.pageMode = "all";
+    this.pageText = "";
+    this.pageError = null;
     this.adjusted = false;
     this.images = new Map();
     this.build();
@@ -67,16 +82,39 @@ export class ExportDialog {
       el("button", { class: "text-btn", text: "全选", onclick: () => this.selectAll() }),
       el("button", { class: "text-btn", text: "当前页", onclick: () => this.selectCurrent() }),
     ]);
-    this.cards = el("div", { class: "export-cards" });
-    const pagesColumn = el("div", { class: "export-pages" }, [head, this.cards]);
+    this.cards = el("div", { class: `export-cards${this.isDoc ? " is-grid" : ""}` });
+    this.pagesPanel = el("div", { class: "export-pages" }, [head, this.cards]);
+
+    this.wholeCanvas = el("canvas", { class: "export-canvas" });
+    this.wholeThumb = el("div", { class: "export-whole-thumb" }, [this.wholeCanvas]);
+    this.wholePanel = el("div", { class: "export-panel export-whole" }, [
+      this.wholeThumb,
+      el("span", { class: "export-whole-caption", text: "整块白板" }),
+    ]);
+
+    const meta = this.host.state.meta;
+    this.filePanel = el("div", { class: "export-panel export-file" }, [
+      el("span", { class: "export-file-icon", html: FILE_ICON }),
+      el("span", { class: "export-file-name", text: rawName(meta && meta.name) }),
+    ]);
 
     this.formatSeg = segmented(
-      [["PDF", "pdf"], ["PNG", "png"]],
+      [["PDF", "pdf"], ["PNG", "png"], ["白板文件", "wbz"]],
       () => this.format,
       (value) => {
         this.format = value;
         this.refresh();
       },
+      "格式",
+    );
+    this.rangeSeg = segmented(
+      [["分页", "pages"], ["整块", "whole"]],
+      () => this.range,
+      (value) => {
+        this.range = value;
+        this.refresh();
+      },
+      "范围",
     );
     this.dpiSeg = segmented(
       DPI,
@@ -85,21 +123,39 @@ export class ExportDialog {
         this.dpi = value;
         this.refresh();
       },
+      "清晰度",
     );
     this.pixels = el("div", { class: "export-hint" });
-    this.dpiRow = [
-      el("span", { class: "export-label", text: "清晰度" }),
-      el("div", { class: "export-stack" }, [this.dpiSeg.node, this.pixels]),
-    ];
 
-    this.paperLabel = el("span", { text: PAPER_LABELS[this.paper] });
-    const select = el("select", { "aria-label": "纸张" }, Object.keys(PAPERS).map(
+    const group = `export-pages-${nextKey++}`;
+    this.allRadio = el("input", { type: "radio", name: group, value: "all" });
+    this.customRadio = el("input", { type: "radio", name: group, value: "custom" });
+    this.allRadio.addEventListener("change", () => this.setPageMode("all"));
+    this.customRadio.addEventListener("change", () => this.setPageMode("custom"));
+    this.pageField = el("input", {
+      type: "text",
+      class: "export-range-field",
+      "aria-label": "页码",
+      placeholder: this.isDoc ? "例如 1-5、8、11-13" : "例如 1-3、5",
+      autocomplete: "off",
+      spellcheck: "false",
+    });
+    this.pageField.addEventListener("input", () => this.typePages(this.pageField.value));
+    this.pageErrorLine = el("div", { class: "export-range-error", role: "alert" });
+    const pageControl = el("div", { class: "export-range", role: "radiogroup", "aria-label": "页面" }, [
+      el("label", { class: "export-radio" }, [this.allRadio, el("span", { text: "全部" })]),
+      el("label", { class: "export-radio" }, [this.customRadio, this.pageField]),
+      this.pageErrorLine,
+    ]);
+
+    this.paperLabel = el("span", { text: PAPER_NAMES[this.paper] });
+    const select = el("select", { "aria-label": "纸张" }, Object.keys(PAPER_NAMES).map(
       (key) => el("option", { value: key, text: PAPER_NAMES[key] }),
     ));
     select.value = this.paper;
     select.addEventListener("change", () => {
       this.paper = select.value;
-      this.paperLabel.textContent = PAPER_LABELS[this.paper];
+      this.paperLabel.textContent = PAPER_NAMES[this.paper];
       this.loadAuto();
     });
     const paperButton = el("div", { class: "export-popup" }, [
@@ -107,18 +163,27 @@ export class ExportDialog {
       el("span", { class: "chevron", html: chevron() }),
       select,
     ]);
-    this.paperRow = [el("span", { class: "export-label", text: "纸张" }), paperButton];
 
     this.pagingText = el("span");
-    this.pagingRow = [
-      el("span", { class: "export-label", text: "分页" }),
-      el("div", { class: "export-paging" }, [
-        this.pagingText,
-        el("button", { class: "pill-btn", text: "调整", onclick: () => this.adjust() }),
-      ]),
-    ];
+    const paging = el("div", { class: "export-paging" }, [
+      this.pagingText,
+      el("button", { class: "pill-btn", text: "调整", onclick: () => this.adjust() }),
+    ]);
 
-    this.options = el("div", { class: "export-options" });
+    // 每一行是 [标签, 控件]，只建一次，按选择显示或隐藏：输入框打字时不能被摘下来
+    // 重新插进去（那样会丢焦点）
+    const label = (text) => el("span", { class: "export-label", text });
+    const note = el("div", { class: "export-note", text: "原样保存这块白板，拖回白板应用就能打开" });
+    this.rows = {
+      format: [label("格式"), this.formatSeg.node],
+      note: [el("span"), note],
+      range: this.isDoc ? null : [label("范围"), this.rangeSeg.node],
+      pages: [label("页面"), pageControl],
+      dpi: [label("清晰度"), el("div", { class: "export-stack" }, [this.dpiSeg.node, this.pixels])],
+      paper: this.isDoc ? null : [label("纸张"), paperButton],
+      paging: this.isDoc ? null : [label("分页"), paging],
+    };
+    this.options = el("div", { class: "export-options" }, Object.values(this.rows).filter(Boolean).flat());
 
     this.primary = el("button", { class: "pill-btn primary", onclick: () => this.export() });
     const footer = el("div", { class: "export-footer" }, [
@@ -128,7 +193,7 @@ export class ExportDialog {
 
     this.dialog = el("div", { class: "export-dialog", role: "dialog", "aria-label": "导出" }, [
       el("h2", { class: "export-title", text: "导出" }),
-      el("div", { class: "export-body" }, [pagesColumn, this.options]),
+      el("div", { class: "export-body" }, [this.pagesPanel, this.wholePanel, this.filePanel, this.options]),
       footer,
     ]);
     this.dialog.addEventListener("click", (event) => event.stopPropagation());
@@ -164,23 +229,35 @@ export class ExportDialog {
       return;
     }
     if (this.closed || paper !== this.paper) return;
+    this.whole = payload.whole || null;
+    this.wholeDrawn = null;
     this.setPages(payload.pages, false);
   }
 
-  setPages(pages, adjusted) {
+  /** 换了一组页。``fromAdjust``：从调整视图回来，页框还是原来那些（按 key 认）。 */
+  setPages(pages, adjusted, fromAdjust = false) {
     const before = new Map(this.pages.map((page) => [page.key, this.selected.has(page.key)]));
     this.pages = pages.map((page) => (page.key ? page : withKey(page)));
-    // 原来就有的页保留选中与否，新出现的页默认选中
-    this.selected = new Set(
-      this.pages.filter((page) => before.get(page.key) !== false).map((page) => page.key),
-    );
     this.adjusted = adjusted;
+    if (this.pageMode === "all") {
+      this.selected = new Set(this.pages.map((page) => page.key));
+    } else if (fromAdjust) {
+      // 原来就有的页保留选中与否，新出现的页默认选中；输入框跟着改写
+      this.selected = new Set(
+        this.pages.filter((page) => before.get(page.key) !== false).map((page) => page.key),
+      );
+      this.writePageText();
+    } else {
+      // 换了纸张，页全换了：按输入框里的页码重新选
+      this.applyPageText();
+    }
     this.renderCards();
     this.refresh();
   }
 
   selectAll() {
     this.selected = new Set(this.pages.map((page) => page.key));
+    this.pageMode = "all";
     this.syncCards();
     this.refresh();
   }
@@ -189,6 +266,8 @@ export class ExportDialog {
     const [cx, cy] = this.host.viewCenter();
     const index = currentPage(this.pages, cx, cy);
     this.selected = new Set(index >= 0 ? [this.pages[index].key] : []);
+    this.pageMode = "custom";
+    this.writePageText();
     this.syncCards();
     this.refresh();
   }
@@ -196,8 +275,53 @@ export class ExportDialog {
   toggle(key) {
     if (this.selected.has(key)) this.selected.delete(key);
     else this.selected.add(key);
+    this.pageMode = "custom";
+    this.writePageText();
     this.syncCards();
     this.refresh();
+  }
+
+  /** 输入框里敲了字：立刻按页码选，单选按钮换到自定义。 */
+  typePages(text) {
+    this.pageText = text;
+    this.pageMode = "custom";
+    this.applyPageText();
+    this.syncCards();
+    this.refresh();
+  }
+
+  setPageMode(mode) {
+    this.pageMode = mode;
+    if (mode === "all") {
+      this.selected = new Set(this.pages.map((page) => page.key));
+    } else if (this.pageText.trim()) {
+      this.applyPageText();
+    } else {
+      this.writePageText();
+    }
+    this.syncCards();
+    this.refresh();
+  }
+
+  /**
+   * 按输入框里的页码选页。写得不对时输入框下面说哪里不对、导出按钮变灰，缩略图留着
+   * 上一次写对时的选择（边打字边看，「1-」这样打到一半时缩略图不会全灭再亮）。
+   */
+  applyPageText() {
+    const { pages, error } = parsePages(this.pageText, this.pages.length);
+    this.pageError = error;
+    if (error) {
+      const keys = new Set(this.pages.map((page) => page.key));
+      this.selected = new Set([...this.selected].filter((key) => keys.has(key)));
+      return;
+    }
+    this.selected = new Set(pages.map((index) => this.pages[index].key));
+  }
+
+  /** 把选中的页写回输入框（紧凑的写法，例如 1-3、8）。 */
+  writePageText() {
+    this.pageText = formatPages(this.selectedIndices());
+    this.pageError = null;
   }
 
   selectedIndices() {
@@ -207,21 +331,28 @@ export class ExportDialog {
   renderCards() {
     this.cards.textContent = "";
     this.cardNodes = new Map();
+    const width = this.isDoc ? GRID_THUMB_WIDTH : THUMB_WIDTH;
     this.pages.forEach((page, index) => {
       const [pw, ph] = page.paper;
-      const height = Math.round((THUMB_WIDTH * ph) / pw);
+      const height = Math.round((width * ph) / pw);
       const canvas = el("canvas", { class: "export-canvas" });
-      const thumb = el("div", { class: "export-thumb", style: { width: `${THUMB_WIDTH}px`, height: `${height}px` } }, [
+      const thumb = el("div", { class: "export-thumb", style: { width: `${width}px`, height: `${height}px` } }, [
         canvas,
       ]);
       const check = el("span", { class: "export-check", html: icon("check", 14) });
+      const caption = this.isDoc ? String(index + 1) : `第 ${index + 1} 页`;
       const card = el(
         "button",
-        { class: "export-card", "data-page": String(index + 1), onclick: () => this.toggle(page.key) },
-        [el("div", { class: "export-thumb-wrap" }, [thumb, check]), el("span", { class: "export-caption", text: `第 ${index + 1} 页` })],
+        {
+          class: "export-card",
+          "data-page": String(index + 1),
+          "aria-label": `第 ${index + 1} 页`,
+          onclick: () => this.toggle(page.key),
+        },
+        [el("div", { class: "export-thumb-wrap" }, [thumb, check]), el("span", { class: "export-caption", text: caption })],
       );
       this.cards.append(card);
-      this.cardNodes.set(page.key, { card, canvas, page, height });
+      this.cardNodes.set(page.key, { card, canvas, page, width, height });
     });
     this.syncCards();
     this.drawThumbs();
@@ -253,9 +384,9 @@ export class ExportDialog {
     requestAnimationFrame(step);
   }
 
-  async drawThumb({ canvas, page, height }) {
+  async drawThumb({ canvas, page, width: cssWidth, height }) {
     const ratio = Math.min(2, window.devicePixelRatio || 1);
-    const width = Math.round(THUMB_WIDTH * ratio);
+    const width = Math.round(cssWidth * ratio);
     canvas.width = width;
     canvas.height = Math.round(height * ratio);
     const ctx = canvas.getContext("2d");
@@ -267,6 +398,21 @@ export class ExportDialog {
     const area = { x0: page.x, y0: page.y, x1: page.x + page.w, y1: page.y + page.h };
     const content = Renderer.renderToCanvas(this.host.state, { scale: scale * k, bounds: area, images });
     ctx.drawImage(content, left * k, top * k, page.w * scale * k, page.h * scale * k);
+  }
+
+  /** 整块白板的预览：按纸张的比例缩进 WHOLE_BOX，和页的缩略图同一个画法。 */
+  drawWhole() {
+    const page = this.whole;
+    if (!page || this.wholeDrawn === page) return;
+    this.wholeDrawn = page;
+    const [pw, ph] = page.paper;
+    const k = Math.min(WHOLE_BOX[0] / pw, WHOLE_BOX[1] / ph);
+    const width = Math.max(1, Math.round(pw * k));
+    const height = Math.max(1, Math.round(ph * k));
+    Object.assign(this.wholeThumb.style, { width: `${width}px`, height: `${height}px` });
+    this.drawThumb({ canvas: this.wholeCanvas, page, width, height }).catch((err) => {
+      reportError("整块白板的预览画不出来", { message: String(err) });
+    });
   }
 
   /** 文档板：只把落在这一页里的页图载进来，其余位置留 null（renderToCanvas 跳过）。 */
@@ -298,32 +444,72 @@ export class ExportDialog {
 
   // ---------------------------------------------------------- 右边那一栏
 
+  /** 现在导出的是什么：白板文件（file）、整块一页（whole），还是选中的页（pages）。 */
+  mode() {
+    if (this.format === "wbz") return "file";
+    if (!this.isDoc && this.range === "whole") return "whole";
+    return "pages";
+  }
+
   refresh() {
+    const mode = this.mode();
+    const paged = mode === "pages";
     const count = this.selected.size;
-    this.count.textContent = `已选 ${count} 页`;
+    const total = this.pages.length;
+    this.count.textContent = count === total ? `已选 ${count} 页` : `已选 ${count} 页，共 ${total} 页`;
     this.formatSeg.sync();
+    this.rangeSeg.sync();
     this.dpiSeg.sync();
-    const rows = [[el("span", { class: "export-label", text: "格式" }), this.formatSeg.node]];
-    if (this.format === "png") {
-      rows.push(this.dpiRow);
-      const first = this.pages.find((page) => this.selected.has(page.key));
-      if (first) {
-        const [w, h] = pixelSize(first, this.dpi);
-        this.pixels.textContent = `每页 ${w} × ${h} 像素`;
-      } else {
-        this.pixels.textContent = "";
-      }
+
+    this.pagesPanel.hidden = !paged;
+    this.wholePanel.hidden = mode !== "whole";
+    this.filePanel.hidden = mode !== "file";
+    if (mode === "whole") this.drawWhole();
+
+    const shown = {
+      note: mode === "file",
+      range: mode !== "file",
+      pages: paged,
+      dpi: mode !== "file" && this.format === "png",
+      paper: paged,
+      paging: paged,
+    };
+    for (const [name, on] of Object.entries(shown)) {
+      for (const node of this.rows[name] || []) node.hidden = !on;
     }
+
+    this.allRadio.checked = this.pageMode === "all";
+    this.customRadio.checked = this.pageMode === "custom";
+    if (this.pageField.value !== this.pageText) this.pageField.value = this.pageText;
+    const error = this.pageMode === "custom" ? this.pageError : null;
+    this.pageErrorLine.textContent = error || "";
+    this.pageErrorLine.hidden = !error;
+    this.pageField.toggleAttribute("aria-invalid", !!error);
+
+    this.pixels.textContent = this.format === "png" ? this.pixelHint(mode) : "";
     if (!this.isDoc) {
-      rows.push(this.paperRow);
       this.pagingText.textContent = this.adjusted
         ? `手动调整过，${this.pages.length} 页`
         : `自动分成 ${this.pages.length} 页`;
-      rows.push(this.pagingRow);
     }
-    this.options.replaceChildren(...rows.flat());
-    this.primary.textContent = this.format === "pdf" ? "导出 PDF" : "导出图片";
-    this.primary.toggleAttribute("disabled", count === 0 || !!this.busy);
+
+    this.primary.textContent = { pdf: "导出 PDF", png: "导出图片", wbz: "导出白板文件" }[this.format];
+    const blocked = paged && (count === 0 || !!error);
+    this.primary.toggleAttribute("disabled", blocked || !!this.busy);
+  }
+
+  /** PNG 的像素尺寸，和服务端同一个算法（含像素上限）。纸张跟随内容时各页不一样大，说最大的一页。 */
+  pixelHint(mode) {
+    if (mode === "whole") {
+      if (!this.whole) return "";
+      const [w, h] = pixelSize(this.whole, this.dpi);
+      return `1 张图片，${w} × ${h} 像素`;
+    }
+    const sizes = this.pages.filter((page) => this.selected.has(page.key)).map((page) => pixelSize(page, this.dpi));
+    if (!sizes.length) return "";
+    const [w, h] = sizes.reduce((big, size) => (size[0] * size[1] > big[0] * big[1] ? size : big));
+    const same = sizes.every(([sw, sh]) => sw === sizes[0][0] && sh === sizes[0][1]);
+    return same ? `每页 ${w} × ${h} 像素` : `最大一页 ${w} × ${h} 像素`;
   }
 
   // ---------------------------------------------------------- 调整页框
@@ -331,7 +517,7 @@ export class ExportDialog {
   adjust() {
     this.scrim.hidden = true;
     this.adjustView = new AdjustView(this.host, this.pages.map((page) => ({ ...page })), {
-      paper: PAPERS[this.paper],
+      paper: this.paper === "content" ? null : PAPERS[this.paper],
       auto: async () => {
         const response = await fetch(
           `/api/export/${encodeURIComponent(this.boardId)}/pages?paper=${this.paper}`,
@@ -343,7 +529,7 @@ export class ExportDialog {
         this.adjustView = null;
         this.scrim.hidden = false;
         // 在调整视图里点过「自动分页」就从自动的结果算起，之后再动过才算手动调整
-        this.setPages(frames, changed || (!reset && this.adjusted));
+        this.setPages(frames, changed || (!reset && this.adjusted), true);
       },
     });
   }
@@ -351,12 +537,15 @@ export class ExportDialog {
   // ---------------------------------------------------------- 导出
 
   async export() {
-    const select = this.selectedIndices();
-    if (!select.length || this.busy) return;
+    if (this.busy || this.primary.disabled) return;
+    const mode = this.mode();
+    let frames = this.pages;
+    if (mode === "whole") frames = "whole";
+    else if (this.isDoc) frames = null;
     const body = exportRequest({
       format: this.format,
-      frames: this.isDoc ? null : this.pages,
-      selected: select,
+      frames,
+      selected: this.selectedIndices(),
       paper: this.paper,
       dpi: this.dpi,
     });
@@ -402,8 +591,8 @@ export class ExportDialog {
 }
 
 /** 分段控件：``items`` 是 [文字, 值]，``current()`` 取当前值，``pick(值)`` 改值。 */
-function segmented(items, current, pick) {
-  const node = el("div", { class: "seg export-seg", role: "radiogroup" });
+function segmented(items, current, pick, label) {
+  const node = el("div", { class: "seg export-seg", role: "radiogroup", "aria-label": label });
   const buttons = items.map(([label, value]) =>
     el("button", { role: "radio", text: label, "data-value": String(value), onclick: () => pick(value) }),
   );
@@ -426,11 +615,16 @@ function chevron() {
 // ============================================================ 调整页框
 
 const CORNERS = ["nw", "ne", "sw", "se"];
+// 在白板上拖出页框：拖动不到这么远（屏幕像素）当成点了一下
+const DRAW_MIN = 8;
 
 /**
  * 调整页框：对话框藏起来，白板上画出每一页的框。点一下选中，拖框内移动，拖四个角
- * 等比缩放，右上角的按钮删掉这一页。白板照常平移缩放（这期间不落笔，见 app.js 的
- * updateReadOnly）。
+ * 缩放（选了纸张时保持比例），右上角的按钮删掉这一页。在白板空白处单指拖动拖出一个
+ * 新页框（见 drawHandler）；两指、滚轮和触控板照常平移缩放。这期间不落笔（见 app.js
+ * 的 setExportAdjusting / updateReadOnly）。
+ *
+ * ``paper`` 是选中的纸张 [宽, 高]（pt），纸张跟随内容时为 null。
  */
 class AdjustView {
   constructor(host, frames, { paper, auto, done }) {
@@ -456,8 +650,10 @@ class AdjustView {
       );
       this.savedView = host.showExportArea(bounds);
     }
+    // 正在拖出的页框：{start: 白板坐标, from / last: 屏幕坐标, active: 拖得够远了}
+    this.draft = null;
     this.build();
-    host.setExportAdjusting(true);
+    host.setExportAdjusting(true, this.drawHandler());
     this.tick = this.tick.bind(this);
     this.raf = requestAnimationFrame(this.tick);
   }
@@ -483,17 +679,20 @@ class AdjustView {
     this.svg = svg;
     this.frameLayer = el("div", { class: "export-frames" });
     this.bar = el("div", { class: "pill export-bar" }, [
+      el("button", { class: "bar-btn", text: "清空", onclick: () => this.clear() }),
       el("button", { class: "bar-btn", text: "自动分页", onclick: () => this.reauto() }),
       el("button", { class: "bar-btn", text: "添加一页", onclick: () => this.addPage() }),
       el("div", { class: "sep" }),
       el("button", { class: "bar-btn primary", text: "完成", onclick: () => this.finish() }),
     ]);
-    this.layer = el("div", { class: "export-adjust" }, [this.veil, this.frameLayer, this.bar]);
+    this.hint = el("div", { class: "export-adjust-hint", text: "在白板上拖出页框，双指移动白板" });
+    this.layer = el("div", { class: "export-adjust" }, [this.veil, this.frameLayer, this.bar, this.hint]);
     this.host.ui.root.append(this.layer);
     this.renderFrames();
   }
 
   destroy() {
+    this.destroyed = true;
     cancelAnimationFrame(this.raf);
     this.layer.remove();
     this.host.setExportAdjusting(false);
@@ -517,6 +716,66 @@ class AdjustView {
     this.reset = true;
     this.selectedKey = null;
     this.renderFrames();
+  }
+
+  clear() {
+    this.frames = [];
+    this.selectedKey = null;
+    this.changed = true;
+    this.renderFrames();
+  }
+
+  /**
+   * 交给白板输入（InputController.setClaim）的处理器：白板空白处的单指拖动从按下的点
+   * 拖出一个页框，松开就加上；拖得太短当成点了一下，取消选中。页框和按钮条自己接
+   * 指针事件，按在它们上面不会走到这里。
+   */
+  drawHandler() {
+    const screen = (event) => [event.clientX, event.clientY];
+    return {
+      down: (event) => {
+        this.draft = { start: this.host.toWorld(event.clientX, event.clientY), from: screen(event), last: screen(event), active: false };
+        return true;
+      },
+      move: (event) => {
+        const draft = this.draft;
+        if (!draft) return;
+        draft.last = screen(event);
+        if (!draft.active && Math.hypot(draft.last[0] - draft.from[0], draft.last[1] - draft.from[1]) >= DRAW_MIN) {
+          draft.active = true;
+          this.selectedKey = null;
+          this.renderFrames();
+          return;
+        }
+        if (draft.active) this.layout();
+      },
+      end: (event) => {
+        const draft = this.draft;
+        this.draft = null;
+        if (!draft || this.destroyed) return;
+        if (event) draft.last = screen(event);
+        if (draft.active) {
+          const frame = withKey(this.draftFrame(draft));
+          this.frames.push(frame);
+          this.selectedKey = frame.key;
+          this.changed = true;
+        } else {
+          this.selectedKey = null;
+        }
+        this.renderFrames();
+      },
+      cancel: () => {
+        const active = this.draft && this.draft.active;
+        this.draft = null;
+        if (active && !this.destroyed) this.renderFrames();
+      },
+    };
+  }
+
+  /** 正在拖出的页框（白板坐标）：起点固定在白板上，终点按现在的视口换算。 */
+  draftFrame(draft) {
+    const [x, y] = this.host.toWorld(draft.last[0], draft.last[1]);
+    return drawnFrame(draft.start[0], draft.start[1], x, y, this.paper);
   }
 
   addPage() {
@@ -559,6 +818,14 @@ class AdjustView {
       this.frameLayer.append(node);
       this.nodes.set(frame.key, node);
     });
+    this.draftNode = null;
+    if (this.draft && this.draft.active) {
+      this.draftNode = el("div", { class: "export-frame is-drawing", "aria-label": "正在拖出的页框" }, [
+        el("span", { class: "export-badge", text: String(this.frames.length + 1) }),
+      ]);
+      this.frameLayer.append(this.draftNode);
+    }
+    this.hint.hidden = this.frames.length > 0;
     this.lastView = null;
     this.layout();
   }
@@ -577,11 +844,12 @@ class AdjustView {
     const [w, h] = this.host.viewSize();
     this.lastView = `${viewport.scale} ${viewport.x} ${viewport.y} ${w} ${h}`;
     const holes = [];
-    for (const frame of this.frames) {
+    const placed = this.frames.map((frame) => [frame, this.nodes.get(frame.key)]);
+    if (this.draftNode && this.draft) placed.push([this.draftFrame(this.draft), this.draftNode]);
+    for (const [frame, node] of placed) {
       const [sx, sy] = viewport.toScreen(frame.x, frame.y);
       const sw = frame.w * viewport.scale;
       const sh = frame.h * viewport.scale;
-      const node = this.nodes.get(frame.key);
       if (node) {
         Object.assign(node.style, { left: `${sx}px`, top: `${sy}px`, width: `${sw}px`, height: `${sh}px` });
       }
@@ -619,10 +887,10 @@ class AdjustView {
       const [wx, wy] = this.host.toWorld(moveEvent.clientX, moveEvent.clientY);
       let next;
       if (mode === "move") next = { ...start, x: start.x + wx - x0, y: start.y + wy - y0 };
-      else next = resizeFrame(start, mode, wx, wy);
+      else next = resizeFrame(start, mode, wx, wy, this.paper);
       const index = this.frames.findIndex((item) => item.key === frame.key);
       if (index < 0) return;
-      this.frames[index] = { ...this.frames[index], x: next.x, y: next.y, w: next.w, h: next.h };
+      this.frames[index] = { ...next, key: frame.key };
       this.changed = true;
       this.layout();
     };

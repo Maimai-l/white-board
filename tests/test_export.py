@@ -701,3 +701,17 @@ def test_content_paper_exports_each_page_at_its_own_size(tmp_path):
     assert sizes == expected
     # 宽的那一段 2400 宽：纸宽就是 2400 + 两边留白，没有缩到 A4
     assert sizes[1][0] > 2400
+
+
+def test_png_sizes_match_the_numbers_the_dialog_shows():
+    """导出对话框按同一份数预告 PNG 的像素尺寸（tests/js/export-pages.test.mjs 也读这份）。"""
+    import json
+    from pathlib import Path
+
+    from whiteboard import export
+
+    cases = json.loads((Path(__file__).parent / "fixtures" / "png-sizes.json").read_text("utf-8"))["cases"]
+    for case in cases:
+        size, _ = export.png_size({"paper": case["paper"]}, case["dpi"])
+        assert list(size) == case["size"], case
+        assert size[0] * size[1] <= export.MAX_PAGE_PIXELS

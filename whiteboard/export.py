@@ -482,6 +482,17 @@ def _pixels_per_pt(page: Dict[str, Any], dpi: float) -> float:
     return k
 
 
+def png_size(page: Dict[str, Any], dpi: float) -> Tuple[Tuple[int, int], float]:
+    """一页 PNG 的像素尺寸 ``(宽, 高)`` 和实际的每 pt 像素数。
+
+    导出对话框按同样的算法预告像素尺寸（export-pages.js 的 ``pixelSize``），两边的
+    数在 tests/fixtures/png-sizes.json 里对过。
+    """
+    k = _pixels_per_pt(page, dpi)
+    pw, ph = page["paper"]
+    return (max(1, round(pw * k)), max(1, round(ph * k))), k
+
+
 def _hex_rgb(color: str) -> Tuple[int, int, int]:
     return tuple(round(c * 255) for c in inkpdf.rgb(color))  # type: ignore[return-value]
 
@@ -492,9 +503,7 @@ def _board_png(meta, pairs, page, dpi: float, background: bool):
     from PIL import ImageDraw  # noqa: WPS433
 
     pattern, paper_color = background_of(meta)
-    k = _pixels_per_pt(page, dpi)
-    pw, ph = page["paper"]
-    size = (max(1, round(pw * k)), max(1, round(ph * k)))
+    size, k = png_size(page, dpi)
     fill = _hex_rgb(paper_color) + (255,) if background else (0, 0, 0, 0)
     canvas = Image.new("RGBA", size, fill)
 
