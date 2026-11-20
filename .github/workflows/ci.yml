@@ -315,7 +315,7 @@ jobs:
         run: |
           packaging/delta_dry_run.sh "$MAC_ZIP" build/sparkle "$RUNNER_TEMP/dry-run" | tee dry-run.log
           echo "### 发布演练" >> "$GITHUB_STEP_SUMMARY"
-          grep -E "增量包可用|核对了" dry-run.log | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "增量包可用|核对了|逐项一致" dry-run.log | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
 
   # Edge / Chrome 插件（docs/sketch.md）：解压后在扩展页面「加载解压缩的扩展」
   extension:

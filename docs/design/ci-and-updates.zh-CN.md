@@ -142,7 +142,7 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 1. 生成一对临时密钥。
 2. 复制一份应用，改掉版本号和一个文件后重新签名，作为「下一个版本」。
 3. 用两个版本跑 `generate_appcast`，确认生成了增量包和带签名的 appcast。
-4. 用 `BinaryDelta apply` 把增量包应用到旧版本上，确认结果和新版本逐字节相同。
+4. 用 `BinaryDelta apply` 把增量包应用到旧版本上，确认结果和新版本逐项相同（`appcast.py treediff`：每个文件的 SHA-256 和可执行位、每个符号链接的指向；不用 `diff -r`，macOS 26 的 diff 会跳过包内的目录链接却仍返回 0）。
 
 这样 Sparkle 的整条发布链路在每个分支上都有验证，而不是等到 dev 上才第一次出错。
 

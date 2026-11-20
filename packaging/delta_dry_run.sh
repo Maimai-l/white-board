@@ -47,9 +47,9 @@ python3 "$here/appcast.py" verify "$work/feed" "$work/keys/public.key"
 delta="$(ls "$work/feed"/*.delta | head -n 1)"
 ls -l "$work/feed"
 "$sparkle/bin/BinaryDelta" apply "$work/old/Whiteboard.app" "$work/applied/Whiteboard.app" "$delta"
-if ! diff -r "$work/new/Whiteboard.app" "$work/applied/Whiteboard.app" > "$work/diff.txt"; then
+# 不用 diff -r：macOS 26 的 diff 跳过包内的目录链接还返回 0（见 appcast.py treediff）
+if ! python3 "$here/appcast.py" treediff "$work/new/Whiteboard.app" "$work/applied/Whiteboard.app"; then
   echo "::error::增量包应用之后和新版本不一样"
-  head -n 40 "$work/diff.txt"
   exit 1
 fi
 full=$(stat -f %z "$work/feed/Whiteboard-new.zip")
