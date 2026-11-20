@@ -3,7 +3,7 @@
 
     appcast.py fetch  <站点> <目录>          取线上的 appcast.xml 和它列出的完整包
     appcast.py notes  <目录> <包名> <文件>   把更新说明放到包旁边（generate_appcast 会嵌进 appcast）
-    appcast.py prune  <目录>                删掉 appcast 不再引用的文件
+    appcast.py prune  <目录>                删掉 appcast 不再引用的文件；去掉文件已不在的增量包条目
     appcast.py index  <目录>                写一个列出各通道最新版本下载链接的 index.html
     appcast.py keygen <目录>                演练用：生成一对临时 EdDSA 密钥（private.key / public.key）
     appcast.py verify <目录> <公钥>          核对 appcast 里每个包和增量包的 EdDSA 签名
@@ -156,11 +156,39 @@ def notes(folder: Path, archive: str, source: Path) -> int:
     return 0
 
 
+# generate_appcast 写出的增量包条目：一行一个自闭合的 <enclosure>，带 sparkle:deltaFrom
+_DELTA_ENTRY = re.compile(r'\n?[ \t]*<enclosure\b[^>]*\burl="([^"]+)"[^>]*\bsparkle:deltaFrom="[^"]*"[^>]*/>')
+_EMPTY_DELTAS = re.compile(r'\n?[ \t]*<sparkle:deltas>\s*</sparkle:deltas>')
+
+
+def drop_missing_deltas(text: str, folder: Path) -> str:
+    """去掉文件已经不在目录里的增量包条目。
+
+    generate_appcast 会删掉从已不保留的版本（超出 --maximum-versions）出发的增量包文件，
+    但更早条目里列着的这些增量包还留在 appcast 里，发布出去就是指向不存在的文件
+    （2026-11-20 dev 上的 updates 因此失败）。客户端在这些版本上时照样能用完整包更新。
+    完整包缺了不在这里处理：那是真问题，交给 verify 报出来。
+    """
+
+    def keep(match: "re.Match[str]") -> str:
+        name = file_name(match.group(1))
+        if name and (folder / name).exists():
+            return match.group(0)
+        print(f"去掉文件已不在的增量包条目：{match.group(1)}")
+        return ""
+
+    return _EMPTY_DELTAS.sub("", _DELTA_ENTRY.sub(keep, text))
+
+
 def prune(folder: Path) -> int:
     appcast = folder / "appcast.xml"
     if not appcast.exists():
         print("没有 appcast.xml，不清理", file=sys.stderr)
         return 1
+    text = appcast.read_text("utf-8")
+    tidy = drop_missing_deltas(text, folder)
+    if tidy != text:
+        appcast.write_text(tidy, "utf-8")
     keep = referenced(parse(appcast.read_text("utf-8"))) | KEEP
     for path in sorted(folder.iterdir()):
         if path.name in keep:
