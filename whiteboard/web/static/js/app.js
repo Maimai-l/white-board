@@ -88,7 +88,7 @@ class App extends InkPad {
     }, 5000);
 
     this.bindKeys();
-    this.watchUpdates();
+    this.watchNativeInfo();
     this.start();
   }
 
@@ -220,40 +220,10 @@ class App extends InkPad {
     }
   }
 
-  /** 打包成 .app 时，启动后台检查的结果会在这里被取走并提示。 */
-  watchUpdates() {
-    const poll = async () => {
-      const api = nativeApi();
-      if (!api || !api.pending_update) return;
-      try {
-        const info = await api.pending_update();
-        if (info) await this.offerUpdate(info);
-      } catch (err) {
-        /* 取不到就算了 */
-      }
-    };
-    addEventListener("pywebviewready", () => {
-      this.refreshNativeInfo();
-      setTimeout(poll, 2500);
-      setTimeout(poll, 60000);
-    });
+  /** 版本号等本地信息：pywebview 的接口注入得比页面脚本晚，到了再取一次。 */
+  watchNativeInfo() {
+    addEventListener("pywebviewready", () => this.refreshNativeInfo());
     setTimeout(() => this.refreshNativeInfo(), 1200);
-    setTimeout(poll, 4000);
-  }
-
-  async offerUpdate(info) {
-    const api = nativeApi();
-    if (!info || !api || this.offeredUpdate === info.version) return;
-    this.offeredUpdate = info.version;
-    const state = (await api.update_state()) || { info };
-    this.ui.showUpdateDialog(state, {
-      poll: () => api.update_state(),
-      download: () => api.download_update(),
-      setAuto: (enabled) => api.set_auto_update(enabled),
-      skip: () => api.skip_update(),
-      installOnQuit: () => api.install_update("quit"),
-      installNow: () => api.install_update("now"),
-    });
   }
 
   /** 把 PDF / 图片拖进窗口就新建一块文档板。 */
@@ -416,22 +386,14 @@ class App extends InkPad {
       onCheckUpdate: async () => {
         const api = nativeApi();
         if (!api || !api.check_update_now) return "这个窗口没有本地接口";
-        this.offeredUpdate = null; // 手动检查时即使之前提示过也要再弹一次
         const result = (await api.check_update_now()) || {};
         switch (result.status) {
-          case "update":
-            await this.offerUpdate(result);
-            return `发现新版本 ${result.version}`;
-          case "latest":
-            return `已是最新（v${result.version || ""}）`;
-          case "skipped":
-            return `${result.version} 已被跳过`;
-          case "source":
-            return `源码运行（v${result.version || ""}），更新请用 git pull`;
           case "sparkle":
             return `正在检查，结果显示在更新窗口里（当前 v${result.version || ""}）`;
-          case "error":
-            return `检查失败：${result.message || "未知原因"}`;
+          case "source":
+            return `源码运行（v${result.version || ""}），更新请用 git pull`;
+          case "unavailable":
+            return `这个构建没有自动更新${result.message ? `（${result.message}）` : ""}，请从「更新日志」下载新版本`;
           default:
             return "检查失败";
         }

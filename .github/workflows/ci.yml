@@ -291,7 +291,7 @@ jobs:
               if info.get("updater") != "sparkle" or info.get("feed") != os.environ["FEED_URL"]:
                   problems.append(f"Sparkle 配置不对：{info.get('updater')} {info.get('feed')}")
           else:
-              print("::notice::仓库里还没有 packaging/sparkle-public-key.txt：这个包用旧的更新流程")
+              print("::notice::仓库里还没有 packaging/sparkle-public-key.txt：这个包不带 Sparkle 配置，不会自动更新")
           for problem in problems:
               print(f"::error::{problem}")
           raise SystemExit(1 if problems else 0)

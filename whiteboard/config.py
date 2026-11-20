@@ -48,11 +48,6 @@ class Config:
         self.values: Dict[str, Any] = {
             "port": DEFAULT_PORT,
             "data_dir": str(default_data_dir()),
-            # 后台自动下载更新：默认关闭。开着的话启动时查到新版本会先把包下好，
-            # 但手动点「检查更新」永远只拿版本信息，不会偷偷占带宽。
-            "auto_update": False,
-            # 「跳过这个版本」记在这里
-            "skip_version": "",
             # Sparkle 的更新通道：alpha 或 stable。空串表示还没定，第一次以打包应用
             # 运行时按这个构建自己的通道写进来，之后换装正式版也留在原来的通道
             # （docs/design/ci-and-updates.zh-CN.md 第 3.1 节）
@@ -159,14 +154,6 @@ class Config:
         self.values["last_version"] = str(value or "")
 
     @property
-    def auto_update(self) -> bool:
-        return bool(self.values.get("auto_update", False))
-
-    @auto_update.setter
-    def auto_update(self, value: bool) -> None:
-        self.values["auto_update"] = bool(value)
-
-    @property
     def update_channel(self) -> str:
         value = self.values.get("update_channel", "")
         return value if value in ("alpha", "stable") else ""
@@ -210,15 +197,6 @@ class Config:
         if not isinstance(value, list):
             return []
         return [item.strip() for item in value if isinstance(item, str) and item.strip()]
-
-    @property
-    def skip_version(self) -> str:
-        value = self.values.get("skip_version", "")
-        return value if isinstance(value, str) else ""
-
-    @skip_version.setter
-    def skip_version(self, value: str) -> None:
-        self.values["skip_version"] = str(value or "")
 
     @property
     def data_dir(self) -> Path:

@@ -9,16 +9,14 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import os
 import subprocess
 import sys
-import tempfile
 import threading
 import webbrowser
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from . import __version__, backup, netinfo, profile, resources, sparkle, updater
+from . import RELEASES_URL, __version__, backup, netinfo, profile, resources, sparkle
 from .config import Config
 from .runner import ServerThread
 from .server import list_apps
@@ -33,15 +31,8 @@ class NativeApi:
         self.config = config
         self.server = server
         self.window = None
-        # 有 Sparkle 就交给它；没有（源码运行、旧构建）时走下面 updater.py 的旧流程
+        # 更新全由 Sparkle 负责（打包好的应用才有）；从源码运行时用 git 更新
         self.sparkle = sparkle.Updater(config)
-        self.update_info: Optional[Dict[str, Any]] = None
-        self.staged_app: Optional[Path] = None
-        self.updating = False
-        self.downloading = False
-        self.install_on_quit = False
-        self.progress = 0.0
-        self.stage_error: Optional[str] = None
 
     # ------------------------------------------------------------------ 信息
 
@@ -58,100 +49,24 @@ class NativeApi:
             "apps": list_apps(self.config),
             "ipad_home": self.config.ipad_home,
             "log": str(resources.log_path()),
-            "releases": f"https://github.com/{updater.REPO}/releases",
+            "releases": RELEASES_URL,
             "updates": self.sparkle.describe(),
         }
 
     # ------------------------------------------------------------------ 更新
 
-    def start_update_check(self) -> None:
-        """启动后在后台查一次。只有明确开了自动下载才会顺手把包下好。
-
-        有 Sparkle 时由它按 Info.plist 的间隔自己查，这里不再查。
-        """
-        if not resources.is_frozen() or self.sparkle.available:
-            return
-        threading.Thread(target=self._check_update, name="whiteboard-update", daemon=True).start()
-
-    def _check_update(self, force: bool = False) -> Dict[str, Any]:
-        """返回带 status 的结果，界面照原样显示，不再让用户面对一个没头没尾的对勾。"""
-        try:
-            result = updater.check()
-        except Exception as exc:  # noqa: BLE001 - 检查更新不能把程序带崩
-            log.exception("检查更新出错")
-            return {"status": "error", "message": str(exc)}
-        if result.get("status") != "update":
-            return result
-        if not force and result["version"] == self.config.skip_version:
-            log.info("版本 %s 已被跳过", result["version"])
-            return {"status": "skipped", "version": result["version"]}
-        log.info("发现新版本 %s", result["version"])
-        self.update_info = result
-        # 手动检查只回报结果；自动下载是用户明确打开的开关，才会在后台拉包。
-        if self.config.auto_update and not force:
-            threading.Thread(target=self._stage_update, daemon=True).start()
-        return result
-
-    def _stage_update(self) -> bool:
-        """把更新包下好、解开放着，之后「安装」就是一瞬间的事。"""
-        info = self.update_info
-        if not info or self.staged_app is not None or self.downloading:
-            return self.staged_app is not None
-        self.downloading = True
-        self.progress = 0.0
-        self.stage_error = None
-        workdir = Path(tempfile.mkdtemp(prefix="whiteboard-update-"))
-        try:
-            archive = updater.download(info["url"], workdir, on_progress=self._on_progress)
-            if archive is None:
-                self.stage_error = "下载失败"
-                return False
-            staged = updater.unpack(archive, workdir / "unpacked")
-            if staged is None:
-                self.stage_error = "更新包解不开"
-                return False
-            # 解出来先验一遍：宁可这次不更新，也不要换上一个打不开的 .app
-            problem = updater.verify_bundle(staged)
-            if problem is not None:
-                log.error("更新包不可用：%s", problem)
-                self.stage_error = problem
-                return False
-            self.staged_app = staged
-            self.progress = 1.0
-            log.info("更新包已就绪：%s", staged)
-            return True
-        finally:
-            self.downloading = False
-            if self.staged_app is None:
-                updater.cleanup(workdir)
-
-    def _on_progress(self, value: float) -> None:
-        self.progress = value
-
-    # -------------------------------------------------- 给网页调用的更新接口
-
-    def update_state(self) -> Dict[str, Any]:
-        return {
-            "current": __version__,
-            "packaged": resources.is_frozen(),
-            "auto": self.config.auto_update,
-            "info": self.update_info,
-            "staged": self.staged_app is not None,
-            "downloading": self.downloading,
-            "progress": round(self.progress, 3),
-            "onQuit": self.install_on_quit,
-            "error": self.stage_error,
-        }
-
-    def pending_update(self) -> Optional[Dict[str, Any]]:
-        return self.update_info
-
     def check_update_now(self) -> Dict[str, Any]:
+        """「检查更新」：打包好的应用交给 Sparkle，它自己的窗口显示结果。
+
+        从源码运行没有 Sparkle，用 git 更新；打包了却没带上能用的 Sparkle
+        （本地构建没嵌入、framework 加载失败）时说清楚原因，让用户去下载页。
+        """
         if not resources.is_frozen():
             return {"status": "source", "version": __version__}
         if self.sparkle.check_now():
             return {"status": "sparkle", "version": __version__}
-        return self._check_update(force=True)
+        log.warning("app.check_update_now：Sparkle 不可用：%s", self.sparkle.error or "这个构建没有带 Sparkle")
+        return {"status": "unavailable", "version": __version__, "message": self.sparkle.error or ""}
 
     def set_remote_permission(self, name: str, enabled: bool) -> Optional[Dict[str, bool]]:
         """放开 / 收回别的设备的某一项权限。名字见 config.REMOTE_PERMISSIONS。"""
@@ -178,75 +93,6 @@ class NativeApi:
         self.config.save()
         log.info("iPad 首页：%s", name or "白板")
         return name
-
-    def set_auto_update(self, enabled: bool) -> bool:
-        self.config.auto_update = bool(enabled)
-        self.config.save()
-        if self.config.auto_update and self.update_info and self.staged_app is None:
-            threading.Thread(target=self._stage_update, daemon=True).start()
-        return self.config.auto_update
-
-    def skip_update(self) -> bool:
-        if not self.update_info:
-            return False
-        self.config.skip_version = self.update_info["version"]
-        self.config.save()
-        log.info("跳过版本 %s", self.config.skip_version)
-        self.update_info = None
-        return True
-
-    def download_update(self) -> bool:
-        """网页点「下载」时用；已经下好就直接返回。"""
-        if self.staged_app is not None:
-            return True
-        return self._stage_update()
-
-    def install_update(self, mode: str = "now") -> bool:
-        """安装已经下好的更新。``mode`` 为 ``now`` 立刻重启，``quit`` 等退出时再装。
-
-        不在这里下载：界面先调 download_update，这样进度条才有意义。
-        """
-        if self.updating or self.staged_app is None:
-            return False
-        bundle = resources.app_bundle()
-        if bundle is None:
-            return False
-        if mode == "quit":
-            self.install_on_quit = True
-            log.info("退出时安装更新")
-            return True
-
-        self.updating = True
-        self._save_before_exit()
-        if not updater.swap_and_restart(self.staged_app, bundle, relaunch=True):
-            self.updating = False
-            return False
-
-        # 替换脚本在等我们的进程消失，所以这里直接退干净。
-        #
-        # 不能走 window.destroy()：JS 接口的调用跑在自己的线程里，销毁窗口之后
-        # 它还要 evaluate_js 把返回值送回页面，窗口没了就卡在那儿；而且这些线程
-        # 不是守护线程，进程也退不掉。延迟一点点是为了让这次调用先返回给界面。
-        log.info("更新已就绪，正在退出以完成替换")
-        threading.Timer(0.3, lambda: os._exit(0)).start()
-        return True
-
-    def _save_before_exit(self) -> None:
-        try:
-            self.server.save_now()
-        except (RuntimeError, TimeoutError) as exc:
-            log.warning("退出前保存失败：%s", exc)
-
-    def finish_pending_install(self) -> None:
-        """窗口关闭时调用：装上之前下好的更新，但不再把应用打开。"""
-        if not self.install_on_quit or self.staged_app is None or self.updating:
-            return
-        bundle = resources.app_bundle()
-        if bundle is None:
-            return
-        self.updating = True
-        updater.swap_and_restart(self.staged_app, bundle, relaunch=False)
-        log.info("退出后将完成更新替换")
 
     # ------------------------------------------------------------------ 导出
 
@@ -560,14 +406,12 @@ def run(
     opener.window = window
     window.events.loaded += opener.on_loaded
     api.sparkle.remember_channel()
-    api.start_update_check()
 
     def _on_closing() -> None:
         try:
             api.server.save_now()
         except (RuntimeError, TimeoutError) as exc:
             log.warning("退出前保存失败：%s", exc)
-        api.finish_pending_install()
 
     window.events.closing += _on_closing
     try:

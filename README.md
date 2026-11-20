@@ -67,20 +67,9 @@ Builds published from 1.3.0 on update through [Sparkle](https://sparkle-project.
 - The first install of a build comes from the Pages site (its index page links the newest build of each channel) or from the Release.
 - How the feed, the delta updates and the signing work: [docs/design/ci-and-updates.zh-CN.md](docs/design/ci-and-updates.zh-CN.md) (Chinese).
 
-Builds without Sparkle (1.2.0 and earlier, and builds made without the public key) use the previous updater, which checks GitHub Releases once at startup. When a newer version exists, a dialog shows the version, the release notes and three choices:
+1.2.0 and earlier have their own updater: it reads `releases/latest` on GitHub and offers 1.3.0 in its update dialog. From 1.3.0 on, the app has no updater other than Sparkle. A build without Sparkle (running from source, or a local build without the public key) does not update itself; update it with `git pull` or install a new download.
 
-| Choice | Result |
-| --- | --- |
-| Skip this version | The version is remembered and not offered again. Newer versions are still offered. |
-| Install on quit | The package downloads in the background and replaces the app when the window closes. |
-| Install and restart | The app is replaced and reopened immediately. |
-
-- “以后自动下载更新” (Download updates automatically), in the dialog's bottom-left corner, is **off** by default. When off, the check fetches only version information, and the download starts when you choose to install; progress appears in the dialog.
-- When the switch is on, a newer version found at startup is downloaded in the background before the dialog appears. A manual check never downloads.
-- Prereleases (tags with a hyphen, such as `v1.0.0-rc.1`) are not offered: the check reads `releases/latest`.
-- The package is unpacked with `ditto`. The executable and the code signature are checked before the replacement and the signature again after it. If a check fails, the previous version is restored and reopened.
-
-The About panel (关于, the last icon in the top-right corner) shows the app icon, name, version and address, links to the changelog and the log file, and has 检查更新 (Check for updates) at the bottom. The result appears above the button: the current version when up to date, or the reason when the check fails (no connection, rate limit, no package for this Mac).
+The About panel (关于, the last icon in the top-right corner) shows the app icon, name, version and address, links to the changelog and the log file, and has 检查更新 (Check for updates) at the bottom. In a packaged build the button opens Sparkle's window, and the line above the button says so. When running from source, the line says to update with `git pull`; in a packaged build without a working Sparkle, it gives the reason and points to the changelog link.
 
 ### Running from source
 
@@ -138,7 +127,7 @@ WHITEBOARD_VERSION=1.1.0 pyinstaller --noconfirm packaging/whiteboard.spec
 ```
 
 - A local build includes the iPad shell only if `packaging/ipad/Whiteboard.ipa` exists; otherwise the install page points to the Release download.
-- A local build has no Sparkle unless you run `packaging/fetch_sparkle.sh` and `packaging/embed_sparkle.sh dist/Whiteboard.app`, then `packaging/sign_app.sh dist/Whiteboard.app`; without `SPARKLE_FEED_URL` and `SPARKLE_PUBLIC_ED_KEY` it keeps the previous updater.
+- A local build has no Sparkle unless you run `packaging/fetch_sparkle.sh` and `packaging/embed_sparkle.sh dist/Whiteboard.app`, then `packaging/sign_app.sh dist/Whiteboard.app`; without `SPARKLE_FEED_URL` and `SPARKLE_PUBLIC_ED_KEY` it does not update itself.
 - An Intel build needs a local build on an Intel Mac, or a `macos-13` / `x86_64` runner for the `package` job in `.github/workflows/ci.yml`.
 - Before turning a prerelease into a release, follow [docs/release-checklist.md](docs/release-checklist.md).
 
@@ -517,7 +506,6 @@ whiteboard/
   netinfo.py, codec.py   point to the modules of the same name in inksync (old import paths)
   ipadshell.py  the shell's install page, version endpoint and IPA download
   sparkle.py    Sparkle updates: loading the framework, update channel, Check for updates
-  updater.py    previous updater (builds without Sparkle): check, download, verification and replacement
   resources.py  paths and logging for source and packaged runs
   runner.py     runs the server in a background thread
   app.py        pywebview window and native file dialogs
