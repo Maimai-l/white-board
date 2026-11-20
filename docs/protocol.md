@@ -254,12 +254,26 @@ Server to following connections:
 | --- | --- | --- |
 | `boards` | `boards`, `folders`, `board` | Only the board list changed (for example after a rename); the client does not reload strokes. |
 | `perms` | `perms` | The permission list after a change; see [The whiteboard app's permissions](#the-whiteboard-apps-permissions). |
+| `devices` | `devices` | Only to following connections from this machine: the list of other devices changed. See [Connected devices](#connected-devices). |
 
 Without `manage`, a connection sees only its own board in `boards`, and `folders` is empty.
 
 Folders are identified by name; see [format.md](format.md#folders).
 
 Boards stay in the trash for 30 days (`hub.TRASH_TTL`). The server deletes older ones permanently when it starts and then once an hour (`hub.PURGE_INTERVAL`), logs each board it deletes, and sends `boards` (or `switch`, if the current board changed) to following connections.
+
+### Connected devices
+
+The Mac window shows which other devices have the board open. Following connections from this machine (`netinfo.is_local_request`) receive the list in the `devices` field of `init` and `sync`, and a `{"t":"devices","devices":[…]}` message whenever it changes.
+
+| Field | Description |
+| --- | --- |
+| `id` | The connection's client ID (`client` in `hello`); stable across reconnects of the same page |
+| `role` | `ipad` if the page reported `device: "ipad"` in `hello` (or `role` on a 1.0.x page), otherwise `browser` |
+| `label` | Display name: `iPad` or `浏览器` |
+
+- The list contains following connections that are not from this machine, in the order they connected. Connections from this machine, and connections that open a specific board instead of following (the sketch page, embedded apps, the viewer of app boards), are not listed.
+- The message is sent only when the list changes, so a page that reconnects with the same client ID before its old connection closes causes no message. 1.0.x pages and other devices never receive it.
 
 ### Spaces of installed apps
 

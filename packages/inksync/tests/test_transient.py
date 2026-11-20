@@ -127,3 +127,15 @@ def test_detached_event_reports_each_connection(tmp_path):
             assert gone == [("pad-gone", "b1")]
 
     run(main())
+
+
+def test_attached_event_reports_each_connection(tmp_path):
+    async def main():
+        async with serve(tmp_path) as (client, hub):
+            seen = []
+            hub.on("attached", lambda conn: seen.append((conn.id, conn.id in hub.conns)))
+            ws, _ = await hello(client, board="b1", client_id="pad-new")
+            assert seen == [("pad-new", True)]
+            await ws.close()
+
+    run(main())

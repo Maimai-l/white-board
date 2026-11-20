@@ -26,6 +26,8 @@ This file lists the notable changes to the board app and to inksync. The section
 - iPad: The Ruler button in the tool picker shows a ruler. Two fingers move and rotate it, and the ruler shows its angle while it turns.
 - iPad: An Apple Pencil stroke started on the ruler or near its edge is drawn as a straight line along the edge. The line syncs; the ruler is not shown on the Mac.
 
+- inksync: Hubs emit an `attached` event when a connection is registered after its handshake.
+
 ### Changed
 
 - Interface: Labels and messages use consistent wording without full-width brackets or sentence punctuation. Error messages are short, and the details are written to the log file.

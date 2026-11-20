@@ -13,6 +13,8 @@
   不会是当前白板，1.0.x 页面看不到它们。
 * **权限**：四项权限（manage、settings、clear、export）映射到 inksync 的规则；
   ``perms`` 消息告诉页面它现在有哪些权限。
+* **连接的设备**：本机的跟随连接（Mac 窗口里的页面）在 ``init`` 里收到 ``devices``，
+  之后别的设备的跟随连接每连上或断开一次就收到一条 ``devices`` 消息，见 :meth:`Hub.devices`。
 * **速写**：``/sketch`` 页面（以及 Edge 插件的弹出页）开始一次速写时，用一块
   临时白板 ``sketch``（只在内存中，不存盘），跟随的连接一起切过去；速写页面关闭后
   白板丢弃，跟随的连接回到原来的当前白板。当前白板的记录始终不变。
@@ -47,6 +49,8 @@ SKETCH_GRACE = 3.0
 # 回收站里的白板放多久之后彻底删除，以及多久检查一次
 TRASH_TTL = 30 * 86400.0
 PURGE_INTERVAL = 3600.0
+# devices 名单里各类设备的名字
+DEVICE_LABELS = {"ipad": "iPad", "browser": "浏览器"}
 
 
 def perms_of(who: Principal) -> FrozenSet[str]:
@@ -99,6 +103,9 @@ class Hub:
         self.trash_ttl = trash_ttl
         self.purge_interval = purge_interval
         self._maintenance: Optional[asyncio.Task] = None
+        # 最近一次发给本机页面的设备名单：没变就不发，同一个页面重连不会让界面闪一下
+        self._devices_sent: List[Dict[str, str]] = []
+        self._tasks: set = set()
         # 跟随的连接现在是否应该在速写板上（Mac 上选了别的白板就不再跟着速写）
         self.sketch_follow = False
         self.sketch_grace = sketch_grace
@@ -124,6 +131,7 @@ class Hub:
             ("emptytrash", self._on_empty_trash),
         ):
             self.core.register(name, handler)
+        self.core.on("attached", self._on_attached)
         self.core.on("detached", self._on_detached)
 
     # ------------------------------------------------------------ 查询
@@ -180,10 +188,12 @@ class Hub:
         kind = msg.get("t")
         if conn.ext.get("follow") and kind in ("init", "sync", "switch"):
             msg = {**msg, **self.boards_payload(conn)}
+            if kind in ("init", "sync") and not conn.legacy and self.wants_devices(conn):
+                msg["devices"] = self.devices()
         if not conn.legacy:
             return msg
         # 1.0.x 页面：元数据换回 1.0.x 的字段，1.0.x 不认识的消息不发
-        if kind in ("caps", "deleted"):
+        if kind in ("caps", "deleted", "devices"):
             return None
         if kind == "locked":
             runtime = self.core.runtime(msg.get("board") or "")
@@ -242,6 +252,53 @@ class Hub:
                 board = self.core.board_meta(conn.board) if conn.board else None
                 await conn.send({"t": "boards", **self.boards_payload(conn), "board": board})
 
+    # ------------------------------------------------------------ 连接的设备
+
+    @staticmethod
+    def wants_devices(conn: Conn) -> bool:
+        """收设备名单的连接：本机的跟随连接（Mac 窗口里的页面，或者 Mac 上浏览器打开的页面）。"""
+        return bool(conn.ext.get("follow")) and conn.principal is not None and conn.principal.local
+
+    def devices(self) -> List[Dict[str, str]]:
+        """别的设备上打开的白板页面：跟随当前白板、不是本机的连接，按连上的先后排。
+
+        只打开某一块白板的连接（速写页、嵌入的应用、应用白板的查看器）不算；本机的
+        页面不算。``role`` 按页面握手时报的设备类型：``ipad`` 或 ``browser``（其他）。"""
+        out = []
+        conns = sorted(self.core.connections(), key=lambda c: c.connected_at)
+        for conn in conns:
+            if not conn.ext.get("follow") or conn.principal is None or conn.principal.local:
+                continue
+            role = "ipad" if conn.device == "ipad" else "browser"
+            out.append({"id": conn.id, "role": role, "label": DEVICE_LABELS[role]})
+        return out
+
+    async def broadcast_devices(self) -> None:
+        """设备名单变了就发给本机的页面。"""
+        devices = self.devices()
+        if devices == self._devices_sent:
+            return
+        self._devices_sent = devices
+        for conn in self.core.connections():
+            if self.wants_devices(conn):
+                await conn.send({"t": "devices", "devices": devices})
+
+    def _spawn(self, coro, what: str) -> None:
+        """事件回调是同步的：把要发消息的协程放进事件循环，出错记日志。"""
+        task = asyncio.get_running_loop().create_task(coro)
+        self._tasks.add(task)
+
+        def done(finished: asyncio.Task) -> None:
+            self._tasks.discard(finished)
+            if not finished.cancelled() and finished.exception() is not None:
+                log.error("hub.%s 出错", what, exc_info=finished.exception())
+
+        task.add_done_callback(done)
+
+    def _on_attached(self, conn: Conn) -> None:
+        if conn.ext.get("follow") and not self.wants_devices(conn):
+            self._spawn(self.broadcast_devices(), "broadcast_devices")
+
     # ------------------------------------------------------------ 速写
 
     async def start_sketch(self) -> Dict[str, Any]:
@@ -280,6 +337,8 @@ class Hub:
         return [c for c in self.core.connections() if c.board == SKETCH_ID and not c.ext.get("follow")]
 
     def _on_detached(self, conn: Conn) -> None:
+        if conn.ext.get("follow") and not self.wants_devices(conn):
+            self._spawn(self.broadcast_devices(), "broadcast_devices")
         if conn.board != SKETCH_ID or conn.ext.get("follow") or not self.sketch_active:
             return
         if self._sketch_check is None or self._sketch_check.done():

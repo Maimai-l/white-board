@@ -1236,3 +1236,54 @@ def test_trashed_boards_still_have_thumbnails_and_exports(tmp_path):
             assert response.status == 200
 
     run(main())
+
+
+@pytest.fixture
+def mixed(monkeypatch):
+    """带 X-Test-Remote 头的请求当作局域网上的别的设备，其余是本机。"""
+    monkeypatch.setattr(
+        "whiteboard.server.netinfo.is_local_request", lambda request: "X-Test-Remote" not in request.headers
+    )
+    return {"X-Test-Remote": "1"}
+
+
+def test_the_mac_page_hears_when_other_devices_connect_and_leave(tmp_path, mixed):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            mac = await client.ws_connect("/ws")
+            init = await hello_v2(mac, "mac-1")
+            assert init["devices"] == []
+
+            # 只打开某一块白板的连接（速写页、嵌入的应用）不算
+            viewer = await client.ws_connect("/ws", headers=mixed)
+            await viewer.send_json({"t": "hello", "v": 2, "client": "viewer-1", "board": hub.current_id})
+            assert (await viewer.receive_json())["t"] == "init"
+
+            ipad = await client.ws_connect("/ws", headers=mixed)
+            ipad_init = await hello_v2(ipad, "ipad-1", device="ipad")
+            assert "devices" not in ipad_init  # 别的设备收不到这份名单
+            joined = await receive_kind(mac, "devices")
+            assert joined["devices"] == [{"id": "ipad-1", "role": "ipad", "label": "iPad"}]
+
+            laptop = await client.ws_connect("/ws", headers=mixed)
+            await hello_v2(laptop, "laptop-1", device="mac")
+            joined = await receive_kind(mac, "devices")
+            assert joined["devices"] == [
+                {"id": "ipad-1", "role": "ipad", "label": "iPad"},
+                {"id": "laptop-1", "role": "browser", "label": "浏览器"},
+            ]
+
+            # 本机的第二个页面一连上就拿到名单，本机的页面自己不在名单里
+            second = await client.ws_connect("/ws")
+            assert [d["id"] for d in (await hello_v2(second, "mac-2"))["devices"]] == ["ipad-1", "laptop-1"]
+
+            await ipad.close()
+            left = await receive_kind(mac, "devices")
+            assert left["devices"] == [{"id": "laptop-1", "role": "browser", "label": "浏览器"}]
+            assert (await receive_kind(second, "devices"))["devices"] == left["devices"]
+            assert await receive_kind(laptop, "devices", timeout=0.2) is None
+            for ws in (mac, viewer, laptop, second):
+                await ws.close()
+
+    run(main())
