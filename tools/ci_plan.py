@@ -59,7 +59,8 @@ RULES: Sequence[tuple] = (
 
 # 不影响任何构建和测试的文件：只要 checks（CHANGELOG 的格式也在 checks 里查）
 DOC_SUFFIXES = (".md", ".txt", ".command")
-DOC_FILES = {".gitignore", ".gitattributes", "LICENSE"}
+# ruff.toml 只影响 ruff check / ruff format --check，它们在 checks 里
+DOC_FILES = {".gitignore", ".gitattributes", "LICENSE", "ruff.toml", ".git-blame-ignore-revs"}
 
 MESSAGE_RE = re.compile(r"\[ci:\s*([a-z0-9,\s]+)\]", re.I)
 

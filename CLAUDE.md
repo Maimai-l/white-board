@@ -33,6 +33,7 @@
 ```bash
 make deps      # 测试依赖（从 requirements-test.lock 装）和 Chromium
 make fast      # checks + unit + js，不开浏览器，一分钟以内；每次提交前跑
+make format    # ruff format 整理 Python 格式（checks 会检查）
 make test      # 再加 inksync 和 e2e
 make e2e PYTEST_ARGS="-k sync -x"
 make plan FILES="whiteboard/app.py"   # 这些改动在 CI 里会跑哪些 job

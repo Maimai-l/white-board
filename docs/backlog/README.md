@@ -32,7 +32,7 @@
 | [002](002-shape-recognition-lines.md) | 形状识别（第一版：直线） | 完成 |
 | [003](003-ruler.md) | 尺子（iPad） | 完成 |
 | [004](004-macos-runner-queue.md) | CI：macOS 机器排队 5–10 分钟 | 完成 |
-| [005](005-lint-and-format.md) | 统一格式化（ruff format） | 待办 |
+| [005](005-lint-and-format.md) | 统一格式化（ruff format） | 完成 |
 | [006](006-dependency-lock.md) | 依赖锁定 | 完成 |
 | [007](007-condition-waits.md) | 测试里的固定等待改成等条件 | 完成 |
 | [008](008-swallowed-errors.md) | 被吞掉的错误补日志 | 完成 |

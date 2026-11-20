@@ -151,3 +151,8 @@ def test_source_version_reads_the_package():
 
 def test_pages_site_uses_a_lowercase_host():
     assert ci_plan.pages_site("Maimai-l/white-board") == "https://maimai-l.github.io/white-board"
+
+
+def test_lint_config_only_needs_checks():
+    plan = ci_plan.plan("push", "refs/heads/claude/x", ["ruff.toml", ".git-blame-ignore-revs"])
+    assert plan.jobs == {"checks"}
