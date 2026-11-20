@@ -291,10 +291,12 @@ export function startCardDrag(event, ctx) {
  *
  * 拖完松手，浏览器还会补一个 click。落点和起点在同一张卡片上时（按住没怎么动，
  * 或者拖出去又拖回来），这个 click 会打在卡片上，于是「拖了一下」变成「切过去了」。
- * 只吞紧挨着的那一个，400ms 之内没等到就撤掉，免得吃掉后面正常的点击。
+ * 只吞紧挨着、落在这张卡片上的那一个，400ms 之内没等到就撤掉，免得吃掉后面正常的点击。
  */
-function swallowNextClick() {
+function swallowNextClick(item) {
   const eat = (event) => {
+    // 只吃落在这张卡片上的：点别处（比如紧接着点边栏）不能被吞掉
+    if (item && event.target instanceof Node && !item.contains(event.target)) return;
     event.stopPropagation();
     event.preventDefault();
     clear();
@@ -494,7 +496,7 @@ function drag(ctx, at, pointerId, startScale) {
     }
     settle(item, card, anchor, point, moved, restore);
 
-    swallowNextClick();
+    swallowNextClick(item);
     const still = !ctx.mouse && !moved && travelled < TUNING.HOLD_SLOP && event && event.type === "pointerup";
     if (still && ctx.onStill) ctx.onStill();
     if (moved) ctx.onFile(id, folder);

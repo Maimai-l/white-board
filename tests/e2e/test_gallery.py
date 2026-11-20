@@ -30,7 +30,7 @@ from e2e.support import (
     wait_strokes,
 )
 
-BOARD_CARD = ".board-item[data-board] .board-card"
+BOARD_CARD = ".lib-scroll .board-item[data-board] .board-card"
 COUNT_BOARDS = "() => document.querySelectorAll('.lib-scroll .board-item[data-board]').length"
 SAME_ORDER = "(ids) => JSON.stringify(whiteboard.ui.boards.map(b => b.id)) === JSON.stringify(ids)"
 SHOWN_NAMES = "() => [...document.querySelectorAll('.lib-scroll .board-name')].map(n => n.textContent)"
@@ -242,8 +242,8 @@ def test_list_view_and_sorting_are_remembered(browser, server):
     mac = open_mac(browser, server.port)
     board_id = new_board(mac, "笔记")
     open_gallery(mac)
-    rename_from_menu(mac, board_id, "A 代数")
-    mac.wait_for_function("() => whiteboard.ui.boards.some(b => b.name === 'A 代数')")
+    rename_from_menu(mac, board_id, "阿尔法")
+    mac.wait_for_function("() => whiteboard.ui.boards.some(b => b.name === '阿尔法')")
     go(mac, "全部白板")
 
     mac.click('.lib-seg button[title="列表"]')
@@ -252,7 +252,7 @@ def test_list_view_and_sorting_are_remembered(browser, server):
     assert headers == ["名称", "文件夹", "修改时间"]
     mac.click(".lib-sort")
     menu_pick(mac, "名称")
-    mac.wait_for_function(f"() => ({SHOWN_NAMES})().join() === 'A 代数,白板'")
+    mac.wait_for_function(f"() => ({SHOWN_NAMES})().join() === '阿尔法,白板'")
 
     mac.keyboard.press("Escape")
     mac.wait_for_function("() => !document.querySelector('.gallery')")
@@ -380,8 +380,8 @@ def test_files_dropped_on_the_library_land_in_the_right_folder(browser, server):
         open_gallery(mac)
     mac.evaluate(DROP_FILE, ["第二课.png", "image/png", png, folder_row("讲义")])
     mac.wait_for_function("n => whiteboard.ui.boards.length === n + 2", arg=before)
-    folders = mac.evaluate("() => whiteboard.ui.boards.filter(b => b.kind === 'doc').map(b => b.folder).sort()")
-    assert folders == ["课件", "讲义"]
+    folders = mac.evaluate("() => whiteboard.ui.boards.filter(b => b.kind === 'doc').map(b => b.folder)")
+    assert sorted(folders) == sorted(["课件", "讲义"])
 
     # 白板库关着：落在当前白板（刚建的文档板）所在的文件夹
     mac.wait_for_function("() => whiteboard.state.meta && whiteboard.state.meta.data && whiteboard.state.meta.data.doc")
@@ -496,9 +496,12 @@ def test_a_board_can_be_dragged_onto_a_sidebar_folder_and_back_out(browser, serv
     mac.wait_for_function("() => whiteboard.ui.boards.every(b => !b.folder)")
     assert mac.evaluate("() => whiteboard.ui.folders.length") == 1  # 文件夹还在，只是空了
 
+    # 唯一那块白板进了回收站：服务端另建一块空白的当作当前白板
     go(mac, "全部白板")
+    only = mac.evaluate("() => whiteboard.ui.boards[0].id")
     mouse_drag(mac, BOARD_CARD, '.lib-side .lib-nav:has-text("回收站")', DROP_TARGET_LIT)
-    mac.wait_for_function("() => whiteboard.ui.boards[0].trashed > 0")
+    mac.wait_for_function("(id) => whiteboard.ui.boards.find(b => b.id === id).trashed > 0", arg=only)
+    mac.wait_for_function("(id) => whiteboard.state.id !== id", arg=only)
 
 
 def test_boards_can_be_dragged_into_a_new_order_when_arranged_by_hand(browser, server):
