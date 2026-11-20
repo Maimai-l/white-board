@@ -462,6 +462,7 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 | GET | `/inksync/...` | — | 手写板的前端文件（inksync 的 `serve_sdk`），入口 `/inksync/inkpad.js`；`/inksync/version.js` 由服务端生成，写入构建号。`Cache-Control: no-cache` |
 | GET | `/profile.mobileconfig?host=<主机名>` | — | iPad 配置描述文件（Web Clip） |
 | GET | `/icon.png` | — | 180 px 的应用图标 |
+| GET | `/api/qr?text=<文字>` | — | `text` 的二维码（SVG），用于 Mac 上的连接弹窗 |
 | GET | `/ipad?host=<主机名>` | — | iPad 外壳安装页，见 [ipad-shell.md](ipad-shell.md) |
 | GET | `/ipad/version` | — | 本机附带的 iPad 外壳版本 |
 | GET | `/ipad/Whiteboard.ipa` | — | iPad 外壳安装包；未附带时返回 404 |
@@ -490,6 +491,7 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 
 | 接口 | 细节 |
 | --- | --- |
+| `GET /api/qr` | `Content-Type: image/svg+xml`。纠错级别 M，四周空白 2 个模块，深色模块 `#1C1C1E`，背景透明。`<svg>` 只有 `viewBox`，没有 `width` 和 `height`，大小由 CSS 决定。`text` 缺少、为空、超过 1024 个字符或放不进二维码时返回 `400`。由 segno 生成。 |
 | `POST /api/thumb/{board}` | 白板不存在时返回 `404`；请求体不是 PNG 时返回 `400`。 |
 | `POST /api/doc` | 文件名也可以通过 `X-Filename` 请求头发送。`folder` 可省略，仅在该文件夹存在时生效。请求体按 64 KB 分块读取直到结束（`StreamReader.read(n)` 最多返回 `n` 字节）。超过上限返回 `413`，文件类型不支持或无法读取返回 `400`。响应为 `{"board": <meta>}`。随后服务端向所有跟随的连接发送 `switch`。 |
 | `GET /api/doc/{board}/{页码}` | `w` 默认为 1200，限制在 160～2600 之间。PDF 页面和不透明图片返回 JPEG（质量 82），带透明度的图片返回 PNG。`ETag` 为 `"<board>-<页码>-<宽度>"`，`If-None-Match` 匹配时返回 `304`。`Cache-Control: private, max-age=31536000, immutable`，因为原件不会改变。白板不是文档板、原件丢失或页码超出范围时返回 `404`。 |

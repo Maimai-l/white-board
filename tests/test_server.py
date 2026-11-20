@@ -1287,3 +1287,22 @@ def test_the_mac_page_hears_when_other_devices_connect_and_leave(tmp_path, mixed
                 await ws.close()
 
     run(main())
+
+
+def test_qr_code_is_an_svg_that_css_can_size(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            response = await client.get("/api/qr", params={"text": "http://mac.local:8848/"})
+            assert response.status == 200
+            assert response.content_type == "image/svg+xml"
+            body = await response.text()
+            tag = re.search(r"<svg[^>]*>", body).group(0)
+            assert "viewBox" in tag and " width=" not in tag and " height=" not in tag
+            assert "#1c1c1e" in body.lower()
+
+            assert (await client.get("/api/qr")).status == 400
+            assert (await client.get("/api/qr", params={"text": ""})).status == 400
+            assert (await client.get("/api/qr", params={"text": "x" * 1025})).status == 400
+            assert (await client.get("/api/qr", params={"text": "汉" * 1000})).status == 400  # 放不进二维码
+
+    run(main())
