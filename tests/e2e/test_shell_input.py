@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from e2e.support import FIRE, IPAD_UA, enable_pk_picker, open_pages
+from e2e.support import FIRE, IPAD_UA, app_constant, enable_pk_picker, open_pages, wait_page_ms, wait_still
+
+# 外壳这一笔多久没送采样就算断流，网页改用 Safari 的 pen 事件（shell-fallback.js）
+SHELL_STALL_MS = app_constant("packages/inksync/inksync/web/shell-fallback.js", "SHELL_STALL_MS")
 
 HELLO = "(info) => whiteboardShell.hello(info)"
 ACTIVE = {"shellVersion": "1.3.0", "bridge": 1, "active": True}
@@ -183,7 +186,7 @@ def test_shell_pencil_on_the_toolbar_does_not_draw(browser, server):
     x = box["x"] + box["width"] / 2
     y = box["y"] + box["height"] / 2
     send(ipad, shell_batches(ipad, x0=x, y0=y, dx=0.2, dy=0.1, count=6, per_batch=2))
-    ipad.wait_for_timeout(100)
+    # 外壳的采样是同步处理的，最后一批里就有抬笔：要落笔的话这时已经提交了
     assert ipad.evaluate("() => whiteboard.state.strokes.length") == 0
     assert ipad.evaluate("() => whiteboard.input.draw") is None
     mac.close()
@@ -275,7 +278,7 @@ def test_stroke_is_closed_when_the_shell_never_sends_up(browser, server):
     assert ipad.evaluate("() => whiteboard.state.strokes.length") == 1
 
     # 手指照常平移（等过手掌屏蔽的 500 ms）
-    ipad.wait_for_timeout(600)
+    ipad.wait_for_function("() => !whiteboard.input.penActive()")
     before = ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]")
     ipad.evaluate(FIRE, ["pointerdown", 600, 500, "touch", 30, 0])
     ipad.evaluate(FIRE, ["pointermove", 660, 560, "touch", 30, 0])
@@ -312,7 +315,8 @@ def test_safari_pen_events_finish_a_stalled_shell_stroke(browser, server):
     batches = shell_batches(ipad, count=40, per_batch=4)
     ipad.evaluate(FIRE, ["pointerdown", 300, 301, "pen", 7, 0.3])
     send(ipad, batches[:2])
-    ipad.wait_for_timeout(120)  # 外壳之后再没送过采样
+    # 外壳之后再没送过采样：断流是按时间判的，只能等够 SHELL_STALL_MS
+    wait_page_ms(ipad, SHELL_STALL_MS)
     for i in range(1, 11):
         ipad.evaluate(FIRE, ["pointermove", 324 + 10 * i, 316 + 5 * i, "pen", 7, 0.3])
     ipad.evaluate(FIRE, ["pointerup", 440, 370, "pen", 7, 0])
@@ -338,7 +342,8 @@ def test_safari_pen_events_draw_when_the_shell_sends_nothing(browser, server):
     mac, ipad = open_pages(browser, server.port)
     ipad.evaluate(HELLO, ACTIVE)
     ipad.evaluate(FIRE, ["pointerdown", 300, 300, "pen", 7, 0.3])
-    ipad.wait_for_timeout(80)
+    # 「落笔一阵了，外壳还一个采样都没送」是按时间判的，只能等够 SHELL_STALL_MS
+    wait_page_ms(ipad, SHELL_STALL_MS)
     for i in range(1, 11):
         ipad.evaluate(FIRE, ["pointermove", 300 + 12 * i, 300 + 6 * i, "pen", 7, 0.3])
     ipad.evaluate(FIRE, ["pointerup", 420, 360, "pen", 7, 0])
@@ -371,7 +376,7 @@ def test_a_closed_picker_panel_does_not_block_the_pencil(browser, server, panel)
     if panel == "eraser":
         # 橡皮的面板里是对象 / 像素二选一：关上之后不能再被笔误点切换
         ipad.click('#pk-host [data-tool="eraser"]')
-        ipad.wait_for_timeout(500)  # vendor 会吞掉紧接着的点击
+        ipad.wait_for_function("() => whiteboard.tool.tool === 'eraser'")
         ipad.click('#pk-host [data-tool="eraser"]')
         ipad.wait_for_selector("#pk-host .pk-pop[data-open]")
         ipad.click('#pk-host [data-tool="pen"]')  # 换回钢笔，面板跟着关上
@@ -382,7 +387,7 @@ def test_a_closed_picker_panel_does_not_block_the_pencil(browser, server, panel)
         ipad.wait_for_selector("#pk-host .pk-pop[data-open]")
         ipad.click(opener)  # 再点一次关上
     ipad.wait_for_function("() => !document.querySelector('#pk-host .pk-pop[data-open]')")
-    ipad.wait_for_timeout(400)  # 等淡出走完
+    wait_still(ipad, "#pk-host .pk-pop")  # 等淡出走完
     x, y = ipad.evaluate(
         "() => { const r = document.querySelector('#pk-host .pk-pop').getBoundingClientRect();"
         " return [r.left + r.width / 2, r.top + r.height / 2]; }"

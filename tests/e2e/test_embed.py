@@ -13,7 +13,7 @@ import threading
 
 import pytest
 
-from e2e.support import ROOT, TABLET_UA, free_port, new_page, open_mac, open_pages, wait_online
+from e2e.support import ROOT, TABLET_UA, free_port, new_page, open_mac, open_pages, poll_page, wait_online
 from whiteboard.server import SPACES_KEY
 
 EMBED_STAGE = "#pad .inkpad-stage"
@@ -41,6 +41,19 @@ ADD_PAD = """async ([id, options]) => {
 }"""
 
 PAD_ONLINE = "() => window.pad && pad.status === 'online'"
+
+# 本机缓存（IndexedDB）里存着的这块白板有几条笔画；没存就是 0
+CACHED_STROKES = """async (board) => {
+  const names = (await indexedDB.databases()).map((d) => d.name).filter((n) => n && n.startsWith('inksync'));
+  for (const name of names) {
+    const db = await new Promise((ok, fail) => { const r = indexedDB.open(name); r.onsuccess = () => ok(r.result); r.onerror = fail; });
+    if (!db.objectStoreNames.contains('kv')) { db.close(); continue; }
+    const saved = await new Promise((ok) => { const r = db.transaction('kv').objectStore('kv').get(`board:${board}`); r.onsuccess = () => ok(r.result); });
+    db.close();
+    if (saved && saved.strokes) return saved.strokes.length;
+  }
+  return 0;
+}"""
 
 
 def install_demo_app(server):
@@ -250,7 +263,9 @@ def test_a_local_pad_works_without_a_server(browser, demo):
 
     # 不给 initial 时用本机缓存恢复
     page.evaluate("() => solo.destroy()")
-    page.wait_for_timeout(300)
+    # destroy() 先把内容写进本机缓存，写是异步的：等撤销之后的那一条真的存进去
+    saved = poll_page(page, f"async (board) => (await ({CACHED_STROKES})(board)) === 1", "local-q1")
+    assert saved, "销毁之前没有把内容写进本机缓存"
     page.evaluate(ADD_PAD, ["again", {"board": "local-q1", "transport": "local"}])
     page.wait_for_function("() => again.snapshot().strokes.length === 1")
     assert page.evaluate("() => again.snapshot().strokes[0].id") == "seed-1"

@@ -181,14 +181,13 @@ class _FakeWindow:
 
 
 def _drain(opener):
+    """等后台的 open-files 线程跑完：线程把排队的文件取空才退出。"""
     import threading
-    import time
 
-    deadline = time.time() + 5
-    while time.time() < deadline:
-        if not opener._pending and not [t for t in threading.enumerate() if t.name == "open-files"]:
-            return
-        time.sleep(0.01)
+    for thread in [t for t in threading.enumerate() if t.name == "open-files"]:
+        thread.join(timeout=5)
+        assert not thread.is_alive(), "open-files 线程 5 秒内没跑完"
+    assert not opener._pending
 
 
 def test_files_opened_before_the_page_loads_wait_for_it(tmp_path):

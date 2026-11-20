@@ -100,7 +100,8 @@ def test_shutdown_is_quick_even_with_a_live_websocket(tmp_path):
                     await ws.send_json({"t": "hello", "role": "ipad", "client": "ipad-hold"})
                     await ws.receive_json()
                     connected.set()
-                    await asyncio.sleep(60)
+                    async for _ in ws:  # 一直连着，直到服务端关掉这个连接
+                        pass
 
         try:
             asyncio.run(main())

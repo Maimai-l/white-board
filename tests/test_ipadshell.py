@@ -3,7 +3,7 @@
 import asyncio
 import re
 import sys
-import time
+import threading
 import urllib.request
 from pathlib import Path
 
@@ -293,10 +293,12 @@ def make_config(tmp_path, port):
 def test_bonjour_registers_the_port_actually_in_use(tmp_path, monkeypatch):
     """端口被占用顺延之后，TXT 里写的是顺延后的端口：外壳下次启动就能连到新端口。"""
     ports = []
+    registered = threading.Event()
 
     class Recording:
         def __init__(self, port, version):
             ports.append(port)
+            registered.set()
 
         async def start(self):
             return True
@@ -313,10 +315,7 @@ def test_bonjour_registers_the_port_actually_in_use(tmp_path, monkeypatch):
     try:
         port = second.start()
         assert port == first.port + 1
-        for _ in range(50):
-            if ports:
-                break
-            time.sleep(0.02)
+        assert registered.wait(timeout=5), "Bonjour 一直没有注册"
         assert ports == [port]
     finally:
         second.stop()

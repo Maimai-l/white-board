@@ -14,6 +14,7 @@ from e2e.support import (
     enable_pk_picker,
     fling,
     gallery_with_folder,
+    hold_still,
     minimize_picker,
     new_page,
     nudge,
@@ -24,8 +25,12 @@ from e2e.support import (
     reload,
     settled_center,
     wait_online,
+    wait_still,
     wait_strokes,
 )
+
+# 手指拖动时每一步之间隔多久：模拟手慢慢移动的节奏
+HAND_STEP_MS = 60
 
 UNDO = "#pk-host button[data-act='undo']"
 REDO = "#pk-host button[data-act='redo']"
@@ -249,8 +254,8 @@ def test_picker_redo_and_the_more_menu_switches(browser, server):
     # 自动最小化：打开之后一落笔工具盘就收起来。点的必须是打开着的菜单里的开关：
     # 关上的面板只是透明，不能再接点击（见 test_a_closed_picker_panel_does_not_block_the_pencil）
     if not ipad.query_selector("#pk-host .pk-pop[data-open]"):
-        ipad.wait_for_timeout(500)  # vendor 会吞掉紧接着的点击
         ipad.click(MORE)
+        ipad.wait_for_selector("#pk-host .pk-pop[data-open]")
     ipad.click("#pk-host .pk-pop[data-open] [data-toggle='autoMin']")
     ipad.wait_for_function("() => whiteboard.ui.pk.autoMin === true")
     ipad.click(MORE)
@@ -265,7 +270,6 @@ def test_picker_switches_eraser_mode(browser, server):
     ipad.wait_for_selector(PICKER)
     ipad.click('#pk-host [data-tool="eraser"]')
     ipad.wait_for_function("() => whiteboard.tool.tool === 'eraser'")
-    ipad.wait_for_timeout(500)  # vendor 会吞掉拖动结束后一小段时间内的点击
     ipad.click('#pk-host [data-tool="eraser"]')  # 再点一次弹出面板
     ipad.wait_for_selector('#pk-host [data-emode="pixel"]')
     ipad.click('#pk-host [data-emode="pixel"]')
@@ -292,8 +296,8 @@ def test_pencilkit_picker_docks_and_minimizes(browser, server):
     drag(ipad, *settled_center(ipad), 1130, 770)
     ipad.wait_for_function(f"() => ({dataset})()[0] === 'minimized'")
     # 用手指点那个圆（鼠标会先悬停，一靠近就自己展开了，见 test_picker_expands_when_the_pointer_comes_close）。
-    # 先等：收起来是带动画的，而且它会吞掉拖动结束后 400ms 内的点击。
-    ipad.wait_for_timeout(600)
+    # 收起来是带动画的，等它停稳再点，否则点的是半路上的位置。
+    wait_still(ipad)
     ipad.touchscreen.tap(*center(ipad, PICKER))
     ipad.wait_for_function(f"() => ({dataset})()[0] === 'docked'")
 
@@ -336,7 +340,7 @@ def test_picker_expands_while_dragging_to_an_edge(browser, server):
     """在触发区里停够 DOCK_DWELL_MS 就当场展开成那条边的样子，不用等松手；出了触发区立刻变回圆。"""
     ipad = open_touch(browser, server.port, picker=True)
     enable_pk_picker(ipad)
-    ipad.wait_for_timeout(500)
+    wait_still(ipad)
 
     ipad.mouse.move(*center(ipad, GRIP))
     ipad.mouse.down()
@@ -361,7 +365,7 @@ def test_picker_expands_while_dragging_to_an_edge(browser, server):
     ipad.mouse.move(590, 410)  # 回到中间：出了触发区立刻缩成圆，不等
     assert pk_form(ipad)[0] == "moving"
     ipad.mouse.move(1130, 780)  # 角落：松手收起来
-    ipad.wait_for_timeout(180)
+    hold_still(ipad)
     ipad.mouse.up()
     wait_state(ipad, "minimized")
 
@@ -370,12 +374,13 @@ def test_picker_only_snaps_to_the_edge_after_release(browser, server):
     """松手才真的贴到边上，拖的过程里它一直跟着手。"""
     ipad = open_touch(browser, server.port, picker=True)
     enable_pk_picker(ipad)
-    ipad.wait_for_timeout(500)
+    wait_still(ipad)
     ipad.mouse.move(*center(ipad, GRIP))
     ipad.mouse.down()
     for spot in [(560, 410), (500, 200), (460, 150)]:
         ipad.mouse.move(*spot)
-        ipad.wait_for_timeout(60)
+        # 这是手移动的节奏，不是在等什么：每步隔开一点，松手速度才低于 FLING_SPEED，算慢慢拖过去
+        ipad.wait_for_timeout(HAND_STEP_MS)
     before = picker_top(ipad)
     ipad.mouse.up()
     ipad.wait_for_function(
@@ -389,7 +394,7 @@ def test_picker_fling_carries_past_the_release_point(browser, server):
     """甩出去有惯性：同一个松手点，慢放落到最近的底边，甩出去要按推算的停点落到顶边。"""
     ipad = open_touch(browser, server.port, picker=True)
     enable_pk_picker(ipad)
-    ipad.wait_for_timeout(500)
+    wait_still(ipad)
 
     # 慢放：松手点略偏下半屏，落到底边
     drag(ipad, *settled_center(ipad), 590, 420)
@@ -404,7 +409,7 @@ def test_picker_takes_a_tap_right_after_a_drag(browser, server):
     """拖完立刻点就得生效（vendor 是松手后 400ms 内一律吞掉），但轻轻一蹭不能误选工具。"""
     ipad = open_touch(browser, server.port, picker=True)
     enable_pk_picker(ipad)
-    ipad.wait_for_timeout(500)
+    wait_still(ipad)
 
     # 在底边触发区里原地小幅拖一下，长条贴回原位；松手后马上点马克笔（白板里是荧光笔）
     nudge(ipad, *center(ipad, GRIP), [(0, step * 4) for step in range(1, 7)])
@@ -413,15 +418,15 @@ def test_picker_takes_a_tap_right_after_a_drag(browser, server):
 
     # 但松手当下那一下要挡住：长条以手指为中心跟手，手指正压在橡皮那一格上
     ipad.evaluate("() => whiteboard.ui.pk.applyState({tool: 'pen', color: '#000000', sizeIndex: 1})")
-    nudge(ipad, *center(ipad, GRIP), [(0, -8), (0, -16)], pause=30)
-    ipad.wait_for_timeout(300)
+    nudge(ipad, *center(ipad, GRIP), [(0, -8), (0, -16)], pause=HAND_STEP_MS // 2)
+    wait_still(ipad)  # 长条贴回原位，这次松手连同它派生的点击都处理完了
     assert ipad.evaluate("() => whiteboard.tool.tool") == "pen"
 
     # 圆也一样：蹭一下不算点一下，不该展开
     minimize_picker(ipad, "br")
-    ipad.wait_for_timeout(900)
-    nudge(ipad, *center(ipad, PICKER), [(-8, 0), (-16, 0)], pause=30)
-    ipad.wait_for_timeout(300)
+    wait_still(ipad)
+    nudge(ipad, *center(ipad, PICKER), [(-8, 0), (-16, 0)], pause=HAND_STEP_MS // 2)
+    wait_still(ipad)  # 误展开的话这时已经展开完了
     assert ipad.evaluate("() => whiteboard.ui.pk.state") == "minimized"
 
 
@@ -432,11 +437,10 @@ def test_picker_expands_when_the_pointer_comes_close(browser, server):
     minimize_picker(ipad, "br")
 
     ipad.mouse.move(600, 400)  # 离得远，不动
-    ipad.wait_for_timeout(120)
+    # 收进角落是带动画的，等它停稳再看、再量，否则量到的是半路上的坐标
+    wait_still(ipad)
     assert ipad.evaluate("() => whiteboard.ui.pk.state") == "minimized"
 
-    # 收进角落是带动画的，等它停稳再量，否则量到的是半路上的坐标
-    settled_center(ipad, PICKER)
     left, top = ipad.evaluate(
         "() => { const r = document.querySelector('#pk-host .pk-picker').getBoundingClientRect();"
         " return [r.left, r.top]; }"
