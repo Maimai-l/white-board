@@ -567,6 +567,7 @@ export class UI {
       this.popover.remove();
       this.popover = null;
       removeEventListener("pointerdown", this._popoverCloser, true);
+      removeEventListener("keydown", this._popoverKeys, true);
     }
   }
 
@@ -593,7 +594,17 @@ export class UI {
     this._popoverCloser = (event) => {
       if (!popover.contains(event.target) && !anchor.contains(event.target)) this.closePopover();
     };
-    setTimeout(() => addEventListener("pointerdown", this._popoverCloser, true), 0);
+    // Esc 也关上，和别的面板一样
+    this._popoverKeys = (event) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      this.closePopover();
+    };
+    setTimeout(() => {
+      if (this.popover !== popover) return;
+      addEventListener("pointerdown", this._popoverCloser, true);
+      addEventListener("keydown", this._popoverKeys, true);
+    }, 0);
     return popover;
   }
 

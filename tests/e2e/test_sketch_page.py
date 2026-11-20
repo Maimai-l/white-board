@@ -271,3 +271,9 @@ def test_sketch_page_fits_the_toolbar_popup(browser, server):
     assert layout["pad"] >= 280, layout
     assert layout["buttons"] == ["clear", "copy"] and layout["inputs"] == 0, layout
     assert layout["state"] == "online"
+
+
+def test_the_sketch_has_a_dotted_background_that_is_not_copied(browser, server):
+    """速写区域的底是点阵（设计稿）。拷贝出去的 PNG 照旧是透明底，见上面拷贝的用例。"""
+    sketch = open_sketch(browser, server.port)
+    sketch.wait_for_function("() => sketchPad.snapshot().meta.background.pattern === 'dots'")

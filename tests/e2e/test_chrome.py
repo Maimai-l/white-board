@@ -123,6 +123,8 @@ def test_the_color_panel_has_system_colors_and_five_widths(browser, server):
     mac.wait_for_function("() => whiteboard.tool.color === '#007aff'")
     mac.click('.popover .width-opt[title="粗"]')
     mac.wait_for_function("() => whiteboard.tool.width === 8")
+    mac.keyboard.press("Escape")
+    mac.wait_for_function("() => !document.querySelector('.popover')")
 
 
 def test_board_settings_open_as_a_panel(browser, server):

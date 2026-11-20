@@ -43,7 +43,8 @@ from .store import BoardStore
 log = logging.getLogger(__name__)
 
 SKETCH_ID = "sketch"
-SKETCH_SPEC = {"name": "速写", "canvas": {"mode": "infinite"}, "background": {"pattern": "blank"}}
+SKETCH_SPEC = {"name": "速写", "canvas": {"mode": "infinite"}, "background": {"pattern": "dots"}}
+# 速写板的底是点阵（设计稿）；拷贝出去的 PNG 照旧是透明底，底纹不进图
 # 速写页面断开之后等多久再结束：刷新页面、网络抖一下都不应该把速写丢掉
 SKETCH_GRACE = 3.0
 # 回收站里的白板放多久之后彻底删除，以及多久检查一次
