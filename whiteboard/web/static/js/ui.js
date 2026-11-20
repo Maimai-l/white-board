@@ -18,6 +18,7 @@ import { installBoards } from "./ui-boards.js";
 import { installDialogs } from "./ui-dialogs.js";
 import { installSettings } from "./ui-settings.js";
 import { el, clamp } from "/inksync/util.js";
+import { reportError } from "/inksync/report.js";
 
 export const COLORS = [
   "#1b1b1f", "#5f6368", "#e53935", "#fb8c00", "#fdd835",
@@ -78,6 +79,7 @@ function loadTool() {
     for (const key of ALL_TOOLS) state[key] = sanitizeEntry(saved[key] || flat, fallback[key]);
     return state;
   } catch (err) {
+    // 忽略：读不了 localStorage 或存的东西坏了，就从默认设置开始
     return fallback;
   }
 }
@@ -321,6 +323,7 @@ export class UI {
       this.toolbar.classList.add("hidden");
       this.watchPickerClash();
     } catch (err) {
+      reportError("ui.mountPicker 笔具盘没能载入", { message: String(err) });
       this.picker = false;
       this.message("笔具盘没能载入", "close", 5000);
     } finally {
@@ -468,7 +471,7 @@ export class UI {
     try {
       localStorage.setItem(TOOL_KEY, JSON.stringify(this.tool));
     } catch (err) {
-      /* 存不下就每次从默认值开始 */
+      /* 忽略：存不下就每次从默认值开始 */
     }
   }
 
@@ -635,7 +638,7 @@ export class UI {
       if (Date.now() - Number(localStorage.getItem(stamp) || 0) < 24 * 3600 * 1000) return;
       localStorage.setItem(stamp, String(Date.now()));
     } catch (err) {
-      /* 记不住就每次都提示 */
+      /* 忽略：记不住就每次都提示 */
     }
     const node = el("div", { class: "notice", html: icon(iconName) });
     node.append(noticeText(text));

@@ -321,7 +321,7 @@ def _num(value: float) -> bytes:
 def rgb(color: str) -> Tuple[float, float, float]:
     try:
         return tuple(int(color[i : i + 2], 16) / 255 for i in (1, 3, 5))  # type: ignore[return-value]
-    except (ValueError, IndexError):
+    except (ValueError, IndexError):  # 忽略：笔画颜色读进来时已经校验过，这里只给不合格式的兜底一个墨色
         return (0.1, 0.1, 0.12)
 
 
@@ -482,7 +482,7 @@ def page_geometry(page) -> Tuple[List[float], float, float]:
     rotation = inherited(page, "/Rotate") or 0
     try:
         rotation = int(rotation)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # 忽略：PDF 里 /Rotate 写坏了按不旋转处理，和阅读器的做法一样
         rotation = 0
     return page_matrix(rotation, box)
 

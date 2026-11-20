@@ -305,7 +305,8 @@ class FileOpener:
     def _folder(self) -> str:
         try:
             folder = self.window.evaluate_js("whiteboard.ui.dropFolder(whiteboard.state.id)")
-        except Exception:  # noqa: BLE001 - 网页没准备好就放在最外层
+        except Exception as exc:  # noqa: BLE001 - 网页没准备好就放在最外层
+            log.warning("app._folder：问不到网页当前的文件夹，放在最外层：%s", exc)
             return ""
         return folder if isinstance(folder, str) else ""
 
@@ -363,7 +364,8 @@ def _decode_data_url(data_url: str) -> Optional[bytes]:
         return None
     try:
         return base64.b64decode(payload)
-    except ValueError:
+    except ValueError as exc:
+        log.warning("app._decode_data_url：网页传来的图片解不开：%s", exc)
         return None
 
 
@@ -422,7 +424,7 @@ def run(
     finally:
         try:
             api.server.save_now()
-        except (RuntimeError, TimeoutError):
-            pass
+        except (RuntimeError, TimeoutError) as exc:
+            log.warning("app.run：窗口关闭后保存失败：%s", exc)
         api.server.stop()
         config.save()

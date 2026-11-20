@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from e2e.support import draw, open_mac, open_pages, open_touch, wait_strokes
+from e2e.support import draw, open_gallery, open_mac, open_pages, open_touch, wait_strokes
 
 # 录一次像素擦除：切到像素橡皮、开始录制、拖一下、停止录制，返回录像
 RECORD_ERASE = """
@@ -44,6 +44,26 @@ def test_page_errors_are_reported_to_the_server(browser, server):
     ipad.wait_for_function("() => window.__ticks >= 3")
     draw(ipad, [(300, 300), (380, 350), (460, 300)])
     wait_strokes(mac, 1)
+
+
+def test_a_failed_thumbnail_upload_is_reported_to_the_server(browser, server):
+    """缩略图传不上去时界面上看不出来（白板列表里只是旧图），以前也不留任何记录。
+
+    现在要上报到 /api/debug，在 Mac 的日志里能查到。
+    """
+    mac = open_mac(browser, server.port)
+
+    def refuse_thumbs(route):
+        if route.request.method == "POST":
+            route.fulfill(status=500, body="磁盘满了")
+        else:
+            route.continue_()
+
+    mac.route("**/api/thumb/*", refuse_thumbs)
+    reported = lambda request: request.url.endswith("/api/debug") and "缩略图" in (request.post_data or "")
+    with mac.expect_request(reported, timeout=5000) as info:
+        open_gallery(mac)  # 打开白板列表前先传一次当前白板的缩略图
+    assert "500" in info.value.post_data, info.value.post_data
 
 
 def test_debug_overlay_toggles(browser, server):

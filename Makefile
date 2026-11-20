@@ -40,9 +40,11 @@ deps:
 lock:
 	$(PY) tools/lock_deps.py $(LOCK_ARGS)
 
-# 只开「真错误」类规则（语法错误、未定义的名字）；格式统一是另一条待办
+# 只开「真错误」类规则（语法错误、未定义的名字）和「吞掉异常」两条（S110 try-except-pass、
+# BLE001 except Exception）；格式统一是另一条待办。ruff 管不到的 except / catch 由
+# tests/test_no_silent_catch.py 检查（docs/backlog/008-swallowed-errors.md）
 checks:
-	$(PY) -m ruff check --select E9,F63,F7,F82 .
+	$(PY) -m ruff check --select E9,F63,F7,F82,S110,BLE001 .
 	$(PY) -m pytest tests/test_release_notes.py tests/test_ci_plan.py tests/test_dependency_lock.py -q $(PYTEST_ARGS)
 
 unit:

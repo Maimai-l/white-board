@@ -15,6 +15,7 @@
 // 录的是**原始指针事件**，不是笔画。笔画是输入经过整条链路之后的结果，拿结果
 // 回放就只能复现渲染，复现不了判定、平滑、合并采样、抬笔那一刻的时序。
 
+import { reportError } from "/inksync/report.js";
 import { plainStroke } from "/inksync/util.js";
 
 const SCHEMA = 1;
@@ -306,7 +307,8 @@ export class Recorder {
       });
       if (res.ok) return await res.json();
     } catch (err) {
-      /* 落到下载 */
+      // 落到下载
+      reportError("recorder.save 录像交给 Mac 失败，改为浏览器下载", { message: String(err) });
     }
     const url = URL.createObjectURL(new Blob([body], { type: "application/json" }));
     const a = document.createElement("a");

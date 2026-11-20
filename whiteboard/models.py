@@ -56,7 +56,7 @@ def sanitize_doc(raw: Any) -> Optional[Dict[str, Any]]:
             return None
         try:
             width, height = float(page[0]), float(page[1])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError):  # 忽略：校验输入，返回 None 由调用方当作不合法拒掉
             return None
         if not (0 < width < 1e6 and 0 < height < 1e6):
             return None

@@ -332,7 +332,7 @@ def export_image(src: str | Path, strokes: Sequence[Dict[str, Any]], out: str | 
                 from PIL import JpegImagePlugin  # noqa: WPS433
 
                 subsampling = JpegImagePlugin.get_sampling(source)
-            except Exception as exc:  # pragma: no cover - 取不到就用默认
+            except Exception as exc:  # noqa: BLE001  # pragma: no cover - 取不到就用默认
                 log.info("docs.export_image：读不出 JPEG 的色度抽样，用默认值：%s", exc)
                 subsampling = None
         canvas = source.convert("RGBA")

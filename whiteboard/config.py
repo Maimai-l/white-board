@@ -126,9 +126,11 @@ class Config:
     @property
     def requested_port(self) -> int:
         """想要监听的端口：命令行给的，否则是配置里存的。被占用时从这里往后顺延。"""
+        raw = self._runtime.get("port", self.values.get("port", DEFAULT_PORT))
         try:
-            return int(self._runtime.get("port", self.values.get("port", DEFAULT_PORT)))
+            return int(raw)
         except (TypeError, ValueError):
+            log.warning("Config.requested_port：端口 %r 不是数字，用默认的 %s", raw, DEFAULT_PORT)
             return DEFAULT_PORT
 
     @property

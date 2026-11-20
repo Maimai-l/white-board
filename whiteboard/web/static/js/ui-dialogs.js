@@ -6,6 +6,7 @@
 import { icon } from "./icons.js";
 import { iconButton } from "./ui-common.js";
 import { el } from "/inksync/util.js";
+import { reportError } from "/inksync/report.js";
 
 export function installDialogs(proto) {
   Object.assign(proto, methods);
@@ -59,6 +60,7 @@ const methods = {
       try {
         message = await this.actions.onCheckUpdate();
       } catch (err) {
+        reportError("ui.updateRow 检查更新失败", { message: String(err) });
         message = "检查失败";
       }
       note.textContent = message || "";

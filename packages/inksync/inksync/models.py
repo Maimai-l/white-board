@@ -200,7 +200,7 @@ def sanitize_data(raw: Any) -> Optional[Dict[str, Any]]:
         return None
     try:
         text = json.dumps(raw, ensure_ascii=False, allow_nan=False)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # 忽略：校验输入，返回 None 由调用方当作不合法拒掉
         return None
     if len(text.encode("utf-8")) > MAX_DATA_BYTES:
         return None
@@ -238,11 +238,11 @@ def sanitize_meta(raw: Dict[str, Any], allow_src: Callable[[str], bool] = defaul
         board_id = new_id()
     try:
         created = float(raw.get("created", now()))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # 忽略：坏了的元数据项换成默认值，见上面的说明
         created = now()
     try:
         updated = float(raw.get("updated", created))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # 忽略：同上
         updated = created
 
     meta: Dict[str, Any] = {
@@ -397,7 +397,7 @@ def sanitize_stroke(raw: Any) -> Optional[Dict[str, Any]]:
         color = "#1b1b1f"
     try:
         width = float(raw.get("w", 3.0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # 忽略：笔画里坏了的笔宽换成默认值，笔画照样保留
         width = 3.0
     if math.isnan(width):
         width = 3.0  # NaN 比较全是 False，clamp 会原样放行

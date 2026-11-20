@@ -105,7 +105,7 @@ def test_shutdown_is_quick_even_with_a_live_websocket(tmp_path):
 
         try:
             asyncio.run(main())
-        except Exception:  # noqa: BLE001 - 连接被服务端关掉是预期结果
+        except Exception:  # noqa: BLE001, S110 - 忽略：连接被服务端关掉是预期结果
             pass
 
     threading.Thread(target=hold, daemon=True).start()

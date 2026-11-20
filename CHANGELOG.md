@@ -28,6 +28,7 @@ This file lists the notable changes to the board app and to inksync. The section
 ### Changed
 
 - Interface: Labels and messages use consistent wording without full-width brackets or sentence punctuation. Error messages are short, and the details are written to the log file.
+- Mac: Failures that used to leave no trace, such as a board thumbnail that could not be uploaded or a port in the configuration file that is not a number, are written to the log file.
 - Updates: The Mac app checks for updates with Sparkle and downloads only the changed parts of the app when updating from one of the three previous versions.
 - Updates: The Check for updates button opens the update window, which shows the result and the release notes.
 - Export: The paper follows the content by default: each page is its frame plus a margin, so the writing keeps its size. A4 and Letter pages are portrait.

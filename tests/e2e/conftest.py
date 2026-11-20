@@ -61,7 +61,7 @@ def browser():
                 instance = pw.chromium.launch(executable_path=path) if path else pw.chromium.launch()
             else:
                 instance = getattr(pw, ENGINE).launch()
-        except Exception as exc:  # pragma: no cover - 环境没有浏览器
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - 环境没有浏览器，跳过并写明原因
             pytest.skip(f"没有可用的 {ENGINE}：{exc}")
         yield instance
         instance.close()
@@ -78,7 +78,7 @@ def close_pages(request):
         for context in list(request.getfixturevalue("browser").contexts):
             try:
                 context.close()
-            except Exception:  # noqa: BLE001 - 已经关掉的就算了
+            except Exception:  # noqa: BLE001, S110 - 忽略：用例结束时收尾，已经关掉的就算了
                 pass
 
 

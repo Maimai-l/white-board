@@ -293,7 +293,7 @@ export class Renderer {
       try {
         ctx.drawImage(img, left, top, width, height);
       } catch (err) {
-        /* 图还没解码好，下一帧再说 */
+        /* 忽略：图还没解码好，下一帧再说 */
       }
     }
   }

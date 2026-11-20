@@ -185,6 +185,7 @@ export function filenameOf(disposition, fallback) {
   try {
     return decodeURIComponent(match[1].trim().replace(/^"|"$/g, ""));
   } catch (err) {
+    // 忽略：文件名编码坏了就用调用方给的默认名，下载照常
     return fallback;
   }
 }

@@ -7,6 +7,7 @@
 // 界面上的代码读 kind / folder / doc 这几个名字，boardView 把它们补到元数据上。
 
 import { thumbBlob } from "/inksync/exporter.js";
+import { reportError } from "/inksync/report.js";
 
 export function docOf(meta) {
   const doc = meta && meta.data && meta.data.doc;
@@ -46,9 +47,12 @@ export async function uploadThumb(state, boardId) {
   try {
     const blob = await thumbBlob(state);
     if (!blob) return false;
-    await fetch(`/api/thumb/${boardId}`, { method: "POST", body: blob });
+    const response = await fetch(`/api/thumb/${boardId}`, { method: "POST", body: blob });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return true;
   } catch (err) {
+    // 白板列表里只是还显示旧的缩略图，界面上看不出来，所以上报
+    reportError("boards.uploadThumb 缩略图上传失败", { board: boardId, message: String(err) });
     return false;
   }
 }
@@ -60,6 +64,7 @@ export function loadFingerDraw() {
   try {
     return localStorage.getItem(FINGER_FLAG) === "1";
   } catch (err) {
+    // 忽略：读不了 localStorage（例如隐私模式）就按默认的关闭处理
     return false;
   }
 }
@@ -68,7 +73,7 @@ export function saveFingerDraw(enabled) {
   try {
     localStorage.setItem(FINGER_FLAG, enabled ? "1" : "0");
   } catch (err) {
-    /* 记不住就只在本次会话内生效 */
+    /* 忽略：记不住就只在本次会话内生效 */
   }
 }
 

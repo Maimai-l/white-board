@@ -7,6 +7,7 @@ import { icon } from "./icons.js";
 import { startCardDrag } from "./dragsort.js";
 import { boardLabel, iconButton } from "./ui-common.js";
 import { el, isComposing } from "/inksync/util.js";
+import { reportError } from "/inksync/report.js";
 
 const APP_PAGE = 60;
 
@@ -72,6 +73,7 @@ const methods = {
       const response = await fetch("/api/apps");
       this.apps = response.ok ? (await response.json()).apps || [] : [];
     } catch (err) {
+      reportError("ui.loadApps 取不到应用列表", { message: String(err) });
       this.apps = [];
     }
   },
@@ -292,6 +294,7 @@ const methods = {
       app.total = page.total || app.boards.length;
       app.loaded = true;
     } catch (err) {
+      reportError("ui.loadAppBoards 取不到应用的白板", { app: app.name, message: String(err) });
       app.failed = true;
     }
     if (this.openApp === app && this.gallery) this.fillAppGrid(app);

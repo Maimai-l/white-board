@@ -16,6 +16,7 @@ export function loadDock() {
     const saved = JSON.parse(raw);
     return DOCKS.includes(saved && saved.dock) ? saved.dock : "bottom";
   } catch (err) {
+    // 忽略：读不了或存的不是合法格式，就回到默认位置
     return "bottom";
   }
 }
@@ -33,7 +34,7 @@ export class ToolDock {
     try {
       localStorage.setItem(DOCK_KEY, this.dock);
     } catch (err) {
-      /* 记不住就下次回到默认位置 */
+      /* 忽略：记不住就下次回到默认位置 */
     }
   }
 

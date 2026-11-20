@@ -45,7 +45,8 @@ def lan_ip() -> Optional[str]:
     try:
         sock.connect(("192.168.255.255", 9))
         return sock.getsockname()[0]
-    except OSError:
+    except OSError as exc:
+        log.debug("netinfo.lan_ip：取不到局域网地址（可能没联网）：%s", exc)
         return None
     finally:
         sock.close()
@@ -76,7 +77,7 @@ def is_own_address(remote: Optional[str]) -> bool:
         return False
     try:
         address = ipaddress.ip_address(remote.split("%")[0])
-    except ValueError:
+    except ValueError:  # 忽略：对端地址不是 IP（例如 unix socket），按外部处理，见上面的说明
         return False
     if address.is_loopback:
         return True
@@ -114,7 +115,7 @@ def is_same_host(remote: Optional[str], local: Optional[str]) -> bool:
     try:
         a = ipaddress.ip_address(remote.split("%")[0])
         b = ipaddress.ip_address(local.split("%")[0])
-    except ValueError:
+    except ValueError:  # 忽略：地址不是 IP，按不是同一台机器处理
         return False
     return not a.is_loopback and a == b
 
@@ -222,8 +223,8 @@ def computer_name() -> str:
             ).stdout.strip()
             if name:
                 return name
-        except (OSError, subprocess.SubprocessError):
-            pass
+        except (OSError, subprocess.SubprocessError) as exc:
+            log.warning("netinfo.computer_name：scutil 读不出电脑名称，改用主机名：%s", exc)
     return local_hostname()[: -len(".local")]
 
 
