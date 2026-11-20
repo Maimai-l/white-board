@@ -138,7 +138,7 @@ from inksync.netinfo import advertise, is_local_request
 
 | 方法 | 说明 |
 | --- | --- |
-| `hub.on(event, callback)` | `"created"`、`"saved"`、`"deleted"`：`callback(board_id, meta)`。`"changed"`：`callback(board_id, meta, op)`，每个被接受的操作一次。`"detached"`：`callback(conn)`，连接断开时。回调在事件循环线程中调用，不能阻塞。返回取消订阅的函数。 |
+| `hub.on(event, callback)` | `"created"`、`"saved"`、`"deleted"`：`callback(board_id, meta)`。`"changed"`：`callback(board_id, meta, op)`，每个被接受的操作一次。`"attached"`：`callback(conn)`，握手完成、连接登记之后，第一份快照发出之前。`"detached"`：`callback(conn)`，连接断开时。回调在事件循环线程中调用，不能阻塞。返回取消订阅的函数。 |
 | `hub.board_meta(board_id)` | 元数据，不存在时为 None。 |
 | `hub.list_boards(offset=0, limit=100, prefix="", order="updated")` | 元数据列表（取自内存中的索引，不读白板文件）。`order` 为 `updated`、`created`（从新到旧）、`name`（升序），或一个白板 id 的列表（列表中的在前，按列表顺序）。`limit` 为 None 时不限。 |
 | `hub.count(prefix="")` | 白板数。 |

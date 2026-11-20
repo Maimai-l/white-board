@@ -11,3 +11,5 @@ certifi
 pypdf>=4.2
 pypdfium2>=4.30
 pillow>=10.0
+# 连接 iPad 弹窗里的二维码（GET /api/qr）
+segno>=1.6

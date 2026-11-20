@@ -67,7 +67,7 @@ An entry describes an effect a user can observe or an action a user must take. R
 
 Start every entry with the area it affects, followed by a colon. Use one of:
 
-`iPad`, `Mac`, `Interface`, `Boards`, `Ink`, `Eraser`, `Tool picker`, `Documents`, `Export`, `Sketch`, `Sync`, `Storage`, `Settings`, `Updates`, `Extension`, `Embedding`, `inksync`.
+`iPad`, `Mac`, `Interface`, `Library`, `Boards`, `Ink`, `Eraser`, `Tool picker`, `Documents`, `Export`, `Sketch`, `Sync`, `Storage`, `Settings`, `Updates`, `Extension`, `Embedding`, `inksync`.
 
 `Interface` is for changes that affect the labels or layout of the whole app rather than one feature.
 
@@ -121,6 +121,18 @@ The app interface is in Chinese. Entries refer to controls by these English name
 | Interface label | English name |
 | --- | --- |
 | 白板 | Boards |
+| 回收站 | Trash |
+| 白板库 | Library |
+| 最近 | Recent |
+| 全部白板 | All Boards |
+| 手动排列 | Arrange manually |
+| 白板设置 | Board settings |
+| 连接 iPad | Connect iPad |
+| 关于白板 | About |
+| 按页 | By page |
+| 整张长图 | One long image |
+| 所选的页 | Selected pages |
+| 拷贝为图片 | Copy as image |
 | 管理白板 | Manage boards (permission) |
 | 存储目录 | Storage directory |
 | 笔具盘 | Tool picker |

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from e2e.support import draw, open_gallery, open_mac, open_touch, stroke_count, wait_strokes
+from e2e.support import board_menu, draw, menu_pick, open_gallery, open_mac, open_touch, stroke_count, wait_strokes
 
 TEXT_FIELDS_SELECTABLE = """
 () => [...document.querySelectorAll('input:not([type=checkbox]):not([type=file]), textarea')]
@@ -26,8 +26,11 @@ COMPOSING_ENTER = """
 
 
 def open_chooser_with_a_named_board(page):
+    """打开白板库，从右键菜单开始给第一块白板改名，返回名字框。"""
     open_gallery(page)
-    return page.wait_for_selector(".board-name")
+    board_menu(page)
+    menu_pick(page, "重命名")
+    return page.wait_for_selector("input.board-name")
 
 
 def test_text_fields_can_take_typing_on_the_ipad(browser, server):
@@ -71,8 +74,10 @@ def test_shortcuts_do_not_reach_the_board_while_typing(browser, server):
         assert mac.evaluate("() => whiteboard.viewport.scale") == scale, combo
 
     # 输入框外面照旧生效
-    mac.keyboard.press("Escape")
-    mac.click('.gallery-head button[title="关闭"]')
+    mac.keyboard.press("Escape")  # 放弃改名
+    mac.keyboard.press("Escape")  # 取消选中
+    mac.keyboard.press("Escape")  # 关掉白板库
+    mac.wait_for_function("() => !document.querySelector('.gallery')")
     mac.keyboard.press("Control+z")
     wait_strokes(mac, 0)
 
@@ -91,9 +96,8 @@ def test_enter_that_picks_an_ime_candidate_does_not_commit_the_name(browser, ser
     """用拼音输入法时，回车是选候选词，不能把打了一半的名字当成最终结果提交。"""
     mac = open_mac(browser, server.port)
     open_chooser_with_a_named_board(mac)
-    assert mac.evaluate(COMPOSING_ENTER, ".board-name") is True
-    mac.click(".board-folder")
-    mac.wait_for_selector(".folder-new")
-    assert mac.evaluate(COMPOSING_ENTER, ".folder-new") is True
-    assert mac.query_selector(".dialog.folders") is not None
+    assert mac.evaluate(COMPOSING_ENTER, "input.board-name") is True
+    mac.click('.lib-side button[title="新建文件夹"]')
+    mac.wait_for_selector(".lib-nav-edit")
+    assert mac.evaluate(COMPOSING_ENTER, ".lib-nav-edit") is True
     assert mac.evaluate("() => whiteboard.ui.folders") == []

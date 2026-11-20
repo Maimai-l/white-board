@@ -1,4 +1,5 @@
 import json
+import time
 import zlib
 from pathlib import Path
 
@@ -250,3 +251,50 @@ def test_cut_ends_survive_a_save_and_load(tmp_path):
 
     _, loaded = store.load_board(meta["id"])
     assert [s.get("cut") for s in loaded] == [2, 3, None]
+
+
+# ------------------------------------------------------------ 回收站
+
+
+def test_a_trashed_board_is_never_current_after_opening(tmp_path):
+    """当前白板不会在回收站里；存储目录里记着的是一块已删除的白板时换成第一块还在用的。"""
+    store = BoardStore(tmp_path)
+    trashed = store.current_id
+    store.create_board(make_current=False)
+    live = store.create_board(make_current=False)["id"]
+    assert store.set_order([trashed] + [m["id"] for m in store.list_metas() if m["id"] != trashed])
+    assert store.list_metas()[1]["id"] == live
+    store.edit_meta(trashed, data={"trashed": time.time()})
+    assert BoardStore(tmp_path).current_id == live
+
+
+def test_a_new_board_is_made_when_only_trashed_boards_remain(tmp_path):
+    store = BoardStore(tmp_path)
+    trashed = store.current_id
+    store.edit_meta(trashed, data={"trashed": time.time()})
+    reopened = BoardStore(tmp_path)
+    assert reopened.current_id != trashed
+    assert models.trashed_at(reopened.get_meta(reopened.current_id)) is None
+    assert len(reopened.list_metas()) == 2
+
+
+def test_purging_a_board_never_makes_a_trashed_board_current(tmp_path):
+    store = BoardStore(tmp_path)
+    current = store.current_id
+    trashed = store.create_board(make_current=False)["id"]
+    store.edit_meta(trashed, data={"trashed": time.time()})
+    assert store.list_metas()[0]["id"] == trashed
+    assert store.delete_board(current)
+    assert store.current_id not in (current, trashed)
+    assert models.trashed_at(store.get_meta(store.current_id)) is None
+
+
+def test_a_trashed_board_does_not_bring_back_a_deleted_folder(tmp_path):
+    """回收站里的白板记着原来的文件夹，但那个文件夹删了就是删了，重开也不回来。"""
+    store = BoardStore(tmp_path)
+    board = store.create_board(make_current=False)["id"]
+    store.move_board(board, "数学")
+    store.edit_meta(board, data={"trashed": time.time()})
+    assert store.delete_folder("数学")
+    assert models.folder_of(store.get_meta(board)) == "数学"
+    assert BoardStore(tmp_path).folders() == []

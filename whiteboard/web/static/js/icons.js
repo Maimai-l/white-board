@@ -60,6 +60,17 @@ export const ICONS = {
     path("M16 11.3a1.6 1.6 0 1 1 3.2 0v3.4a5.1 5.1 0 0 1-5.1 5.1h-1.5a4.2 4.2 0 0 1-3-1.3l-3.7-3.8a1.7 1.7 0 0 1 2.4-2.4l1.3 1.3"),
   // 形状识别：两端各一个点的直线
   shapeLine: `<circle cx="5.6" cy="18.4" r="2"/><circle cx="18.4" cy="5.6" r="2"/>` + path("M7 17L17 7"),
+  // 白板库的边栏和顶栏
+  clock: `<circle cx="12" cy="12" r="8.6"/>` + path("M12 7.2V12l3.4 2"),
+  list: path("M4.5 6.5h15") + path("M4.5 12h15") + path("M4.5 17.5h15"),
+  sidebar: `<rect x="3.2" y="4.6" width="17.6" height="14.8" rx="2.6"/>` + path("M9.2 4.6v14.8"),
+  chevronDown: path("M7 10l5 5 5-5"),
+  more: `<circle cx="6.5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/>` +
+    `<circle cx="17.5" cy="12" r="1.2" fill="currentColor"/>`,
+  minus: path("M5 12h14"),
+  // 连接 iPad：竖着的平板加两道信号
+  connect: `<rect x="3.2" y="4.4" width="10" height="15.2" rx="2"/>` + path("M7 16.4h2.4") +
+    path("M16.4 9.8a2.8 2.8 0 0 1 0 4.4") + path("M18.6 7.6a6 6 0 0 1 0 8.8"),
   link: path("M10.5 13.5a3.5 3.5 0 0 0 5 0l2.5-2.5a3.5 3.5 0 0 0-5-5l-1 1") +
     path("M13.5 10.5a3.5 3.5 0 0 0-5 0L6 13a3.5 3.5 0 0 0 5 5l1-1"),
 };

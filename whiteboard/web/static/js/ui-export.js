@@ -76,12 +76,11 @@ export class ExportDialog {
 
   build() {
     this.count = el("span", { class: "export-count" });
-    const head = el("div", { class: "export-pages-head" }, [
-      this.count,
-      el("span", { class: "spacer" }),
-      el("button", { class: "text-btn", text: "全选", onclick: () => this.selectAll() }),
-      el("button", { class: "text-btn", text: "当前页", onclick: () => this.selectCurrent() }),
-    ]);
+    // 全选和取消全选是同一个链接：全选上了就变成取消全选
+    this.allLink = el("button", { class: "text-btn", type: "button", onclick: () => this.toggleAll() });
+    // 当前页：视口中间那一页，导出正在看的那一页最快
+    const current = el("button", { class: "text-btn", type: "button", text: "当前页", onclick: () => this.selectCurrent() });
+    const head = el("div", { class: "export-pages-head" }, [this.count, el("span", { class: "spacer" }), this.allLink, current]);
     this.cards = el("div", { class: `export-cards${this.isDoc ? " is-grid" : ""}` });
     this.pagesPanel = el("div", { class: "export-pages" }, [head, this.cards]);
 
@@ -108,7 +107,7 @@ export class ExportDialog {
       "格式",
     );
     this.rangeSeg = segmented(
-      [["分页", "pages"], ["整块", "whole"]],
+      [["按页", "pages"], ["整张长图", "whole"]],
       () => this.range,
       (value) => {
         this.range = value;
@@ -130,8 +129,12 @@ export class ExportDialog {
     const group = `export-pages-${nextKey++}`;
     this.allRadio = el("input", { type: "radio", name: group, value: "all" });
     this.customRadio = el("input", { type: "radio", name: group, value: "custom" });
+    this.pickedRadio = el("input", { type: "radio", name: group, value: "picked" });
     this.allRadio.addEventListener("change", () => this.setPageMode("all"));
     this.customRadio.addEventListener("change", () => this.setPageMode("custom"));
+    this.pickedRadio.addEventListener("change", () => this.setPageMode("picked"));
+    this.allText = el("span");
+    this.pickedText = el("span");
     this.pageField = el("input", {
       type: "text",
       class: "export-range-field",
@@ -143,9 +146,16 @@ export class ExportDialog {
     this.pageField.addEventListener("input", () => this.typePages(this.pageField.value));
     this.pageErrorLine = el("div", { class: "export-range-error", role: "alert" });
     const pageControl = el("div", { class: "export-range", role: "radiogroup", "aria-label": "页面" }, [
-      el("label", { class: "export-radio" }, [this.allRadio, el("span", { text: "全部" })]),
-      el("label", { class: "export-radio" }, [this.customRadio, this.pageField]),
+      el("label", { class: "export-radio" }, [this.allRadio, this.allText]),
+      el("label", { class: "export-radio" }, [this.customRadio, el("span", { text: "范围" }), this.pageField]),
       this.pageErrorLine,
+      el("label", { class: "export-radio top" }, [
+        this.pickedRadio,
+        el("span", { class: "export-radio-text" }, [
+          this.pickedText,
+          el("span", { class: "export-radio-note", text: "从边栏选择页面" }),
+        ]),
+      ]),
     ]);
 
     this.paperLabel = el("span", { text: PAPER_NAMES[this.paper] });
@@ -167,7 +177,7 @@ export class ExportDialog {
     this.pagingText = el("span");
     const paging = el("div", { class: "export-paging" }, [
       this.pagingText,
-      el("button", { class: "pill-btn", text: "调整", onclick: () => this.adjust() }),
+      el("button", { class: "lib-btn tinted small", type: "button", text: "调整…", onclick: () => this.adjust() }),
     ]);
 
     // 每一行是 [标签, 控件]，只建一次，按选择显示或隐藏：输入框打字时不能被摘下来
@@ -185,15 +195,23 @@ export class ExportDialog {
     };
     this.options = el("div", { class: "export-options" }, Object.values(this.rows).filter(Boolean).flat());
 
-    this.primary = el("button", { class: "pill-btn primary", onclick: () => this.export() });
+    this.primary = el("button", { class: "lib-btn primary", type: "button", onclick: () => this.export() });
     const footer = el("div", { class: "export-footer" }, [
-      el("button", { class: "pill-btn", text: "取消", onclick: () => this.close() }),
+      el("button", { class: "lib-btn", type: "button", text: "取消", onclick: () => this.close() }),
       this.primary,
     ]);
 
+    // 左边一栏是要导出的东西（页、整张长图或者白板文件），右边是选项，按钮在右下
+    const name = (meta && meta.name) || "";
     this.dialog = el("div", { class: "export-dialog", role: "dialog", "aria-label": "导出" }, [
-      el("h2", { class: "export-title", text: "导出" }),
-      el("div", { class: "export-body" }, [this.pagesPanel, this.wholePanel, this.filePanel, this.options]),
+      el("div", { class: "export-side" }, [this.pagesPanel, this.wholePanel, this.filePanel]),
+      el("div", { class: "export-main" }, [
+        el("h2", { class: "export-title" }, [
+          el("span", { text: "导出" }),
+          name ? el("span", { class: "export-board-name", text: name }) : null,
+        ]),
+        this.options,
+      ]),
       footer,
     ]);
     this.dialog.addEventListener("click", (event) => event.stopPropagation());
@@ -262,20 +280,36 @@ export class ExportDialog {
     this.refresh();
   }
 
+  /** 边栏上那个链接：全选上了就全部取消，否则全选。取消之后停在所选的页。 */
+  toggleAll() {
+    if (this.selected.size === this.pages.length) {
+      this.picked = new Set();
+      this.selected = new Set();
+      this.pageMode = "picked";
+      this.syncCards();
+      this.refresh();
+      return;
+    }
+    this.selectAll();
+  }
+
   selectCurrent() {
     const [cx, cy] = this.host.viewCenter();
     const index = currentPage(this.pages, cx, cy);
     this.selected = new Set(index >= 0 ? [this.pages[index].key] : []);
-    this.pageMode = "custom";
+    this.picked = new Set(this.selected);
+    this.pageMode = "picked";
     this.writePageText();
     this.syncCards();
     this.refresh();
   }
 
+  /** 点了边栏上的一页：切到所选的页，在当前的选择上加上或去掉这一页。 */
   toggle(key) {
     if (this.selected.has(key)) this.selected.delete(key);
     else this.selected.add(key);
-    this.pageMode = "custom";
+    this.picked = new Set(this.selected);
+    this.pageMode = "picked";
     this.writePageText();
     this.syncCards();
     this.refresh();
@@ -294,6 +328,9 @@ export class ExportDialog {
     this.pageMode = mode;
     if (mode === "all") {
       this.selected = new Set(this.pages.map((page) => page.key));
+    } else if (mode === "picked") {
+      const keys = new Set(this.pages.map((page) => page.key));
+      this.selected = new Set([...(this.picked || this.selected)].filter((key) => keys.has(key)));
     } else if (this.pageText.trim()) {
       this.applyPageText();
     } else {
@@ -339,17 +376,21 @@ export class ExportDialog {
       const thumb = el("div", { class: "export-thumb", style: { width: `${width}px`, height: `${height}px` } }, [
         canvas,
       ]);
-      const check = el("span", { class: "export-check", html: icon("check", 14) });
-      const caption = this.isDoc ? String(index + 1) : `第 ${index + 1} 页`;
+      // 页的下沿压着一颗勾选胶囊：圆勾加页码
+      const check = el("span", { class: "export-check" }, [
+        el("span", { class: "export-check-box", html: icon("check", 10) }),
+        el("span", { class: "export-caption", text: `${index + 1} / ${this.pages.length}` }),
+      ]);
       const card = el(
         "button",
         {
           class: "export-card",
+          type: "button",
           "data-page": String(index + 1),
           "aria-label": `第 ${index + 1} 页`,
           onclick: () => this.toggle(page.key),
         },
-        [el("div", { class: "export-thumb-wrap" }, [thumb, check]), el("span", { class: "export-caption", text: caption })],
+        [el("div", { class: "export-thumb-wrap" }, [thumb, check])],
       );
       this.cards.append(card);
       this.cardNodes.set(page.key, { card, canvas, page, width, height });
@@ -456,7 +497,10 @@ export class ExportDialog {
     const paged = mode === "pages";
     const count = this.selected.size;
     const total = this.pages.length;
-    this.count.textContent = count === total ? `已选 ${count} 页` : `已选 ${count} / ${total} 页`;
+    this.count.textContent = `已选 ${count} 页`;
+    this.allLink.textContent = count === total && total ? "取消全选" : "全选";
+    this.allText.textContent = `全部 ${total} 页`;
+    this.pickedText.textContent = this.pageMode === "picked" ? `所选的 ${count} 页` : "所选的页";
     this.formatSeg.sync();
     this.rangeSeg.sync();
     this.dpiSeg.sync();
@@ -480,6 +524,7 @@ export class ExportDialog {
 
     this.allRadio.checked = this.pageMode === "all";
     this.customRadio.checked = this.pageMode === "custom";
+    this.pickedRadio.checked = this.pageMode === "picked";
     if (this.pageField.value !== this.pageText) this.pageField.value = this.pageText;
     const error = this.pageMode === "custom" ? this.pageError : null;
     this.pageErrorLine.textContent = error || "";

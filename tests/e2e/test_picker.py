@@ -84,9 +84,8 @@ def test_picker_is_only_on_ipad(browser, server):
 def test_ipad_keeps_the_board_entries_when_the_picker_hides_the_toolbar(browser, server):
     """iPad 开了笔具盘之后，管理白板、白板设置、导出仍然要有入口。
 
-    笔具盘一挂上，普通工具栏整条 `.hidden`。清空在笔具盘的「更多」里，连接状态点
-    在左上角、不属于工具栏，这两项不受影响；剩下三项只剩右上角这一组。样式照
-    iOS 的做法：同一条磨砂底，图标用强调色。
+    笔具盘一挂上，普通工具栏整条 `.hidden`。清空在笔具盘的「更多」里；白板库在左上角，
+    连接状态、导出、白板设置在右上角。样式照 iOS 的做法：同一条磨砂底，图标用强调色。
     """
     ipad = open_touch(browser, server.port, picker=True)
     # 笔具盘是动态载入的，挂上之后才会把普通工具栏收起来
@@ -96,15 +95,17 @@ def test_ipad_keeps_the_board_entries_when_the_picker_hides_the_toolbar(browser,
       const toolbar = document.getElementById('toolbar');
       const dot = document.getElementById('status');
       return {
-        条目: group ? [...group.querySelectorAll('button')].map((b) => b.title) : null,
+        左上: [...document.querySelectorAll('#topleft button')].map((b) => b.title),
+        条目: group ? [...group.querySelectorAll('button')].filter((b) => b !== dot).map((b) => b.title) : null,
         类名: group ? group.className : null,
-        图标颜色: group ? getComputedStyle(group.querySelector('.icon-btn')).color : null,
+        图标颜色: group ? getComputedStyle(group.querySelector('.icon-btn:not(#status)')).color : null,
         工具栏隐藏: toolbar.classList.contains('hidden'),
         状态点可见: !!dot && getComputedStyle(dot).display !== 'none',
       };
     }""")
     assert out["工具栏隐藏"], out  # 笔具盘模式，普通工具栏收起来了
-    assert out["条目"] == ["白板", "白板设置", "导出"], out
+    assert out["左上"] == ["白板库"], out
+    assert out["条目"] == ["导出", "白板设置"], out
     assert "tinted" in out["类名"], out
     assert out["状态点可见"], out  # 诊断和录制的入口还在
     # 图标用强调色，不是默认的灰色
@@ -141,7 +142,7 @@ def test_the_picker_does_not_float_over_the_board_chooser(browser, server):
     """笔具盘自带 z-index，白板选择界面必须压在它上面，否则一进来它还浮着。"""
     mac, ipad = open_pages(browser, server.port, picker=True)
     ipad.wait_for_selector(PICKER)
-    ipad.click('button[title="白板"]')
+    ipad.click('button[title="白板库"]')
     ipad.wait_for_selector(".gallery")
 
     # 选择界面是不透明的，盖住就等于看不见：量的是同一个点上谁在上面
@@ -162,7 +163,8 @@ def test_the_picker_does_not_float_over_the_board_chooser(browser, server):
     ipad.wait_for_function("() => whiteboard.ui.folders.length === 1")
     assert ipad.evaluate("() => !!document.querySelector('.gallery.opening')") is False
 
-    ipad.click('button[title="关闭"]')
+    # 点当前那块白板回到白板上，笔具盘回来
+    ipad.click(".lib-scroll .board-card.active")
     ipad.wait_for_function(f"() => ({host_display})() !== 'none'")
 
 

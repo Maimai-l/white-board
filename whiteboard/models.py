@@ -4,7 +4,8 @@
 
 * ``data.folder``：所在的文件夹名；
 * ``data.doc``：文档板的原件信息 ``{type, name, ext, pages}``；
-* ``data.app``：1.0.1 中建立这块白板的应用（1.1 起应用白板在各自的空间里）。
+* ``data.app``：1.0.1 中建立这块白板的应用（1.1 起应用白板在各自的空间里）；
+* ``data.trashed``：移进回收站的时间（Unix 秒）；没有这个键就是还在用的白板。
 
 ``kind_of`` 把画布和这些字段换回界面上的三种类型：大白板、笔记、文档板。
 """
@@ -17,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from inksync.models import *  # noqa: F401,F403 - 白板应用和测试沿用 whiteboard.models 这个名字
 from inksync.models import (  # noqa: F401
     DOC_PAGE_GAP,
+    MAX_NAME,
     NOTE_WIDTH,
     _ID_RE,
     is_number,
@@ -84,6 +86,13 @@ def folder_of(meta: Dict[str, Any]) -> str:
     return sanitize_folder(data.get("folder"))
 
 
+def trashed_at(meta: Any) -> Optional[float]:
+    """移进回收站的时间（Unix 秒）；不在回收站里时返回 None。"""
+    data = meta.get("data") if isinstance(meta, dict) and isinstance(meta.get("data"), dict) else {}
+    stamp = data.get("trashed")
+    return float(stamp) if is_number(stamp) else None
+
+
 def kind_of(meta: Dict[str, Any]) -> str:
     """界面上的类型：文档板、笔记（固定宽度向下延伸）或大白板。"""
     if doc_of(meta) is not None:
@@ -147,6 +156,29 @@ def spec_for_kind(kind: str) -> Dict[str, Any]:
     if kind == "note":
         return {"canvas": {"mode": "column", "width": NOTE_WIDTH}}
     return {"canvas": {"mode": "infinite"}}
+
+
+# 没起名的白板在界面上显示的名字（与 static/js/ui-common.js 的 boardLabel 相同）
+KIND_NAMES = {"board": "白板", "note": "笔记", "doc": "文档"}
+COPY_SUFFIX = " 副本"
+
+
+def display_name(meta: Dict[str, Any]) -> str:
+    """界面上显示的名字：起了名就是名字；文档板退回原件的文件名（去掉扩展名）；
+    否则按类型叫「白板」「笔记」「文档」。"""
+    name = meta.get("name") if isinstance(meta, dict) else ""
+    if isinstance(name, str) and name:
+        return name
+    doc = doc_of(meta)
+    if doc is not None and doc["name"]:
+        dot = doc["name"].rfind(".")
+        return doc["name"][:dot] if dot > 0 else doc["name"]
+    return KIND_NAMES[kind_of(meta)]
+
+
+def copy_name(meta: Dict[str, Any]) -> str:
+    """复制出来的白板的名字：显示的名字加「 副本」，总长不超过名字的上限。"""
+    return display_name(meta)[: MAX_NAME - len(COPY_SUFFIX)].rstrip() + COPY_SUFFIX
 
 
 def to_v1(meta: Dict[str, Any]) -> Dict[str, Any]:

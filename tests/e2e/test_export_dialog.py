@@ -79,7 +79,7 @@ def test_the_export_button_opens_the_dialog_with_the_auto_pages(browser, server)
     open_dialog(mac, 2)
     assert mac.locator(".export-title").inner_text() == "导出"
     assert mac.locator(".export-count").inner_text() == "已选 2 页"
-    assert mac.locator(".export-caption").all_inner_texts() == ["第 1 页", "第 2 页"]
+    assert mac.locator(".export-caption").all_inner_texts() == ["1 / 2", "2 / 2"]
     assert mac.locator(".export-paging").inner_text().startswith("自动分成 2 页")
     assert mac.locator(".export-footer .primary").inner_text() == "导出 PDF"
     # 取消就关掉，什么都不下载
@@ -91,7 +91,7 @@ def test_deselected_pages_are_left_out_of_the_pdf(browser, server):
     mac = board_with_groups(browser, server, [(550, 100), (550, 400), (550, 700)])
     open_dialog(mac, 3)
     mac.locator(CARDS).nth(1).click()
-    assert mac.locator(".export-count").inner_text() == "已选 2 / 3 页"
+    assert mac.locator(".export-count").inner_text() == "已选 2 页"
     name, body = download(mac, "导出 PDF")
     assert name.endswith(".pdf")
     assert pdf_pages(body) == 2
@@ -157,7 +157,7 @@ def test_current_page_selects_the_page_in_the_middle_of_the_view(browser, server
     )
     open_dialog(mac, 2)
     mac.click('.text-btn:has-text("当前页")')
-    assert mac.locator(".export-count").inner_text() == "已选 1 / 2 页"
+    assert mac.locator(".export-count").inner_text() == "已选 1 页"
     _, body = download(mac, "导出 PDF")
     assert pdf_pages(body) == 1
 
@@ -201,7 +201,7 @@ def test_the_adjust_view_shows_the_frames_in_place_right_away(browser, server):
     open_dialog(mac, 1)
     first = mac.evaluate(
         """() => {
-            [...document.querySelectorAll('.export-paging button')].find((b) => b.textContent === '调整').click();
+            [...document.querySelectorAll('.export-paging button')].find((b) => b.textContent === '调整…').click();
             const r = document.querySelector('.export-frame').getBoundingClientRect();
             return [r.x, r.y, r.width, r.height];
         }"""

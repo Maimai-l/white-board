@@ -8,27 +8,36 @@
 <link rel="icon" href="/icon.png">
 <style>
   :root {
-    --bg: #f2f2f7; --panel: #ffffff; --text: #1c1c1e; --muted: #8e8e93; --line: #d1d1d6;
-    --accent: #3a62d7; --accent-text: #ffffff; --danger: #c4372b; --ok: #34c759;
-    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+    --bg: #f2f2f7; --panel: #ffffff; --text: #1c1c1e; --muted: #6c6c70; --line: rgba(0, 0, 0, .08);
+    --accent: #007aff; --accent-text: #ffffff; --danger: #ff3b30; --fill: rgba(120, 120, 128, .12);
+    --dot: #d1d3db;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #1c1c1e; --panel: #2c2c2e; --text: #f2f2f7; --muted: #8e8e93; --line: #3a3a3c; --accent: #6b8cff; }
+    :root { --bg: #1c1c1e; --panel: #2c2c2e; --text: #f2f2f7; --muted: #98989d; --line: rgba(255, 255, 255, .1);
+            --accent: #0a84ff; --danger: #ff453a; --fill: rgba(120, 120, 128, .28); --dot: #48484a; }
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-size: 13px; }
-  #pad { position: relative; flex: 1; min-height: 120px; margin: 8px 8px 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
-  footer { display: flex; align-items: center; gap: 8px; padding: 8px; }
-  #status { flex: 1; width: 8px; height: 8px; }
-  #status::before { content: ""; display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  #status[data-state="online"]::before { background: var(--ok); }
-  #status[data-state="offline"]::before { background: var(--danger); }
-  button { padding: 6px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; cursor: pointer; }
-  button:disabled { opacity: .4; cursor: default; }
-  button.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
+  /* 速写区域：圆角白底，一圈细线；底纹是一层点阵（画布透明的地方透出来） */
+  #pad { position: relative; flex: 1; min-height: 120px; margin: 10px 10px 0; border-radius: 10px; overflow: hidden;
+         background-color: #fff; background-image: radial-gradient(var(--dot) 1px, transparent 1.3px);
+         background-size: 20px 20px; background-position: 10px 10px; box-shadow: 0 0 0 1px var(--line); }
+  footer { display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 10px 0 14px; }
+  #status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  #status svg { flex: none; color: var(--muted); }
+  #status[data-state="online"] svg { color: var(--accent); }
+  #status[data-state="offline"] svg { color: var(--danger); }
+  .spacer { flex: 1; }
+  button { height: 28px; padding: 0 14px; border: 0; border-radius: 7px; background: var(--fill); color: var(--text);
+           font: inherit; font-size: 13px; cursor: default; }
+  button:disabled { opacity: .4; }
+  button.primary { background: var(--accent); color: var(--accent-text); font-weight: 500; box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* 提示浮在画布底部，几秒后消失 */
-  #notice { position: absolute; left: 50%; bottom: 52px; transform: translateX(-50%); max-width: calc(100% - 32px); margin: 0;
+  #notice { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); max-width: calc(100% - 32px); margin: 0;
             padding: 5px 10px; border-radius: 8px; background: rgba(28, 28, 30, .86); color: #fff; font-size: 12px; line-height: 1.4;
             text-align: center; pointer-events: none; }
   #notice:empty { display: none; }
@@ -38,9 +47,10 @@
 <body>
   <div id="pad"></div>
   <footer>
-    <span id="status" title="连接中" aria-label="连接中"></span>
+    <span id="status" role="status" title="连接中"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="8" height="6" rx="1"/><path d="M2.25 14.25h10.5"/><path d="M13.9 7.6a2 2 0 0 1 0 2.8"/><path d="M15.6 6a4.2 4.2 0 0 1 0 6"/></svg><span id="status-text">连接中</span></span>
+    <span class="spacer"></span>
     <button id="clear" disabled>清空</button>
-    <button id="copy" class="primary" disabled title="复制为 PNG">复制</button>
+    <button id="copy" class="primary" disabled>拷贝为图片</button>
   </footer>
   <p id="notice" role="status"></p>
   <script type="module" src="/static/js/sketch.js"></script>

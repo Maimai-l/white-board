@@ -140,7 +140,7 @@ The runtime of one space. All methods are called on the event loop thread.
 
 | Method | Description |
 | --- | --- |
-| `hub.on(event, callback)` | `"created"`, `"saved"`, `"deleted"`: `callback(board_id, meta)`. `"changed"`: `callback(board_id, meta, op)`, once per accepted operation. `"detached"`: `callback(conn)`, when a connection closes. Callbacks run on the event loop thread and must not block. Returns a function that unsubscribes. |
+| `hub.on(event, callback)` | `"created"`, `"saved"`, `"deleted"`: `callback(board_id, meta)`. `"changed"`: `callback(board_id, meta, op)`, once per accepted operation. `"attached"`: `callback(conn)`, after the handshake when the connection is registered, before its first snapshot is sent. `"detached"`: `callback(conn)`, when a connection closes. Callbacks run on the event loop thread and must not block. Returns a function that unsubscribes. |
 | `hub.board_meta(board_id)` | The metadata, or None when the board does not exist. |
 | `hub.list_boards(offset=0, limit=100, prefix="", order="updated")` | A list of metadata, taken from the in-memory index without reading board files. `order` is `updated`, `created` (newest first), `name` (ascending), or a list of board ids (listed boards first, in list order). `limit=None` means no limit. |
 | `hub.count(prefix="")` | The number of boards. |

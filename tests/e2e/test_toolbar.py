@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from e2e.support import (
+    board_menu,
     draw,
+    menu_pick,
+    more_pick,
     new_board,
     open_gallery,
     open_mac,
@@ -22,48 +25,48 @@ def test_toolbar_still_responds_to_taps(browser, server):
     assert ipad.evaluate("() => whiteboard.tool.tool") == "eraser"
     ipad.tap('button[title="钢笔"]')
     assert ipad.evaluate("() => whiteboard.tool.tool") == "pen"
-    ipad.tap('button[title="手指书写"]')
+    ipad.tap('#toolbar button[title="更多"]')
+    ipad.tap('.menu .menu-item:has-text("手指书写")')
     assert ipad.evaluate("() => whiteboard.input.fingerDraw") is True
 
 
-def test_ipad_toolbar_can_move_to_the_top(browser, server):
-    """底部那条够不着时可以挪到上边，并且记在本机。"""
+def test_the_toolbar_can_move_to_the_left(browser, server):
+    """底部那条够不着时可以竖到左边（更多菜单里），并且记在本机。"""
     ipad = open_touch(browser, server.port)
 
     def dock():
         return ipad.evaluate("() => document.documentElement.dataset.toolbar")
 
-    def toolbar_top():
-        return ipad.evaluate("() => document.getElementById('toolbar').getBoundingClientRect().top")
+    def toolbar_box():
+        return ipad.locator("#toolbar").bounding_box()
 
     assert dock() == "bottom"
-    bottom_y = toolbar_top()
+    more_pick(ipad, "工具栏移到左侧")
+    assert dock() == "left"
+    box = toolbar_box()
+    assert box["x"] < 40 and box["height"] > box["width"]
 
-    ipad.click('button[title="工具栏换个位置"]')
-    assert dock() == "top"
-    assert toolbar_top() < bottom_y / 2
-
-    # 提示条让开了，不会压在工具栏上
-    notice_top = ipad.evaluate(
-        "() => { const n = document.createElement('div'); n.className = 'notice';"
-        " document.getElementById('ui').append(n);"
-        " const t = n.getBoundingClientRect().top; n.remove(); return t; }"
-    )
-    assert notice_top > toolbar_top()
-
-    # 颜色面板改成往下开，不会跑到屏幕外面
+    # 颜色面板改成往右开，不会盖住工具栏，也不会跑到屏幕外面
     ipad.click('button[title="颜色与粗细"]')
-    top, bottom = ipad.evaluate(
-        "() => { const r = document.querySelector('.popover').getBoundingClientRect(); return [r.top, r.bottom]; }"
+    left, bottom = ipad.evaluate(
+        "() => { const r = document.querySelector('.popover').getBoundingClientRect(); return [r.left, r.bottom]; }"
     )
-    assert top > toolbar_top()
+    assert left >= box["x"] + box["width"]
     assert bottom <= ipad.evaluate("() => innerHeight")
 
     reload(ipad)
-    assert dock() == "top"  # 换个位置之后记得住
+    assert dock() == "left"  # 换个位置之后记得住
 
-    ipad.click('button[title="工具栏换个位置"]')
+    more_pick(ipad, "工具栏移到底部")
     assert dock() == "bottom"
+
+
+def test_the_old_top_position_becomes_the_left_side(browser, server):
+    """老版本存的是贴上边：顶上现在是标题栏，升级上来换到左边。"""
+    ipad = open_touch(browser, server.port)
+    ipad.evaluate("() => localStorage.setItem('whiteboard.toolbar', 'top')")
+    reload(ipad)
+    assert ipad.evaluate("() => document.documentElement.dataset.toolbar") == "left"
 
 
 def test_classic_toolbar_still_shares_one_colour(browser, server):
@@ -96,23 +99,23 @@ def test_clear_asks_before_it_wipes_the_board(browser, server):
     draw(ipad, [(300, 300), (380, 340)])
     wait_strokes(mac, 1)
 
-    ipad.click('button[title="清空白板"]')
+    more_pick(ipad, "清空白板…")
     ipad.wait_for_selector(".dialog.ask")
     assert ipad.locator(".dialog.ask .ask-text").inner_text() == "清空这块白板"
     ipad.click('.dialog button[title="取消"]')
     assert stroke_count(ipad) == 1  # 取消就是什么都没发生
 
-    ipad.click('button[title="清空白板"]')
+    more_pick(ipad, "清空白板…")
     ipad.click('.dialog button[title="清空"]')
     wait_strokes(mac, 0)
 
-    # 白板列表里那个垃圾桶问的是另一件事
+    # 白板库里移到回收站不用问：回收站里还能恢复
     new_board(mac, "笔记")
     open_gallery(mac)
-    mac.locator(".board-card").first.hover()  # 删除按钮悬停才出来
-    mac.locator(".board-card .del").first.click()
-    mac.wait_for_selector(".dialog.ask")
-    assert mac.locator(".dialog.ask .ask-text").inner_text() == "删除这块白板"
+    board_menu(mac)
+    menu_pick(mac, "移到回收站")
+    mac.wait_for_function("() => whiteboard.ui.boards.some(b => b.trashed)")
+    assert mac.query_selector(".dialog.ask") is None
 
 
 def test_dialog_stays_solid_while_the_scrim_darkens(browser, server):
@@ -126,7 +129,7 @@ def test_dialog_stays_solid_while_the_scrim_darkens(browser, server):
     values = mac.evaluate(
         """async () => {
           document.documentElement.style.setProperty('--motion', '1200ms linear');
-          document.querySelector('button[title="清空白板"]').click();
+          whiteboard.ui.confirmClear();
           await new Promise(r => setTimeout(r, 600));  // 动画正中间
           const scrim = document.querySelector('.scrim');
           const dialog = document.querySelector('.dialog.ask');
@@ -162,17 +165,11 @@ def test_touch_devices_get_no_hover_styling(browser, server):
     )
     assert rules == [], f"这些 :hover 没有关在 hover 媒体查询里：{rules}"
 
-    # 触摸设备上删除按钮一直显示：没有「划过」这回事，否则删不掉
-    new_board(ipad, "笔记")
-    open_gallery(ipad)
-    ipad.wait_for_selector(".board-card .del")
-    assert ipad.evaluate("() => getComputedStyle(document.querySelector('.board-card .del')).display") == "flex"
-
 
 def test_background_can_be_changed_from_the_ipad(browser, server):
     mac, ipad = open_pages(browser, server.port, picker=True)
     ipad.wait_for_selector("#pk-host .pk-picker", timeout=20000)
-    ipad.tap('button[title="白板设置"]')
-    ipad.tap('.bg-opt[title="dots"]')
+    ipad.tap('#topright button[title="白板设置"]')
+    ipad.tap('.bg-opt[title="点阵"]')
     for page in (ipad, mac):
         page.wait_for_function("() => whiteboard.state.meta.background.pattern === 'dots'")

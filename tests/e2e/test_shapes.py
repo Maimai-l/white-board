@@ -6,7 +6,18 @@
 
 from __future__ import annotations
 
-from e2e.support import PICKER, TABLET_UA, enable_pk_picker, new_page, open_pages, reload, wait_online, wait_strokes
+from e2e.support import (
+    PICKER,
+    TABLET_UA,
+    enable_pk_picker,
+    more_checked,
+    more_pick,
+    new_page,
+    open_pages,
+    reload,
+    wait_online,
+    wait_strokes,
+)
 
 UNDO = "#pk-host button[data-act='undo']"
 REDO = "#pk-host button[data-act='redo']"
@@ -245,15 +256,14 @@ def stroke_count_both(mac, ipad):
 
 
 def test_the_plain_toolbar_on_other_tablets_has_the_switch(browser, server):
-    """别的平板用的是普通工具栏：开关和「手指书写」放在一起，按钮亮着就是开着。"""
+    """别的平板用的是普通工具栏：开关和手指书写一起放在更多菜单里，打着勾就是开着。"""
     tablet = new_page(browser, user_agent=TABLET_UA, touch=True)
     tablet.goto(f"http://127.0.0.1:{server.port}/?role=ipad")
     wait_online(tablet)
     assert tablet.query_selector(PICKER) is None
-    button = 'button[title="形状识别"]'
-    assert "active" not in (tablet.get_attribute(button, "class") or "")
-    tablet.click(button)
-    assert "active" in tablet.get_attribute(button, "class")
+    assert more_checked(tablet, "形状识别") is False
+    more_pick(tablet, "形状识别")
+    assert more_checked(tablet, "形状识别") is True
 
     pen(tablet, curved_line(600))
     wait_strokes(tablet, 1)
@@ -261,4 +271,4 @@ def test_the_plain_toolbar_on_other_tablets_has_the_switch(browser, server):
 
     # 记在本机：刷新之后还开着
     reload(tablet)
-    assert "active" in tablet.get_attribute(button, "class")
+    assert more_checked(tablet, "形状识别") is True

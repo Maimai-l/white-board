@@ -266,15 +266,22 @@ def mask_chains(op):
 
 
 def open_gallery(page):
-    page.click('button[title="白板"]')
+    """点「白板库」，等白板库画出来。"""
+    page.click('button[title="白板库"]')
+    page.wait_for_selector(".gallery.library")
+
+
+KIND_LABELS = {"笔记": "向下延伸", "大白板": "四向延伸"}
 
 
 def new_board(page, kind="笔记"):
-    """白板列表 → 新建 → 选一种（「笔记」或「大白板」），等切过去之后返回新白板的 id。"""
+    """白板库 → 新建白板 → 选一种（「笔记」即向下延伸，「大白板」即四向延伸），等切过去
+    之后返回新白板的 id。"""
     before = page.evaluate("() => whiteboard.state.id")
-    open_gallery(page)
-    page.click(".board-card.add")
-    page.click(f'.kind-tile[title="新建{kind}"]')
+    if not page.query_selector(".gallery.library"):
+        open_gallery(page)
+    page.click(".lib-new")
+    page.click(f'.kind-tile:has-text("{KIND_LABELS[kind]}")')
     page.wait_for_function("(was) => whiteboard.state.id !== was", arg=before)
     if kind == "笔记":
         page.wait_for_function("() => whiteboard.state.kind === 'note'")
@@ -282,13 +289,11 @@ def new_board(page, kind="笔记"):
 
 
 def new_folder(page, name=None):
-    """点「新建文件夹」：名字框直接进入编辑、默认名全选；输入名字（或保留默认名）后回车。
-
-    要已经在白板选择界面里、并且点开了「新建」。
-    """
-    page.click('.kind-tile[title="新建文件夹"]')
-    field = page.wait_for_selector('.board-name[data-focus-key="folder-draft"]')
-    assert page.evaluate("() => document.activeElement.dataset.focusKey") == "folder-draft"
+    """点边栏的「新建文件夹」：最后多一行，名字框直接进入编辑、默认名全选；输入名字
+    （或保留默认名）后回车。要已经在白板库里。"""
+    page.click('.lib-side button[title="新建文件夹"]')
+    field = page.wait_for_selector('.lib-nav-edit[data-focus-key="folder-edit"]')
+    page.wait_for_function("() => document.activeElement && document.activeElement.dataset.focusKey === 'folder-edit'")
     if name is not None:
         page.keyboard.type(name)
     page.keyboard.press("Enter")
@@ -297,19 +302,52 @@ def new_folder(page, name=None):
     return target
 
 
+def folder_row(name):
+    """边栏里这个文件夹那一行。"""
+    return f'.lib-side .lib-nav[data-folder="{name}"]'
+
+
 def gallery_with_folder(page, name=None):
-    """打开选择界面、新建一个文件夹，返回文件夹的名字。"""
+    """打开白板库、新建一个文件夹，返回文件夹的名字。"""
     open_gallery(page)
-    page.click(".board-card.add")
     name = new_folder(page, name)
-    page.wait_for_selector(".board-card.folder")
+    page.wait_for_selector(folder_row(name))
     return name
 
 
+def board_menu(page, board_id=None):
+    """在白板卡片上右键（不给 id 就是第一块），等菜单出来。"""
+    card = f'.board-item[data-board="{board_id}"]' if board_id else ".board-item[data-board]"
+    page.click(card, button="right")
+    page.wait_for_selector(".menu")
+
+
+def menu_pick(page, *labels):
+    """在打开的菜单里一层层点下去，例如 ``menu_pick(page, "移到文件夹", "fs")``。"""
+    for label in labels:
+        page.click(f'.menu .menu-item:has(.menu-label:text-is("{label}"))')
+
+
+def more_pick(page, label):
+    """普通工具栏：点更多，再点菜单里的一项（手指书写、形状识别、清空白板…）。"""
+    page.click('#toolbar button[title="更多"]')
+    menu_pick(page, label)
+
+
+def more_checked(page, label):
+    """普通工具栏更多菜单里某个开关是不是开着（看完把菜单关上）。"""
+    page.click('#toolbar button[title="更多"]')
+    item = page.wait_for_selector(f'.menu .menu-item:has(.menu-label:text-is("{label}"))')
+    checked = item.get_attribute("aria-checked") == "true"
+    page.keyboard.press("Escape")
+    page.wait_for_selector(".menu", state="detached")
+    return checked
+
+
 def file_into(page, folder):
-    """用卡片下面的文件夹按钮把（唯一那块）白板归进 folder。"""
-    page.click(".board-folder")
-    page.click(f'.folder-row:has-text("{folder}")')
+    """用右键菜单把（唯一那块）白板移到 folder。"""
+    board_menu(page)
+    menu_pick(page, "移到文件夹", folder)
     page.wait_for_function("(f) => whiteboard.ui.boards.every(b => b.folder === f)", arg=folder)
 
 

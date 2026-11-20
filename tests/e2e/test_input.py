@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from e2e.support import (
+    more_pick,
     draw,
     fire,
     open_mac,
@@ -32,14 +33,14 @@ def test_touch_pans_by_default_and_only_pencil_draws(browser, server):
     assert view(ipad) != before, "手指应该把画布拖动了"
 
     # 打开「手指书写」之后手指才画线，并且这个选择会被记住
-    ipad.click('button[title="手指书写"]')
+    more_pick(ipad, "手指书写")
     ipad.wait_for_function("() => whiteboard.input.fingerDraw === true")
     draw(ipad, [(300, 600), (380, 640), (460, 600)], pointer_type="touch", pointer_id=8)
     wait_strokes(ipad, 2)
     wait_strokes(mac, 2)
     assert ipad.evaluate("() => localStorage.getItem('whiteboard.fingerDraw')") == "1"
 
-    ipad.click('button[title="手指书写"]')
+    more_pick(ipad, "手指书写")
     assert ipad.evaluate("() => whiteboard.input.fingerDraw") is False
 
 

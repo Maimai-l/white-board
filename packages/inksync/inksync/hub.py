@@ -307,7 +307,8 @@ class Hub:
 
     def on(self, event: str, callback: Callable[..., Any]) -> Callable[[], None]:
         """``created``、``saved``、``deleted``：``callback(board_id, meta)``；
-        ``changed``：``callback(board_id, meta, op)``；``detached``：``callback(conn)``，连接断开时。
+        ``changed``：``callback(board_id, meta, op)``；``attached``：``callback(conn)``，握手完成、
+        连接登记之后（第一份快照发出之前）；``detached``：``callback(conn)``，连接断开时。
         返回取消订阅的函数。"""
         self._events.setdefault(event, []).append(callback)
         return lambda: self._events.get(event, []).remove(callback) if callback in self._events.get(event, []) else None
@@ -690,6 +691,7 @@ class Hub:
         self.conns[conn.id] = conn
         if old is not None and old is not conn:
             log.info("连接 %s 重新登记，旧连接不再接收广播", conn.id)
+        self._emit("attached", conn)
 
     def detach(self, conn: Conn) -> None:
         # 同一个客户端 id 可能已经用新连接重新登记（iOS 唤醒后旧 socket 才断开），

@@ -52,7 +52,7 @@ function setStatus(state) {
   const el = $("status");
   el.dataset.state = state;
   el.title = STATUS_NAMES[state] || state;
-  el.setAttribute("aria-label", el.title);
+  $("status-text").textContent = el.title;
 }
 
 function strokeCount() {
@@ -72,11 +72,11 @@ async function copy() {
     const blob = await (await fetch(url)).blob();
     if (blob.type !== "image/png" || blob.size === 0) throw new Error("生成图片失败");
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-    notice("已复制");
+    notice("已拷贝");
     window.dispatchEvent(new CustomEvent("sketch-copied", { detail: { size: blob.size } }));
   } catch (err) {
     console.warn("sketch.copy 复制失败", err);
-    notice("复制失败", "error");
+    notice("拷贝失败", "error");
   }
 }
 
