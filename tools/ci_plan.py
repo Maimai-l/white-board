@@ -33,7 +33,11 @@ WEB = APP | {"js"}
 # 按顺序匹配，每个文件取第一条命中的规则。前缀以 / 结尾的是目录。
 RULES: Sequence[tuple] = (
     # 改了 CI 自己：什么都要跑一遍，才知道新的 CI 是对的
-    ((".github/", "tools/ci_plan.py", "tools/ci_summary.py", "Makefile", "requirements-test.txt"), ALL),
+    (
+        (".github/", "tools/ci_plan.py", "tools/ci_summary.py", "Makefile",
+         "requirements-test.txt", "requirements-test.lock"),
+        ALL,
+    ),
     (("ipad/",), {"ipad"}),
     (("packages/inksync/inksync/web/",), WEB | {"inksync"}),
     (("packages/inksync/",), APP | {"inksync"}),
@@ -41,7 +45,7 @@ RULES: Sequence[tuple] = (
     (("whiteboard/", "run.py"), APP),
     (("tests/js/",), {"js"}),
     (("tests/",), {"unit", "e2e", "webkit"}),
-    (("packaging/", "requirements.txt"), {"unit", "package"}),
+    (("packaging/", "requirements.txt", "requirements-package.txt", "requirements.lock"), {"unit", "package"}),
     (("extensions/",), {"extension", "e2e"}),
     (("examples/", "tools/"), {"unit"}),
     (("docs/",), set()),
