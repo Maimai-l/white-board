@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import shutil
@@ -36,6 +37,9 @@ MAX_RECORDINGS_BYTES = 256 * 1024 * 1024
 MAX_DOC_BYTES = 256 * 1024 * 1024
 # 同时最多渲染两页：渲染走线程池，再多也只是互相抢 CPU。
 RENDER_LIMIT = 2
+# /api/qr 的内容最长多少个字符：二维码里放的是白板的地址，用不着更长
+MAX_QR_TEXT = 1024
+QR_DARK = "#1C1C1E"
 
 # aiohttp 的类型安全键，避免字符串键的命名冲突。
 CONFIG_KEY: "web.AppKey[Config]" = web.AppKey("config")
@@ -209,6 +213,26 @@ async def handle_ipad_ipa(request: web.Request) -> web.StreamResponse:
             "Cache-Control": "no-store",
         },
     )
+
+
+async def handle_qr(request: web.Request) -> web.Response:
+    """``/api/qr?text=…``：二维码的 SVG，给 Mac 上「连接 iPad」的弹窗用。
+
+    纠错级别 M，四周留 2 个模块的空白，深色模块 #1C1C1E，背景透明。SVG 只有 viewBox、
+    没有宽高，大小由页面的 CSS 决定。"""
+    import segno  # 局部导入：只有这个接口用到
+
+    text = request.query.get("text", "")
+    if not text or len(text) > MAX_QR_TEXT:
+        raise web.HTTPBadRequest(text=f"text 必须是 1–{MAX_QR_TEXT} 个字符")
+    try:
+        code = segno.make(text, error="m", micro=False, boost_error=False)
+    except segno.DataOverflowError as exc:
+        log.warning("server.handle_qr：内容放不进二维码（%d 个字符）：%s", len(text), exc)
+        raise web.HTTPBadRequest(text="内容太长，放不进二维码") from exc
+    buffer = io.BytesIO()
+    code.save(buffer, kind="svg", border=2, dark=QR_DARK, light=None, omitsize=True, xmldecl=False)
+    return web.Response(body=buffer.getvalue(), content_type="image/svg+xml", headers={"Cache-Control": "no-cache"})
 
 
 async def handle_icon(request: web.Request) -> web.Response:
@@ -546,6 +570,8 @@ async def open_local_file(hub: Hub, path: Path, folder: str = "") -> Dict[str, A
     if suffix == ".wbz":
         own = hub.store.board_id_of(path)
         if own is not None:
+            # 回收站里那块：打开它就是要用它，先恢复
+            await hub.restore_board(own)
             if not await hub.select_board(own):
                 await hub.broadcast_switch()
             return hub.core.board_meta(own) or {}
@@ -814,6 +840,7 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app[SPACES_KEY] = spaces
     app.router.add_get("/profile.mobileconfig", handle_profile)
     app.router.add_get("/icon.png", handle_icon)
+    app.router.add_get("/api/qr", handle_qr)
     app.router.add_get("/ipad", handle_ipad_page)
     app.router.add_get("/ipad/version", handle_ipad_version)
     app.router.add_get(f"/ipad/{ipadshell.IPA_NAME}", handle_ipad_ipa)
@@ -841,6 +868,11 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
 
     async def _on_startup(_app: web.Application) -> None:
         spaces.get("")  # 用户空间一直开着
+        hub.start_maintenance()  # 回收站：启动时清理一次过期的，之后每小时一次
+
+    async def _on_cleanup(_app: web.Application) -> None:
+        await hub.stop_maintenance()
 
     app.on_startup.append(_on_startup)
+    app.on_cleanup.append(_on_cleanup)
     return app

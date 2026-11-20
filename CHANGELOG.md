@@ -10,6 +10,7 @@ This file lists the notable changes to the board app and to inksync. The section
 
 ### Added
 
+- Boards: A board can be duplicated. The copy has the same ink, background and folder and is placed after the original; a document board is copied with its original file.
 - Export: The export button opens an export dialog that exports the selected pages as a PDF, one PNG file or a ZIP of PNG files.
 - Export: Infinite boards are divided into pages automatically from top to bottom. Each page is as wide as the writing in that part of the board. Note boards are cut by paper length. See README.md.
 - Export: Page frames can be moved, resized, added and deleted on the board before exporting.
@@ -25,9 +26,12 @@ This file lists the notable changes to the board app and to inksync. The section
 - iPad: The Ruler button in the tool picker shows a ruler. Two fingers move and rotate it, and the ruler shows its angle while it turns.
 - iPad: An Apple Pencil stroke started on the ruler or near its edge is drawn as a straight line along the edge. The line syncs; the ruler is not shown on the Mac.
 
+- inksync: Hubs emit an `attached` event when a connection is registered after its handshake.
+
 ### Changed
 
 - Interface: Labels and messages use consistent wording without full-width brackets or sentence punctuation. Error messages are short, and the details are written to the log file.
+- Boards: Deleting a board moves it to the Trash, where it can be restored or deleted permanently. Boards in the Trash for more than 30 days are deleted permanently.
 - Mac: Failures that used to leave no trace, such as a board thumbnail that could not be uploaded or a port in the configuration file that is not a number, are written to the log file.
 - Updates: The Mac app checks for updates with Sparkle and downloads only the changed parts of the app when updating from one of the three previous versions.
 - Updates: The Check for updates button opens the update window, which shows the result and the release notes.

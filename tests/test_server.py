@@ -3,6 +3,8 @@
 import asyncio
 import io
 import json
+import re
+import time
 from contextlib import asynccontextmanager
 
 import pytest
@@ -1017,5 +1019,290 @@ def test_allowed_hosts_from_config(tmp_path):
             assert (await client.get("/api/info", headers={"Host": "other.example.net"})).status == 403
         finally:
             await client.close()
+
+    run(main())
+
+
+# --------------------------------------------------- 回收站、复制、连接的设备、二维码
+
+
+async def hello_v2(ws, client_id, device="mac", **fields):
+    """1.1 起的页面：带协议版本，跟随当前白板。"""
+    await ws.send_json({"t": "hello", "v": 2, "client": client_id, "device": device, "follow": True, **fields})
+    return await ws.receive_json()
+
+
+async def receive_kind(ws, kind, timeout=2.0):
+    """收到某种消息为止，跳过别的；超时返回 None。"""
+    try:
+        while True:
+            msg = await ws.receive_json(timeout=timeout)
+            if msg.get("t") == kind:
+                return msg
+    except asyncio.TimeoutError:
+        return None
+
+
+async def wait_until(condition, timeout=5.0):
+    """等条件成立（轮询，不是固定等待）；超时返回 False。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not condition():
+        if loop.time() > deadline:
+            return False
+        await asyncio.sleep(0.01)
+    return True
+
+
+def by_id(boards):
+    return {m["id"]: m for m in boards}
+
+
+def test_deleting_a_board_moves_it_to_the_trash(tmp_path):
+    """删除不再是彻底删除：白板进回收站，列表里还在（带 data.trashed），设备都换到别的白板。
+    1.0.x 页面根本看不到回收站里的白板。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            first = hub.current_id
+            mac = await client.ws_connect("/ws")
+            old = await client.ws_connect("/ws")
+            await hello_v2(mac, "mac-1")
+            await hello(old, "ipad", client_id="old-ipad")
+
+            await mac.send_json({"t": "newboard"})
+            second = (await receive_kind(mac, "switch"))["board"]["id"]
+            await receive_kind(old, "switch")
+
+            await mac.send_json({"t": "delboard", "board": second})
+            switched = await receive_kind(mac, "switch")
+            assert switched["board"]["id"] == first
+            boards = by_id(switched["boards"])
+            assert boards[second]["data"]["trashed"] > 0
+            assert "trashed" not in boards[first]["data"]
+            legacy = await receive_kind(old, "switch")
+            assert [m["id"] for m in legacy["boards"]] == [first]
+            assert hub.store.get_meta(second) is not None
+
+            # 回收站里的白板选不了
+            await mac.send_json({"t": "sel", "board": second})
+            await mac.send_json({"t": "ping", "ts": 1})
+            assert (await mac.receive_json())["t"] == "pong"
+            assert hub.current_id == first
+            await mac.close()
+            await old.close()
+
+    run(main())
+
+
+def test_restore_purge_and_empty_the_trash_over_the_socket(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            store = hub.store
+            keep = hub.current_id
+            a = store.create_board(make_current=False)["id"]
+            b = store.create_board(make_current=False)["id"]
+            c = store.create_board(make_current=False)["id"]
+            mac = await client.ws_connect("/ws")
+            await hello_v2(mac, "mac-1")
+
+            for board in (a, b, c):
+                await mac.send_json({"t": "delboard", "board": board})
+                listed = await receive_kind(mac, "boards")
+                assert by_id(listed["boards"])[board]["data"]["trashed"] > 0
+
+            await mac.send_json({"t": "restore", "board": a})
+            listed = await receive_kind(mac, "boards")
+            assert "trashed" not in by_id(listed["boards"])[a]["data"]
+            assert listed["board"]["id"] == keep
+
+            await mac.send_json({"t": "purge", "board": a})  # 不在回收站里：不理
+            await mac.send_json({"t": "purge", "board": b})
+            listed = await receive_kind(mac, "boards")
+            assert set(by_id(listed["boards"])) == {keep, a, c}
+
+            await mac.send_json({"t": "emptytrash"})
+            listed = await receive_kind(mac, "boards")
+            assert set(by_id(listed["boards"])) == {keep, a}
+            assert store.get_meta(c) is None
+            await mac.close()
+
+    run(main())
+
+
+def test_duplicate_over_the_socket_keeps_the_current_board(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            current = hub.current_id
+            mac = await client.ws_connect("/ws")
+            ipad = await client.ws_connect("/ws")
+            await hello_v2(mac, "mac-1")
+            await hello_v2(ipad, "ipad-1", device="ipad")
+            await mac.send_json({"t": "op", "cid": "s", "op": {"op": "add", "strokes": [stroke("s1")]}})
+            await receive_kind(mac, "ack")
+            await mac.send_json({"t": "rename", "board": current, "name": "第一章"})
+            await receive_kind(mac, "boards")
+            await receive_kind(ipad, "boards")
+
+            await mac.send_json({"t": "duplicate", "board": current})
+            listed = await receive_kind(mac, "boards")
+            assert listed["board"]["id"] == current
+            ids = [m["id"] for m in listed["boards"]]
+            assert ids[0] == current and len(ids) == 2
+            copy = listed["boards"][1]
+            assert copy["name"] == "第一章 副本"
+            assert (await receive_kind(ipad, "boards"))["board"]["id"] == current
+            assert hub.current_id == current
+            assert [s["id"] for s in await hub.strokes_of(copy["id"])] == ["s1"]
+            await mac.close()
+            await ipad.close()
+
+    run(main())
+
+
+def test_a_device_without_manage_cannot_use_the_trash_or_duplicate(tmp_path, remote):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            store = hub.store
+            board = hub.current_id
+            trashed = store.create_board(make_current=False)["id"]
+            await hub.trash_board(trashed)
+            ws = await client.ws_connect("/ws")
+            await hello_v2(ws, "pad-1", device="ipad")
+            for message in (
+                {"t": "delboard", "board": board},
+                {"t": "duplicate", "board": board},
+                {"t": "restore", "board": trashed},
+                {"t": "purge", "board": trashed},
+                {"t": "emptytrash"},
+            ):
+                await ws.send_json(message)
+            await ws.send_json({"t": "ping", "ts": 1})
+            assert (await ws.receive_json())["t"] == "pong"
+            assert len(store.list_metas()) == 2
+            assert models.trashed_at(store.get_meta(board)) is None
+            assert models.trashed_at(store.get_meta(trashed)) is not None
+            await ws.close()
+
+    run(main())
+
+
+def test_the_trash_mark_cannot_be_set_with_a_meta_operation(tmp_path):
+    """回收站只能经过 delboard / restore：设置白板的权限改不了它。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            ws = await client.ws_connect("/ws")
+            await hello_v2(ws, "mac-1")
+            await ws.send_json({"t": "op", "cid": "m", "op": {"op": "meta", "meta": {"data": {"trashed": 1}}}})
+            ack = await receive_kind(ws, "ack")
+            assert ack.get("rejected")
+            assert models.trashed_at(hub.store.get_meta(hub.current_id)) is None
+            await ws.close()
+
+    run(main())
+
+
+def test_the_server_purges_old_trash_when_it_starts(tmp_path):
+    store = BoardStore(tmp_path / "data")
+    old = store.create_board(make_current=False)["id"]
+    recent = store.create_board(make_current=False)["id"]
+    store.edit_meta(old, data={"trashed": time.time() - 31 * 86400})
+    store.edit_meta(recent, data={"trashed": time.time() - 29 * 86400})
+    store.core.close()
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            store = app[HUB_KEY].store
+            assert await wait_until(lambda: store.get_meta(old) is None)
+            assert store.get_meta(recent) is not None
+
+    run(main())
+
+
+def test_trashed_boards_still_have_thumbnails_and_exports(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            board = hub.store.create_board(make_current=False)["id"]
+            await hub.trash_board(board)
+            assert (await client.get(f"/api/thumb/{board}")).status == 200
+            response = await client.post(f"/api/export/{board}", json={"format": "pdf", "frames": "whole"})
+            assert response.status == 200
+
+    run(main())
+
+
+@pytest.fixture
+def mixed(monkeypatch):
+    """带 X-Test-Remote 头的请求当作局域网上的别的设备，其余是本机。"""
+    monkeypatch.setattr(
+        "whiteboard.server.netinfo.is_local_request", lambda request: "X-Test-Remote" not in request.headers
+    )
+    return {"X-Test-Remote": "1"}
+
+
+def test_the_mac_page_hears_when_other_devices_connect_and_leave(tmp_path, mixed):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            mac = await client.ws_connect("/ws")
+            init = await hello_v2(mac, "mac-1")
+            assert init["devices"] == []
+
+            # 只打开某一块白板的连接（速写页、嵌入的应用）不算
+            viewer = await client.ws_connect("/ws", headers=mixed)
+            await viewer.send_json({"t": "hello", "v": 2, "client": "viewer-1", "board": hub.current_id})
+            assert (await viewer.receive_json())["t"] == "init"
+
+            ipad = await client.ws_connect("/ws", headers=mixed)
+            ipad_init = await hello_v2(ipad, "ipad-1", device="ipad")
+            assert "devices" not in ipad_init  # 别的设备收不到这份名单
+            joined = await receive_kind(mac, "devices")
+            assert joined["devices"] == [{"id": "ipad-1", "role": "ipad", "label": "iPad"}]
+
+            laptop = await client.ws_connect("/ws", headers=mixed)
+            await hello_v2(laptop, "laptop-1", device="mac")
+            joined = await receive_kind(mac, "devices")
+            assert joined["devices"] == [
+                {"id": "ipad-1", "role": "ipad", "label": "iPad"},
+                {"id": "laptop-1", "role": "browser", "label": "浏览器"},
+            ]
+
+            # 本机的第二个页面一连上就拿到名单，本机的页面自己不在名单里
+            second = await client.ws_connect("/ws")
+            assert [d["id"] for d in (await hello_v2(second, "mac-2"))["devices"]] == ["ipad-1", "laptop-1"]
+
+            await ipad.close()
+            left = await receive_kind(mac, "devices")
+            assert left["devices"] == [{"id": "laptop-1", "role": "browser", "label": "浏览器"}]
+            assert (await receive_kind(second, "devices"))["devices"] == left["devices"]
+            assert await receive_kind(laptop, "devices", timeout=0.2) is None
+            for ws in (mac, viewer, laptop, second):
+                await ws.close()
+
+    run(main())
+
+
+def test_qr_code_is_an_svg_that_css_can_size(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            response = await client.get("/api/qr", params={"text": "http://mac.local:8848/"})
+            assert response.status == 200
+            assert response.content_type == "image/svg+xml"
+            body = await response.text()
+            tag = re.search(r"<svg[^>]*>", body).group(0)
+            assert "viewBox" in tag and " width=" not in tag and " height=" not in tag
+            assert "#1c1c1e" in body.lower()
+
+            assert (await client.get("/api/qr")).status == 400
+            assert (await client.get("/api/qr", params={"text": ""})).status == 400
+            assert (await client.get("/api/qr", params={"text": "x" * 1025})).status == 400
+            assert (await client.get("/api/qr", params={"text": "汉" * 1000})).status == 400  # 放不进二维码
 
     run(main())

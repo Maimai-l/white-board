@@ -222,9 +222,11 @@ The whiteboard app adds the following to its user space (the space named with th
 
 ### Following the current board
 
-The whiteboard app's pages connect with `follow: true`, and the server opens the current board. After a board is selected, created or deleted on the Mac, the server sends `switch` to every following connection and they switch together. If the current board has not changed, a reconnecting client gets `sync` by the usual catch-up rule.
+The whiteboard app's pages connect with `follow: true`, and the server opens the current board. After a board is selected, created or deleted on the Mac, the server sends `switch` to every following connection and they switch together. A board in the trash is never the current board. If the current board has not changed, a reconnecting client gets `sync` by the usual catch-up rule.
 
 For following connections, `init`, `sync` and `switch` also carry `boards` (the board list in display order) and `folders` (the folder names, including empty folders).
+
+`boards` includes boards in the trash, so the client can show the trash; they have `data.trashed` (see [format.md](format.md#trash)). A board in the trash may name a folder that is no longer in `folders`.
 
 ### Extension messages
 
@@ -232,14 +234,18 @@ Client to server (all need `manage`; a message without permission or without eff
 
 | `t` | Fields | Behavior |
 | --- | --- | --- |
-| `sel` | `board` | Makes `board` the current board; every following connection receives `switch`. Ignored if the board does not exist or is already current. A read-only board is read from disk again. |
+| `sel` | `board` | Makes `board` the current board; every following connection receives `switch`. Ignored if the board does not exist, is already current or is in the trash. A read-only board is read from disk again. |
 | `newboard` | `kind`, `folder` (optional) | Creates a board (a column canvas when `kind` is `note`, an infinite canvas otherwise), makes it current and sends `switch`. If `folder` names an existing folder, the new board goes into it. Document boards are created with `POST /api/doc`. |
-| `delboard` | `board` | Deletes the board file, its thumbnail and its document original, and sends `switch`. If no board remains, a new empty board is created. |
+| `delboard` | `board` | Moves the board to the trash: sets `data.trashed` to the current time. Nothing is deleted. If it was the current board, the first board in order that is not in the trash becomes current (a new empty board is created if there is none) and `switch` is sent; otherwise `boards` is sent. Ignored for a board already in the trash. |
+| `duplicate` | `board` | Copies the board: a new ID with the same strokes, background, canvas and folder, placed right after the original. The name is the original's displayed name plus ` 副本` (an unnamed board is displayed as `白板`, `笔记` or the document's file name without extension, as `boardLabel` in the client). A document board's original and thumbnail are copied too. The current board does not change. Sends `boards`. Ignored for a board in the trash, the sketch board and a read-only board. |
+| `restore` | `board` | Takes the board out of the trash (removes `data.trashed`) and sends `boards`. The board keeps its folder; if that folder is no longer in the folder list, it is added again. The current board does not change. Ignored for a board not in the trash. |
+| `purge` | `board` | Deletes a board in the trash permanently: the board file, its thumbnail and its document original. Sends `boards`. Ignored for a board not in the trash. |
+| `emptytrash` | — | Deletes every board in the trash permanently, as `purge`. Sends `boards`. Ignored when the trash is empty. |
 | `rename` | `board`, `name` | Renames any board and sends `boards`. Does not change `updated`. |
 | `folder` | `board`, `folder` | Moves the board into a folder (`data.folder`); an empty string moves it out. A new name is added to the folder list. Sends `boards`; does not change `updated`. |
 | `order` | `ids` | `ids` is the order the sender sees at the current level (top level or inside a folder). The listed boards swap only among the positions they already occupy; other boards stay. Needs at least 2 known IDs. Sends `boards`. |
 | `newfolder` | `name` | Creates an empty folder. Ignored if the name is empty or exists. Sends `boards`. |
-| `delfolder` | `name` | Deletes the folder; its boards move out of it and no board is deleted. Sends `boards`. |
+| `delfolder` | `name` | Deletes the folder; its boards move out of it and no board is deleted. Boards in the trash keep the folder name, so `restore` puts them back into a recreated folder. Sends `boards`. |
 | `renamefolder` | `name`, `to` | Renames the folder and updates `data.folder` of its boards. Ignored if `to` is empty, equals `name` or exists, or `name` does not exist. Sends `boards`. |
 
 Server to following connections:
@@ -248,10 +254,26 @@ Server to following connections:
 | --- | --- | --- |
 | `boards` | `boards`, `folders`, `board` | Only the board list changed (for example after a rename); the client does not reload strokes. |
 | `perms` | `perms` | The permission list after a change; see [The whiteboard app's permissions](#the-whiteboard-apps-permissions). |
+| `devices` | `devices` | Only to following connections from this machine: the list of other devices changed. See [Connected devices](#connected-devices). |
 
 Without `manage`, a connection sees only its own board in `boards`, and `folders` is empty.
 
 Folders are identified by name; see [format.md](format.md#folders).
+
+Boards stay in the trash for 30 days (`hub.TRASH_TTL`). The server deletes older ones permanently when it starts and then once an hour (`hub.PURGE_INTERVAL`), logs each board it deletes, and sends `boards` (or `switch`, if the current board changed) to following connections.
+
+### Connected devices
+
+The Mac window shows which other devices have the board open. Following connections from this machine (`netinfo.is_local_request`) receive the list in the `devices` field of `init` and `sync`, and a `{"t":"devices","devices":[…]}` message whenever it changes.
+
+| Field | Description |
+| --- | --- |
+| `id` | The connection's client ID (`client` in `hello`); stable across reconnects of the same page |
+| `role` | `ipad` if the page reported `device: "ipad"` in `hello` (or `role` on a 1.0.x page), otherwise `browser` |
+| `label` | Display name: `iPad` or `浏览器` |
+
+- The list contains following connections that are not from this machine, in the order they connected. Connections from this machine, and connections that open a specific board instead of following (the sketch page, embedded apps, the viewer of app boards), are not listed.
+- The message is sent only when the list changes, so a page that reconnects with the same client ID before its old connection closes causes no message. 1.0.x pages and other devices never receive it.
 
 ### Spaces of installed apps
 
@@ -395,12 +417,12 @@ The whiteboard app maps four permissions onto this policy (user space):
 
 | Permission | Interface label | Allows |
 | --- | --- | --- |
-| `manage` | “管理白板” (Manage boards) | Opening boards other than the current one; the extension messages `sel`, `newboard`, `delboard`, `rename`, `folder`, `order`, `newfolder`, `delfolder`, `renamefolder`; `unlock`; `GET /api/info`, `GET /api/boards`, `GET /api/spaces/{app}/boards`, `GET`/`POST /api/thumb/{board}`, `POST /api/doc` |
+| `manage` | “管理白板” (Manage boards) | Opening boards other than the current one; the extension messages `sel`, `newboard`, `delboard`, `duplicate`, `restore`, `purge`, `emptytrash`, `rename`, `folder`, `order`, `newfolder`, `delfolder`, `renamefolder`; `unlock`; `GET /api/info`, `GET /api/boards`, `GET /api/spaces/{app}/boards`, `GET`/`POST /api/thumb/{board}`, `POST /api/doc` |
 | `settings` | “设置白板” (Board settings) | `meta` operation |
 | `clear` | “清空白板” (Clear board) | `clear` operation |
 | `export` | “导出白板” (Export board) | `GET`/`POST /api/export/{board}`, `GET /api/export/{board}/pages` |
 
-Writing on the current board (`add`, `restore`, `remove`, `mask`, `live`) needs no permission. Folders and document originals can change only through the extension messages (`protected_data_keys` holds `folder`, `doc` and `app`).
+Writing on the current board (`add`, `restore`, `remove`, `mask`, `live`) needs no permission. Folders, document originals and the trash mark can change only through the extension messages (`protected_data_keys` holds `folder`, `doc`, `app` and `trashed`).
 
 Without `manage`, a connection sees only its own board: `boards` in snapshots and `boards` messages contains just that board, and `folders` is empty. `GET /api/doc/{board}/{page}` for a board other than the current one also needs `manage`.
 
@@ -440,11 +462,12 @@ The role (`mac` or `ipad`) selects the interface layout.
 | GET | `/inksync/...` | — | The handwriting pad's front-end files (inksync's `serve_sdk`), entry `/inksync/inkpad.js`; `/inksync/version.js` is generated by the server with the build number. `Cache-Control: no-cache` |
 | GET | `/profile.mobileconfig?host=<host>` | — | iPad configuration profile (Web Clip) |
 | GET | `/icon.png` | — | 180 px app icon |
+| GET | `/api/qr?text=<text>` | — | QR code of `text` as SVG, for the connect popover on the Mac |
 | GET | `/ipad?host=<host>` | — | iPad shell install page, see [ipad-shell.md](ipad-shell.md) |
 | GET | `/ipad/version` | — | Version of the iPad shell bundled with this Mac |
 | GET | `/ipad/Whiteboard.ipa` | — | iPad shell package; 404 if not bundled |
 | GET | `/api/info` | `manage` | `build`, `hostname`, `port`, `urls`, `data_dir`, `current`, `clients` (`id`, `role` (device type), `since`) |
-| GET | `/api/boards` | `manage` | `boards`, `folders`, `current` |
+| GET | `/api/boards` | `manage` | `boards` (including boards in the trash), `folders`, `current` |
 | GET | `/api/thumb/{board}` | `manage` | Thumbnail PNG. Without an uploaded thumbnail: the first page of a document board, otherwise a blank PNG. |
 | POST | `/api/thumb/{board}` | `manage` | Upload a thumbnail. Body: PNG, at most 512 KB. |
 | POST | `/api/debug` | — | Client diagnostics written to the server log. Body: JSON object; the first 20 keys, up to 1000 characters. |
@@ -469,6 +492,7 @@ A missing permission returns `403`.
 | Endpoint | Details |
 | --- | --- |
 | `POST /api/thumb/{board}` | `404` for an unknown board; `400` if the body is not PNG. |
+| `GET /api/qr` | `Content-Type: image/svg+xml`. Error correction level M, a quiet zone of 2 modules, dark modules `#1C1C1E`, transparent background. The `<svg>` has a `viewBox` and no `width` or `height`, so CSS sets its size. `400` if `text` is missing, empty, longer than 1024 characters or does not fit in a QR code. Rendered with segno. |
 | `POST /api/doc` | The file name can also be sent in the `X-Filename` header. `folder` is optional and applies only if the folder exists. The body is read in 64 KB chunks until the end (`StreamReader.read(n)` returns at most `n` bytes). `413` over the limit, `400` for unsupported or unreadable files. Response: `{"board": <meta>}`. The server then sends `switch` to every following connection. |
 | `GET /api/doc/{board}/{page}` | `w` defaults to 1200 and is clamped to 160–2600. PDF pages and opaque images return JPEG (quality 82); images with transparency return PNG. `ETag` is `"<board>-<page>-<width>"`; a matching `If-None-Match` returns `304`. `Cache-Control: private, max-age=31536000, immutable`, because the original never changes. `404` if the board is not a document board, the original is missing, or the page is out of range. |
 | `GET /api/export/{board}` | Without `format`: document boards only (`404` otherwise). `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename*=UTF-8''<name>`, `Cache-Control: no-store`. File name: `<original name>-批注<ext>`. |
@@ -599,6 +623,6 @@ Registration rules:
 | `hello` with `pin` (the 1.0.1 embedded pad) | `{"t":"error","reason":"pin"}`: app boards are now separate spaces, and the 1.0.1 embedding interface has no users. |
 | `op` without `board` | Applied to the connection's current board. |
 
-Messages to 1.0.x pages are converted back to the 1.0.x form: snapshots carry `role`; metadata (including in `op` and `ack`) is converted back to `kind`, `folder`, `doc`, `underlay` and a string `background`; `ack` has no `board` or `rejected`; `locked` becomes a full `switch`; `caps` and `deleted` are not sent.
+Messages to 1.0.x pages are converted back to the 1.0.x form: boards in the trash are left out of `boards`; snapshots carry `role`; metadata (including in `op` and `ack`) is converted back to `kind`, `folder`, `doc`, `underlay` and a string `background`; `ack` has no `board` or `rejected`; `locked` becomes a full `switch`; `caps` and `deleted` are not sent.
 
 After a server upgrade, 1.1 pages receive the `outdated` event (the front end's build differs from `server.build` in the snapshot). The whiteboard app then reloads the page when no stroke is in progress, once per build. This compatibility is removed in 2.1.

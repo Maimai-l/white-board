@@ -1,4 +1,4 @@
-"""打包后的冒烟测试：建一块文档板，确认 PDF 真的能渲染、能导出。
+"""打包后的冒烟测试：建一块文档板，确认 PDF 真的能渲染、能导出；二维码接口能用。
 
 pdfium 是个动态库，PyInstaller 漏掉它的话本地跑没事、打出来的 .app 一碰
 文档板就炸，所以这一步必须在打包产物上跑，而不是在源码上跑。
@@ -45,6 +45,14 @@ def main(base: str) -> int:
         return 1
 
     print(f"文档板可用：{len(doc['pages'])} 页，位图 {len(page)} 字节，导出 {len(exported)} 字节")
+
+    # 连接弹窗的二维码由 segno 生成，同样要确认它打进了包里
+    with urllib.request.urlopen(f"{base}/api/qr?text=http%3A%2F%2Fmac.local%3A8848%2F", timeout=60) as response:
+        qr = response.read()
+    if b"<svg" not in qr:
+        print("二维码接口没有返回 SVG，segno 多半没打进去")
+        return 1
+    print(f"二维码可用：{len(qr)} 字节")
     return 0
 
 

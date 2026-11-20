@@ -222,9 +222,11 @@ WebSocket 握手请求先检查来源，不符合的返回 403、不建立连接
 
 ### 跟随当前白板
 
-白板应用的页面以 `follow: true` 连接，服务端打开「当前白板」。Mac 上选择、新建或删除白板之后，服务端向所有跟随的连接发送 `switch`，它们一起切换。当前白板不变时，重连的客户端按续传规则得到 `sync`。
+白板应用的页面以 `follow: true` 连接，服务端打开「当前白板」。Mac 上选择、新建或删除白板之后，服务端向所有跟随的连接发送 `switch`，它们一起切换。回收站中的白板不会是当前白板。当前白板不变时，重连的客户端按续传规则得到 `sync`。
 
 跟随的连接收到的 `init`、`sync`、`switch` 另外带有 `boards`（白板列表，按显示顺序）和 `folders`（文件夹名单，包括空文件夹）。
+
+`boards` 包括回收站中的白板，客户端据此显示回收站；它们带有 `data.trashed`（见 [format.zh-CN.md](format.zh-CN.md#回收站)）。回收站中的白板记录的文件夹可能已不在 `folders` 中。
 
 ### 扩展消息
 
@@ -232,14 +234,18 @@ WebSocket 握手请求先检查来源，不符合的返回 403、不建立连接
 
 | `t` | 字段 | 行为 |
 | --- | --- | --- |
-| `sel` | `board` | 将 `board` 设为当前白板，所有跟随的连接收到 `switch`。白板不存在或已是当前白板时忽略。只读白板会从磁盘重新读取。 |
+| `sel` | `board` | 将 `board` 设为当前白板，所有跟随的连接收到 `switch`。白板不存在、已是当前白板或在回收站中时忽略。只读白板会从磁盘重新读取。 |
 | `newboard` | `kind`、`folder`（可选） | 新建白板（`kind` 为 `note` 时是 column 画布，其他值为无限画布）并设为当前白板，发送 `switch`。`folder` 为已有文件夹时，新白板放入该文件夹。文档板通过 `POST /api/doc` 新建。 |
-| `delboard` | `board` | 删除白板文件、缩略图和文档原件，发送 `switch`。没有剩余白板时新建一块空白板。 |
+| `delboard` | `board` | 将白板移入回收站：把 `data.trashed` 设为当前时间，不删除任何文件。若它是当前白板，按顺序第一块不在回收站中的白板成为当前白板（没有则新建一块空白板）并发送 `switch`；否则发送 `boards`。已在回收站中的白板忽略。 |
+| `duplicate` | `board` | 复制白板：新的 id，笔画、背景、画布和文件夹都相同，排在原白板之后。名字是原白板显示的名字加 ` 副本`（未命名的白板显示为 `白板`、`笔记`，或去掉扩展名的文档文件名，与客户端的 `boardLabel` 相同）。文档板的原件和缩略图一并复制。当前白板不变。发送 `boards`。回收站中的白板、速写板和只读白板忽略。 |
+| `restore` | `board` | 将白板移出回收站（删除 `data.trashed`），发送 `boards`。白板保留原来的文件夹；该文件夹已不在文件夹名单中时重新加入。当前白板不变。不在回收站中的白板忽略。 |
+| `purge` | `board` | 彻底删除回收站中的一块白板：白板文件、缩略图和文档原件。发送 `boards`。不在回收站中的白板忽略。 |
+| `emptytrash` | — | 彻底删除回收站中的全部白板，同 `purge`。发送 `boards`。回收站为空时忽略。 |
 | `rename` | `board`、`name` | 给任意一块白板改名，发送 `boards`。不改变 `updated`。 |
 | `folder` | `board`、`folder` | 将白板放入文件夹（写 `data.folder`）；空串表示移出。新的名字会登记到文件夹名单中。发送 `boards`，不改变 `updated`。 |
 | `order` | `ids` | `ids` 是发送方在当前层级（最外层或某个文件夹内）看到的顺序。所列白板只在它们原本占据的位置之间调换，其他白板位置不变。至少需要 2 个已知 id。发送 `boards`。 |
 | `newfolder` | `name` | 新建空文件夹。名字为空或已存在时忽略。发送 `boards`。 |
-| `delfolder` | `name` | 删除文件夹，其中的白板移出文件夹，不删除任何白板。发送 `boards`。 |
+| `delfolder` | `name` | 删除文件夹，其中的白板移出文件夹，不删除任何白板。回收站中的白板保留该文件夹名称，`restore` 时放回重新建立的文件夹。发送 `boards`。 |
 | `renamefolder` | `name`、`to` | 给文件夹改名，并更新其中各白板的 `data.folder`。`to` 为空、与 `name` 相同或已存在，或 `name` 不存在时忽略。发送 `boards`。 |
 
 服务端发往跟随的连接：
@@ -248,10 +254,26 @@ WebSocket 握手请求先检查来源，不符合的返回 403、不建立连接
 | --- | --- | --- |
 | `boards` | `boards`、`folders`、`board` | 只是白板列表变了（例如改名之后），客户端无需重新载入笔画。 |
 | `perms` | `perms` | 权限变化后的权限名单，见[权限](#权限)。 |
+| `devices` | `devices` | 只发给本机的跟随连接：其他设备的名单变了。见[连接的设备](#连接的设备)。 |
 
 没有 `manage` 权限的连接在 `boards` 中只看得到自己所在的那一块，`folders` 为空。
 
 文件夹以名字区分，见 [format.zh-CN.md](format.zh-CN.md#文件夹)。
+
+回收站中的白板保留 30 天（`hub.TRASH_TTL`）。服务端在启动时以及之后每小时（`hub.PURGE_INTERVAL`）彻底删除超过期限的白板，每删除一块记一行日志，并向跟随的连接发送 `boards`（当前白板变了时发送 `switch`）。
+
+### 连接的设备
+
+Mac 窗口显示哪些其他设备打开了白板。本机（`netinfo.is_local_request`）的跟随连接在 `init` 和 `sync` 的 `devices` 字段中收到名单，名单变化时收到 `{"t":"devices","devices":[…]}` 消息。
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` | 连接的客户端 id（`hello` 中的 `client`）；同一页面重连时不变 |
+| `role` | 页面在 `hello` 中报 `device: "ipad"`（1.0.x 页面为 `role`）时是 `ipad`，否则是 `browser` |
+| `label` | 显示的名字：`iPad` 或 `浏览器` |
+
+- 名单包含不是来自本机的跟随连接，按连接的先后排列。来自本机的连接，以及打开指定白板而不是跟随的连接（速写页、嵌入的应用、应用白板的查看器）不在名单中。
+- 只在名单变化时发送，因此同一页面在旧连接断开之前以相同的客户端 id 重连不会产生消息。1.0.x 页面和其他设备不会收到。
 
 ### 已安装应用的空间
 
@@ -395,12 +417,12 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 
 | 权限 | 界面名称 | 允许的动作 |
 | --- | --- | --- |
-| `manage` | 「管理白板」 | 打开当前白板以外的白板；扩展消息 `sel`、`newboard`、`delboard`、`rename`、`folder`、`order`、`newfolder`、`delfolder`、`renamefolder`；`unlock`；`GET /api/info`、`GET /api/boards`、`GET /api/spaces/{应用}/boards`、`GET`/`POST /api/thumb/{board}`、`POST /api/doc` |
+| `manage` | 「管理白板」 | 打开当前白板以外的白板；扩展消息 `sel`、`newboard`、`delboard`、`duplicate`、`restore`、`purge`、`emptytrash`、`rename`、`folder`、`order`、`newfolder`、`delfolder`、`renamefolder`；`unlock`；`GET /api/info`、`GET /api/boards`、`GET /api/spaces/{应用}/boards`、`GET`/`POST /api/thumb/{board}`、`POST /api/doc` |
 | `settings` | 「设置白板」 | `meta` 操作 |
 | `clear` | 「清空白板」 | `clear` 操作 |
 | `export` | 「导出白板」 | `GET`/`POST /api/export/{board}`、`GET /api/export/{board}/pages` |
 
-在当前白板上书写（`add`、`restore`、`remove`、`mask`、`live`）不需要权限。文件夹、文档原件信息只能通过扩展消息修改（`protected_data_keys` 包含 `folder`、`doc`、`app`）。
+在当前白板上书写（`add`、`restore`、`remove`、`mask`、`live`）不需要权限。文件夹、文档原件信息和回收站标记只能通过扩展消息修改（`protected_data_keys` 包含 `folder`、`doc`、`app`、`trashed`）。
 
 没有 `manage` 时，连接只看得到自己所在的白板：快照和 `boards` 消息中的 `boards` 只包含这一块，`folders` 为空。读取非当前白板的 `GET /api/doc/{board}/{页码}` 同样需要 `manage`。
 
@@ -440,11 +462,12 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 | GET | `/inksync/...` | — | 手写板的前端文件（inksync 的 `serve_sdk`），入口 `/inksync/inkpad.js`；`/inksync/version.js` 由服务端生成，写入构建号。`Cache-Control: no-cache` |
 | GET | `/profile.mobileconfig?host=<主机名>` | — | iPad 配置描述文件（Web Clip） |
 | GET | `/icon.png` | — | 180 px 的应用图标 |
+| GET | `/api/qr?text=<文字>` | — | `text` 的二维码（SVG），用于 Mac 上的连接弹窗 |
 | GET | `/ipad?host=<主机名>` | — | iPad 外壳安装页，见 [ipad-shell.md](ipad-shell.md) |
 | GET | `/ipad/version` | — | 本机附带的 iPad 外壳版本 |
 | GET | `/ipad/Whiteboard.ipa` | — | iPad 外壳安装包；未附带时返回 404 |
 | GET | `/api/info` | `manage` | `build`、`hostname`、`port`、`urls`、`data_dir`、`current`、`clients`（`id`、`role`（设备类型）、`since`） |
-| GET | `/api/boards` | `manage` | `boards`、`folders`、`current` |
+| GET | `/api/boards` | `manage` | `boards`（包括回收站中的白板）、`folders`、`current` |
 | GET | `/api/thumb/{board}` | `manage` | 缩略图 PNG。未上传缩略图时：文档板返回原件首页，其他白板返回空白 PNG。 |
 | POST | `/api/thumb/{board}` | `manage` | 上传缩略图。请求体为 PNG，最大 512 KB。 |
 | POST | `/api/debug` | — | 客户端诊断信息，写入服务端日志。请求体为 JSON 对象；记录前 20 个键，最多 1000 个字符。 |
@@ -468,6 +491,7 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 
 | 接口 | 细节 |
 | --- | --- |
+| `GET /api/qr` | `Content-Type: image/svg+xml`。纠错级别 M，四周空白 2 个模块，深色模块 `#1C1C1E`，背景透明。`<svg>` 只有 `viewBox`，没有 `width` 和 `height`，大小由 CSS 决定。`text` 缺少、为空、超过 1024 个字符或放不进二维码时返回 `400`。由 segno 生成。 |
 | `POST /api/thumb/{board}` | 白板不存在时返回 `404`；请求体不是 PNG 时返回 `400`。 |
 | `POST /api/doc` | 文件名也可以通过 `X-Filename` 请求头发送。`folder` 可省略，仅在该文件夹存在时生效。请求体按 64 KB 分块读取直到结束（`StreamReader.read(n)` 最多返回 `n` 字节）。超过上限返回 `413`，文件类型不支持或无法读取返回 `400`。响应为 `{"board": <meta>}`。随后服务端向所有跟随的连接发送 `switch`。 |
 | `GET /api/doc/{board}/{页码}` | `w` 默认为 1200，限制在 160～2600 之间。PDF 页面和不透明图片返回 JPEG（质量 82），带透明度的图片返回 PNG。`ETag` 为 `"<board>-<页码>-<宽度>"`，`If-None-Match` 匹配时返回 `304`。`Cache-Control: private, max-age=31536000, immutable`，因为原件不会改变。白板不是文档板、原件丢失或页码超出范围时返回 `404`。 |
@@ -599,6 +623,6 @@ iPad 通过 `<主机名>.local` 访问 Mac；程序还可以注册两个 DNS-SD 
 | 带 `pin` 的 `hello`（1.0.1 的嵌入手写板） | `{"t":"error","reason":"pin"}`：应用白板已改为独立空间，1.0.1 的嵌入接口没有使用者。 |
 | 没有 `board` 的 `op` | 按连接当前的白板处理。 |
 
-发给 1.0.x 页面的消息换回 1.0.x 的形式：快照带 `role`；元数据（包括 `op` 和 `ack` 中的）换回 `kind`、`folder`、`doc`、`underlay` 和字符串形式的 `background`；`ack` 不带 `board` 和 `rejected`；`locked` 换成整块 `switch`；`caps` 和 `deleted` 不发。
+发给 1.0.x 页面的消息换回 1.0.x 的形式：回收站中的白板不出现在 `boards` 中；快照带 `role`；元数据（包括 `op` 和 `ack` 中的）换回 `kind`、`folder`、`doc`、`underlay` 和字符串形式的 `background`；`ack` 不带 `board` 和 `rejected`；`locked` 换成整块 `switch`；`caps` 和 `deleted` 不发。
 
 1.1 的页面在服务端升级之后收到 `outdated` 事件（前端的构建号与快照中的 `server.build` 不同），白板应用据此在没有进行中的书写时重新载入页面，同一构建号只重新载入一次。这一兼容在 2.1 移除。

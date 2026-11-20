@@ -1,4 +1,8 @@
 import asyncio
+import io
+import time
+
+import pytest
 
 from whiteboard import models
 from whiteboard.hub import BoardRuntime, Hub
@@ -216,5 +220,241 @@ def test_rename_board_that_is_not_loaded(tmp_path):
         assert await hub.rename_board(other["id"], "第二块") is True
         assert BoardStore(tmp_path).get_meta(other["id"])["name"] == "第二块"
         assert await hub.rename_board(other["id"], "第二块") is False
+
+    run(main())
+
+
+# ------------------------------------------------------------ 回收站
+
+
+DAY = 86400.0
+
+
+async def until(condition, timeout=5.0):
+    """等条件成立（轮询，不是固定等待）；超时返回 False。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not condition():
+        if loop.time() > deadline:
+            return False
+        await asyncio.sleep(0.01)
+    return True
+
+
+def test_deleting_the_current_board_moves_it_to_the_trash_and_switches(tmp_path):
+    async def main():
+        hub = Hub(BoardStore(tmp_path))
+        first = hub.current_id
+        second = (await hub.create_board())["id"]
+        assert hub.current_id == second
+
+        assert await hub.trash_board(second) is True
+        assert hub.current_id == first
+        assert models.trashed_at(hub.store.get_meta(second)) is not None
+        # 回收站视图要用：列表里还有它
+        assert second in [m["id"] for m in hub.boards_payload()["boards"]]
+        assert await hub.trash_board(second) is False  # 已经在回收站里
+        assert await hub.select_board(second) is False  # 回收站里的白板不能是当前白板
+        assert hub.current_id == first
+
+    run(main())
+
+
+def test_trashing_the_last_live_board_leaves_a_new_blank_one(tmp_path):
+    async def main():
+        hub = Hub(BoardStore(tmp_path))
+        only = hub.current_id
+        assert await hub.trash_board(only) is True
+        current = hub.current_id
+        assert current != only
+        assert models.trashed_at(hub.store.get_meta(current)) is None
+        assert {m["id"] for m in hub.store.list_metas()} == {only, current}
+
+    run(main())
+
+
+def test_a_restored_board_goes_back_into_its_folder(tmp_path):
+    async def main():
+        hub = Hub(BoardStore(tmp_path))
+        board = hub.current_id
+        await hub.move_board(board, "数学")
+        live = (await hub.create_board(folder="数学"))["id"]
+        assert await hub.trash_board(board) is True
+
+        # 删文件夹：还在用的白板移出来，回收站里那块记着原来的文件夹
+        assert await hub.delete_folder("数学") is True
+        assert hub.store.folders() == []
+        assert models.folder_of(hub.store.get_meta(live)) == ""
+        assert models.folder_of(hub.store.get_meta(board)) == "数学"
+
+        assert await hub.restore_board(board) is True
+        meta = hub.store.get_meta(board)
+        assert models.trashed_at(meta) is None
+        assert models.folder_of(meta) == "数学"
+        assert hub.store.folders() == ["数学"]  # 文件夹重新建出来
+        assert hub.current_id == live  # 恢复不换当前白板
+        assert await hub.restore_board(board) is False
+
+    run(main())
+
+
+def test_trashing_a_loaded_board_survives_autosave(tmp_path):
+    async def main():
+        store = BoardStore(tmp_path)
+        hub = Hub(store)
+        board = hub.current_id
+        apply(hub.board(board), {"op": "add", "strokes": [stroke("a")]})
+        await hub.create_board()
+        assert await hub.trash_board(board) is True
+        hub.save_all()
+        assert models.trashed_at(BoardStore(tmp_path).load_board(board)[0]) is not None
+
+    run(main())
+
+
+def test_purging_removes_only_trashed_boards_with_their_files(tmp_path):
+    async def main():
+        store = BoardStore(tmp_path)
+        hub = Hub(store)
+        keep = hub.current_id
+        gone = store.create_board("旧的", make_current=False)["id"]
+        store.save_thumb(gone, b"\x89PNG\r\n\x1a\nthumb")
+
+        assert await hub.purge_board(gone) is False  # 不在回收站里的不能彻底删除
+        assert store.get_meta(gone) is not None
+        assert await hub.trash_board(gone) is True
+        assert await hub.purge_board(gone) is True
+        assert store.get_meta(gone) is None
+        assert not store.thumb_path(gone).exists()
+        assert not (tmp_path / "boards" / f"{gone}.wbz").exists()
+        assert hub.current_id == keep
+
+    run(main())
+
+
+def test_emptying_the_trash_purges_every_trashed_board(tmp_path):
+    async def main():
+        store = BoardStore(tmp_path)
+        hub = Hub(store)
+        keep = hub.current_id
+        a = store.create_board(make_current=False)["id"]
+        b = store.create_board(make_current=False)["id"]
+        await hub.trash_board(a)
+        await hub.trash_board(b)
+        assert await hub.empty_trash() == 2
+        assert [m["id"] for m in store.list_metas()] == [keep]
+        assert await hub.empty_trash() == 0
+
+    run(main())
+
+
+def test_boards_trashed_more_than_30_days_ago_are_purged(tmp_path):
+    async def main():
+        store = BoardStore(tmp_path)
+        hub = Hub(store)
+        old = store.create_board(make_current=False)["id"]
+        recent = store.create_board(make_current=False)["id"]
+        await hub.trash_board(recent)
+        store.edit_meta(old, data={"trashed": time.time() - 31 * DAY})
+
+        assert await hub.purge_expired() == [old]
+        assert store.get_meta(old) is None
+        assert store.get_meta(recent) is not None
+        assert await hub.purge_expired(now=time.time() + 31 * DAY) == [recent]
+
+    run(main())
+
+
+def test_expired_trash_is_purged_at_start_and_then_periodically(tmp_path):
+    async def main():
+        store = BoardStore(tmp_path)
+        old = store.create_board(make_current=False)["id"]
+        store.edit_meta(old, data={"trashed": time.time() - 31 * DAY})
+        hub = Hub(store, trash_ttl=0.2, purge_interval=0.05)
+        hub.start_maintenance()
+        try:
+            assert await until(lambda: store.get_meta(old) is None)
+            later = store.create_board(make_current=False)["id"]
+            await hub.trash_board(later)
+            assert store.get_meta(later) is not None
+            assert await until(lambda: store.get_meta(later) is None)
+        finally:
+            await hub.stop_maintenance()
+
+    run(main())
+
+
+# ------------------------------------------------------------ 复制
+
+
+def test_duplicating_a_board_copies_its_ink_and_settings(tmp_path):
+    async def main():
+        store = BoardStore(tmp_path)
+        hub = Hub(store)
+        original = hub.current_id
+        apply(hub.board(original), {"op": "add", "strokes": [stroke("a"), stroke("b")]})
+        await hub.core.edit_meta(original, {"name": "线性代数", "background": {"pattern": "dots"}})
+        await hub.move_board(original, "数学")
+        other = store.create_board(make_current=False)["id"]
+        assert [m["id"] for m in store.list_metas()] == [other, original]
+
+        copy = await hub.duplicate_board(original)
+        assert copy is not None and copy["id"] != original
+        assert copy["name"] == "线性代数 副本"
+        assert models.folder_of(copy) == "数学"
+        assert copy["background"]["pattern"] == "dots"
+        assert copy["canvas"] == hub.board(original).meta["canvas"]
+        assert hub.current_id == original  # 复制不换当前白板
+        assert [m["id"] for m in store.list_metas()] == [other, original, copy["id"]]
+        assert [s["id"] for s in await hub.strokes_of(copy["id"])] == ["a", "b"]
+        hub.save_all()
+        assert [s["id"] for s in BoardStore(tmp_path).load_board(copy["id"])[1]] == ["a", "b"]
+
+    run(main())
+
+
+def test_a_copy_of_an_unnamed_board_is_named_after_its_kind(tmp_path):
+    async def main():
+        hub = Hub(BoardStore(tmp_path))
+        board = hub.current_id
+        note = (await hub.create_board("note"))["id"]
+        assert (await hub.duplicate_board(board))["name"] == "白板 副本"
+        copy = await hub.duplicate_board(note)
+        assert copy["name"] == "笔记 副本"
+        assert models.kind_of(copy) == "note"
+
+    run(main())
+
+
+def test_a_trashed_board_cannot_be_duplicated(tmp_path):
+    async def main():
+        hub = Hub(BoardStore(tmp_path))
+        board = hub.current_id
+        await hub.trash_board(board)
+        count = len(hub.store.list_metas())
+        assert await hub.duplicate_board(board) is None
+        assert await hub.duplicate_board("ghost") is None
+        assert len(hub.store.list_metas()) == count
+
+    run(main())
+
+
+def test_duplicating_a_document_board_copies_the_original_and_thumbnail(tmp_path):
+    Image = pytest.importorskip("PIL.Image")
+    buffer = io.BytesIO()
+    Image.new("RGB", (400, 300), (200, 200, 200)).save(buffer, "PNG")
+
+    async def main():
+        store = BoardStore(tmp_path)
+        hub = Hub(store)
+        doc = store.import_doc(buffer.getvalue(), "讲义.png")
+        store.save_thumb(doc["id"], b"\x89PNG\r\n\x1a\nthumb")
+
+        copy = await hub.duplicate_board(doc["id"])
+        assert copy["name"] == "讲义 副本"
+        assert models.doc_of(copy) == models.doc_of(doc)
+        assert store.doc_path(copy["id"]).read_bytes() == store.doc_path(doc["id"]).read_bytes()
+        assert store.thumb_path(copy["id"]).read_bytes() == b"\x89PNG\r\n\x1a\nthumb"
+        assert all(layer["src"].startswith(f"/api/doc/{copy['id']}/") for layer in copy["layers"])
 
     run(main())

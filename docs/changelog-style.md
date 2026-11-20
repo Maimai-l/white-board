@@ -121,6 +121,7 @@ The app interface is in Chinese. Entries refer to controls by these English name
 | Interface label | English name |
 | --- | --- |
 | 白板 | Boards |
+| 回收站 | Trash |
 | 管理白板 | Manage boards (permission) |
 | 存储目录 | Storage directory |
 | 笔具盘 | Tool picker |

@@ -67,9 +67,18 @@ Folders have one level and cannot be nested. A folder is identified only by its 
 
 - A board records its folder's name in `meta.data.folder`. A board outside any folder has no such key.
 - `space.json` keeps the folder list in `folders` as well, because an empty folder has no board to record it.
-- A name that appears in a board's `data.folder` but not in `folders` is added to `folders` when the storage directory is opened.
-- Renaming a folder rewrites `data.folder` of every board in it; deleting a folder only removes the name from the list, and its boards move out of the folder. No board is deleted.
+- A name that appears in a board's `data.folder` but not in `folders` is added to `folders` when the storage directory is opened. Boards in the trash do not count.
+- Renaming a folder rewrites `data.folder` of every board in it; deleting a folder only removes the name from the list, and its boards move out of the folder. No board is deleted. Boards in the trash keep the deleted folder's name.
 - Folder names are trimmed and are at most 64 characters.
+
+### Trash
+
+A deleted board stays in its file and in the index, with the time it was deleted (Unix seconds) in `meta.data.trashed`. A board not in the trash has no such key.
+
+- `current` never names a board in the trash. When the storage directory is opened and it does, the first board in order that is not in the trash becomes current; a new empty board is created if there is none.
+- Restoring a board removes `data.trashed`. If its `data.folder` is not in `folders`, the name is added again.
+- Boards in the trash for more than 30 days are deleted permanently, with their thumbnail and document original.
+- A `.wbz` file imported from elsewhere is never in the trash and never in a folder.
 
 ## File structure
 
@@ -123,7 +132,7 @@ A `.wbz` file contains the result of `zlib.compress(json_utf8, 6)` applied to th
 | `canvas` | object | `{"mode":"infinite"}` (extends in four directions); `{"mode":"column","width":W}` (fixed width, extends downward; the whiteboard app's note boards use 1000); `{"mode":"fixed","width":W,"height":H}` (fixed size). W and H are 1 to 100000. Set at creation and cannot change. Invalid values become `infinite`. |
 | `background` | object | `pattern`: `blank`, `grid`, `lines` or `dots` (`grid` if invalid); `paper`: optional paper color `#rrggbb`. |
 | `layers` | array | Image layers, at most 1000, drawn in order. Each is `{src, x, y, width, height?, z?, sheet?}`: `src` is a same-origin path (starting with a single `/`, without `..`, `\` or a scheme), at most 512 characters, and may contain `{w}` (replaced by 640, 1024, 1600 or 2400 according to the displayed width); `x`, `y`, `width`, `height` are in board coordinates; without `height` the image's aspect ratio is used; `z: "above"` draws the layer above the ink; `sheet: true` draws it as a page with a shadow. If any item is invalid, the whole array is treated as empty. |
-| `data` | object | The host's own fields, at most 16 KB as JSON. The whiteboard app uses `folder` (folder) and `doc` (document board original; see [Document boards](#document-boards)); boards created by an app in 1.0.1 also have `app`. |
+| `data` | object | The host's own fields, at most 16 KB as JSON. The whiteboard app uses `folder` (folder), `doc` (document board original; see [Document boards](#document-boards)) and `trashed` (see [Trash](#trash)); boards created by an app in 1.0.1 also have `app`. |
 
 ### Stroke fields
 
