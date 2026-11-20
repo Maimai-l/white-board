@@ -14,7 +14,7 @@ inputs:
     required: true
 outputs:
   ipa:
-    description: 打好的 IPA 的路径
+    description: 打好的 IPA 的绝对路径
     value: ${{ steps.pack.outputs.ipa }}
 runs:
   using: composite
@@ -48,8 +48,10 @@ runs:
         ldid -S "$app/Whiteboard"
         mkdir -p ipa/Payload
         cp -R "$app" ipa/Payload/
-        ipa="Whiteboard-${{ inputs.version }}-ipad.ipa"
-        (cd ipa && zip -qry "../$ipa" Payload)
+        # 绝对路径：组合 action 里 upload-artifact 的相对路径不一定从仓库根目录算
+        ipa="$GITHUB_WORKSPACE/Whiteboard-${{ inputs.version }}-ipad.ipa"
+        (cd ipa && zip -qry "$ipa" Payload)
+        ls -l "$ipa"
         echo "ipa=$ipa" >> "$GITHUB_OUTPUT"
     - uses: actions/upload-artifact@v4
       with:
