@@ -66,7 +66,7 @@ App board ids are easy to guess, so any device on the local network that can wri
 
 ## Viewing on the Mac
 
-On a device with the Manage boards permission, the board chooser shows one entry per installed app. It lists the app's boards page by page; clicking a board opens it read-only, image layers included. App boards do not appear among the user's own boards, and the iPad does not follow them.
+On a device with the Manage boards permission, the library sidebar shows one row per installed app under “应用” (Apps). It lists the app's boards page by page; clicking a board opens it read-only, image layers included. App boards do not appear among the user's own boards, and the iPad does not follow them.
 
 ## iPad home
 

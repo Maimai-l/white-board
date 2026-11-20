@@ -17,7 +17,7 @@ A storage directory holds one space (inksync's `FileStorage`). The whiteboard ap
 ├── boards/<board id>.wbz        one file per board: the only source of metadata and strokes
 ├── index.sqlite                 index: each board's metadata, rebuildable from the board files at any time
 ├── space.json                   per-space data: folder list, order, current board (not rebuildable)
-├── thumbs/<board id>.png        thumbnails for the board chooser (not content)
+├── thumbs/<board id>.png        thumbnails for the library (not content)
 ├── docs/<board id>.<ext>        originals of document boards (PDF or image), never modified
 ├── spaces/<app name>/           spaces of installed apps, with the same boards/, index.sqlite, space.json
 ├── apps/<app name>/             static files of installed apps; see embed.md
@@ -58,7 +58,7 @@ The index can be deleted at any time; it is rebuilt at the next start without lo
 | Key | Description |
 | --- | --- |
 | `folders` | Folder names, including empty folders. |
-| `order` | A list of board IDs: the order in the board chooser. Boards not in the list come first, newest `created` first. |
+| `order` | A list of board IDs: the order of the library's manual sort. Boards not in the list come first, newest `created` first. |
 | `current` | The ID of the current board. |
 
 ### Folders

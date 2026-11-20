@@ -17,10 +17,10 @@ Toolbar popup sketch (extension extensions/sketch) ── copy a PNG ──> oth
 1. Run the whiteboard app on the Mac and open the whiteboard on the iPad as usual (iPad shell or Home Screen icon).
 2. In Edge, press Alt+Shift+S or click the extension's toolbar icon. The sketch pops up (like any extension's popup), and the iPad and the whiteboard window on the Mac switch to a blank sketch board.
 3. Write on the iPad; the popup shows it live. It always zooms to show all ink, so ink written anywhere on the iPad is visible (never zoomed in beyond 1×).
-4. Click Copy (or press ⌘C), then press ⌘V in Claude's message box.
-5. Click Clear for the next one. The popup closes when you click elsewhere; about 3 seconds later the sketch board is discarded and the iPad and the Mac window return to their previous board.
+4. Click 拷贝为图片 (Copy as image) or press ⌘C; the page shows 已拷贝 (Copied). Then press ⌘V in Claude's message box.
+5. Click 清空 (Clear) for the next one. The popup closes when you click elsewhere; about 3 seconds later the sketch board is discarded and the iPad and the Mac window return to their previous board.
 
-The popup has only two buttons, Clear and Copy; the dot at the bottom left is the connection status (green when connected). No port setting is needed: the popup tries 8848 to 8857 and remembers the one it found.
+The popup has only two buttons at the bottom, 清空 (Clear) and 拷贝为图片 (Copy as image). The connection status is at the bottom left, an icon with the text 已连接 (connected), 同步中 (syncing) or 未连接 (not connected); the icon is blue when connected and red when not. No port setting is needed: the popup tries 8848 to 8857 and remembers the one it found.
 
 The extension is optional: opening `http://127.0.0.1:8848/sketch` in any browser works the same.
 

@@ -277,7 +277,7 @@ The Mac window shows which other devices have the board open. Following connecti
 
 ### Spaces of installed apps
 
-Each app installed under `apps/` is a space, stored in `spaces/<app name>/`. Only an installed app's name opens a space; an app installed while running is available at once. Rules: a device that can write may open and create boards (at most 60 per minute); editing metadata and unlocking need `manage`. App boards do not appear in the user's board list; the Mac browses them per app, page by page and read-only, in the board chooser.
+Each app installed under `apps/` is a space, stored in `spaces/<app name>/`. Only an installed app's name opens a space; an app installed while running is available at once. Rules: a device that can write may open and create boards (at most 60 per minute); editing metadata and unlocking need `manage`. App boards do not appear in the user's board list; the Mac browses them per app, page by page and read-only, under Apps in the library sidebar.
 
 ## Operations
 

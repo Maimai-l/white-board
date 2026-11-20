@@ -18,8 +18,8 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 ### Upgrade
 
 - [ ] Install the prerelease and open it for the first time. The storage directory contains `backups/upgrade/<time>_<old version>_to_<new version>/` with `boards/` inside, plus whichever of `index.json` (when upgrading from 1.0.x), `index.sqlite`, `space.json` and `spaces/` exist.
-- [ ] When upgrading from 1.0.x: the storage directory has `index.sqlite` and `space.json`, and `index.json` is renamed to `index.v1.json`; boards created by apps in 1.0.x are in `spaces/<app name>/` and open read-only from that app's entry in the board chooser.
-- [ ] “关于” (About) shows the new version number, including the `-rc` suffix.
+- [ ] When upgrading from 1.0.x: the storage directory has `index.sqlite` and `space.json`, and `index.json` is renamed to `index.v1.json`; boards created by apps in 1.0.x are in `spaces/<app name>/` and open read-only from that app's row under “应用” (Apps) in the library sidebar.
+- [ ] “关于白板” (About; toolbar “更多” (More) → “关于白板”) shows the new version number, including the `-rc` suffix.
 - [ ] All existing boards are present, with the same content, folders, and order as before the upgrade. Opening several of them shows no read-only notice.
 
 ### Drawing and editing
@@ -27,14 +27,29 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 - [ ] Drawing with the mouse, undo, and redo work. “清空白板” (Clear board) asks for confirmation before clearing.
 - [ ] The object eraser and the pixel eraser both erase. Undo restores the erased strokes.
 - [ ] Create an infinite board and a note board. Drag a PDF into the window to create a document board, write on the PDF, and export it.
-- [ ] Export (导出): export a PDF and a PNG with two pages selected. The save dialog suggests a name ending in `.pdf` or `.zip`, and the saved files open in Preview. If not, send the log file (关于 → 日志文件) and the suggested name.
+- [ ] Export (导出): export a PDF and a PNG with two pages selected. The save dialog suggests a name ending in `.pdf` or `.zip`, and the saved files open in Preview. If not, send the log file (更多 → 关于白板 → 日志文件) and the suggested name.
 - [ ] Export → 调整: drag a page frame with the trackpad and resize it by a corner; panning with two fingers moves the board, not the frame. If a frame does not follow, send a screen recording.
 - [ ] Export → WBZ: the save dialog suggests `<board name>.wbz`. Save it outside the storage directory, then double-click the saved file in Finder: the app opens it as a new board with the same content. If the name is wrong or the board does not open, send the log file and the saved `.wbz`.
 
-### Board chooser and settings
+### Window
 
-- [ ] In the board chooser, renaming, moving a board into a folder, drag-to-reorder, and search work.
-- [ ] Change the storage directory in settings, then change it back. All boards are present.
+- [ ] The title bar shows the board name on the left, with its folder under the name. Dragging the title bar moves the window.
+- [ ] Zoom: clicking “放大” (Zoom in) and “缩小” (Zoom out), and pinching on the trackpad, change the percentage at the bottom right; clicking the percentage returns to `100%`. If the percentage does not change or does not match the zoom, send a screenshot.
+- [ ] Toolbar: “更多” (More) → “工具栏移到左侧” (Move toolbar to the left) puts the toolbar upright on the left edge, and the “颜色与粗细” (Color and width) panel opens to its right without being covered. After quitting and reopening the app the toolbar is still on the left; “工具栏移到底部” (Move toolbar to the bottom) puts it back. If the position is wrong or the panel is covered, send a screenshot.
+- [ ] Connect iPad: open “连接 iPad” (Connect iPad) and scan the QR code in the panel with the iPad's own Camera app. Safari opens this board, at the address shown in the panel. After “在 iPad 上安装白板” (Install on iPad), scanning again opens the shell install page. If the code does not scan or the address is wrong, send a screenshot of the panel and the address the iPad opened.
+- [ ] When the iPad opens the board, the Mac window shows “iPad 已连接” (iPad connected), the “连接 iPad” icon turns blue, and the panel lists the iPad under “已连接” (Connected). After the page is closed on the iPad (or its Wi-Fi is turned off), “iPad 已断开” (iPad disconnected) appears and the icon returns to its normal color. If a message is missing or appears twice, or the icon does not change color, send the log file and say how the iPad was disconnected.
+- [ ] Clicking “连接 iPad” three times opens the diagnostics panel; three more clicks close it.
+
+### Library and settings
+
+- [ ] Right-clicking a board shows a menu with “打开” (Open), “重命名” (Rename), “移到文件夹” (Move to folder), “复制” (Duplicate), “导出…” (Export) and “移到回收站” (Move to Trash). Right-clicking the library background shows “新建白板” (New board), “新建文件夹” (New folder), “导入 PDF 或图片…” (Import PDF or image), “以图标显示” (as icons) and “以列表显示” (as list). The menu opens at the pointer, and no system or web view context menu appears. If not, send a screenshot.
+- [ ] In the library in the Mac window (not a browser), ⌘N opens the two new-board choices, ⇧⌘N adds a folder in the sidebar with its name in edit mode, and ⌘I opens the file chooser. If a shortcut does nothing or triggers something else, say which shortcut and what happened.
+- [ ] Dragging a board onto a folder in the sidebar moves it into the folder; onto “全部白板” (All boards) moves it out of its folder; onto “回收站” (Trash) moves it to the trash. With two boards selected by ⌘-click, dragging one moves both. If a board cannot be dragged or lands elsewhere, send a screen recording.
+- [ ] With the sort set to “手动排列” (Manual), dragging cards in “全部白板” reorders them, and the order is kept after quitting and reopening the app. With the sort set to “修改时间” (Date modified), dragging a card does not change the order.
+- [ ] Trash: “恢复” (Restore) on a board in the trash puts it back into its folder. “永久删除” (Delete permanently) on another, after confirmation, removes its `.wbz` from `boards/` in the storage directory. “清空回收站” (Empty trash) asks for confirmation first. If the result differs, send the log file and a screenshot of the trash.
+- [ ] Duplicate: “复制” (Duplicate) on an infinite board and on a document board each adds “<name> 副本” right after the original; it opens with the same content, and the document board's copy shows the PDF pages. If the result differs, send a screenshot and the log file.
+- [ ] Renaming boards and folders, creating folders, and search work.
+- [ ] In “白板设置” (Board settings) → “存储位置” (Storage), use “更改…” (Change) to switch the storage directory, then switch it back. All boards are present.
 - [ ] Close and reopen the window. Recently written content is present.
 - [ ] Each line in the log file `~/Library/Logs/Whiteboard.log` appears only once.
 
@@ -44,15 +59,15 @@ CI cannot check these items: they depend on the packaged app's Info.plist and on
 
 - [ ] In Finder, “打开方式” (Open With) for a PDF and a JPEG lists the app; the default app for those files is unchanged.
 - [ ] With the app closed, opening a PDF with it launches the app and creates a document board.
-- [ ] With the board chooser showing a folder, opening an image with the app puts the new board in that folder.
+- [ ] With the library showing a folder, opening an image with the app puts the new board in that folder.
 - [ ] Double-clicking a `.wbz` from `backups/upgrade/` imports it as a new board, and the file in `backups/` is unchanged.
 
 ### Updates (Sparkle)
 
 CI checks that Sparkle loads in the packaged app and that delta updates apply. Installing an update needs a real Mac.
 
-- [ ] Install the newest alpha build from the GitHub Pages site. About shows a version ending in `-alpha.<build time>`.
-- [ ] Merge any change into `dev` and wait for CI to pass. Within an hour the update downloads without a prompt; after quitting and reopening the app, About shows the new build.
+- [ ] Install the newest alpha build from the GitHub Pages site. “关于白板” (About) shows a version ending in `-alpha.<build time>`.
+- [ ] Merge any change into `dev` and wait for CI to pass. Within an hour the update downloads without a prompt; after quitting and reopening the app, “关于白板” (About) shows the new build.
 - [ ] 检查更新 (Check for updates) opens the Sparkle window and reports the newest version.
 - [ ] Upgrading from 1.2.0: the previous update dialog offers this release; after installing it, 检查更新 (Check for updates) opens the Sparkle window.
 
@@ -67,14 +82,21 @@ Run this section twice: once in the iPad shell and once from the Home Screen ico
 - [ ] Shell: after launch, the “有新版本” (New version available) prompt does not reappear repeatedly. When the shell needs an update, the installed shell has the same version number as the Mac app.
 - [ ] The toolbar is the tool picker, including on an iPad where the tool picker was previously turned off.
 
+### Library and chrome
+
+- [ ] “白板库” (Library) at the top left opens the library; tapping a board opens it.
+- [ ] In the library, long-pressing a board without moving and then releasing shows its menu (“打开”, “重命名”, “移到文件夹”, “复制”, “导出…”, “移到回收站”). The board does not open, and no magnifier, text selection or system menu appears. Long-pressing and then moving lifts the board, which can be dropped on a folder or “回收站” (Trash) in the sidebar. Long-pressing a folder in the sidebar shows “重命名”, “在此新建白板” (New board here) and “删除文件夹” (Delete folder). If the menu is missing, the board opens, or a system menu appears, send a screen recording.
+- [ ] The sidebar button at the top left of the library hides the sidebar, and a second tap shows it. In portrait the sidebar starts hidden and hides again after a row is chosen. If the sidebar covers the content or a button cannot be tapped, send one screenshot in landscape and one in portrait.
+- [ ] Connection status at the top right: blue while connected to the Mac, and a tap shows “已连接到 <host>:<port>” (Connected to). After quitting the app on the Mac, the icon turns gray and a tap shows “未连接” (Not connected); it recovers when the app reopens. The shell also shows “换一台 Mac” (Switch Mac). Three taps open the diagnostics panel.
+
 ### Text input
 
 CI browsers do not reproduce iPadOS problems where a text field does not accept typing. Check these items only on a real device.
 
-- [ ] Board chooser: the search field accepts typing in Chinese and English and filters the results. Tapping a board name starts renaming. The text fields for creating and renaming a folder accept typing.
+- [ ] Library: the search field accepts typing in Chinese and English and filters the results. Long-pressing a board and choosing “重命名” (Rename) lets you type a name. The text fields for creating a folder (“+” in the sidebar) and renaming one accept typing.
 - [ ] While a board rename is in progress on the iPad, rename another board on the Mac. The iPad keyboard stays open and the typed text is kept.
 - [ ] iOS does not autocorrect or capitalize the first letter while renaming.
-- [ ] In the new-folder dialog, the keyboard does not cover the text field. After the keyboard closes, the layout and the tool picker position are correct.
+- [ ] When creating a folder in the sidebar, the keyboard does not cover the name field. After the keyboard closes, the layout and the tool picker position are correct.
 
 ### Embedded pad
 
@@ -82,7 +104,7 @@ Copy `examples/apps/demo/` into `apps/` in the storage directory first.
 
 - [ ] In the iPad shell, open `/apps/demo/`. The diagnostics panel is not available there, but fast Pencil strokes are as smooth as in the whiteboard.
 - [ ] The answer field accepts typing, and the tool buttons work.
-- [ ] Strokes written in the demo appear on the Mac after opening “示例 第 1 题” in the board chooser, with the question image under them.
+- [ ] Strokes written in the demo appear on the Mac after opening “示例 第 1 题” under “应用” (Apps) in the library sidebar, with the question image under them.
 - [ ] Set “iPad 首页” (iPad home) to `demo` on the Mac. Reopening the shell shows the demo; its “白板” link returns to the whiteboard. Set it back to “白板”.
 
 ### Home Screen icon
