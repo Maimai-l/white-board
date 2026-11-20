@@ -227,6 +227,9 @@ def test_clicking_pages_in_the_sidebar_exports_the_selected_pages(browser, serve
     assert request["select"] == [1, 3]
     assert pdf_pages(body) == 2
 
+    # 导出之后对话框关上了，再打开一次
+    open_dialog(mac, 4)
+    mac.locator(CARDS).nth(0).click()
     mac.click('.text-btn:has-text("全选")')
     assert mac.locator(ALL_RADIO).is_checked()
     assert mac.locator(".export-count").inner_text() == "已选 4 页"
@@ -266,7 +269,7 @@ def test_the_page_field_works_on_document_boards(browser, server, tmp_path):
     assert mac.locator(FIELD).get_attribute("placeholder") == "例如 1-5, 8, 11-13"
     mac.fill(FIELD, "2-3")
     assert selected_cards(mac) == [2, 3]
-    assert mac.locator(".export-count").inner_text() == "已选 2 / 3 页"
+    assert mac.locator(".export-count").inner_text() == "已选 2 页"
     _, body = download(mac, "导出 PDF")
     assert pdf_pages(body) == 2
 

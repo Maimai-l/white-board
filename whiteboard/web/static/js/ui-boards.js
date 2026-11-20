@@ -1132,7 +1132,10 @@ const methods = {
     input.addEventListener("change", () => {
       const files = [...(input.files || [])];
       input.remove();
-      if (files.length) this.actions.onNewDoc(files, folder);
+      if (!files.length) return;
+      // 和新建白板一样：选好文件就回到白板上，导入完成后切到新的那块
+      this.closeGallery();
+      this.actions.onNewDoc(files, folder);
     });
     this.root.append(input);
     input.click();

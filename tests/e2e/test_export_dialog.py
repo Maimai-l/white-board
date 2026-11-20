@@ -201,7 +201,7 @@ def test_the_adjust_view_shows_the_frames_in_place_right_away(browser, server):
     open_dialog(mac, 1)
     first = mac.evaluate(
         """() => {
-            [...document.querySelectorAll('.export-paging button')].find((b) => b.textContent === '调整').click();
+            [...document.querySelectorAll('.export-paging button')].find((b) => b.textContent === '调整…').click();
             const r = document.querySelector('.export-frame').getBoundingClientRect();
             return [r.x, r.y, r.width, r.height];
         }"""

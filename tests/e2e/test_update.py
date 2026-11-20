@@ -46,24 +46,26 @@ def test_check_update_button_says_what_happened(browser, server):
         )
 
 
-def test_about_panel_holds_version_and_update_entries(browser, server):
-    """更新相关的入口收在「关于」里，白板设置只管背景、存储和权限。"""
+def test_about_holds_version_and_update_entries(browser, server):
+    """更新相关的入口收在关于里（更多菜单），白板设置只管背景、权限和存储位置。"""
     mac = open_mac(browser, server.port)
     as_native(mac)
 
-    # 设置面板里不该再有检查更新，也不该再有连接 iPad 那张卡
-    mac.click('button[title="白板设置"]')
-    mac.wait_for_selector(".sheet .group-title")
+    # 设置面板里不该有检查更新，也不该有连接 iPad 的地址
+    mac.click('#topright button[title="白板设置"]')
+    mac.wait_for_selector(".panel-settings .group-title")
     assert mac.locator("button:has-text('检查更新')").count() == 0
-    assert mac.locator(".sheet .card .addr").count() == 1  # 只剩存储目录那一张
-    assert mac.evaluate("() => [...document.querySelectorAll('.sheet .group-title')].map(h => h.textContent)") == [
+    assert mac.evaluate(
+        "() => [...document.querySelectorAll('.panel-settings .group-title')].map(h => h.textContent)"
+    ) == [
         "背景",
-        "存储目录",
-        "其他设备权限",
+        "iPad 可以",
+        "存储位置",
     ]
-    mac.evaluate("() => whiteboard.ui.closeSheet()")
+    mac.keyboard.press("Escape")
 
-    mac.click('button[title="关于"]')
+    mac.click('#toolbar button[title="更多"]')
+    mac.click('.menu .menu-item:has-text("关于白板")')
     about = mac.locator(".dialog.about")
     about.wait_for(timeout=3000)
     assert "白板" in about.inner_text()
@@ -86,7 +88,6 @@ def test_the_version_survives_switching_boards(browser, server):
     # 那个按钮只在 pywebview 窗口里有（this.native），浏览器里直接把面板叫出来。
     mac.evaluate("() => whiteboard.ui.openAbout()")
     mac.wait_for_selector(".dialog.about")
-    rows = mac.evaluate("() => [...document.querySelectorAll('.about-key')].map(n => n.textContent)")
-    values = mac.evaluate("() => [...document.querySelectorAll('.about-val')].map(n => n.textContent)")
-    assert rows[0] == "版本" and values[0] == version
-    assert "构建" in rows
+    assert mac.locator(".about-version").inner_text() == f"版本 {version}"
+    # 从源码跑：构建那一行写的是分支和提交，和版本号不是一回事
+    assert "@" in mac.locator(".about-build").inner_text()

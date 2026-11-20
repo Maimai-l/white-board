@@ -214,16 +214,16 @@ def test_the_ipad_opens_the_chosen_home_app(browser, demo):
 
 
 def test_the_mac_views_app_boards_read_only(browser, demo):
-    """应用的白板不在白板列表里：选择界面里每个应用一个入口，点开分页列出，只读查看。"""
+    """应用的白板不在白板列表里：白板库边栏里每个应用一行，点开分页列出，只读查看。"""
     pad = open_demo(browser, demo.port)
     draw_embedded(pad, [(100, 300), (160, 340), (230, 300)])
     pad.wait_for_function("() => pad.status === 'online' && pad.snapshot().strokes.length === 1")
 
     mac = open_mac(browser, demo.port)
-    mac.click('button[title="白板"]')
-    mac.click('.board-card.app[data-app="demo"]')
+    mac.click('button[title="白板库"]')
+    mac.click('.lib-side .lib-nav:has(.lib-nav-label:text-is("demo"))')
     mac.wait_for_selector(".board-card.app-board")
-    assert mac.inner_text(".gallery-title") == "demo"
+    assert mac.inner_text(".lib-title") == "demo"
     mac.click(".board-card.app-board")
     mac.wait_for_selector(".app-viewer")
     # 浮层里的手写板只读，看得到 iPad 上写的那一笔；Mac 自己的当前白板没有变

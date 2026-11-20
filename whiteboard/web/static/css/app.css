@@ -1486,6 +1486,7 @@ input.board-name {
 .export-radio.top { align-items: flex-start; }
 .export-radio.top input { margin-top: 2px !important; }
 .export-radio-text { display: flex; flex-direction: column; gap: 2px; }
+.export-radio-note { font-size: 12px; color: var(--on-surface-variant); }
 .export-radio input[type="radio"] { width: 16px; height: 16px; margin: 0; accent-color: var(--primary); }
 .export-range-field {
   width: 140px;

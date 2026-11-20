@@ -153,7 +153,7 @@ export class ExportDialog {
         this.pickedRadio,
         el("span", { class: "export-radio-text" }, [
           this.pickedText,
-          el("span", { class: "export-hint", text: "从边栏选择页面" }),
+          el("span", { class: "export-radio-note", text: "从边栏选择页面" }),
         ]),
       ]),
     ]);

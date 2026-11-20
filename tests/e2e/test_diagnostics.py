@@ -26,7 +26,7 @@ RECORD_ERASE = """
 
 
 def toggle_diagnostics(page):
-    """连点左上角状态圆点三下。"""
+    """连点连接状态按钮三下。"""
     for _ in range(3):
         page.click("#status")
 
@@ -125,13 +125,14 @@ def test_the_panel_separates_pen_events_from_new_positions(browser, server):
     assert "新位置 3/s" in out["text"], out["text"]
 
 
-def test_status_dot_uses_traffic_light_colours(browser, server):
+def test_the_connection_state_shows_on_the_status_button(browser, server):
+    """电脑上的浏览器只在断线时露出红点；iPad 上连接按钮连着时是强调色。"""
     mac = open_mac(browser, server.port)
-    # 颜色是渐变过去的，等它停下来再读
-    mac.wait_for_function(
-        "() => getComputedStyle(document.getElementById('status'), '::after')"
-        ".backgroundColor === 'rgb(40, 200, 64)'",  # macOS 红绿灯的绿
-        timeout=4000,
+    mac.wait_for_function("() => document.getElementById('status').dataset.status === 'online'")
+    assert mac.locator("#status").is_hidden()
+    ipad = open_touch(browser, server.port)
+    ipad.wait_for_function(
+        "() => getComputedStyle(document.getElementById('status')).color === 'rgb(0, 122, 255)'", timeout=4000
     )
 
 

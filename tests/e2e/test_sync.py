@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from e2e.support import (
+    more_pick,
     draw,
     open_mac,
     open_pages,
@@ -68,7 +69,7 @@ def test_undo_erase_and_clear(browser, server):
     mac.click('button[title="钢笔"]')
     draw(mac, [(300, 300), (380, 340)], pointer_type="mouse")
     wait_strokes(ipad, 1)
-    ipad.click('button[title="清空白板"]')
+    more_pick(ipad, "清空白板…")
     ipad.click('.dialog button[title="清空"]')
     wait_strokes(mac, 0)
     ipad.click('button[title="撤销"]')

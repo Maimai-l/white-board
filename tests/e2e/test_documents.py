@@ -51,11 +51,11 @@ def make_doc(tmp_path, pages=((595, 842), (595, 842))):
 
 
 def open_doc_board(mac, path):
-    """走完整的界面路径：白板列表 → 新建 → 选文件。"""
-    mac.click('button[title="白板"]')
-    mac.click(".board-card.add")
+    """走完整的界面路径：白板库 → 新建白板 → 导入 PDF 或图片 → 选文件。"""
+    mac.click('button[title="白板库"]')
+    mac.click(".lib-new")
     with mac.expect_file_chooser() as chooser:
-        mac.click(".dialog.kinds .kind-tile:nth-child(3)")
+        mac.click('.lib-new-panel button:has-text("导入 PDF 或图片…")')
     chooser.value.set_files(str(path))
     mac.wait_for_function(HAS_DOC, timeout=15000)
 
@@ -65,10 +65,10 @@ def test_a_file_that_cannot_be_opened_says_which_without_details(browser, server
     bad = tmp_path / "坏的.pdf"
     bad.write_bytes(b"not a pdf")
     mac = open_mac(browser, server.port)
-    mac.click('button[title="白板"]')
-    mac.click(".board-card.add")
+    mac.click('button[title="白板库"]')
+    mac.click(".lib-new")
     with mac.expect_file_chooser() as chooser:
-        mac.click('.dialog.kinds .kind-tile[title="打开 PDF 或图片"]')
+        mac.click('.lib-new-panel button:has-text("导入 PDF 或图片…")')
     with mac.expect_response(lambda r: "/api/doc" in r.url) as response:
         chooser.value.set_files(str(bad))
     assert response.value.status == 400

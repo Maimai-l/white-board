@@ -328,6 +328,22 @@ def menu_pick(page, *labels):
         page.click(f'.menu .menu-item:has(.menu-label:text-is("{label}"))')
 
 
+def more_pick(page, label):
+    """普通工具栏：点更多，再点菜单里的一项（手指书写、形状识别、清空白板…）。"""
+    page.click('#toolbar button[title="更多"]')
+    menu_pick(page, label)
+
+
+def more_checked(page, label):
+    """普通工具栏更多菜单里某个开关是不是开着（看完把菜单关上）。"""
+    page.click('#toolbar button[title="更多"]')
+    item = page.wait_for_selector(f'.menu .menu-item:has(.menu-label:text-is("{label}"))')
+    checked = item.get_attribute("aria-checked") == "true"
+    page.keyboard.press("Escape")
+    page.wait_for_selector(".menu", state="detached")
+    return checked
+
+
 def file_into(page, folder):
     """用右键菜单把（唯一那块）白板移到 folder。"""
     board_menu(page)
