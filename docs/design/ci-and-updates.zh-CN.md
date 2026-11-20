@@ -126,11 +126,13 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 ### 3.3 发布流程（publish job）
 
 1. 下载 package 产出的 `Whiteboard-<版本>.zip`。
-2. 从 Pages 取当前的 `appcast.xml`（URL 带时间戳，绕过 CDN 缓存），下载它列出的完整包。
+2. 从 Pages 取当前的 `appcast.xml`（URL 带时间戳，绕过 CDN 缓存），下载它列出的完整包和增量包。
 3. 写更新说明：dev 上的 alpha 用这次推送包含的提交标题，tag（正式版和预发布）用 CHANGELOG 里那个版本的一节（`packaging/release_notes.py`）。
 4. `generate_appcast --channel alpha（正式版不加）--maximum-versions 3 --maximum-deltas 3 --embed-release-notes --download-url-prefix <站点>/`，
    私钥从 Secret 经标准输入传入（`--ed-key-file -`），不落盘，也不进日志。
-5. 删掉 appcast 不再引用的文件，用 `upload-pages-artifact` 和 `deploy-pages` 发布。
+5. 去掉文件已经不在的增量包条目：generate_appcast 会删掉从已不保留的版本出发的增量包文件，旧条目却还列着
+   它们（2026-11-20 两次发布因此失败）。再删掉 appcast 不再引用的文件，核对签名，用 `upload-pages-artifact`
+   和 `deploy-pages` 发布。
 
 增量包：每个新版本对前 3 个版本各生成一个，Python 运行时和依赖基本不变，所以增量包通常只有几 MB 甚至更小。
 没有增量包可用时（跳了很多版本）Sparkle 下载完整包。

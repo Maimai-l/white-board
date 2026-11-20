@@ -172,3 +172,25 @@ def test_fetch_keeps_every_file_the_live_appcast_names(tmp_path, monkeypatch):
     assert appcast.fetch(SITE, tmp_path) == 0
     for name, body in files.items():
         assert (tmp_path / name).read_bytes() == body
+
+
+def test_prune_drops_delta_entries_whose_files_generate_appcast_removed(tmp_path):
+    """generate_appcast 删掉了从已不保留的版本出发的增量包文件，旧条目却还列着它们
+    （2026-11-20 dev 上的 updates 报缺文件）。这种条目去掉；客户端照样能用完整包更新。"""
+    (tmp_path / "appcast.xml").write_text(FEED, "utf-8")
+    for name in ("Whiteboard-1.3.0-alpha.20261120.090000.zip", "Whiteboard-1.2.0.zip"):
+        (tmp_path / name).write_bytes(b"zip")
+    assert appcast.prune(tmp_path) == 0
+    text = (tmp_path / "appcast.xml").read_text("utf-8")
+    assert ".delta" not in text and "<sparkle:deltas>" not in text
+    alpha, stable = appcast.parse(text)
+    assert alpha.deltas == [] and alpha.archive.signature == "SIG1" and stable.archive is not None
+
+
+def test_prune_keeps_delta_entries_whose_files_are_there(tmp_path):
+    (tmp_path / "appcast.xml").write_text(FEED, "utf-8")
+    for name in ("Whiteboard-1.3.0-alpha.20261120.090000.zip", "Whiteboard-1.2.0.zip",
+                 "Whiteboard20261120.090000-20261119.153012.delta"):
+        (tmp_path / name).write_bytes(b"x")
+    assert appcast.prune(tmp_path) == 0
+    assert (tmp_path / "appcast.xml").read_text("utf-8") == FEED
