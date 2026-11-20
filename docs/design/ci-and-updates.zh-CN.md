@@ -149,7 +149,7 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 ### 3.5 应用里
 
 - `whiteboard/sparkle.py` 用 PyObjC 加载 `Contents/Frameworks/Sparkle.framework`，在主线程创建 `SPUStandardUpdaterController`。
-- 「检查更新」按钮在 Sparkle 可用时交给 Sparkle 的对话框；不可用时（从源码运行、旧构建、没配置公钥）走原来的流程。
+- 「检查更新」按钮交给 Sparkle 的对话框。Sparkle 不可用时（从源码运行、本地构建没嵌入、没配置公钥、加载失败）没有自动更新，按钮上方说明原因：源码运行提示用 `git pull`，打包的应用写出原因并指向「更新日志」。
 - Info.plist：`SUFeedURL`、`SUPublicEDKey`、`SUEnableAutomaticChecks`；alpha 构建 `SUScheduledCheckInterval` = 3600 s、`SUAutomaticallyUpdate` = YES（自动下载，退出时安装），正式版每天查一次。
 - 应用不是沙盒应用，Sparkle 的 XPC 服务用不上，打包时删掉。
 
@@ -162,7 +162,12 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 ### 3.7 从旧更新器过渡
 
 现有 1.2.0 用户的应用里只有旧更新器，它只认 GitHub Release。第一个带 Sparkle 的正式版照常发 GitHub Release，
-旧更新器把用户带到这个版本，之后由 Sparkle 接手。旧更新器的代码保留到下一个正式版之后再删。
+旧更新器把用户带到这个版本，之后由 Sparkle 接手。所以 release job 和 GitHub Release 里资产的名字不能改。
+
+旧更新器的代码（`whiteboard/updater.py` 和它的更新对话框）在 1.3.0 里就删了，没有等到下一个正式版：
+1.2.0 升级用的是 1.2.0 自己的那份代码，跟 1.3.0 里有没有它无关；而 1.3.0 起打包的应用总是带着 Sparkle
+（package job 里 `--check-updater` 加载不了就失败），留在 1.3.0 里的旧更新器只在从源码运行时才走得到，
+那时它本来就不工作。
 
 ## 4. 需要仓库主人做的事
 
@@ -170,7 +175,7 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 | --- | --- | --- |
 | 生成 EdDSA 密钥：Sparkle 包里的 `bin/generate_keys`，再用 `generate_keys -x 文件` 导出私钥 | 自己的 Mac | 不能发布更新 |
 | 私钥存成 Secret `SPARKLE_ED_PRIVATE_KEY` | 仓库 Settings → Secrets | publish 跳过，摘要里写明原因 |
-| 公钥（`generate_keys -p` 打印的一行）交给 agent，提交为 `packaging/sparkle-public-key.txt` | 仓库里 | 打出的应用不带 Sparkle 配置，继续用旧更新器 |
+| 公钥（`generate_keys -p` 打印的一行）交给 agent，提交为 `packaging/sparkle-public-key.txt` | 仓库里 | 打出的应用不带 Sparkle 配置，不会自动更新 |
 | 开启 Pages，来源选 GitHub Actions；`github-pages` 环境允许 `dev` 分支和 `v*` tag | 仓库 Settings → Pages / Environments | 发布这一步失败 |
 | （可选）自签名证书 `MAC_CERT_P12`、`MAC_CERT_PASSWORD` | 仓库 Settings → Secrets | 继续用 ad hoc 签名 |
 

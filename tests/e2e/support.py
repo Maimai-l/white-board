@@ -404,7 +404,7 @@ NATIVE_STUB = """
       data_dir: '/tmp/boards',
       remote_permissions: Object.assign({}, window.__perms),
       releases: 'https://github.com/Maimai-l/white-board/releases' }),
-    check_update_now: async () => ({ status: 'latest', version: '0.9.4' }),
+    check_update_now: async () => ({ status: 'sparkle', version: '0.9.4' }),
     set_remote_permission: async (name, on) => {
       window.__perms[name] = !!on;
       return Object.assign({}, window.__perms);

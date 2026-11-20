@@ -3,8 +3,9 @@
 设计见 docs/design/ci-and-updates.zh-CN.md 第 3 节。要点：
 
 - 只有打包好的应用、带着 Sparkle.framework、Info.plist 里写了 ``SUFeedURL`` 和
-  ``SUPublicEDKey`` 时才用 Sparkle；其余情况（从源码运行、旧构建、CI 没配公钥）
-  ``Updater.available`` 为假，app.py 继续走 updater.py 的旧流程。
+  ``SUPublicEDKey`` 时才用 Sparkle；其余情况（从源码运行、本地构建没嵌入、CI 没配公钥）
+  ``Updater.available`` 为假，应用里没有自动更新：「检查更新」只说明原因。
+  1.3.0 之前的自带更新器（查 GitHub Release、自己替换 .app）已经删掉。
 - alpha 和正式版共用一个 appcast，靠 ``allowedChannelsForUpdater:`` 决定看不看
   alpha 条目。通道记在配置里，第一次运行时按这个构建自己的通道写入。
 - Sparkle 的对象只能在主线程创建和调用；pywebview 的回调都在别的线程，所以经
@@ -173,7 +174,7 @@ class Updater:
     def describe(self) -> Dict[str, Any]:
         """给「关于」面板和 --check-updater 用的状态。"""
         return {
-            "updater": "sparkle" if self.available else "legacy",
+            "updater": "sparkle" if self.available else "none",
             "version": __version__,
             "build": __build__,
             "channel": self.channel,

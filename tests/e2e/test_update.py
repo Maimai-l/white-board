@@ -1,37 +1,12 @@
-"""「关于」和更新：版本号、检查更新的提示、更新对话框的三个按钮和下载进度。
+"""「关于」和检查更新：版本号、检查更新按钮的提示。
 
-本地进程的接口（window.pywebview）用页面里的假对象代替，记下每次调用。
+更新本身由打包应用里的 Sparkle 负责，它有自己的窗口，这里只看按钮交接之后说了什么。
+本地进程的接口（window.pywebview）用页面里的假对象代替。
 """
 
 from __future__ import annotations
 
 from e2e.support import as_native, new_board, open_mac
-
-UPDATE_NOTES = """## What's Changed
-* fix: 修好了一个东西 by @someone in https://github.com/Maimai-l/white-board/pull/1285
-* chore: bump `aiohttp` and **tidy** the build
-"""
-
-# 假装自己是 pywebview 注入的本地接口，把每次调用记下来
-UPDATE_STUB = """
-([notes, staged]) => {
-  window.__calls = [];
-  window.pywebview = { api: {
-    info: async () => ({ native: true, version: '1.0.0', packaged: true }),
-    update_state: async () => ({
-      current: '1.0.0', packaged: true, auto: true,
-      info: { version: '1.2.0', notes },
-      staged, downloading: !staged, progress: staged ? 1 : 0.4, onQuit: false,
-    }),
-    pending_update: async () => ({ version: '1.2.0', notes }),
-    set_auto_update: async (value) => { window.__calls.push(['auto', value]); return value; },
-    skip_update: async () => { window.__calls.push(['skip']); return true; },
-    download_update: async () => { window.__calls.push(['download']); return true; },
-    install_update: async (mode) => { window.__calls.push(['install', mode]); return true; },
-    check_update_now: async () => ({ version: '1.2.0', notes }),
-  }};
-}
-"""
 
 CHECK_STUB = """([result]) => {
   window.pywebview = { api: {
@@ -39,32 +14,6 @@ CHECK_STUB = """([result]) => {
     check_update_now: async () => result,
   }};
 }"""
-
-FOUND_STUB = """([notes]) => {
-  window.__calls = [];
-  window.pywebview = { api: {
-    info: async () => ({ native: true, version: '0.9.3', packaged: true }),
-    check_update_now: async () => ({ status: 'update', version: '1.0.0', notes }),
-    update_state: async () => ({ current: '0.9.3', auto: true, staged: true,
-      downloading: false, progress: 1, info: { version: '1.0.0', notes } }),
-    set_auto_update: async (v) => v,
-    skip_update: async () => true,
-    install_update: async (mode) => { window.__calls.push(mode); return true; },
-  }};
-}"""
-
-
-def open_update_dialog(page, staged=True):
-    page.evaluate(UPDATE_STUB, [UPDATE_NOTES, staged])
-    page.evaluate(
-        "async () => { whiteboard.offeredUpdate = null;"
-        "await whiteboard.offerUpdate({ version: '1.2.0' }); }"
-    )
-    page.locator(".update-dialog").wait_for(timeout=3000)
-
-
-def calls(page):
-    return page.evaluate("() => window.__calls")
 
 
 def reopen_about(page):
@@ -75,60 +24,18 @@ def reopen_about(page):
     )
 
 
-def test_update_dialog_offers_install_skip_and_later(browser, server):
-    """更新对话框：版本、更新说明、自动下载开关、三个按钮都要工作。"""
-    mac = open_mac(browser, server.port)
-    open_update_dialog(mac)
-
-    dialog = mac.locator(".update-dialog")
-    assert "1.2.0" in dialog.inner_text()
-    assert "已下载完毕" in dialog.inner_text()
-    # PR 链接渲染成 #1285
-    assert mac.locator(".update-notes a").first.inner_text() == "#1285"
-    assert mac.locator(".update-notes code").count() == 1
-
-    mac.locator(".update-auto input").uncheck()
-    assert ["auto", False] in calls(mac)
-
-    mac.click("button:has-text('退出应用时安装')")
-    mac.locator(".update-dialog").wait_for(state="detached", timeout=3000)
-    assert ["install", "quit"] in calls(mac)
-
-    open_update_dialog(mac)
-    mac.click("button:has-text('跳过这个版本')")
-    mac.locator(".update-dialog").wait_for(state="detached", timeout=3000)
-    assert ["skip"] in calls(mac)
-
-
-def test_update_downloads_before_installing_when_not_staged(browser, server):
-    """没下好就点安装：先下载再装，两步分开，进度条才有意义。"""
-    mac = open_mac(browser, server.port)
-    open_update_dialog(mac, staged=False)
-    mac.click("button:has-text('下载并安装')")
-    mac.wait_for_function("() => window.__calls.some(c => c[0] === 'install')", timeout=3000)
-    order = mac.evaluate("() => window.__calls.map(c => c.join(':'))")
-    assert order.index("download") < order.index("install:now"), "应当先下载再安装"
-
-
-def test_update_dialog_shows_progress_while_downloading(browser, server):
-    mac = open_mac(browser, server.port)
-    open_update_dialog(mac, staged=False)
-    assert "正在下载" in mac.locator(".update-dialog").inner_text()
-    width = mac.evaluate("() => document.querySelector('.update-progress i').style.width")
-    assert width == "40%"
-
-
 def test_check_update_button_says_what_happened(browser, server):
     """点「检查更新」必须给出人话，而不是一个没头没尾的对勾。"""
     mac = open_mac(browser, server.port)
 
     cases = [
-        ({"status": "latest", "version": "0.9.3"}, "已是最新"),
-        ({"status": "error", "message": "连不上 GitHub"}, "检查失败：连不上 GitHub"),
-        ({"status": "source", "version": "1.0.0"}, "git pull"),
-        ({"status": "skipped", "version": "1.2.0"}, "已被跳过"),
         # 打包应用带着 Sparkle 时由它自己的窗口接手，按钮下面说清楚去哪儿看
         ({"status": "sparkle", "version": "1.3.0-alpha.20261119.153012"}, "更新窗口"),
+        # 从源码运行没有 Sparkle
+        ({"status": "source", "version": "1.0.0"}, "git pull"),
+        # 打包了却没带上能用的 Sparkle（本地构建）：说原因，指去更新日志
+        ({"status": "unavailable", "version": "1.3.0", "message": "framework 加载失败"}, "framework 加载失败"),
+        ({"status": "unavailable", "version": "1.3.0", "message": ""}, "请从「更新日志」下载新版本"),
     ]
     for result, expected in cases:
         mac.evaluate(CHECK_STUB, [result])
@@ -141,13 +48,6 @@ def test_check_update_button_says_what_happened(browser, server):
             arg=expected,
             timeout=3000,
         )
-
-    # 查到新版本时直接弹出对话框
-    mac.evaluate(FOUND_STUB, [UPDATE_NOTES])
-    reopen_about(mac)
-    mac.click("button:has-text('检查更新')")
-    mac.locator(".update-dialog").wait_for(timeout=3000)
-    assert "1.0.0" in mac.locator(".update-dialog").inner_text()
 
 
 def test_about_panel_holds_version_and_update_entries(browser, server):
