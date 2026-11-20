@@ -407,12 +407,12 @@ Samples filled in from Safari events are not counted in the shell sample rate.
 
 ### 8.1 Building the IPA in CI
 
-The `ipad`, `package` and `release` jobs of `.github/workflows/ci.yml` build the IPA, bundle it into the Mac app and publish both. The `plan` job runs `ipad` whenever `ipad/**` changes or the Mac app is packaged (docs/design/ci-and-updates.zh-CN.md).
+The `ipad`, `package` and `release` jobs of `.github/workflows/ci.yml` build the IPA, bundle it into the Mac app and publish both. The build steps are in `.github/actions/ipad-shell`. When the Mac app is packaged, `package` builds the IPA itself; the separate `ipad` job runs only when `ipad/**` changes and nothing is packaged (docs/design/ci-and-updates.zh-CN.md).
 
 | Job | Runner | Steps |
 |---|---|---|
-| `ipad` | `macos-26` | Take the version from `plan`; `brew install xcodegen ldid`; `python3 ipad/make_icon.py`; `xcodegen generate`; `xcodebuild -sdk iphoneos -configuration Release` without code signing; `ldid -S` pseudo-signing; zip `Payload/` into `Whiteboard-<version>-ipad.ipa`; upload artifact `Whiteboard-ipad`. |
-| `package` | `macos-15` (arm64), needs `ipad` | Download the IPA to `packaging/ipad/Whiteboard.ipa`; PyInstaller (`packaging/whiteboard.spec`) places it in the app resources at `whiteboard/ipad/Whiteboard.ipa`; smoke test with `packaging/smoke_ipad.py`. |
+| `ipad` | `macos-26`, only without `package` | Take the version from `plan`; `brew install xcodegen ldid`; `python3 ipad/make_icon.py`; `xcodegen generate`; `xcodebuild -sdk iphoneos -configuration Release` without code signing; `ldid -S` pseudo-signing; zip `Payload/` into `Whiteboard-<version>-ipad.ipa`; upload artifact `Whiteboard-ipad`. |
+| `package` | `macos-26` (arm64) | Build the IPA with the same steps and copy it to `packaging/ipad/Whiteboard.ipa`; PyInstaller (`packaging/whiteboard.spec`) places it in the app resources at `whiteboard/ipad/Whiteboard.ipa`; smoke test with `packaging/smoke_ipad.py`. |
 | `release` | `ubuntu-latest`, tags only, after the update is published | Publishes the Mac zip and the IPA in the GitHub Release. The IPA is also a separate asset for the first installation. Tags containing `-` are published as prereleases. |
 
 Version numbers:

@@ -67,20 +67,9 @@
 - 第一次安装从 Pages 站点下载（首页列出每个通道最新的构建），或从 Release 下载。
 - 更新源、增量包和签名的工作方式见 [docs/design/ci-and-updates.zh-CN.md](docs/design/ci-and-updates.zh-CN.md)。
 
-不带 Sparkle 的构建（1.2.0 及更早的版本，以及没有公钥时打出的构建）使用之前的更新方式：启动时检查一次 GitHub Releases。存在新版本时，对话框显示版本号、更新说明和三个选项：
+1.2.0 及更早的版本有自己的更新方式：读取 GitHub 上的 `releases/latest`，在更新对话框中提示 1.3.0。1.3.0 起，应用只通过 Sparkle 更新。不带 Sparkle 的构建（从源码运行，或没有公钥时在本地打出的构建）不会自行更新，请用 `git pull` 或下载新版本安装。
 
-| 选项 | 结果 |
-| --- | --- |
-| 跳过这个版本 | 记录该版本号，此后不再提示该版本；更新的版本照常提示。 |
-| 退出应用时安装 | 在后台下载，关闭窗口时替换应用。 |
-| 安装并重启应用 | 立即替换并重新打开应用。 |
-
-- 对话框左下角的「以后自动下载更新」**默认关闭**。关闭时，检查只获取版本信息；选择安装后才开始下载，进度显示在对话框中。
-- 开启后，启动时发现的新版本会在对话框出现之前于后台下载。手动检查更新从不下载。
-- 预发布版（带连字符的 tag，例如 `v1.0.0-rc.1`）不会推送给用户：检查读取的是 `releases/latest`。
-- 更新包使用 `ditto` 解压。替换前检查可执行文件和代码签名，替换后再次检查签名。任一检查未通过时，恢复原有版本并重新打开。
-
-「关于」面板（右上角最后一个图标）显示应用图标、名称、版本号和地址，提供「更新日志」「日志文件」链接，底部是「检查更新」按钮。检查结果显示在按钮上方：已是最新版本时附带版本号，失败时说明原因（无法连接、被限流、没有适用于本机的安装包）。
+「关于」面板（右上角最后一个图标）显示应用图标、名称、版本号和地址，提供「更新日志」「日志文件」链接，底部是「检查更新」按钮。打包好的应用中，按钮打开 Sparkle 的窗口，按钮上方的一行说明这一点。从源码运行时，这一行提示用 `git pull` 更新；打包的应用没有可用的 Sparkle 时，说明原因并指向「更新日志」链接。
 
 ### 从源码运行
 
@@ -138,7 +127,7 @@ WHITEBOARD_VERSION=1.1.0 pyinstaller --noconfirm packaging/whiteboard.spec
 ```
 
 - 本地打包只有在 `packaging/ipad/Whiteboard.ipa` 存在时才包含 iPad 外壳；否则安装页会指向 Release 下载。
-- 本地打包默认不带 Sparkle：需要先运行 `packaging/fetch_sparkle.sh` 和 `packaging/embed_sparkle.sh dist/Whiteboard.app`，再运行 `packaging/sign_app.sh dist/Whiteboard.app`；没有设置 `SPARKLE_FEED_URL` 和 `SPARKLE_PUBLIC_ED_KEY` 时仍使用之前的更新方式。
+- 本地打包默认不带 Sparkle：需要先运行 `packaging/fetch_sparkle.sh` 和 `packaging/embed_sparkle.sh dist/Whiteboard.app`，再运行 `packaging/sign_app.sh dist/Whiteboard.app`；没有设置 `SPARKLE_FEED_URL` 和 `SPARKLE_PUBLIC_ED_KEY` 时不会自行更新。
 - Intel 版本需要在 Intel Mac 上本地打包，或把 `.github/workflows/ci.yml` 中 `package` job 的机器换成 `macos-13` / `x86_64`。
 - 将预发布版转为正式版之前，按照 [docs/release-checklist.zh-CN.md](docs/release-checklist.zh-CN.md) 逐项检查。
 
@@ -516,7 +505,6 @@ whiteboard/
   netinfo.py、codec.py   指向 inksync 中的同名模块（旧的导入路径）
   ipadshell.py  外壳安装页、版本接口与 IPA 下载
   sparkle.py    Sparkle 更新：加载框架、更新通道、「检查更新」
-  updater.py    之前的更新方式（不带 Sparkle 的构建）：检查、下载、校验与替换
   resources.py  源码运行与打包运行时的路径和日志
   runner.py     在后台线程中运行服务端
   app.py        pywebview 窗口与本地文件对话框
@@ -583,7 +571,7 @@ make plan FILES="whiteboard/app.py docs/sketch.md"   # 这些改动在 CI 里会
 | 推送到 `dev`，或 `v*` tag | 全部，然后发布更新（`alpha` 或 `stable`） |
 
 - 可以在提交说明里写 `[ci: e2e,webkit]` 或 `[ci: all]` 手动指定，也可以在手动运行时填写 `jobs`。
-- 其他分支演练更新发布（`updates-dry-run`）：用临时密钥生成增量包、核对签名，并把增量包应用到上一个构建上。
+- 其他分支在 `package` job 的最后演练更新发布：用临时密钥生成增量包、核对签名，并把增量包应用到上一个构建上。
 - 端到端测试失败时，每个打开的页面都会截图，上传为 `test-results-*` 产物。
 
 ## 不做的事

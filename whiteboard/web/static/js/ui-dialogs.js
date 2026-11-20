@@ -1,10 +1,9 @@
-// 对话框：关于、更新、确认、只读提示。
+// 对话框：关于（含检查更新）、确认、只读提示。
 //
 // 这些方法装到 UI.prototype 上（见 ui.js 末尾），里面的 this 就是那个 UI。
 // 从 ui.js 原样搬过来，只是换了个文件放。
 
 import { icon } from "./icons.js";
-import { renderNotes } from "./notes.js";
 import { iconButton } from "./ui-common.js";
 import { el } from "/inksync/util.js";
 
@@ -67,150 +66,6 @@ const methods = {
     });
     // 结果放在按钮上方，并且始终占着一行高度：按钮不会因为出结果而被顶着移动。
     return el("div", { class: "row about-update" }, [note, button]);
-  },
-
-  /**
-   * 更新对话框：图标、标题、更新说明、自动下载开关、三个按钮。
-   *
-   * ``state`` 来自本地进程（update_state），``actions`` 里是四个回调：
-   * skip / installNow / installOnQuit / setAuto，另外 poll 用来刷新下载进度。
-   */
-  showUpdateDialog(state, actions) {
-    this.closeUpdateDialog();
-    const info = state.info || {};
-    const version = info.version || "";
-
-    const title = el("h2", { text: `新版本的白板可以安装了` });
-    const subtitle = el("p");
-    const notes = el("div", { class: "update-notes", html: renderNotes(info.notes) });
-    notes.addEventListener("click", (event) => {
-      const link = event.target.closest("a");
-      if (!link) return;
-      event.preventDefault();
-      this.actions.onOpenUrl(link.getAttribute("href"));
-    });
-
-    const bar = el("i");
-    const progress = el("div", { class: "update-progress" }, [bar]);
-
-    const checkbox = el("input", { type: "checkbox" });
-    checkbox.checked = !!state.auto;
-    checkbox.addEventListener("change", () => actions.setAuto(checkbox.checked));
-    const auto = el("label", { class: "update-auto" }, [
-      checkbox,
-      el("span", { text: "以后自动下载更新" }),
-    ]);
-
-    const skip = el("button", { class: "btn", text: "跳过这个版本" });
-    const later = el("button", { class: "btn", text: "退出应用时安装" });
-    const now = el("button", { class: "btn primary", text: "安装并重启应用" });
-
-    const render = (current) => {
-      const staged = !!current.staged;
-      this.updateStaged = staged;
-      const downloading = !!current.downloading;
-      subtitle.textContent = staged
-        ? `白板 ${version} 已下载完毕并可以使用。要立刻安装并重启白板吗？`
-        : downloading
-          ? `正在下载白板 ${version}…`
-          : `白板 ${version} 可以下载安装，当前版本 ${current.current || ""}。`;
-      progress.style.display = downloading || (current.progress > 0 && !staged) ? "" : "none";
-      bar.style.width = `${Math.round((current.progress || 0) * 100)}%`;
-      now.textContent = staged ? "安装并重启应用" : "下载并安装";
-    };
-    render(state);
-
-    /** 下载 / 校验失败时把服务端给的具体原因显示出来，而不是一句「失败」。 */
-    const failure = async (fallback) => {
-      if (!actions.poll) return fallback;
-      const current = await actions.poll();
-      const reason = current && current.error;
-      return reason ? `${reason}，这次先不更新。` : fallback;
-    };
-
-    skip.addEventListener("click", async () => {
-      await actions.skip();
-      this.closeUpdateDialog();
-    });
-    later.addEventListener("click", async () => {
-      later.setAttribute("disabled", "");
-      now.setAttribute("disabled", "");
-      if (!this.updateStaged) {
-        progress.style.display = "";
-        if (!(await actions.download())) {
-          subtitle.textContent = await failure("下载失败了，稍后再试。");
-          later.removeAttribute("disabled");
-          now.removeAttribute("disabled");
-          return;
-        }
-      }
-      const ok = await actions.installOnQuit();
-      this.closeUpdateDialog();
-      this.toast(ok ? "check" : "close");
-    });
-    now.addEventListener("click", async () => {
-      now.setAttribute("disabled", "");
-      later.setAttribute("disabled", "");
-      // 先下载再安装：两步分开，进度条才有东西可显示
-      if (!this.updateStaged) {
-        subtitle.textContent = `正在下载白板 ${version}…`;
-        progress.style.display = "";
-        const downloaded = await actions.download();
-        if (!downloaded) {
-          subtitle.textContent = await failure("下载失败了，稍后再试。");
-          now.removeAttribute("disabled");
-          later.removeAttribute("disabled");
-          return;
-        }
-      }
-      subtitle.textContent = "正在安装，应用会重新打开…";
-      const ok = await actions.installNow();
-      if (!ok) {
-        subtitle.textContent = "安装失败了，稍后再试。";
-        now.removeAttribute("disabled");
-        later.removeAttribute("disabled");
-      }
-    });
-
-    const dialog = el("div", { class: "update-dialog" }, [
-      el("div", { class: "update-head" }, [
-        el("img", { src: "/icon.png", alt: "" }),
-        el("div", {}, [title, subtitle]),
-      ]),
-      notes,
-      progress,
-      auto,
-      el("div", { class: "update-actions" }, [
-        skip,
-        el("span", { class: "spacer" }),
-        later,
-        now,
-      ]),
-    ]);
-    const scrim = el("div", { class: "scrim" });
-    scrim.append(dialog);
-    dialog.addEventListener("click", (event) => event.stopPropagation());
-    this.root.append(scrim);
-    this.updateDialog = { scrim, render };
-
-    // 下载中就跟着刷新进度
-    if (actions.poll) {
-      this._updateTimer = setInterval(async () => {
-        if (!this.updateDialog) return;
-        const current = await actions.poll();
-        if (current) render(current);
-      }, 400);
-    }
-    return this.updateDialog;
-  },
-
-  closeUpdateDialog() {
-    clearInterval(this._updateTimer);
-    this._updateTimer = 0;
-    if (this.updateDialog) {
-      this.updateDialog.scrim.remove();
-      this.updateDialog = null;
-    }
   },
 
   /** 问一句再动手。``question`` 就是那句话，图标只是陪衬。 */

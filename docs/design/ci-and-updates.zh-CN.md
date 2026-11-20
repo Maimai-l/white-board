@@ -67,19 +67,20 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 | webkit | 主要流程用 WebKit 再跑一遍 | ubuntu |
 | js | `node --test tests/js` | ubuntu |
 | inksync | 单独安装 inksync 再测，确认它不依赖白板应用 | ubuntu |
-| ipad | 编译 iPad 外壳，打成 IPA | macos-26 |
-| package | PyInstaller 打包、放入 Sparkle、签名、冒烟测试、压缩 | macos-15 |
+| ipad | 编译 iPad 外壳，打成 IPA（只在不打包时单独跑） | macos-26 |
+| package | 编译 iPad 外壳、PyInstaller 打包、放入 Sparkle、签名、冒烟测试、压缩；其他分支接着演练发布 | macos-26 |
 | extension | 打包浏览器插件 | ubuntu |
-| publish | 生成 appcast 和增量包，发布到 GitHub Pages | macos-15 |
+| updates | 生成 appcast 和增量包，发布到 GitHub Pages（dev 和 tag） | macos-26 |
 | release | 发 GitHub Release（只有 tag） | ubuntu |
 
 ### 2.3 触发、并发和缓存
 
-- 触发：推送到 `dev` 和 `claude/**`、推 tag `v*`、PR、手动。`stable` 只接收已经在 dev 通过的提交，不再单独跑。
+- 触发：推送到 `dev` 和 `claude/**`、推 tag `v*`、手动。不监听 PR：PR 都来自本仓库的分支，push 那次运行已经覆盖，检查结果显示在 PR 上；两个都监听时同一个提交跑两遍，macOS 机器要排两份队。`stable` 只接收已经在 dev 通过的提交，不再单独跑。
 - 并发：同一个分支上新的推送会取消正在跑的那次（`cancel-in-progress`），tag 除外。发布到 Pages 的步骤用一个独立的并发组排队，不取消。
 - 缓存：Python 依赖用 `setup-python` 的 pip 缓存。测试依赖写在 `requirements-test.txt`，本地和 CI 用同一份。
 - 浏览器测试（e2e、webkit）在 `mcr.microsoft.com/playwright/python:v<版本>-noble` 容器里跑（`.github/actions/playwright`）：浏览器和系统依赖都在镜像里。GitHub 机器上 apt 只有 60–220 kB/s，WebKit 要装 126 MB 系统包，第一次运行时装不完。make 仍在机器上跑，`PY` 换成容器里的 python。镜像版本取自 `requirements-test.txt` 里固定的 `playwright==` 版本，升级只改那一行。
 - 共用的安装步骤放在 `.github/actions/setup-python-deps`，每个 job 只写自己跑什么。
+- macOS 机器：每排一次队要等 0、5 或 10 分钟，等满 15 分钟这个 job 就被取消（2026-11-19 前后 30 次运行的统计，docs/backlog/004）。所以串起来的 macOS job 越少越好：工作分支上只有 package 一个（iPad 外壳和发布演练都在里面，外壳的编译步骤在 `.github/actions/ipad-shell`，和单独的 ipad job 共用），dev 上是 package 加 updates。
 - 每个 job 都有 `timeout-minutes`：卡住的 job 最多占几十分钟，而不是默认的 6 小时。
 
 ### 2.4 结果要能直接看
@@ -136,19 +137,19 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 
 ### 3.4 演练（其他分支）
 
-在 `claude/**` 等分支上，publish 以演练模式运行，不发布任何东西：
+在 `claude/**` 等分支上，发布以演练模式运行，作为 package job 的最后几步，不发布任何东西：
 
 1. 生成一对临时密钥。
 2. 复制一份应用，改掉版本号和一个文件后重新签名，作为「下一个版本」。
 3. 用两个版本跑 `generate_appcast`，确认生成了增量包和带签名的 appcast。
-4. 用 `BinaryDelta apply` 把增量包应用到旧版本上，确认结果和新版本逐字节相同。
+4. 用 `BinaryDelta apply` 把增量包应用到旧版本上，确认结果和新版本逐项相同（`appcast.py treediff`：每个文件的 SHA-256 和可执行位、每个符号链接的指向；不用 `diff -r`，macOS 26 的 diff 会跳过包内的目录链接却仍返回 0）。
 
 这样 Sparkle 的整条发布链路在每个分支上都有验证，而不是等到 dev 上才第一次出错。
 
 ### 3.5 应用里
 
 - `whiteboard/sparkle.py` 用 PyObjC 加载 `Contents/Frameworks/Sparkle.framework`，在主线程创建 `SPUStandardUpdaterController`。
-- 「检查更新」按钮在 Sparkle 可用时交给 Sparkle 的对话框；不可用时（从源码运行、旧构建、没配置公钥）走原来的流程。
+- 「检查更新」按钮交给 Sparkle 的对话框。Sparkle 不可用时（从源码运行、本地构建没嵌入、没配置公钥、加载失败）没有自动更新，按钮上方说明原因：源码运行提示用 `git pull`，打包的应用写出原因并指向「更新日志」。
 - Info.plist：`SUFeedURL`、`SUPublicEDKey`、`SUEnableAutomaticChecks`；alpha 构建 `SUScheduledCheckInterval` = 3600 s、`SUAutomaticallyUpdate` = YES（自动下载，退出时安装），正式版每天查一次。
 - 应用不是沙盒应用，Sparkle 的 XPC 服务用不上，打包时删掉。
 
@@ -161,7 +162,12 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 ### 3.7 从旧更新器过渡
 
 现有 1.2.0 用户的应用里只有旧更新器，它只认 GitHub Release。第一个带 Sparkle 的正式版照常发 GitHub Release，
-旧更新器把用户带到这个版本，之后由 Sparkle 接手。旧更新器的代码保留到下一个正式版之后再删。
+旧更新器把用户带到这个版本，之后由 Sparkle 接手。所以 release job 和 GitHub Release 里资产的名字不能改。
+
+旧更新器的代码（`whiteboard/updater.py` 和它的更新对话框）在 1.3.0 里就删了，没有等到下一个正式版：
+1.2.0 升级用的是 1.2.0 自己的那份代码，跟 1.3.0 里有没有它无关；而 1.3.0 起打包的应用总是带着 Sparkle
+（package job 里 `--check-updater` 加载不了就失败），留在 1.3.0 里的旧更新器只在从源码运行时才走得到，
+那时它本来就不工作。
 
 ## 4. 需要仓库主人做的事
 
@@ -169,7 +175,7 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 | --- | --- | --- |
 | 生成 EdDSA 密钥：Sparkle 包里的 `bin/generate_keys`，再用 `generate_keys -x 文件` 导出私钥 | 自己的 Mac | 不能发布更新 |
 | 私钥存成 Secret `SPARKLE_ED_PRIVATE_KEY` | 仓库 Settings → Secrets | publish 跳过，摘要里写明原因 |
-| 公钥（`generate_keys -p` 打印的一行）交给 agent，提交为 `packaging/sparkle-public-key.txt` | 仓库里 | 打出的应用不带 Sparkle 配置，继续用旧更新器 |
+| 公钥（`generate_keys -p` 打印的一行）交给 agent，提交为 `packaging/sparkle-public-key.txt` | 仓库里 | 打出的应用不带 Sparkle 配置，不会自动更新 |
 | 开启 Pages，来源选 GitHub Actions；`github-pages` 环境允许 `dev` 分支和 `v*` tag | 仓库 Settings → Pages / Environments | 发布这一步失败 |
 | （可选）自签名证书 `MAC_CERT_P12`、`MAC_CERT_PASSWORD` | 仓库 Settings → Secrets | 继续用 ad hoc 签名 |
 

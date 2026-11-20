@@ -19,7 +19,7 @@ from inksync.hub import Hub as CoreHub
 from inksync import server as inksync_server
 from inksync.server import MAX_WS_MESSAGE  # noqa: F401
 
-from . import __version__, ipadshell, models, netinfo, profile, resources, updater
+from . import RELEASES_URL, __version__, ipadshell, models, netinfo, profile, resources
 from .config import REMOTE_PERMISSIONS, Config
 from .hub import SKETCH_ID, Hub, perms_of
 from .store import BoardStore
@@ -186,9 +186,7 @@ def _shell_host(request: web.Request) -> str:
 async def handle_ipad_page(request: web.Request) -> web.Response:
     """外壳的安装页：安装外壳，或者把这台 Mac 的地址交给已经装好的外壳。"""
     config: Config = request.app[CONFIG_KEY]
-    page = ipadshell.install_page(
-        _shell_host(request), config.port, f"https://github.com/{updater.REPO}/releases"
-    )
+    page = ipadshell.install_page(_shell_host(request), config.port, RELEASES_URL)
     return web.Response(text=page, content_type="text/html", headers={"Cache-Control": "no-store"})
 
 

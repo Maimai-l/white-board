@@ -56,14 +56,30 @@ def test_sparkle_needs_the_framework_the_feed_and_the_key(tmp_path):
     assert not sparkle.Updater(config, make_bundle(tmp_path / "d", {})).available
 
 
-def test_running_from_source_uses_the_old_updater(tmp_path):
+def test_running_from_source_has_no_updater(tmp_path):
     updater = sparkle.Updater(Config(tmp_path / "config.json"), bundle=None)
     updater.bundle = None
     updater.info = {}
     updater.framework = None
     assert not updater.available
-    assert updater.describe()["updater"] == "legacy"
+    assert updater.describe()["updater"] == "none"
     assert updater.check_now() is False
+
+
+def test_check_for_updates_says_where_updates_come_from(tmp_path, monkeypatch):
+    """「检查更新」只有三种回答：交给 Sparkle、源码运行用 git、打包了却没有 Sparkle。"""
+    from whiteboard import app, resources
+
+    api = app.NativeApi(Config(tmp_path / "config.json"), server=None)
+    assert api.check_update_now()["status"] == "source"
+
+    monkeypatch.setattr(resources, "is_frozen", lambda: True)
+    api.sparkle.error = "Sparkle.framework 加载失败"
+    result = api.check_update_now()
+    assert result["status"] == "unavailable" and result["message"] == "Sparkle.framework 加载失败"
+
+    monkeypatch.setattr(api.sparkle, "check_now", lambda: True)
+    assert api.check_update_now()["status"] == "sparkle"
 
 
 def test_the_first_packaged_run_remembers_its_channel(tmp_path, monkeypatch):
