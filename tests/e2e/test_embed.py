@@ -157,11 +157,31 @@ def test_an_embedded_pad_leaves_the_rest_of_the_page_alone(browser, demo):
 def test_the_pad_object_exposes_only_its_interface(browser, demo):
     pad = open_demo(browser, demo.port)
     keys = pad.evaluate("() => Object.keys(pad).sort()")
-    assert keys == sorted([
-        "open", "setTool", "undo", "redo", "clear", "fit", "zoom", "setMeta", "exportPNG",
-        "snapshot", "load", "on", "destroy", "board", "status", "tool", "caps", "locked",
-        "shell", "info", "version",
-    ])
+    assert keys == sorted(
+        [
+            "open",
+            "setTool",
+            "undo",
+            "redo",
+            "clear",
+            "fit",
+            "zoom",
+            "setMeta",
+            "exportPNG",
+            "snapshot",
+            "load",
+            "on",
+            "destroy",
+            "board",
+            "status",
+            "tool",
+            "caps",
+            "locked",
+            "shell",
+            "info",
+            "version",
+        ]
+    )
     assert pad.evaluate("() => Object.isFrozen(pad) && pad.state === undefined && pad.net === undefined")
     png = pad.evaluate("async () => (await pad.exportPNG({ layers: true })).slice(0, 22)")
     assert png == "data:image/png;base64,"
@@ -391,4 +411,3 @@ def test_the_qb_example_end_to_end(browser, qb_server):
     other = open_qb(browser, port, "7")
     assert other.evaluate("() => pad.board.id") == "u7-q1"
     assert other.evaluate("() => pad.snapshot().strokes.length") == 0
-

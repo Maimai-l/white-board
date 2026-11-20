@@ -49,10 +49,7 @@ async ([n, timeout]) => {
 }
 """
 
-SET_SCALE = (
-    "([s]) => { whiteboard.viewport.scale = s; whiteboard.clampView();"
-    "whiteboard.renderer.requestFull(); }"
-)
+SET_SCALE = "([s]) => { whiteboard.viewport.scale = s; whiteboard.clampView();whiteboard.renderer.requestFull(); }"
 
 
 def note_on_both(mac, ipad):

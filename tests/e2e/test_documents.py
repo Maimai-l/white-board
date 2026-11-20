@@ -16,8 +16,7 @@ def test_export_png_has_content(browser, server):
     draw(mac, [(300, 300), (400, 360), (500, 300)], pointer_type="mouse")
     wait_strokes(mac, 1)
     data_url = mac.evaluate(
-        "async () => { const m = await import('/inksync/exporter.js');"
-        "return m.exportDataURL(whiteboard.state); }"
+        "async () => { const m = await import('/inksync/exporter.js');return m.exportDataURL(whiteboard.state); }"
     )
     assert data_url.startswith("data:image/png;base64,")
     assert len(data_url) > 5000

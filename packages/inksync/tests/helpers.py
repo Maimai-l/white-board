@@ -26,7 +26,9 @@ def local(request) -> Principal:
 
 
 @asynccontextmanager
-async def serve(tmp_path, policy=None, authenticate=None, hub: Optional[Hub] = None, spaces=None, info=None, **hub_args):
+async def serve(
+    tmp_path, policy=None, authenticate=None, hub: Optional[Hub] = None, spaces=None, info=None, **hub_args
+):
     app = web.Application()
     if spaces is None:
         hub = hub or Hub(FileStorage(tmp_path / "data"), policy=policy, **hub_args)

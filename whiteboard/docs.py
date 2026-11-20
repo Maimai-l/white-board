@@ -216,9 +216,7 @@ def _stroke_center(stroke: Dict[str, Any]) -> Tuple[float, float]:
     return ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
 
 
-def group_by_page(
-    strokes: Sequence[Dict[str, Any]], boxes: Sequence[Dict[str, float]]
-) -> List[List[Dict[str, Any]]]:
+def group_by_page(strokes: Sequence[Dict[str, Any]], boxes: Sequence[Dict[str, float]]) -> List[List[Dict[str, Any]]]:
     """按笔画中心归页；落在页间空隙里的归给最近的一页。"""
     groups: List[List[Dict[str, Any]]] = [[] for _ in boxes]
     if not boxes:
@@ -274,9 +272,7 @@ def export_pdf(src: str | Path, strokes: Sequence[Dict[str, Any]], out: str | Pa
         if index >= len(boxes) or not groups[index]:
             continue
         matrix, _, _ = inkpdf.page_geometry(page)
-        raw, alphas = inkpdf.content_stream(
-            groups[index], origin=(boxes[index]["x"], boxes[index]["y"]), matrix=matrix
-        )
+        raw, alphas = inkpdf.content_stream(groups[index], origin=(boxes[index]["x"], boxes[index]["y"]), matrix=matrix)
         if not raw:
             continue
 

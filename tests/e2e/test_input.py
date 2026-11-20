@@ -249,9 +249,7 @@ def test_mac_pans_with_the_middle_button_space_and_the_wheel(browser, server):
 
     mac.mouse.move(500, 500)
     mac.mouse.wheel(0, 120)
-    mac.wait_for_function(
-        "(was) => JSON.stringify(__t.view()) !== JSON.stringify(was)", arg=after_space
-    )
+    mac.wait_for_function("(was) => JSON.stringify(__t.view()) !== JSON.stringify(was)", arg=after_space)
     assert stroke_count(mac) == 0  # 上面这些都只是平移，一笔都没画
 
 

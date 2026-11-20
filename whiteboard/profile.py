@@ -23,6 +23,7 @@ DISPLAY_NAME = "白板"
 
 # --------------------------------------------------------------------- 图标
 
+
 def _png(width: int, height: int, rows: List[bytearray]) -> bytes:
     raw = bytearray()
     for row in rows:
@@ -30,12 +31,7 @@ def _png(width: int, height: int, rows: List[bytearray]) -> bytes:
         raw.extend(row)
 
     def chunk(kind: bytes, data: bytes) -> bytes:
-        return (
-            struct.pack(">I", len(data))
-            + kind
-            + data
-            + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-        )
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
 
     header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)  # 8bit RGBA
     return (
@@ -75,6 +71,7 @@ def icon_png(size: int = 180, mac: bool = False) -> bytes:
     tile = size * MAC_TILE_RATIO if mac else float(size)
     margin = (size - tile) / 2
     radius = tile * (MAC_RADIUS_RATIO if mac else IOS_RADIUS_RATIO)
+
     def tile_coverage(px: float, py: float) -> float:
         """圆角方块的覆盖度（带一像素的抗锯齿过渡）。"""
         left = margin
@@ -135,6 +132,7 @@ def icon_png(size: int = 180, mac: bool = False) -> bytes:
 
 
 # ------------------------------------------------------------- 描述文件
+
 
 def build_profile(url: str, label: str = DISPLAY_NAME, icon: bytes | None = None) -> bytes:
     """生成 ``.mobileconfig``（未签名，安装时 iPadOS 会提示「未签名」，属正常）。"""

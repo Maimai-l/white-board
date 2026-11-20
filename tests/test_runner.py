@@ -62,9 +62,7 @@ def test_stop_saves_boards(tmp_path):
     server = ServerThread(make_config(tmp_path, 8477), advertise=False)
     server.start()
     hub = server.hub
-    hub.board().apply(
-        {"op": "add", "strokes": [{"id": "a", "p": [0, 0, 0.5, 1, 1, 0.5], "color": "#000000"}]}
-    )
+    hub.board().apply({"op": "add", "strokes": [{"id": "a", "p": [0, 0, 0.5, 1, 1, 0.5], "color": "#000000"}]})
     server.save_now()
     server.stop()
     from whiteboard.store import BoardStore

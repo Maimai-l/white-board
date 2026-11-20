@@ -54,9 +54,7 @@ def setup_logging(debug: bool = False, to_file: bool | None = None) -> Path | No
     level = logging.DEBUG if debug else logging.INFO
     root = logging.getLogger()
     root.setLevel(level)
-    formatter = logging.Formatter(
-        "%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S"
-    )
+    formatter = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
 
     if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
         stream = logging.StreamHandler()
@@ -71,13 +69,9 @@ def setup_logging(debug: bool = False, to_file: bool | None = None) -> Path | No
     # 打包运行时 run.py 和 app.run 各调一次；第二次再挂一个文件处理器，
     # 每行日志就会写两遍
     for existing in root.handlers:
-        if isinstance(existing, logging.handlers.RotatingFileHandler) and Path(
-            existing.baseFilename
-        ) == path.resolve():
+        if isinstance(existing, logging.handlers.RotatingFileHandler) and Path(existing.baseFilename) == path.resolve():
             return path
-    handler = logging.handlers.RotatingFileHandler(
-        path, maxBytes=512 * 1024, backupCount=2, encoding="utf-8"
-    )
+    handler = logging.handlers.RotatingFileHandler(path, maxBytes=512 * 1024, backupCount=2, encoding="utf-8")
     handler.setFormatter(formatter)
     root.addHandler(handler)
     return path

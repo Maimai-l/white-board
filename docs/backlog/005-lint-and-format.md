@@ -1,6 +1,6 @@
 # 统一格式化（ruff format）
 
-状态：待办　　来源：流程改进
+状态：完成　　来源：流程改进
 
 ## 为什么
 
@@ -17,3 +17,8 @@
 - `make checks` 包含格式检查并通过。
 
 ## 进展
+
+- 2026-11-20 `ruff.toml`：行宽 120（现有代码就是按这个宽度写的，格式化只动 74 个文件；100 要动 96 个），
+  兼容性夹具 `tests/fixtures/` 不动；规则从 Makefile 挪进 ruff.toml，内容不变。只改格式的提交 `1e8653b`
+  记在 `.git-blame-ignore-revs`。`make checks` 加了 `ruff format --check`（在原来的 dev 上 76 个文件不合格式，
+  现在全部通过），`make format` 一键整理。其余规则（完整规则下主要是行太长）以后要开时一条一条开。

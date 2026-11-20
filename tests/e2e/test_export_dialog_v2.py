@@ -342,11 +342,16 @@ def test_clearing_the_frames_and_drawing_one_exports_exactly_that_region(browser
 
     def inside(p):
         xs, ys = p[0::3], p[1::3]
-        return all(sent["x"] <= x <= sent["x"] + sent["w"] and sent["y"] <= y <= sent["y"] + sent["h"] for x, y in zip(xs, ys))
+        return all(
+            sent["x"] <= x <= sent["x"] + sent["w"] and sent["y"] <= y <= sent["y"] + sent["h"] for x, y in zip(xs, ys)
+        )
 
     def outside(p):
         xs, ys = p[0::3], p[1::3]
-        return all(not (sent["x"] <= x <= sent["x"] + sent["w"] and sent["y"] <= y <= sent["y"] + sent["h"]) for x, y in zip(xs, ys))
+        return all(
+            not (sent["x"] <= x <= sent["x"] + sent["w"] and sent["y"] <= y <= sent["y"] + sent["h"])
+            for x, y in zip(xs, ys)
+        )
 
     assert all(inside(p) for p in points[:3])
     assert all(outside(p) for p in points[3:])

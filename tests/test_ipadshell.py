@@ -53,9 +53,7 @@ def test_the_page_can_ask_the_shell_to_switch_macs():
     """局域网里有好几台 Mac 时，从页面的设置里换一台；两边的命令名要对得上。"""
     shell_js = (ROOT / "packages/inksync/inksync/web/shell.js").read_text("utf-8")
     # 界面拆成了 ui.js 和几个 ui-*.js，调用在哪一个里都算
-    ui_js = "".join(
-        path.read_text("utf-8") for path in sorted((ROOT / "whiteboard/web/static/js").glob("ui*.js"))
-    )
+    ui_js = "".join(path.read_text("utf-8") for path in sorted((ROOT / "whiteboard/web/static/js").glob("ui*.js")))
     swift = (ROOT / "ipad/Whiteboard/ShellViewController.swift").read_text("utf-8")
     assert "export function shellCommand(" in shell_js
     assert 'shellCommand("rediscover")' in ui_js
@@ -102,10 +100,7 @@ def test_install_page_and_download_with_a_bundled_ipa(tmp_path, monkeypatch):
             port = app[CONFIG_KEY].port
             body = await (await client.get("/ipad", params={"host": "studio.local"})).text()
             assert "安装白板外壳" in body
-            assert (
-                f'href="apple-magnifier://install?url=http://studio.local:{port}/ipad/Whiteboard.ipa"'
-                in body
-            )
+            assert f'href="apple-magnifier://install?url=http://studio.local:{port}/ipad/Whiteboard.ipa"' in body
             info = await (await client.get("/ipad/version")).json()
             assert info["ipa"] is True
             response = await client.get("/ipad/Whiteboard.ipa")
@@ -188,8 +183,14 @@ def test_other_services_can_advertise_themselves(monkeypatch):
             await hook(app)
 
     asyncio.run(main())
-    fields = {"host": "studio.local", "port": "8900", "version": "", "name": "刷题",
-              "source": "qb", "path": "/apps/qb/"}
+    fields = {
+        "host": "studio.local",
+        "port": "8900",
+        "version": "",
+        "name": "刷题",
+        "source": "qb",
+        "path": "/apps/qb/",
+    }
     assert registered == [("刷题", "_whiteboard._tcp", 8900, netinfo.txt_record(fields)), "gone"]
 
     import pytest
@@ -227,8 +228,14 @@ def test_bonjour_uses_the_system_responder_on_macos(monkeypatch):
         await service.stop()
 
     asyncio.run(main())
-    fields = {"host": "studio.local", "port": "8849", "version": "1.3.0", "name": "Studio",
-              "source": "whiteboard", "path": "/?role=ipad"}
+    fields = {
+        "host": "studio.local",
+        "port": "8849",
+        "version": "1.3.0",
+        "name": "Studio",
+        "source": "whiteboard",
+        "path": "/?role=ipad",
+    }
     assert calls == [
         ("register", "Studio", "_whiteboard._tcp", 8849, netinfo.txt_record(fields)),
         ("deallocate", "ref"),

@@ -28,7 +28,9 @@ async def make_client(tmp_path):
     (app_dir / "img" / "q1.svg").write_text("<svg/>", "utf-8")
     (config.data_dir / "apps" / "empty").mkdir()  # 没有 index.html，不算应用
     (config.data_dir / "secret.txt").write_text("secret", "utf-8")
-    client = TestClient(TestServer(create_app(config, BoardStore(config.data_dir))), )
+    client = TestClient(
+        TestServer(create_app(config, BoardStore(config.data_dir))),
+    )
     await client.start_server()
     try:
         yield client, config
@@ -45,8 +47,13 @@ def test_app_files_are_served_from_the_apps_folder(tmp_path):
             assert (await client.get("/apps/qb/img/q1.svg")).status == 200
             redirected = await client.get("/apps/qb", allow_redirects=False)
             assert redirected.status == 302 and redirected.headers["Location"] == "/apps/qb/"
-            for path in ("/apps/qb/missing.js", "/apps/QB/", "/apps/empty/", "/apps/qb/../../secret.txt",
-                         "/apps/qb/%2e%2e/%2e%2e/secret.txt"):
+            for path in (
+                "/apps/qb/missing.js",
+                "/apps/QB/",
+                "/apps/empty/",
+                "/apps/qb/../../secret.txt",
+                "/apps/qb/%2e%2e/%2e%2e/secret.txt",
+            ):
                 assert (await client.get(path)).status == 404, path
 
     run(main())
@@ -114,4 +121,6 @@ def test_image_layers_must_be_same_origin_paths():
     # 1.0.x 的底图读进来是第一层
     meta = models.sanitize_meta({"id": "b1", "kind": "board", "underlay": {"src": "/apps/qb/a.png", "width": 500}})
     assert meta["layers"] == [{"src": "/apps/qb/a.png", "x": 0.0, "y": 0.0, "width": 500.0}]
-    assert models.sanitize_meta({"id": "b1", "kind": "board", "underlay": {"src": "http://x", "width": 5}})["layers"] == []
+    assert (
+        models.sanitize_meta({"id": "b1", "kind": "board", "underlay": {"src": "http://x", "width": 5}})["layers"] == []
+    )

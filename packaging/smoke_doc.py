@@ -23,9 +23,7 @@ def make_pdf() -> bytes:
 
 
 def main(base: str) -> int:
-    request = urllib.request.Request(
-        f"{base}/api/doc?name=smoke.pdf", data=make_pdf(), method="POST"
-    )
+    request = urllib.request.Request(f"{base}/api/doc?name=smoke.pdf", data=make_pdf(), method="POST")
     with urllib.request.urlopen(request, timeout=60) as response:
         board = json.load(response)["board"]
     # 元数据 v2：原件信息在 data.doc，每页是一个图片层
@@ -46,8 +44,7 @@ def main(base: str) -> int:
         print("导出的不是 PDF")
         return 1
 
-    print(f"文档板可用：{len(doc['pages'])} 页，位图 {len(page)} 字节，"
-          f"导出 {len(exported)} 字节")
+    print(f"文档板可用：{len(doc['pages'])} 页，位图 {len(page)} 字节，导出 {len(exported)} 字节")
     return 0
 
 

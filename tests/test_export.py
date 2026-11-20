@@ -605,8 +605,10 @@ def test_whole_board_pdf_is_one_page_the_size_of_the_ink(tmp_path):
 
 def solid(prefix, x, y, color, size=3000):
     """一大块实心墨迹（最粗的笔一行挨一行）：缩到很小也看得出颜色。"""
-    return [line(f"{prefix}{r}", x, y + r * 80, x + size, y + r * 80, color=color, width=96.0, steps=4)
-            for r in range(size // 80 + 1)]
+    return [
+        line(f"{prefix}{r}", x, y + r * 80, x + size, y + r * 80, color=color, width=96.0, steps=4)
+        for r in range(size // 80 + 1)
+    ]
 
 
 def test_a_huge_board_is_shrunk_to_fit_instead_of_failing(tmp_path, monkeypatch):
@@ -619,7 +621,7 @@ def test_a_huge_board_is_shrunk_to_fit_instead_of_failing(tmp_path, monkeypatch)
         async with make_client(tmp_path) as (client, _app):
             ws, board_id = await connect(client)
             for start in range(0, len(strokes), 20):
-                await draw(ws, strokes[start:start + 20])
+                await draw(ws, strokes[start : start + 20])
             png = await export(client, board_id, format="png", frames="whole", dpi=144)
             assert png.status == 200, await png.text()
             dpi = float(png.headers["X-Export-Dpi"])
@@ -695,8 +697,10 @@ def test_content_paper_exports_each_page_at_its_own_size(tmp_path):
 
     pages, body = run(main())
     assert pages["paper"] == "content" and len(pages["pages"]) == 2
-    sizes = [(round(float(p.mediabox.width)), round(float(p.mediabox.height)))
-             for p in pypdf.PdfReader(io.BytesIO(body)).pages]
+    sizes = [
+        (round(float(p.mediabox.width)), round(float(p.mediabox.height)))
+        for p in pypdf.PdfReader(io.BytesIO(body)).pages
+    ]
     expected = [(round(p["paper"][0]), round(p["paper"][1])) for p in pages["pages"]]
     assert sizes == expected
     # 宽的那一段 2400 宽：纸宽就是 2400 + 两边留白，没有缩到 A4

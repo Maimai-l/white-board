@@ -34,8 +34,14 @@ WEB = APP | {"js"}
 RULES: Sequence[tuple] = (
     # 改了 CI 自己：什么都要跑一遍，才知道新的 CI 是对的
     (
-        (".github/", "tools/ci_plan.py", "tools/ci_summary.py", "Makefile",
-         "requirements-test.txt", "requirements-test.lock"),
+        (
+            ".github/",
+            "tools/ci_plan.py",
+            "tools/ci_summary.py",
+            "Makefile",
+            "requirements-test.txt",
+            "requirements-test.lock",
+        ),
         ALL,
     ),
     (("ipad/",), {"ipad"}),
@@ -53,7 +59,8 @@ RULES: Sequence[tuple] = (
 
 # 不影响任何构建和测试的文件：只要 checks（CHANGELOG 的格式也在 checks 里查）
 DOC_SUFFIXES = (".md", ".txt", ".command")
-DOC_FILES = {".gitignore", ".gitattributes", "LICENSE"}
+# ruff.toml 只影响 ruff check / ruff format --check，它们在 checks 里
+DOC_FILES = {".gitignore", ".gitattributes", "LICENSE", "ruff.toml", ".git-blame-ignore-revs"}
 
 MESSAGE_RE = re.compile(r"\[ci:\s*([a-z0-9,\s]+)\]", re.I)
 
@@ -160,7 +167,7 @@ def versions(ref: str, now: _dt.datetime, base: str) -> Dict[str, str]:
     """版本号（第 3.2 节）。build 是构建时间，Sparkle 只比它；version 是给人看的。"""
     build = now.strftime("%Y%m%d.%H%M%S")
     if ref.startswith("refs/tags/v"):
-        version = ref[len("refs/tags/v"):]
+        version = ref[len("refs/tags/v") :]
         channel = "stable"
     else:
         version = f"{base.split('-', 1)[0]}-alpha.{build}"
@@ -181,9 +188,7 @@ def pages_site(repository: str) -> str:
 def git_changed(base: str, head: str) -> Optional[List[str]]:
     if not base or set(base) == {"0"}:
         return None
-    result = subprocess.run(
-        ["git", "diff", "--name-only", base, head], cwd=ROOT, capture_output=True, text=True
-    )
+    result = subprocess.run(["git", "diff", "--name-only", base, head], cwd=ROOT, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"::warning::git diff {base} {head} 失败：{result.stderr.strip()}", file=sys.stderr)
         return None

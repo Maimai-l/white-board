@@ -18,10 +18,7 @@ CHECK_STUB = """([result]) => {
 
 def reopen_about(page):
     """关掉所有弹窗，重新打开「关于」。"""
-    page.evaluate(
-        "() => { document.querySelectorAll('.scrim').forEach(n => n.remove());"
-        " whiteboard.ui.openAbout(); }"
-    )
+    page.evaluate("() => { document.querySelectorAll('.scrim').forEach(n => n.remove()); whiteboard.ui.openAbout(); }")
 
 
 def test_check_update_button_says_what_happened(browser, server):
@@ -43,8 +40,7 @@ def test_check_update_button_says_what_happened(browser, server):
         mac.click("button:has-text('检查更新')")
         mac.locator(".check-note").wait_for()
         mac.wait_for_function(
-            "(text) => { const n = document.querySelector('.check-note');"
-            "return n && n.textContent.includes(text); }",
+            "(text) => { const n = document.querySelector('.check-note');return n && n.textContent.includes(text); }",
             arg=expected,
             timeout=3000,
         )
@@ -60,9 +56,11 @@ def test_about_panel_holds_version_and_update_entries(browser, server):
     mac.wait_for_selector(".sheet .group-title")
     assert mac.locator("button:has-text('检查更新')").count() == 0
     assert mac.locator(".sheet .card .addr").count() == 1  # 只剩存储目录那一张
-    assert mac.evaluate(
-        "() => [...document.querySelectorAll('.sheet .group-title')].map(h => h.textContent)"
-    ) == ["背景", "存储目录", "其他设备权限"]
+    assert mac.evaluate("() => [...document.querySelectorAll('.sheet .group-title')].map(h => h.textContent)") == [
+        "背景",
+        "存储目录",
+        "其他设备权限",
+    ]
     mac.evaluate("() => whiteboard.ui.closeSheet()")
 
     mac.click('button[title="关于"]')

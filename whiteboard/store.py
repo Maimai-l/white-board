@@ -188,8 +188,14 @@ class BoardStore:
 
     # ------------------------------------------------------------ 没有载入内存的白板
 
-    def create_board(self, name: str = "", make_current: bool = True, kind: str = "board",
-                     board_id: Optional[str] = None, **fields: Any) -> Dict[str, Any]:
+    def create_board(
+        self,
+        name: str = "",
+        make_current: bool = True,
+        kind: str = "board",
+        board_id: Optional[str] = None,
+        **fields: Any,
+    ) -> Dict[str, Any]:
         """直接在磁盘上建一块白板（不经过 Hub）。``fields`` 可以给出 canvas、layers、data 等。"""
         spec = dict(models.spec_for_kind(kind), name=name, **fields)
         meta = models.new_board_meta(board_id, spec)
@@ -359,13 +365,16 @@ class BoardStore:
         """为 :meth:`prepare_doc` 准备好的原件生成文档板的元数据。"""
         board_id = prepared["id"]
         doc = models.sanitize_doc(prepared["info"])
-        meta = models.new_board_meta(board_id, {
-            "name": name or Path(prepared["filename"]).stem,
-            "canvas": models.doc_canvas(doc),
-            "background": {"pattern": "blank"},
-            "layers": models.doc_layers(board_id, doc),
-            "data": {"doc": doc},
-        })
+        meta = models.new_board_meta(
+            board_id,
+            {
+                "name": name or Path(prepared["filename"]).stem,
+                "canvas": models.doc_canvas(doc),
+                "background": {"pattern": "blank"},
+                "layers": models.doc_layers(board_id, doc),
+                "data": {"doc": doc},
+            },
+        )
         return meta
 
     def import_doc(self, data: bytes, filename: str, name: str = "") -> Dict[str, Any]:
@@ -383,10 +392,15 @@ class BoardStore:
 
         safe = _safe(old_id)
         for folder in (path.parent / "docs", path.parent.parent / "docs"):
-            found = [
-                item for item in sorted(folder.glob(f"{safe}.*"))
-                if item.is_file() and item.suffix.lower() in docs.SUFFIXES
-            ] if safe and folder.is_dir() else []
+            found = (
+                [
+                    item
+                    for item in sorted(folder.glob(f"{safe}.*"))
+                    if item.is_file() and item.suffix.lower() in docs.SUFFIXES
+                ]
+                if safe and folder.is_dir()
+                else []
+            )
             if found:
                 shutil.copy2(found[0], self.docs_dir / f"{board_id}{found[0].suffix.lower()}")
                 return

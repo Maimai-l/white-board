@@ -38,7 +38,7 @@ ROOT = Path(__file__).parent
 
 def authenticate(request: web.Request) -> Principal:
     return Principal(
-        id=request.cookies.get("qb_user"),          # the host's own identity, may be None
+        id=request.cookies.get("qb_user"),  # the host's own identity, may be None
         local=is_local_request(request),
         address=request.remote or "",
     )
@@ -57,7 +57,7 @@ hub = Hub(FileStorage(ROOT / "data" / "ink"), policy=QbPolicy())
 mount(app, hub, path="/ws", authenticate=authenticate)
 serve_sdk(app, prefix="/inksync/")
 app.router.add_static("/static/", ROOT / "static")
-advertise(app, port=PORT, source="qb", path="/")      # set Source to @qb in the iPad shell
+advertise(app, port=PORT, source="qb", path="/")  # set Source to @qb in the iPad shell
 web.run_app(app, port=PORT)
 ```
 
@@ -88,9 +88,15 @@ Page:
 
 ```python
 from inksync import (
-    FileStorage, Hub, Spaces,              # storage, one space, many spaces
-    Policy, DefaultPolicy, Principal,      # rules and identity
-    mount, serve_sdk, guard_middleware,    # mount the sync endpoint, serve the front end, check request sources
+    FileStorage,
+    Hub,
+    Spaces,  # storage, one space, many spaces
+    Policy,
+    DefaultPolicy,
+    Principal,  # rules and identity
+    mount,
+    serve_sdk,
+    guard_middleware,  # mount the sync endpoint, serve the front end, check request sources
     __version__,
 )
 from inksync.netinfo import advertise, is_local_request

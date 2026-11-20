@@ -190,9 +190,7 @@ class NativeApi:
 
         if self.window is None:
             return None
-        result = self.window.create_file_dialog(
-            webview.FOLDER_DIALOG, directory=str(self.config.data_dir)
-        )
+        result = self.window.create_file_dialog(webview.FOLDER_DIALOG, directory=str(self.config.data_dir))
         if not result:
             return None
         new_dir = result if isinstance(result, str) else result[0]

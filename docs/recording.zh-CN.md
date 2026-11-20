@@ -86,9 +86,7 @@ await whiteboard.recorder.replay(data, { speed: 4 })     // four times faster
 import json
 
 data = json.load(open("recordings/20260924-203011.json"))
-result = page.evaluate(
-    "async ([d]) => whiteboard.recorder.replay(d, { wait: false })", [data]
-)
+result = page.evaluate("async ([d]) => whiteboard.recorder.replay(d, { wait: false })", [data])
 assert result == data["after"]
 ```
 

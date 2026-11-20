@@ -56,8 +56,7 @@ def test_sanitize_ids_filters():
 
 def _client_mask_limit() -> int:
     """前端一条笔画最多挂多少段胶囊（stroke.js 的 MASK_LIMIT）。"""
-    src = (Path(__file__).resolve().parent.parent
-           / "packages/inksync/inksync/web/stroke.js").read_text("utf-8")
+    src = (Path(__file__).resolve().parent.parent / "packages/inksync/inksync/web/stroke.js").read_text("utf-8")
     return int(re.search(r"export const MASK_LIMIT = (\d+)", src).group(1))
 
 
@@ -82,8 +81,7 @@ def test_mask_limit_leaves_room_for_what_the_client_can_send():
 
 def test_mask_budget_is_counted_in_segments():
     """上限按总段数算，不管遮罩是怎么分成链的。"""
-    over = [[3.0, float(i), 0.0, float(i) + 1, 0.0]
-            for i in range(models.MAX_MASK_SEGMENTS + 50)]
+    over = [[3.0, float(i), 0.0, float(i) + 1, 0.0] for i in range(models.MAX_MASK_SEGMENTS + 50)]
     kept = models.sanitize_mask(over)
     assert sum(max(1, (len(c) - 3) // 2) for c in kept) == models.MAX_MASK_SEGMENTS
     # 坏数据照旧整条丢掉，不是截一半
@@ -99,8 +97,7 @@ def test_stroke_point_limit_matches_what_the_client_will_send():
     本机看得见、对端和存档里没有，而且只有重新载入才看得出来——和遮罩被截断
     是同一类问题。
     """
-    src = (Path(__file__).resolve().parent.parent
-           / "packages/inksync/inksync/web/stroke.js").read_text("utf-8")
+    src = (Path(__file__).resolve().parent.parent / "packages/inksync/inksync/web/stroke.js").read_text("utf-8")
     client = int(re.search(r"export const MAX_STROKE_POINTS = (\d+)", src).group(1))
     assert client <= models.MAX_POINTS_PER_STROKE
     # 正好卡在上限的一笔要收下

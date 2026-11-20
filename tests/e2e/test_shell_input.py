@@ -143,9 +143,18 @@ def test_estimated_force_updates_fix_the_open_stroke_only(browser, server):
     plain = [{**b, "updates": []} for b in batches]
     send(ipad, plain)
     ipad.wait_for_function("() => whiteboard.state.strokes.length === 1")
-    send(ipad, [{**b, "samples": [{**s, "id": 2, "ui": s["ui"] and s["ui"] + 50000} for s in b["samples"]],
-                 "pred": None,
-                 "updates": [{**u, "ui": u["ui"] + 50000} for u in b["updates"]]} for b in batches])
+    send(
+        ipad,
+        [
+            {
+                **b,
+                "samples": [{**s, "id": 2, "ui": s["ui"] and s["ui"] + 50000} for s in b["samples"]],
+                "pred": None,
+                "updates": [{**u, "ui": u["ui"] + 50000} for u in b["updates"]],
+            }
+            for b in batches
+        ],
+    )
     ipad.wait_for_function("() => whiteboard.state.strokes.length === 2")
     first, second = ipad.evaluate("() => whiteboard.state.strokes.map((s) => s.p)")
     assert len(first) == len(second)
@@ -240,9 +249,7 @@ def test_shell_recording_replays_exactly(browser, server):
     after = data["after"]
     assert len(after) >= 1 and any(s.get("m") for s in after), "橡皮那一笔应该留下遮罩"
 
-    replayed = ipad.evaluate(
-        "async ([data]) => whiteboard.recorder.replay(data, { wait: false })", [data]
-    )
+    replayed = ipad.evaluate("async ([data]) => whiteboard.recorder.replay(data, { wait: false })", [data])
     assert replayed == after
     # 回放完恢复原来的输入来源
     assert ipad.evaluate("() => whiteboard.input.stats.source") == "shell"
@@ -300,9 +307,7 @@ def test_closing_an_orphan_stroke_is_recorded_and_replays(browser, server):
     ipad.wait_for_function("() => whiteboard.state.strokes.length === 1", timeout=2000)
     data = ipad.evaluate("() => whiteboard.recorder.stop()")
     assert any(e["type"] == "shell" and e["batch"].get("orphan") for e in data["events"])
-    replayed = ipad.evaluate(
-        "async ([data]) => whiteboard.recorder.replay(data, { wait: false })", [data]
-    )
+    replayed = ipad.evaluate("async ([data]) => whiteboard.recorder.replay(data, { wait: false })", [data])
     assert replayed == data["after"]
     mac.close()
     ipad.close()
@@ -404,6 +409,9 @@ def test_a_closed_picker_panel_does_not_block_the_pencil(browser, server, panel)
     before = ipad.evaluate("() => [whiteboard.tool.eraserMode, whiteboard.ui.pk.autoMin, whiteboard.input.fingerDraw]")
     for px in range(-120, 121, 20):
         ipad.mouse.click(x + px, y)
-    assert ipad.evaluate("() => [whiteboard.tool.eraserMode, whiteboard.ui.pk.autoMin, whiteboard.input.fingerDraw]") == before
+    assert (
+        ipad.evaluate("() => [whiteboard.tool.eraserMode, whiteboard.ui.pk.autoMin, whiteboard.input.fingerDraw]")
+        == before
+    )
     mac.close()
     ipad.close()

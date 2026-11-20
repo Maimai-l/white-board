@@ -762,7 +762,8 @@ def test_our_own_mask_echo_does_not_rewind_the_erase(browser, server):
     steps = 120
     # 回执慢一点回来，把真机上的局域网往返放大出来。这是故意注入的延迟：
     # 换的是 net 收回执的那一个入口，别的照旧走真的网络。
-    got = ipad.evaluate("""async ([steps]) => {
+    got = ipad.evaluate(
+        """async ([steps]) => {
       const net = whiteboard.net;
       const real = net._ack.bind(net);
       net._ack = (msg) => setTimeout(() => real(msg), 60);
@@ -783,13 +784,13 @@ def test_our_own_mask_echo_does_not_rewind_the_erase(browser, server):
       net._ack = real;
       const m = whiteboard.state.strokes[0].m || [];
       return { chains: m.length, pts: m.reduce((a, c) => a + (c.length - 1) / 2, 0) };
-    }""", [steps])
+    }""",
+        [steps],
+    )
     assert got["chains"] == 1, got
     assert got["pts"] == steps + 1, got
 
     # 对端还是要收得到：不回放自己的回执，不等于不发给别人
     mac.wait_for_function("() => (whiteboard.state.strokes[0] || {}).m")
     mine = ipad.evaluate("() => JSON.stringify(whiteboard.state.strokes[0].m)")
-    assert mac.evaluate("(m) => JSON.stringify(whiteboard.state.strokes[0].m) === m", mine), (
-        "对端的遮罩要和本机一致"
-    )
+    assert mac.evaluate("(m) => JSON.stringify(whiteboard.state.strokes[0].m) === m", mine), "对端的遮罩要和本机一致"

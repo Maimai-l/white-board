@@ -222,8 +222,7 @@ def test_a_very_long_stroke_still_reaches_the_other_device(browser, server):
     }"""
     here = ipad.evaluate(read)
     there = mac.evaluate(read)
-    assert there["points"] == here["points"], (
-        f"对端只收到 {there['points']} 个点，本机有 {here['points']} 个")
+    assert there["points"] == here["points"], f"对端只收到 {there['points']} 个点，本机有 {here['points']} 个"
     assert there["p"] == here["p"], "对端和本机的点列必须一样"
     # 接缝共用一个点，所以总点数比原来多「段数 - 1」个
     assert here["points"] == n + here["pieces"] - 1

@@ -120,6 +120,7 @@ COMMIT_RULES_AFTER = 1792649694
 
 def commits_to_check():
     """提交时间晚于 COMMIT_RULES_AFTER、本地检出里有的提交。CI 的浅克隆里通常只有最新的一个。"""
+
     def git(*args):
         return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True).stdout
 

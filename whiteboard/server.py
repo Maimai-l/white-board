@@ -140,6 +140,7 @@ def require(request: web.Request, permission: str) -> None:
 
 # --------------------------------------------------------------------- 页面
 
+
 async def handle_index(request: web.Request) -> web.Response:
     role = detect_role(request.headers.get("User-Agent", ""), request.query.get("role"))
     # Mac 上设了「iPad 首页」时，iPad（外壳或主屏图标）打开就进入那个应用。
@@ -177,6 +178,7 @@ async def handle_profile(request: web.Request) -> web.Response:
 
 
 # ------------------------------------------------------------- iPad 外壳
+
 
 def _shell_host(request: web.Request) -> str:
     """安装页上写的主机名，取值与描述文件相同。"""
@@ -222,9 +224,7 @@ def running_build() -> str:
     """
     try:
         root = Path(__file__).resolve().parent.parent
-        run = lambda *a: subprocess.run(
-            a, cwd=root, capture_output=True, text=True, timeout=2
-        ).stdout.strip()
+        run = lambda *a: subprocess.run(a, cwd=root, capture_output=True, text=True, timeout=2).stdout.strip()
         branch = run("git", "rev-parse", "--abbrev-ref", "HEAD")
         commit = run("git", "rev-parse", "--short", "HEAD")
         if branch and commit:
@@ -246,10 +246,7 @@ async def handle_info(request: web.Request) -> web.Response:
             "urls": netinfo.candidate_urls(config.port),
             "data_dir": str(config.data_dir),
             "current": hub.current_id,
-            "clients": [
-                {"id": c.id, "role": c.device, "since": c.connected_at}
-                for c in hub.clients.values()
-            ],
+            "clients": [{"id": c.id, "role": c.device, "since": c.connected_at} for c in hub.clients.values()],
         }
     )
 
@@ -342,13 +339,9 @@ async def handle_thumb_get(request: web.Request) -> web.StreamResponse:
         thumb = await _doc_thumb(request.app, board_id)
         if thumb is not None:
             body, content_type = thumb
-            return web.Response(
-                body=body, content_type=content_type, headers={"Cache-Control": "no-cache"}
-            )
+            return web.Response(body=body, content_type=content_type, headers={"Cache-Control": "no-cache"})
         # 还没生成缩略图的白板返回一张空白图，界面上就是一块空白板。
-        return web.Response(
-            body=_BLANK_THUMB, content_type="image/png", headers={"Cache-Control": "no-store"}
-        )
+        return web.Response(body=_BLANK_THUMB, content_type="image/png", headers={"Cache-Control": "no-store"})
     return web.FileResponse(path, headers={"Cache-Control": "no-cache"})
 
 
@@ -389,6 +382,7 @@ async def handle_thumb_post(request: web.Request) -> web.Response:
 
 
 # ------------------------------------------------------------- 嵌入与应用
+
 
 def apps_dir(config: Config) -> Path:
     """其他应用的静态文件：存储目录下的 apps/，每个应用一个文件夹。"""
@@ -454,9 +448,7 @@ async def handle_space_boards(request: web.Request) -> web.Response:
         limit = max(1, min(500, int(request.query.get("limit", "100"))))
     except ValueError:
         raise web.HTTPBadRequest()
-    return web.json_response(
-        {"boards": space.list_boards(offset=offset, limit=limit), "total": space.count()}
-    )
+    return web.json_response({"boards": space.list_boards(offset=offset, limit=limit), "total": space.count()})
 
 
 async def handle_app_file(request: web.Request) -> web.StreamResponse:
@@ -481,6 +473,7 @@ async def handle_app_file(request: web.Request) -> web.StreamResponse:
 
 
 # ------------------------------------------------------------- 文档板（beta）
+
 
 async def handle_doc_upload(request: web.Request) -> web.Response:
     """上传一份 PDF / 图片，新建文档板并切过去。"""
@@ -729,9 +722,7 @@ async def handle_page_export(request: web.Request) -> web.StreamResponse:
         log.exception("分页导出 %s 出错", board_id)
         raise web.HTTPInternalServerError(text="导出失败") from exc
 
-    log.info(
-        "分页导出 %s：%s，%d 笔，%.1f KB", board_id, options.format, len(strokes), len(body) / 1024
-    )
+    log.info("分页导出 %s：%s，%d 笔，%.1f KB", board_id, options.format, len(strokes), len(body) / 1024)
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{urllib.parse.quote(name)}",
         "Cache-Control": "no-store",
@@ -782,6 +773,7 @@ async def _raw_board_file(request: web.Request) -> web.Response:
 
 
 # --------------------------------------------------------------------- 应用
+
 
 @web.middleware
 async def revalidate_static(request: web.Request, handler):

@@ -80,8 +80,8 @@ class BoardRuntime:
         self.seq = seq
         self.ops: Deque[Dict[str, Any]] = deque(maxlen=OPS_HISTORY)
         self.next_n = max((s.get("n", 0) for s in strokes), default=-1) + 1
-        self.version = 0          # 每次改动加一
-        self.saved_version = 0    # 已写盘的版本
+        self.version = 0  # 每次改动加一
+        self.saved_version = 0  # 已写盘的版本
         self.saving: Optional[Future] = None
         self.last_used = time.monotonic()
 
@@ -224,11 +224,32 @@ class Conn:
 
     ``ext`` 留给扩展保存自己的状态（例如白板应用记下「跟随当前白板」）。"""
 
-    __slots__ = ("id", "ws", "principal", "request", "device", "board", "readonly", "caps",
-                 "legacy", "ext", "connected_at", "hub")
+    __slots__ = (
+        "id",
+        "ws",
+        "principal",
+        "request",
+        "device",
+        "board",
+        "readonly",
+        "caps",
+        "legacy",
+        "ext",
+        "connected_at",
+        "hub",
+    )
 
-    def __init__(self, hub: "Hub", client_id: str, ws: Any, principal: Principal, request: Any = None,
-                 device: str = "", readonly: bool = False, legacy: bool = False):
+    def __init__(
+        self,
+        hub: "Hub",
+        client_id: str,
+        ws: Any,
+        principal: Principal,
+        request: Any = None,
+        device: str = "",
+        readonly: bool = False,
+        legacy: bool = False,
+    ):
         self.hub = hub
         self.id = client_id
         self.ws = ws
@@ -416,8 +437,9 @@ class Hub:
 
     # ------------------------------------------------------------ 新建、修改、删除
 
-    async def create_board(self, board_id: Optional[str], spec: Optional[Dict[str, Any]] = None,
-                           meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def create_board(
+        self, board_id: Optional[str], spec: Optional[Dict[str, Any]] = None, meta: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """由服务端新建白板。``spec`` 与前端的 ``create`` 相同；已存在或不合法时抛 ValueError。
 
         ``meta`` 直接给出完整元数据（扩展用，例如白板应用的文档板）。"""
@@ -471,8 +493,9 @@ class Hub:
         log.info("丢弃临时白板 %s（空间 %r）", board_id, self.name)
         return True
 
-    async def edit_meta(self, board_id: str, patch: Dict[str, Any], touch: bool = True,
-                        quiet: bool = False) -> Optional[Dict[str, Any]]:
+    async def edit_meta(
+        self, board_id: str, patch: Dict[str, Any], touch: bool = True, quiet: bool = False
+    ) -> Optional[Dict[str, Any]]:
         """服务端修改元数据：不受规则限制，记入操作并发给显示这块白板的连接。
 
         ``touch`` 为 False 时不改 ``updated``（例如改名、归类这类整理动作）。
@@ -583,8 +606,15 @@ class Hub:
     def caps(self, conn: Conn, meta: Dict[str, Any]) -> Dict[str, bool]:
         return self.policy.caps(conn.principal, meta, readonly=conn.readonly)
 
-    def snapshot(self, conn: Conn, runtime: BoardRuntime, reply: str = "init",
-                 since: Any = None, epoch: Any = None, requested: Any = None) -> Dict[str, Any]:
+    def snapshot(
+        self,
+        conn: Conn,
+        runtime: BoardRuntime,
+        reply: str = "init",
+        since: Any = None,
+        epoch: Any = None,
+        requested: Any = None,
+    ) -> Dict[str, Any]:
         conn.caps = self.caps(conn, runtime.meta)
         common = {
             "board": _copy_meta(runtime.meta),
@@ -610,8 +640,16 @@ class Hub:
                 return {"t": "sync", "ops": ops, **common}
         return {"t": reply, "strokes": runtime.stroke_list(), **common}
 
-    async def open(self, conn: Conn, board_id: str, reply: str = "init", since: Any = None,
-                   epoch: Any = None, requested: Any = None, extra: Optional[Dict[str, Any]] = None) -> bool:
+    async def open(
+        self,
+        conn: Conn,
+        board_id: str,
+        reply: str = "init",
+        since: Any = None,
+        epoch: Any = None,
+        requested: Any = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         """把连接移到 ``board_id`` 并发送快照。白板不存在时返回 False。"""
         runtime = await self.load(board_id)
         if runtime is None:
@@ -688,8 +726,10 @@ class Hub:
             if kind == "meta":
                 patch = raw.get("meta")
                 protected = self.policy.protected_data_keys
-                touches = isinstance(patch, dict) and isinstance(patch.get("data"), dict) and any(
-                    key in protected for key in patch["data"]
+                touches = (
+                    isinstance(patch, dict)
+                    and isinstance(patch.get("data"), dict)
+                    and any(key in protected for key in patch["data"])
                 )
                 denied = touches or not self.policy.can_edit_meta(who, meta, patch if isinstance(patch, dict) else {})
             elif kind == "clear":
@@ -712,8 +752,7 @@ class Hub:
         await conn.send(ack)
         await self._after_op(board_id, runtime, op, source=conn)
 
-    async def _after_op(self, board_id: str, runtime: BoardRuntime, op: Dict[str, Any],
-                        source: Optional[Conn]) -> None:
+    async def _after_op(self, board_id: str, runtime: BoardRuntime, op: Dict[str, Any], source: Optional[Conn]) -> None:
         if op["op"] == "meta" and board_id not in self._transient:
             self.storage.put_meta(runtime.meta)
         await self.broadcast_board(
@@ -744,8 +783,9 @@ class Hub:
         if targets:
             await asyncio.gather(*(self.send(c, message) for c in targets))
 
-    async def broadcast(self, message: Dict[str, Any], where: Optional[Callable[[Conn], bool]] = None,
-                        exclude: Optional[str] = None) -> None:
+    async def broadcast(
+        self, message: Dict[str, Any], where: Optional[Callable[[Conn], bool]] = None, exclude: Optional[str] = None
+    ) -> None:
         targets = [c for c in self.connections() if c.id != exclude and (where is None or where(c))]
         if targets:
             await asyncio.gather(*(self.send(c, message) for c in targets))

@@ -54,8 +54,7 @@ def test_ipad_toolbar_can_move_to_the_top(browser, server):
     # 颜色面板改成往下开，不会跑到屏幕外面
     ipad.click('button[title="颜色与粗细"]')
     top, bottom = ipad.evaluate(
-        "() => { const r = document.querySelector('.popover').getBoundingClientRect();"
-        " return [r.top, r.bottom]; }"
+        "() => { const r = document.querySelector('.popover').getBoundingClientRect(); return [r.top, r.bottom]; }"
     )
     assert top > toolbar_top()
     assert bottom <= ipad.evaluate("() => innerHeight")
@@ -167,9 +166,7 @@ def test_touch_devices_get_no_hover_styling(browser, server):
     new_board(ipad, "笔记")
     open_gallery(ipad)
     ipad.wait_for_selector(".board-card .del")
-    assert ipad.evaluate(
-        "() => getComputedStyle(document.querySelector('.board-card .del')).display"
-    ) == "flex"
+    assert ipad.evaluate("() => getComputedStyle(document.querySelector('.board-card .del')).display") == "flex"
 
 
 def test_background_can_be_changed_from_the_ipad(browser, server):

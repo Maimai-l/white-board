@@ -81,7 +81,9 @@ def test_packaging_lock_has_the_build_and_signing_tools():
 
 
 def test_playwright_image_version_matches_the_locked_playwright():
-    pinned = re.search(r"^playwright==(\S+)", (ROOT / "requirements-test.txt").read_text(encoding="utf-8"), re.MULTILINE)
+    pinned = re.search(
+        r"^playwright==(\S+)", (ROOT / "requirements-test.txt").read_text(encoding="utf-8"), re.MULTILINE
+    )
     assert pinned, "requirements-test.txt 里的 playwright 要用 == 固定（镜像版本跟着它）"
     assert lock_deps.pins(ROOT / "requirements-test.lock")["playwright"] == pinned.group(1)
     action = (ROOT / ".github/actions/playwright/action.yml").read_text(encoding="utf-8")

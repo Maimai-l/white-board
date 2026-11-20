@@ -78,7 +78,7 @@ def recorded_fingerprint(lock: Lock, root: Path = ROOT) -> str:
         return ""
     first = path.read_text(encoding="utf-8").splitlines()[:1]
     if first and first[0].startswith(FINGERPRINT_PREFIX):
-        return first[0][len(FINGERPRINT_PREFIX):].split()[0]
+        return first[0][len(FINGERPRINT_PREFIX) :].split()[0]
     return ""
 
 
@@ -115,8 +115,17 @@ def find_uv(explicit: str) -> list[str]:
 def generate(uv: list[str], extra: Sequence[str]) -> None:
     for lock in LOCKS:
         cmd = [
-            *uv, "pip", "compile", *COMMON_ARGS, *lock.args, *extra,
-            "--quiet", "--custom-compile-command", "make lock", "-o", lock.output,
+            *uv,
+            "pip",
+            "compile",
+            *COMMON_ARGS,
+            *lock.args,
+            *extra,
+            "--quiet",
+            "--custom-compile-command",
+            "make lock",
+            "-o",
+            lock.output,
         ]
         print("[lock_deps]", " ".join(cmd), flush=True)
         subprocess.run(cmd, cwd=ROOT, check=True)

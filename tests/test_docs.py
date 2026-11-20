@@ -120,8 +120,13 @@ def test_outline_is_closed_band():
 
 def test_every_stroke_is_one_filled_outline():
     """不透明的笔也走填充轮廓：分段描边会在线宽变化处露出一串圆饼。"""
-    stroke = {"id": "p", "tool": "pen", "color": "#1b1b1f", "w": 9.0,
-              "p": [20, 20, 0.2, 40, 30, 0.9, 60, 20, 0.35, 80, 32, 0.8]}
+    stroke = {
+        "id": "p",
+        "tool": "pen",
+        "color": "#1b1b1f",
+        "w": 9.0,
+        "p": [20, 20, 0.2, 40, 30, 0.9, 60, 20, 0.35, 80, 32, 0.8],
+    }
     raw, _ = inkpdf.content_stream([stroke])
     assert raw.count(b"h f\n") == 1  # 整笔只填一次
     assert b" S\n" not in raw and b" w\n" not in raw  # 没有描边、没有线宽
@@ -181,9 +186,7 @@ def test_export_pdf_keeps_pages_and_adds_ink(tmp_path):
     reader = pypdf.PdfReader(out)
     assert len(reader.pages) == 3
     for page in reader.pages:
-        blob = b"".join(
-            part.get_object().get_data() for part in page[pypdf.generic.NameObject("/Contents")]
-        )
+        blob = b"".join(part.get_object().get_data() for part in page[pypdf.generic.NameObject("/Contents")])
         assert b" l\n" in blob or b" m\n" in blob
         assert "/WBa100" in page["/Resources"]["/ExtGState"]
 
@@ -225,9 +228,7 @@ def test_thick_strokes_simplify_harder(tmp_path):
     assert inkpdf.epsilon(3.0) == inkpdf.SIMPLIFY
     assert inkpdf.epsilon(33.8) == inkpdf.SIMPLIFY_MAX
     points = inkpdf.points_of(wave(40, 100))
-    assert len(inkpdf.simplify(points, inkpdf.epsilon(33.8))) < len(
-        inkpdf.simplify(points, inkpdf.epsilon(3.0))
-    )
+    assert len(inkpdf.simplify(points, inkpdf.epsilon(33.8))) < len(inkpdf.simplify(points, inkpdf.epsilon(3.0)))
 
 
 def test_export_image_draws_ink(tmp_path):
@@ -248,8 +249,13 @@ def test_export_image_without_strokes_matches_source(tmp_path):
 
 
 def _line(x0, x1, y, width=10.0, **extra):
-    stroke = {"id": "l", "tool": "marker", "color": "#000000", "w": width,
-              "p": [x0, y, 0.5, (x0 + x1) / 2, y, 0.5, x1, y, 0.5]}
+    stroke = {
+        "id": "l",
+        "tool": "marker",
+        "color": "#000000",
+        "w": width,
+        "p": [x0, y, 0.5, (x0 + x1) / 2, y, 0.5, x1, y, 0.5],
+    }
     stroke.update(extra)
     return stroke
 
@@ -332,8 +338,9 @@ def test_meta_keeps_doc_info():
     assert models.kind_of(meta) == "doc"
     assert models.doc_of(meta)["pages"] == [[595.0, 842.0]]
     assert meta["canvas"] == {"mode": "fixed", "width": 595.0, "height": 842.0}
-    assert meta["layers"] == [{"src": "/api/doc/d1/0?w={w}", "x": 0.0, "y": 0.0, "width": 595.0,
-                               "height": 842.0, "sheet": True}]
+    assert meta["layers"] == [
+        {"src": "/api/doc/d1/0?w={w}", "x": 0.0, "y": 0.0, "width": 595.0, "height": 842.0, "sheet": True}
+    ]
 
 
 def test_meta_without_doc_falls_back_to_board():
@@ -496,10 +503,9 @@ def test_the_pressure_curve_is_the_same_on_both_sides():
 
     直接从 stroke.js 里读常数比对，别靠人去记两边改没改。
     """
-    src = (
-        pathlib.Path(__file__).resolve().parents[1]
-        / "packages/inksync/inksync/web/stroke.js"
-    ).read_text(encoding="utf-8")
+    src = (pathlib.Path(__file__).resolve().parents[1] / "packages/inksync/inksync/web/stroke.js").read_text(
+        encoding="utf-8"
+    )
 
     def constant(name):
         m = re.search(rf"^const {name} = ([\d.]+);", src, re.M)
@@ -576,12 +582,11 @@ def test_erased_trace_has_no_leftover_ink(tmp_path):
     src = make_pdf(tmp_path / "a.pdf", sizes=((595, 842),))
     out = tmp_path / "out.pdf"
     box = docs.layout(docs.probe(src)["pages"])[0]
-    shifted = dict(bitten, p=[
-        v + (box["x"] if i % 3 == 0 else box["y"] if i % 3 == 1 else 0)
-        for i, v in enumerate(bitten["p"])
-    ], m=[[chain[0]] + [
-        v + (box["x"] if i % 2 == 0 else box["y"]) for i, v in enumerate(chain[1:])
-    ]])
+    shifted = dict(
+        bitten,
+        p=[v + (box["x"] if i % 3 == 0 else box["y"] if i % 3 == 1 else 0) for i, v in enumerate(bitten["p"])],
+        m=[[chain[0]] + [v + (box["x"] if i % 2 == 0 else box["y"]) for i, v in enumerate(chain[1:])]],
+    )
     docs.export_pdf(src, [shifted], out)
 
     scale = 2.0
@@ -628,7 +633,7 @@ def test_mask_exports_as_vector_clips(tmp_path):
     assert sum(len(g) for g in groups) == len(caps)  # 一段都不许丢
     for group in groups:
         for i, a in enumerate(group):
-            for b in group[i + 1:]:
+            for b in group[i + 1 :]:
                 assert not inkpdf._caps_overlap(a, b), (a, b)
     assert len(inkpdf.mask_clips([wiggle], (-40.0, -40.0, 200.0, 40.0))) == len(groups)
 
@@ -648,10 +653,15 @@ def test_mask_survives_a_save_and_load(tmp_path):
     store = BoardStore(tmp_path)
     meta = store.create_board()
     strokes = [
-        {"id": "s0", "tool": "marker", "color": "#1b1b1f", "w": 30.0,
-         "p": [0.0, 0.0, 1.0, 40.0, 0.0, 1.0], "m": [[5.0, 10.0, -12.0, 30.0, -12.0]]},
-        {"id": "s1", "tool": "pen", "color": "#1b1b1f", "w": 3.0,
-         "p": [0.0, 50.0, 1.0, 40.0, 50.0, 1.0]},
+        {
+            "id": "s0",
+            "tool": "marker",
+            "color": "#1b1b1f",
+            "w": 30.0,
+            "p": [0.0, 0.0, 1.0, 40.0, 0.0, 1.0],
+            "m": [[5.0, 10.0, -12.0, 30.0, -12.0]],
+        },
+        {"id": "s1", "tool": "pen", "color": "#1b1b1f", "w": 3.0, "p": [0.0, 50.0, 1.0, 40.0, 50.0, 1.0]},
     ]
     store.save_board(meta, strokes)
     _, loaded = store.load_board(meta["id"])

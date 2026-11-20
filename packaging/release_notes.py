@@ -24,7 +24,7 @@ def section(text: str, version: str) -> str | None:
     for i, line in enumerate(lines):
         if re.match(rf"^##\s+v?{re.escape(version)}(\s+\([^)]*\))?\s*$", line):
             body = []
-            for rest in lines[i + 1:]:
+            for rest in lines[i + 1 :]:
                 if re.match(r"^##\s", rest):
                     break
                 body.append(rest)

@@ -176,9 +176,7 @@ def test_a_device_without_manage_cannot_switch_or_create_boards(tmp_path, remote
             before = hub.current_id
 
             await ws.send_json({"t": "newboard"})
-            await ws.send_json(
-                {"t": "op", "cid": "m", "op": {"op": "meta", "meta": {"background": "dots"}}}
-            )
+            await ws.send_json({"t": "op", "cid": "m", "op": {"op": "meta", "meta": {"background": "dots"}}})
             ack = await ws.receive_json()
             assert ack["t"] == "ack"
             assert hub.current_id == before
@@ -257,6 +255,7 @@ def test_mac_switches_board_and_ipad_follows(tmp_path):
 
 def test_mac_renames_any_board_and_ipad_hears_it(tmp_path):
     """改名可以改不是当前这块的白板，所以只广播列表，不重发整块白板。"""
+
     async def main():
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
@@ -288,6 +287,7 @@ def test_mac_renames_any_board_and_ipad_hears_it(tmp_path):
 
 def test_mac_puts_a_board_in_a_folder_and_ipad_hears_it(tmp_path):
     """归类和改名走同一条路：只广播列表，不把当前白板切走。"""
+
     async def main():
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
@@ -369,6 +369,7 @@ def test_a_device_without_manage_cannot_reorder_boards(tmp_path, remote):
 
 def test_a_folder_can_be_created_renamed_and_deleted(tmp_path):
     """空文件夹只有索引里有记录，所以新建、改名、删除都得各有一条消息。"""
+
     async def main():
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
@@ -564,9 +565,7 @@ def test_stale_epoch_forces_full_snapshot(tmp_path):
 
             # 换一个 epoch 就相当于「服务端重启过」
             resumed = await client.ws_connect("/ws")
-            answer = await hello(
-                resumed, "ipad", board=board_id, since=9, client_id="ipad-1", epoch="stale-epoch"
-            )
+            answer = await hello(resumed, "ipad", board=board_id, since=9, client_id="ipad-1", epoch="stale-epoch")
             assert answer["t"] == "init"
             assert [s["id"] for s in answer["strokes"]] == ["s"]
             assert answer["epoch"] != "stale-epoch"
@@ -678,18 +677,14 @@ def test_upload_rejects_unsupported_file(tmp_path):
 def test_doc_page_is_rendered_and_cacheable(tmp_path):
     async def main():
         async with make_client(tmp_path) as (client, _app):
-            meta = (await (await client.post("/api/doc?name=a.pdf", data=_doc_bytes())).json())[
-                "board"
-            ]
+            meta = (await (await client.post("/api/doc?name=a.pdf", data=_doc_bytes())).json())["board"]
             page = await client.get(f"/api/doc/{meta['id']}/0?w=320")
             assert page.status == 200
             assert page.content_type == "image/jpeg"
             assert len(await page.read()) > 0
             etag = page.headers["ETag"]
 
-            cached = await client.get(
-                f"/api/doc/{meta['id']}/0?w=320", headers={"If-None-Match": etag}
-            )
+            cached = await client.get(f"/api/doc/{meta['id']}/0?w=320", headers={"If-None-Match": etag})
             assert cached.status == 304
             assert (await client.get(f"/api/doc/{meta['id']}/9?w=320")).status == 404
 
@@ -709,9 +704,7 @@ def test_doc_page_rejects_plain_boards(tmp_path):
 def test_doc_board_thumbnail_falls_back_to_first_page(tmp_path):
     async def main():
         async with make_client(tmp_path) as (client, _app):
-            meta = (await (await client.post("/api/doc?name=a.pdf", data=_doc_bytes())).json())[
-                "board"
-            ]
+            meta = (await (await client.post("/api/doc?name=a.pdf", data=_doc_bytes())).json())["board"]
             thumb = await client.get(f"/api/thumb/{meta['id']}")
             assert thumb.status == 200
             assert thumb.content_type == "image/jpeg"  # 渲染的原件首页，不是空白 PNG
@@ -725,9 +718,7 @@ def test_doc_export_merges_strokes(tmp_path):
     async def main():
         async with make_client(tmp_path) as (client, app):
             source = _doc_bytes()
-            meta = (await (await client.post("/api/doc?name=讲义.pdf", data=source)).json())[
-                "board"
-            ]
+            meta = (await (await client.post("/api/doc?name=讲义.pdf", data=source)).json())["board"]
             ws = await client.ws_connect("/ws")
             await hello(ws, role="mac", board=meta["id"])
             await ws.send_json(
@@ -795,6 +786,7 @@ def test_large_upload_is_stored_byte_exact(tmp_path):
 
 # --------------------------------------------------- 只有本机能做管理操作
 
+
 @pytest.fixture
 def remote(monkeypatch):
     """把连接伪装成局域网上的别的设备。
@@ -818,6 +810,7 @@ def test_is_own_address_only_trusts_this_machine():
 
 def test_remote_device_gets_no_permissions_by_default(tmp_path, remote):
     """页面上带着这台设备拿到的权限清单，界面照它决定露出哪些入口。"""
+
     async def main():
         async with make_client(tmp_path) as (client, app):
             assert 'data-perms=""' in await (await client.get("/?role=mac")).text()
@@ -860,6 +853,7 @@ def test_remote_device_cannot_reach_management_apis(tmp_path, remote):
 
 def test_permissions_are_granted_one_by_one(tmp_path, remote):
     """放开导出不等于放开管理：两边互不牵连。"""
+
     async def main():
         async with make_client(tmp_path) as (client, app):
             board_id = app[HUB_KEY].current_id
@@ -877,6 +871,7 @@ def test_permissions_are_granted_one_by_one(tmp_path, remote):
 
 def test_remote_device_cannot_manage_over_websocket(tmp_path, remote):
     """握手里报 role=mac 也没用：权限在连接建立时按对端地址就定死了。"""
+
     async def main():
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
@@ -887,9 +882,7 @@ def test_remote_device_cannot_manage_over_websocket(tmp_path, remote):
             await ws.send_json({"t": "newboard"})
             await ws.send_json({"t": "rename", "board": before, "name": "偷偷改"})
             await ws.send_json({"t": "delboard", "board": before})
-            await ws.send_json(
-                {"t": "op", "cid": "m", "op": {"op": "meta", "meta": {"background": "dots"}}}
-            )
+            await ws.send_json({"t": "op", "cid": "m", "op": {"op": "meta", "meta": {"background": "dots"}}})
             ack = await ws.receive_json()
             assert ack["t"] == "ack"  # 前三条被丢掉了，这是第四条的回执
 
@@ -906,8 +899,7 @@ def test_remote_device_cannot_manage_over_websocket(tmp_path, remote):
                     "op": {
                         "op": "add",
                         "strokes": [
-                            {"id": "a", "tool": "pen", "color": "#000000", "w": 2,
-                             "p": [0, 0, 0.5, 1, 1, 0.5]}
+                            {"id": "a", "tool": "pen", "color": "#000000", "w": 2, "p": [0, 0, 0.5, 1, 1, 0.5]}
                         ],
                     },
                 }
@@ -921,6 +913,7 @@ def test_remote_device_cannot_manage_over_websocket(tmp_path, remote):
 
 def test_remote_device_cannot_clear_until_allowed(tmp_path, remote):
     """清空白板单独一项权限：没给之前，别的设备连 iPad 那套界面也清不掉。"""
+
     async def main():
         async with make_client(tmp_path) as (client, app):
             hub = app[HUB_KEY]
@@ -931,10 +924,7 @@ def test_remote_device_cannot_clear_until_allowed(tmp_path, remote):
                 "cid": "a",
                 "op": {
                     "op": "add",
-                    "strokes": [
-                        {"id": "s1", "tool": "pen", "color": "#000000", "w": 2,
-                         "p": [0, 0, 0.5, 1, 1, 0.5]}
-                    ],
+                    "strokes": [{"id": "s1", "tool": "pen", "color": "#000000", "w": 2, "p": [0, 0, 0.5, 1, 1, 0.5]}],
                 },
             }
             await ws.send_json(add)
@@ -962,6 +952,7 @@ def test_remote_device_cannot_clear_until_allowed(tmp_path, remote):
 
 def test_opening_the_gate_lets_other_devices_manage(tmp_path, remote):
     """在 Mac 上放开「管理白板」之后，那道闸就开了。"""
+
     async def main():
         async with make_client(tmp_path) as (client, app):
             app[CONFIG_KEY].set_remote_permission("manage", True)

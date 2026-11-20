@@ -146,8 +146,11 @@ def test_saving_happens_off_the_event_loop(tmp_path):
         hub = Hub(FileStorage(tmp_path / "data"), autosave=3600)
         async with serve(tmp_path, hub=hub) as (client, _):
             big, _ = await hello(client, "big", {}, client_id="pad-big")
-            batch = [dict(stroke(f"s{i}", i), p=[float(i), float(j), 0.5] * 1 + [float(i + 1), float(j), 0.5] * 49)
-                     for i in range(2000) for j in (0,)]
+            batch = [
+                dict(stroke(f"s{i}", i), p=[float(i), float(j), 0.5] * 1 + [float(i + 1), float(j), 0.5] * 49)
+                for i in range(2000)
+                for j in (0,)
+            ]
             for start in range(0, 10000, 2000):
                 chunk = [dict(s, id=f"{s['id']}-{start}") for s in batch]
                 await send_op(big, f"c{start}", {"op": "add", "strokes": chunk})

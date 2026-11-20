@@ -29,7 +29,9 @@ class FakeTransport:
 
 
 def fake_request(remote, local=None, headers=None):
-    return SimpleNamespace(remote=remote, headers=headers or {}, transport=FakeTransport((local, 8848) if local else None))
+    return SimpleNamespace(
+        remote=remote, headers=headers or {}, transport=FakeTransport((local, 8848) if local else None)
+    )
 
 
 def test_local_requests_are_recognised_on_any_interface():
