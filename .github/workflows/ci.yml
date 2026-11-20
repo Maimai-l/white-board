@@ -195,7 +195,8 @@ jobs:
     timeout-minutes: 45
     env:
       VERSION: ${{ needs.plan.outputs.version }}
-      ZIP: Whiteboard-${{ needs.plan.outputs.version }}-macos-arm64.zip
+      # 不能叫 ZIP：Info-ZIP 的 zip 会把环境变量 ZIP 当成命令行选项（编 IPA 时用到 zip）
+      MAC_ZIP: Whiteboard-${{ needs.plan.outputs.version }}-macos-arm64.zip
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -297,12 +298,12 @@ jobs:
           PY
 
       - name: 压缩
-        run: ditto -c -k --sequesterRsrc --keepParent dist/Whiteboard.app "$ZIP"
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Whiteboard.app "$MAC_ZIP"
 
       - uses: actions/upload-artifact@v4
         with:
           name: Whiteboard-macos-arm64
-          path: ${{ env.ZIP }}
+          path: ${{ env.MAC_ZIP }}
           if-no-files-found: error
 
       # 不在 dev 也不是 tag：演练发布，不发布任何东西（第 3.4 节）
@@ -312,7 +313,7 @@ jobs:
       - name: 演练：生成 appcast 和增量包，核对签名，应用增量包
         if: needs.plan.outputs.publish == 'dry-run'
         run: |
-          packaging/delta_dry_run.sh "$ZIP" build/sparkle "$RUNNER_TEMP/dry-run" | tee dry-run.log
+          packaging/delta_dry_run.sh "$MAC_ZIP" build/sparkle "$RUNNER_TEMP/dry-run" | tee dry-run.log
           echo "### 发布演练" >> "$GITHUB_STEP_SUMMARY"
           grep -E "增量包可用|核对了" dry-run.log | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
 
