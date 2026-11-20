@@ -13,6 +13,7 @@ from e2e.support import (
     open_pages,
     open_touch,
     pick_pixel_eraser,
+    wait_seq,
     wait_strokes,
 )
 
@@ -724,9 +725,9 @@ def test_a_long_erase_survives_the_round_trip(browser, server):
       }
       return out;
     }""")
+    # 回执都回来了（本机被盖回的话这时已经盖完），Mac 也收齐了全部广播
     ipad.wait_for_function("() => whiteboard.net.outbox.length === 0")
-    mac.wait_for_function("() => (whiteboard.state.strokes[0] || {}).m")
-    ipad.wait_for_timeout(400)
+    wait_seq(mac, ipad)
 
     left = """([spots]) => {
       const s = whiteboard.state.strokes[0];
@@ -774,7 +775,11 @@ def test_our_own_mask_echo_does_not_rewind_the_erase(browser, server):
         await new Promise((r) => requestAnimationFrame(r));
       }
       __t.fire('pointerup', 160 + steps * 5, 400, init);
-      await new Promise((r) => setTimeout(r, 600));
+      // 等推迟的回执都回来（待发队列清空），再换回原来的入口
+      const end = performance.now() + 5000;
+      while (net.outbox.length && performance.now() < end) {
+        await new Promise((r) => requestAnimationFrame(r));
+      }
       net._ack = real;
       const m = whiteboard.state.strokes[0].m || [];
       return { chains: m.length, pts: m.reduce((a, c) => a + (c.length - 1) / 2, 0) };

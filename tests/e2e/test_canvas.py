@@ -23,6 +23,32 @@ PAPER_EDGES = (
     "return [v.x + l.x0 * v.scale, v.x + l.x1 * v.scale, whiteboard.renderer.viewW]; }"
 )
 
+# 等页面画完 n 帧：惯性滑动每帧走一步，不动了就是滑完了
+FRAMES = """
+(n) => new Promise((done) => {
+  const next = () => (n-- > 0 ? requestAnimationFrame(next) : done());
+  next();
+})
+"""
+
+# 一帧一帧地看，等视口的 y 连着 n 帧不变（惯性滑动已经停了：滑行时每帧至少走零点几个
+# 像素），返回是否等到了。最多等 timeout 毫秒
+SETTLE_Y = """
+async ([n, timeout]) => {
+  const end = performance.now() + timeout;
+  let last = whiteboard.viewport.y;
+  let still = 0;
+  while (still < n) {
+    if (performance.now() > end) return false;
+    await new Promise((done) => requestAnimationFrame(done));
+    const y = whiteboard.viewport.y;
+    still = y === last ? still + 1 : 0;
+    last = y;
+  }
+  return true;
+}
+"""
+
 SET_SCALE = (
     "([s]) => { whiteboard.viewport.scale = s; whiteboard.clampView();"
     "whiteboard.renderer.requestFull(); }"
@@ -30,10 +56,12 @@ SET_SCALE = (
 
 
 def note_on_both(mac, ipad):
-    """Mac 上新建一块笔记，等 iPad 也切过去。"""
-    new_board(mac, "笔记")
-    ipad.wait_for_function("() => whiteboard.state.kind === 'note'")
-    ipad.wait_for_timeout(200)
+    """Mac 上新建一块笔记，等 iPad 也切过去、视图停稳。"""
+    board = new_board(mac, "笔记")
+    ipad.wait_for_function(
+        "(id) => whiteboard.state.id === id && whiteboard.state.kind === 'note' && whiteboard.viewAnim === 0",
+        arg=board,
+    )
 
 
 def test_canvas_is_infinite(browser, server):
@@ -55,7 +83,7 @@ def test_canvas_is_infinite(browser, server):
         "() => { const v = whiteboard.viewport; v.panBy(-4000, 2500);"
         "whiteboard.renderer.requestFull(); return [v.x, v.y]; }"
     )
-    ipad.wait_for_timeout(200)
+    ipad.evaluate(FRAMES, 10)  # 画过几帧，要拉回边界的话这时已经拉回去了
     assert ipad.evaluate("() => __t.view()") == moved
 
     # 缩放仍然有上下限
@@ -99,7 +127,6 @@ def test_note_boards_only_extend_downwards(browser, server):
     read = "() => [whiteboard.state.strokes.length, whiteboard.viewport.y]"
     before = ipad.evaluate(read)
     draw(ipad, [(40, 560), (50, 440), (60, 320)], pointer_id=9)  # 往上拖 = 向下翻页
-    ipad.wait_for_timeout(200)
     after = ipad.evaluate(read)
     assert after[0] == before[0], "纸外不应该留下笔迹"
     assert after[1] != before[1], "纸外拖动应该滚动页面"
@@ -123,22 +150,29 @@ def test_flick_keeps_scrolling_with_momentum(browser, server):
     y = "() => whiteboard.viewport.y"
 
     points = [[590, 700 - i * 40] for i in range(9)]  # 快速上划
-    ipad.evaluate(FLICK, [points, "touch", 8])
-    released = ipad.evaluate(y)
-    ipad.wait_for_timeout(120)
-    assert ipad.evaluate(y) < released - 5, "松手之后应该继续往下滑"
+    # 松手那一刻的位置和松手之后的几帧放在同一次调用里量：分开量的话，
+    # 机器一忙，量到「松手时」的位置时惯性可能已经滑完了
+    released, glided = ipad.evaluate(
+        f"async (args) => {{ await ({FLICK})(args); const at = whiteboard.viewport.y;"
+        f" await ({FRAMES})(10); return [at, whiteboard.viewport.y]; }}",
+        [points, "touch", 8],
+    )
+    assert glided < released - 5, "松手之后应该继续往下滑"
 
-    ipad.wait_for_timeout(1200)
+    # 惯性按帧衰减，机器忙时帧少、滑得久：等它连着几帧不动，而不是等一段固定的时间
+    assert ipad.evaluate(SETTLE_Y, [5, 10000]), "最后要停下来"
     settled = ipad.evaluate(y)
-    ipad.wait_for_timeout(200)
+    ipad.evaluate(FRAMES, 10)
     assert abs(ipad.evaluate(y) - settled) < 0.5, "最后要停下来"
 
-    # 慢慢拖不该有惯性
+    # 慢慢拖不该有惯性：松手之后的十帧里视图一动不动
     slow = [[590, 600 - i * 4] for i in range(6)]
-    ipad.evaluate(FLICK, [slow, "touch", 30])
-    before = ipad.evaluate(y)
-    ipad.wait_for_timeout(200)
-    assert abs(ipad.evaluate(y) - before) < 0.5
+    before, after = ipad.evaluate(
+        f"async (args) => {{ await ({FLICK})(args); const at = whiteboard.viewport.y;"
+        f" await ({FRAMES})(10); return [at, whiteboard.viewport.y]; }}",
+        [slow, "touch", 30],
+    )
+    assert abs(after - before) < 0.5
 
 
 def test_note_snaps_to_screen_width_when_close(browser, server):
@@ -162,5 +196,6 @@ def test_note_snaps_to_screen_width_when_close(browser, server):
     # 差得远：不要自作主张
     ipad.evaluate(SET_SCALE, [target * 1.6])
     ipad.evaluate(FLICK, tap)
-    ipad.wait_for_timeout(400)
+    # 要吸附的话松手当下就开始了（见上面那一下）：等十帧，看缩放有没有被动过
+    ipad.evaluate(FRAMES, 10)
     assert ipad.evaluate("() => whiteboard.viewport.scale") > target * 1.5

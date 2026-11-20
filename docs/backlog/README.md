@@ -34,7 +34,7 @@
 | [004](004-macos-runner-queue.md) | CI：macOS 机器排队 5–10 分钟 | 完成 |
 | [005](005-lint-and-format.md) | 统一格式化（ruff format） | 待办 |
 | [006](006-dependency-lock.md) | 依赖锁定 | 待办 |
-| [007](007-condition-waits.md) | 测试里的固定等待改成等条件 | 待办 |
+| [007](007-condition-waits.md) | 测试里的固定等待改成等条件 | 完成 |
 | [008](008-swallowed-errors.md) | 被吞掉的错误补日志 | 待办 |
 | [009](009-aoci-index-trial.md) | AOCI-CODE 索引试验 | 暂缓 |
 

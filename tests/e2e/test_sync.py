@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from e2e.support import (
-    FIRE,
     draw,
     open_mac,
     open_pages,
@@ -11,8 +10,28 @@ from e2e.support import (
     reload,
     screen_of_first_stroke,
     stroke_count,
+    wait_seq,
     wait_strokes,
 )
+
+# 慢慢写一笔，一直写到「该写盘了」（防抖的计时到点，persistWhenIdle 被叫到）才抬笔。
+# 返回 [落笔时刻, 抬笔时刻, 写到一半时写盘是不是到点了]。每 50 ms 挪一下是笔的节奏
+WRITE_UNTIL_SAVE_IS_DUE = """
+async () => {
+  const init = { pointerId: 3, pressure: 0.6 };
+  const start = performance.now();
+  const due = () => window.__due.some((t) => t > start);
+  let x = 300;
+  __t.fire('pointerdown', x, 500, init);
+  while (!due() && performance.now() - start < 15000) {
+    await new Promise((done) => setTimeout(done, 50));
+    x += 2;
+    __t.fire('pointermove', x, 500 + (x % 40), init);
+  }
+  __t.fire('pointerup', x, 500, { ...init, pressure: 0 });
+  return [start, performance.now(), due()];
+}
+"""
 
 
 def test_drawing_syncs_both_ways(browser, server):
@@ -126,20 +145,18 @@ def test_cache_writes_never_land_on_a_stroke(browser, server):
     ipad.evaluate(
         """() => {
           window.__writes = [];
+          window.__due = [];
           const original = whiteboard.persist.bind(whiteboard);
           whiteboard.persist = () => { window.__writes.push(performance.now()); original(); };
+          const idle = whiteboard.persistWhenIdle.bind(whiteboard);
+          whiteboard.persistWhenIdle = () => { window.__due.push(performance.now()); idle(); };
         }"""
     )
     draw(ipad, [(300, 300), (360, 340), (420, 300)])
-    ipad.wait_for_timeout(1200)  # 第一笔之后正好是老实现写盘的时刻
 
-    start = ipad.evaluate("() => performance.now()")
-    for step, point in enumerate([(300, 500), (340, 540), (380, 500), (430, 540), (480, 500)]):
-        kind = "pointerdown" if step == 0 else "pointermove"
-        ipad.evaluate(FIRE, [kind, point[0], point[1], "pen", 3, 0.6])
-        ipad.wait_for_timeout(120)
-    ipad.evaluate(FIRE, ["pointerup", 480, 500, "pen", 3, 0])
-    end = ipad.evaluate("() => performance.now()")
+    # 第一笔之后过一阵就该写盘了：第二笔一直写到这个时刻之后，写盘必须让开
+    start, end, due = ipad.evaluate(WRITE_UNTIL_SAVE_IS_DUE)
+    assert due, "第二笔写了很久，写盘的时刻一直没到"
     wait_strokes(ipad, 2)
 
     writes = ipad.evaluate("() => window.__writes")
@@ -196,7 +213,7 @@ def test_a_very_long_stroke_still_reaches_the_other_device(browser, server):
       return n;
     }""")
     ipad.wait_for_function("() => whiteboard.net.outbox.length === 0")
-    mac.wait_for_timeout(300)
+    wait_seq(mac, ipad)
 
     read = """() => {
       const all = whiteboard.state.strokes;

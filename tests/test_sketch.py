@@ -84,6 +84,22 @@ async def write(ws, cid, strokes, board=None):
     return await receive(ws, "ack")
 
 
+async def until(condition, timeout=5.0):
+    """等 ``condition()`` 成立：服务端处理断开、宽限期到点结束速写，都在同一个事件循环里
+    稍后发生，隔一小会儿看一次，超时就失败。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not condition():
+        assert loop.time() < deadline, f"等了 {timeout} 秒，条件一直不成立"
+        await asyncio.sleep(0.01)
+
+
+async def outlast_grace(hub):
+    """等过一个宽限期。要证明「到点了速写也没被结束」，只能真的等这么久；计时从服务端
+    处理断开那一刻开始，所以调用前先用 :func:`until` 等到服务端看见断开。"""
+    await asyncio.sleep(hub.sketch_grace + 0.1)
+
+
 def ipad_board(hub, client_id="ipad-shell"):
     return next(c.board for c in hub.core.connections() if c.id == client_id)
 
@@ -154,10 +170,10 @@ def test_reloading_the_panel_keeps_the_sketch(tmp_path, monkeypatch):
             await receive(ipad, "switch")
             await write(ipad, "i1", [stroke("keep-me")])
             await sketch.close()
-            await asyncio.sleep(0.1)
+            await until(lambda: not hub.sketch_owners())  # 服务端看见面板断开了，宽限期开始计时
             sketch, init = await panel(client, "sketch-panel-2")
             assert [s["id"] for s in init["strokes"]] == ["keep-me"]
-            await asyncio.sleep(0.6)
+            await outlast_grace(hub)
             assert hub.sketch_active
             assert await receive(ipad, "switch", timeout=0.3) is None
             await sketch.close()
@@ -176,14 +192,11 @@ def test_two_panels_share_one_sketch_and_it_ends_after_both_close(tmp_path, monk
             second, init = await panel(client, "panel-two")
             assert [s["id"] for s in init["strokes"]] == ["from-first"], "第二次开始速写不清空已有内容"
             await first.close()
-            await asyncio.sleep(0.4)
+            await until(lambda: len(hub.sketch_owners()) == 1)  # 服务端看见第一个面板断开了
+            await outlast_grace(hub)
             assert hub.sketch_active, "还有一个面板开着"
             await second.close()
-            for _ in range(40):
-                if not hub.sketch_active:
-                    break
-                await asyncio.sleep(0.05)
-            assert not hub.sketch_active
+            await until(lambda: not hub.sketch_active)
 
     run(main())
 
@@ -211,8 +224,7 @@ def test_choosing_another_board_on_the_mac_interrupts_following(tmp_path, monkey
             # 面板上继续写不影响 iPad
             await write(sketch, "p1", [stroke("panel-only")])
             await sketch.close()
-            await asyncio.sleep(0.5)
-            assert not hub.sketch_active
+            await until(lambda: not hub.sketch_active)
             assert await receive(ipad, "switch", timeout=0.3) is None
             await mac.close()
             await ipad.close()
@@ -311,7 +323,7 @@ def test_shutdown_with_an_open_sketch_writes_nothing(tmp_path, monkeypatch, clos
             await write(sketch, "p1", [stroke("x")])
             if closing == "panel":
                 await sketch.close()
-                await asyncio.sleep(0.4)
+                await until(lambda: not hub.sketch_active)
         assert files_under(tmp_path / "data") == before
 
     run(main())
@@ -335,17 +347,19 @@ def test_rapid_open_close_cycles_stay_consistent(tmp_path, monkeypatch):
                 ack = await write(ipad, f"i{round_}", [stroke(f"r{round_}")], board=SKETCH_ID)
                 assert "rejected" not in ack, (round_, ack)
                 await sketch.close()
-                # 有一半的轮次在宽限期内就重新打开，另一半等速写真正结束
-                await asyncio.sleep(0.05 if round_ % 2 == 0 else 0.5)
-            await asyncio.sleep(0.5)
-            assert not hub.sketch_active
-            assert ipad_board(hub) == original
+                # 有一半的轮次在宽限期内就重新打开（服务端一看见断开就开），另一半等速写真正结束
+                if round_ % 2 == 0:
+                    await until(lambda: not hub.sketch_owners())
+                else:
+                    await until(lambda: not hub.sketch_active)
+            await until(lambda: not hub.sketch_active)
+            await until(lambda: ipad_board(hub) == original)
             # 再开一次：之前留下的检查任务不能把它结束
             sketch, init = await panel(client, "panel-last")
-            await asyncio.sleep(0.6)
+            await outlast_grace(hub)
             assert hub.sketch_active and init["strokes"] == []
             await sketch.close()
-            await asyncio.sleep(0.5)
+            await until(lambda: not hub.sketch_active)
             await hub.core.flush()
             assert files_under(tmp_path / "data") == before
             assert await hub.core.strokes(original) == []
@@ -367,8 +381,7 @@ def test_ops_meant_for_an_ended_sketch_never_reach_the_current_board(tmp_path, m
             assert init["board"]["id"] == SKETCH_ID
             await ipad.close()  # iPad 断线
             await sketch.close()
-            await asyncio.sleep(0.5)
-            assert not hub.sketch_active
+            await until(lambda: not hub.sketch_active)
             ipad, init = await follower(client, "ipad-shell", REMOTE)
             assert init["board"]["id"] == original
             ack = await write(ipad, "offline-1", [stroke("written-offline")], board=SKETCH_ID)
