@@ -312,6 +312,14 @@ def test_clearing_the_frames_and_drawing_one_exports_exactly_that_region(browser
     y0 = min(b[1] for b in boxes) - 20
     x1 = max(b[2] for b in boxes) + 20
     y1 = max(b[3] for b in boxes) + 20
+    # 拖到一半：正在拖出的框已经画出来，提示收起，不压在框的页码上
+    mac.mouse.move(x0, y0)
+    mac.mouse.down()
+    mac.mouse.move((x0 + x1) / 2, (y0 + y1) / 2)
+    mac.wait_for_selector(".export-frame.is-drawing")
+    assert not visible(mac, ".export-adjust-hint")
+    mac.mouse.up()
+    mac.click('.export-bar button:has-text("清空")')
     mouse_drag(mac, x0, y0, x1, y1)
     assert view(mac) == before  # 拖的是页框，不是白板
     assert mac.locator(".export-frame").count() == 1

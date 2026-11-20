@@ -825,7 +825,8 @@ class AdjustView {
       ]);
       this.frameLayer.append(this.draftNode);
     }
-    this.hint.hidden = this.frames.length > 0;
+    // 拖框的时候也收起：提示正好在页框页码的位置上
+    this.hint.hidden = this.frames.length > 0 || Boolean(this.draftNode);
     this.lastView = null;
     this.layout();
   }

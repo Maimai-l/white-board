@@ -532,13 +532,13 @@ One board unit is printed as 1 pt, as on document boards: a page at scale 1 show
  "whole": {"x": -282, "y": -236, "w": 758, "h": 512, "paper": [830.0, 584.0], "margin": 36.0}}
 ```
 
-`paper` in each page is the sheet with its orientation. Pages of document boards also have `"margin": 0`. `whole` is the page that `"frames": "whole"` exports (`null` for document boards).
+`paper` in each page is the sheet with its orientation. With `paper=content` the top-level `paper` is `"content"` and every page has its own size. Pages of document boards also have `"margin": 0`. `whole` is the page that `"frames": "whole"` exports (`null` for document boards).
 
 Automatic page frames:
 
 | Board | Rule |
 | --- | --- |
-| Infinite board | Strokes whose bounding boxes are at most 72 units apart on both axes form a group. Groups that fit on one page together at scale 1 are merged, closest first. Each group gets one page at scale 1, portrait or landscape, whichever fits; a group that does not fit is scaled down to at most 0.7; a larger group is cut into a grid of pages at scale 1, in the orientation with fewer pages. A page with room to spare is moved within that room to cut as little of other ink as possible. Pages are ordered top to bottom in rows, left to right within a row. An empty board has one page centered on the origin. |
+| Infinite board | Read as one column from top to bottom. Each page starts at the next ink below the previous page, is as wide as the ink in its own stretch of the board plus 12 units on each side (at least the content width of the sheet), and has the height-to-width ratio of a portrait sheet. A page ends in the middle of the lowest blank band within its last 40%, or at its full height when there is none. With `paper=content` each page's `paper` is its frame plus the margin at scale 1 (at most 14400 pt a side). An empty board has one page centered on the origin. |
 | Note board | The page width is the note width, on portrait paper. Each page ends at the paper length, or in the middle of the lowest blank line within the last quarter of the page. The last page is a full sheet. |
 | Document board | One page per page of the original, on paper of the original page size, without margin. |
 
