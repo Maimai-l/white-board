@@ -203,15 +203,32 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements.lock
 
       - name: 写入版本号
         run: >-
           python packaging/set_version.py "$VERSION"
           --build "${{ needs.plan.outputs.build }}" --channel "${{ needs.plan.outputs.channel }}"
 
+      # 从锁文件装（应用依赖 + PyInstaller + cryptography），同一个提交每次打包装的版本都一样
       - name: 装依赖
-        run: python -m pip install -r requirements.txt pyinstaller
+        run: python -m pip install --require-hashes -r requirements.lock
+
+      - name: 记下装了哪些版本
+        run: |
+          python -m pip freeze --all | tee pip-freeze.txt
+          {
+            echo "### 打包用的 Python 依赖（requirements.lock）"
+            echo ""
+            echo "$(python --version)，requirements.lock 的 sha256 \`$(shasum -a 256 requirements.lock | cut -c1-12)\`"
+            echo ""
+            echo "<details><summary>pip freeze（$(wc -l < pip-freeze.txt | tr -d ' ') 个）</summary>"
+            echo ""
+            echo '```'
+            cat pip-freeze.txt
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 生成图标
         run: python packaging/make_icns.py packaging/whiteboard.icns
@@ -307,9 +324,7 @@ jobs:
           if-no-files-found: error
 
       # 不在 dev 也不是 tag：演练发布，不发布任何东西（第 3.4 节）
-      - name: 演练：装 cryptography
-        if: needs.plan.outputs.publish == 'dry-run'
-        run: python -m pip install cryptography
+      # cryptography 已经随 requirements.lock 装好
       - name: 演练：生成 appcast 和增量包，核对签名，应用增量包
         if: needs.plan.outputs.publish == 'dry-run'
         run: |
@@ -392,8 +407,11 @@ jobs:
         if: steps.keys.outputs.ok == 'true'
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      # 和打包同一份锁文件：cryptography 的版本和演练时一样
       - if: steps.keys.outputs.ok == 'true'
-        run: python -m pip install cryptography
+        run: python -m pip install --require-hashes -r requirements.lock
 
       - name: 取线上的 appcast 和完整包
         if: steps.keys.outputs.ok == 'true'

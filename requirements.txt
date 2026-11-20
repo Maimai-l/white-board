@@ -1,3 +1,5 @@
+# 应用的依赖：从源码运行（start-whiteboard.command）直接装这一份。打包装的是锁文件
+# requirements.lock（由这里和 requirements-package.txt 生成）；改了这里之后跑 make lock。
 aiohttp>=3.9
 pywebview>=4.4
 zeroconf>=0.131

@@ -1,0 +1,6 @@
+# 打包和发布用（CI 的 package、updates job）：应用依赖 + PyInstaller + cryptography
+# （packaging/appcast.py 生成和核对 EdDSA 签名）。安装时用锁文件 requirements.lock；
+# 改了这里或 requirements.txt 之后跑 make lock，见 README 的「开发」一节。
+-r requirements.txt
+pyinstaller>=6
+cryptography>=42

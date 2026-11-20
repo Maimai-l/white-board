@@ -1,13 +1,15 @@
 # 本地和 CI 跑同一套命令：CI 的每个 job 调用这里同名的目标
 # （docs/design/ci-and-updates.zh-CN.md 第 2.5 节）。
 #
-#   make deps    装测试依赖和 Chromium
+#   make deps    装测试依赖（从锁文件 requirements-test.lock）和 Chromium
+#   make lock    改了 requirements*.txt 之后重新生成锁文件（要有 uv）
 #   make fast    不开浏览器的检查（checks + unit + js），一分钟以内
 #   make test    全部测试（不含 webkit 和 iPad 外壳）
 #   make e2e PYTEST_ARGS="-k sync -x"   给 pytest 加参数
 
 PY ?= python3
 PYTEST_ARGS ?=
+LOCK_ARGS ?=
 REPORTS ?= reports
 
 # iPad 上是 Safari（WebKit）：挑一组覆盖主要流程的用例再用 WebKit 跑一遍
@@ -27,18 +29,23 @@ WEBKIT_CASES = test_drawing_syncs_both_ways or test_undo_erase_and_clear \
   or test_a_board_can_be_filed_and_unfiled_from_the_folder_dialog_on_the_ipad \
   or test_shortcuts_do_not_reach_the_board_while_typing
 
-.PHONY: deps checks unit e2e webkit js inksync fast test plan
+.PHONY: deps lock checks unit e2e webkit js inksync fast test plan
 
 deps:
-	$(PY) -m pip install -r requirements-test.txt
+	$(PY) -m pip install --require-hashes -r requirements-test.lock
 	$(PY) -m playwright install chromium
+
+# 输入是 requirements.txt、requirements-package.txt、requirements-test.txt；生成的锁文件不要手改。
+# 已锁的版本尽量不动；升级用 make lock LOCK_ARGS="--upgrade-package aiohttp" 或 LOCK_ARGS=--upgrade
+lock:
+	$(PY) tools/lock_deps.py $(LOCK_ARGS)
 
 # 只开「真错误」类规则（语法错误、未定义的名字）和「吞掉异常」两条（S110 try-except-pass、
 # BLE001 except Exception）；格式统一是另一条待办。ruff 管不到的 except / catch 由
 # tests/test_no_silent_catch.py 检查（docs/backlog/008-swallowed-errors.md）
 checks:
 	$(PY) -m ruff check --select E9,F63,F7,F82,S110,BLE001 .
-	$(PY) -m pytest tests/test_release_notes.py tests/test_ci_plan.py -q $(PYTEST_ARGS)
+	$(PY) -m pytest tests/test_release_notes.py tests/test_ci_plan.py tests/test_dependency_lock.py -q $(PYTEST_ARGS)
 
 unit:
 	$(PY) -m pytest tests --ignore=tests/e2e -q --junitxml=$(REPORTS)/unit.xml $(PYTEST_ARGS)

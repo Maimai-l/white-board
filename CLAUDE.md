@@ -31,11 +31,12 @@
 ## 命令（和 CI 的 job 同名）
 
 ```bash
-make deps      # 测试依赖和 Chromium
+make deps      # 测试依赖（从 requirements-test.lock 装）和 Chromium
 make fast      # checks + unit + js，不开浏览器，一分钟以内；每次提交前跑
 make test      # 再加 inksync 和 e2e
 make e2e PYTEST_ARGS="-k sync -x"
 make plan FILES="whiteboard/app.py"   # 这些改动在 CI 里会跑哪些 job
+make lock      # 改了 requirements*.txt 后重新生成锁文件（要有 uv），和输入单独成一个提交
 ```
 
 从源码运行：`python run.py`（Mac 窗口）或 `python run.py --headless`（只跑服务端，用浏览器打开）。

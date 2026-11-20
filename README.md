@@ -547,7 +547,8 @@ Input recording captures problems that need a real Pencil (pressure, tilt, coale
 Each CI job has a `make` target with the same name, so a local run uses the same commands as CI:
 
 ```bash
-make deps      # test dependencies and Chromium (requirements-test.txt)
+make deps      # test dependencies (from requirements-test.lock) and Chromium
+make lock      # regenerate the lock files after editing a requirements*.txt (needs uv)
 make fast      # checks + unit + js, no browser
 make test      # checks, unit, js, inksync and e2e
 make e2e PYTEST_ARGS="-k sync -x"
@@ -555,11 +556,30 @@ make webkit    # the WebKit smoke subset (WB_BROWSER=webkit)
 make plan FILES="whiteboard/app.py docs/sketch.md"   # which CI jobs a change would run
 ```
 
-- `make checks` runs ruff with the error-only rules (syntax errors, undefined names) and the checks of `CHANGELOG.md` and commit messages.
+- `make checks` runs ruff with the error-only rules (syntax errors, undefined names) the checks of `CHANGELOG.md` and commit messages, and checks that the dependency lock files are up to date.
 
 - The end-to-end tests live in `tests/e2e/`, one file per area (sync, input, eraser, gallery, picker, …); shared fixtures are in `conftest.py`, shared helpers in `support.py`, and in-page helpers (`window.__t`) in `probe.js`. Pure calculations that need no page go in `tests/js/` instead.
 - The end-to-end tests open two browser pages (the Mac and a touch device) and sync between them. They cover drawing, undo, erasing, clearing, Pencil exclusivity, switching boards, reconnecting with a backlog, folders, read-only boards and the export dialog. They skip themselves if Playwright or the browser is missing.
 - `tests/test_compat.py` checks that board files written by earlier versions still read back identically. Do not regenerate the fixture in `tests/fixtures/compat/` with newer code.
+
+### Dependencies
+
+You edit the inputs; everything installs from the lock files generated from them (`tools/lock_deps.py`, `uv pip compile --universal --generate-hashes`, one lock for macOS arm64 and Linux x86_64):
+
+| Input (edit this) | Lock (generated) | Installed by |
+| --- | --- | --- |
+| `requirements.txt` (the app) + `requirements-package.txt` (PyInstaller, cryptography) | `requirements.lock` | the `package` and `updates` jobs |
+| `requirements-test.txt` | `requirements-test.lock` | `make deps`, every test job, the Playwright container |
+
+Packages that appear in both locks have the same version, because the test lock is constrained by `requirements.lock`. Running from source (`start-whiteboard.command`) still installs `requirements.txt` directly.
+
+To add or upgrade a dependency:
+
+1. Edit the input file. To upgrade Playwright, change only its `playwright==` line in `requirements-test.txt`; the CI container image follows the version in the lock.
+2. Run `make lock` (needs [uv](https://docs.astral.sh/uv/): `pip install uv` or `brew install uv`). Versions already locked stay put; `make lock LOCK_ARGS="--upgrade-package aiohttp"` upgrades one package, `LOCK_ARGS=--upgrade` all of them.
+3. Commit the input and both locks together, in a commit of their own, and merge only when CI is green.
+
+`tests/test_dependency_lock.py` (part of `make checks`) fails when an input changed but its lock was not regenerated. The `package` job writes the installed versions (`pip freeze`) into the run summary.
 
 ### CI
 

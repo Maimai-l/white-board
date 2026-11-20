@@ -2,7 +2,8 @@ name: 在 Playwright 镜像里准备浏览器测试
 description: >-
   启动 mcr.microsoft.com/playwright/python 容器（浏览器和系统依赖都在里面，不走 apt），
   在容器里装测试依赖。之后 make 照常在机器上跑，PY 换成 outputs.py，pytest 就在容器里执行。
-  镜像版本取自 requirements-test.txt 里固定的 playwright 版本。
+  镜像版本取自 requirements-test.lock 里的 playwright 版本（输入 requirements-test.txt 里用 == 固定，
+  tests/test_dependency_lock.py 核对两者一致）。
 
 outputs:
   py:
@@ -15,9 +16,9 @@ runs:
     - name: 启动容器
       shell: bash
       run: |
-        version="$(sed -n 's/^playwright==//p' requirements-test.txt)"
+        version="$(sed -n 's/^playwright==\([^ ;\\]*\).*/\1/p' requirements-test.lock)"
         if [ -z "$version" ]; then
-          echo "::error::requirements-test.txt 里的 playwright 没有用 == 固定版本"
+          echo "::error::requirements-test.lock 里找不到 playwright 的版本"
           exit 1
         fi
         image="mcr.microsoft.com/playwright/python:v${version}-noble"
@@ -27,7 +28,7 @@ runs:
       shell: bash
       run: |
         docker exec playwright sh -c "python3 -m venv /venv || python3 -m virtualenv /venv"
-        docker exec playwright /venv/bin/python -m pip install --quiet -r requirements-test.txt
+        docker exec playwright /venv/bin/python -m pip install --quiet --require-hashes -r requirements-test.lock
         docker exec playwright /venv/bin/python -m playwright --version
         # 检出目录属于机器上的 runner 用户，容器里是 root：不加这一行 git 会拒绝读这个仓库，
         # 「关于」里从源码运行时显示的分支和提交就取不到（test_the_version_survives_switching_boards）

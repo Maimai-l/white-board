@@ -43,9 +43,9 @@ plan ───────┼─ webkit ──┼──► publish（dev：alpha
 | `tests/js/**` | checks、js |
 | `tests/**`（其余） | checks、unit、e2e、webkit |
 | `ipad/**` | checks、ipad |
-| `packaging/**`、`requirements*.txt` | checks、unit、package |
+| `packaging/**`、`requirements.txt`、`requirements-package.txt`、`requirements.lock` | checks、unit、package |
 | `extensions/**` | checks、extension、e2e |
-| `.github/**`、`tools/ci_plan.py`、`Makefile` | 全部 |
+| `.github/**`、`tools/ci_plan.py`、`Makefile`、`requirements-test.txt`、`requirements-test.lock` | 全部 |
 | 认不出的路径 | 全部（宁可多跑） |
 
 覆盖规则，优先级从高到低：
@@ -61,7 +61,7 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 
 | job | 内容 | 机器 |
 | --- | --- | --- |
-| checks | ruff（只开语法错误、未定义名字这类真错误，以及吞掉异常的 S110、BLE001）+ CHANGELOG 和提交说明的检查 | ubuntu |
+| checks | ruff（只开语法错误、未定义名字这类真错误，以及吞掉异常的 S110、BLE001）+ CHANGELOG 和提交说明的检查 + 锁文件是不是最新的 | ubuntu |
 | unit | `pytest tests --ignore=tests/e2e` | ubuntu |
 | e2e | `pytest tests/e2e`（Chromium） | ubuntu |
 | webkit | 主要流程用 WebKit 再跑一遍 | ubuntu |
@@ -77,8 +77,8 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 
 - 触发：推送到 `dev` 和 `claude/**`、推 tag `v*`、手动。不监听 PR：PR 都来自本仓库的分支，push 那次运行已经覆盖，检查结果显示在 PR 上；两个都监听时同一个提交跑两遍，macOS 机器要排两份队。`stable` 只接收已经在 dev 通过的提交，不再单独跑。
 - 并发：同一个分支上新的推送会取消正在跑的那次（`cancel-in-progress`），tag 除外。发布到 Pages 的步骤用一个独立的并发组排队，不取消。
-- 缓存：Python 依赖用 `setup-python` 的 pip 缓存。测试依赖写在 `requirements-test.txt`，本地和 CI 用同一份。
-- 浏览器测试（e2e、webkit）在 `mcr.microsoft.com/playwright/python:v<版本>-noble` 容器里跑（`.github/actions/playwright`）：浏览器和系统依赖都在镜像里。GitHub 机器上 apt 只有 60–220 kB/s，WebKit 要装 126 MB 系统包，第一次运行时装不完。make 仍在机器上跑，`PY` 换成容器里的 python。镜像版本取自 `requirements-test.txt` 里固定的 `playwright==` 版本，升级只改那一行。
+- 依赖和缓存：一律从锁文件安装（`pip install --require-hashes -r …lock`），缓存用 `setup-python` 的 pip 缓存，键是锁文件。测试装 `requirements-test.lock`（本地 `make deps` 和 CI 同一份），打包和发布装 `requirements.lock`（应用依赖 + PyInstaller + cryptography）。锁文件由 `make lock`（`tools/lock_deps.py`，`uv pip compile --universal --generate-hashes`）从 `requirements*.txt` 生成，一份锁覆盖 macOS arm64 和 Linux x86_64；第一行记着输入的指纹，输入改了没重新生成时 checks 失败（`tests/test_dependency_lock.py`）。package 把 `pip freeze` 写进运行摘要，同一个提交两次打包可以直接对比（docs/backlog/006）。
+- 浏览器测试（e2e、webkit）在 `mcr.microsoft.com/playwright/python:v<版本>-noble` 容器里跑（`.github/actions/playwright`）：浏览器和系统依赖都在镜像里。GitHub 机器上 apt 只有 60–220 kB/s，WebKit 要装 126 MB 系统包，第一次运行时装不完。make 仍在机器上跑，`PY` 换成容器里的 python。镜像版本取自 `requirements-test.lock` 里的 `playwright==` 版本；升级只改 `requirements-test.txt` 里那一行，再跑 `make lock`。
 - 共用的安装步骤放在 `.github/actions/setup-python-deps`，每个 job 只写自己跑什么。
 - macOS 机器：每排一次队要等 0、5 或 10 分钟，等满 15 分钟这个 job 就被取消（2026-11-19 前后 30 次运行的统计，docs/backlog/004）。所以串起来的 macOS job 越少越好：工作分支上只有 package 一个（iPad 外壳和发布演练都在里面，外壳的编译步骤在 `.github/actions/ipad-shell`，和单独的 ipad job 共用），dev 上是 package 加 updates。
 - 每个 job 都有 `timeout-minutes`：卡住的 job 最多占几十分钟，而不是默认的 6 小时。
