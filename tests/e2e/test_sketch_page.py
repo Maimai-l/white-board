@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from e2e.support import ENGINE, draw, new_page, open_pages, open_touch, prepare
+from e2e.support import ENGINE, draw, new_page, open_pages, open_touch, poll_page, prepare
 
 SKETCH_ONLINE = "() => window.sketchPad && sketchPad.status === 'online'"
 
@@ -119,8 +119,14 @@ def test_ipad_follows_a_sketch_and_returns(browser, server):
     for page in (mac, ipad):
         page.wait_for_function("(id) => whiteboard.state.id === id", arg=original, timeout=10000)
     assert ipad.evaluate("() => whiteboard.state.strokes.length") == 0
-    ipad.wait_for_timeout(300)
-    keys = ipad.evaluate(CACHED_KEYS)
+    # 等本地缓存记下「最后打开的是原来那块」：切回去之后该写的都写过了，再看里面有没有速写板
+    keys = poll_page(
+        ipad,
+        f"async (id) => {{ const keys = await ({CACHED_KEYS})();"
+        " return keys.some((k) => k.endsWith(`/last=${id}`)) && keys; }",
+        original,
+    )
+    assert keys, "本地缓存一直没记下切回去的那块白板"
     assert not [k for k in keys if "sketch" in k], keys
     assert not server.hub.sketch_active
 
@@ -143,8 +149,7 @@ def test_sketch_copies_a_png_of_the_ink(browser, server):
     # ⌘C（这里是 Ctrl+C）同样复制
     sketch.evaluate("() => navigator.clipboard.writeText('')")
     sketch.keyboard.press("Control+c")
-    sketch.wait_for_timeout(300)
-    image = sketch.evaluate(READ_CLIPBOARD_PNG)
+    image = poll_page(sketch, READ_CLIPBOARD_PNG)  # 等剪贴板里出现图片
     assert image is not None and image["dark"] > 50, image
 
     sketch.click("#clear")
@@ -226,10 +231,11 @@ def test_ipad_offline_ink_from_a_finished_sketch_does_not_leak(browser, server):
         "(id) => whiteboard.net.status === 'online' && whiteboard.state.id === id", arg=original, timeout=20000
     )
     ipad.wait_for_function("() => whiteboard.net.outbox.length === 0", timeout=10000)
-    mac.wait_for_timeout(500)
+    # 待发的操作都有了回执：服务端已经处理完。先看服务端——Mac 上的笔画只能来自
+    # 服务端的广播，服务端那块白板是空的，Mac 就不会收到什么
+    assert server.hub.core.board(original).stroke_list() == []
     assert ipad.evaluate("() => whiteboard.state.strokes.length") == 0
     assert mac.evaluate("() => whiteboard.state.strokes.length") == 0
-    assert server.hub.core.board(original).stroke_list() == []
 
 
 @pytest.mark.parametrize("viewport", [(360, 270), (380, 760), (900, 680)])
@@ -244,8 +250,9 @@ def test_sketch_view_follows_ink_written_anywhere_on_the_ipad(browser, server, v
     sketch.wait_for_function(f"({INK_PIXELS})() > 20", timeout=5000)
     draw(ipad, [(40, 40), (120, 90)], pointer_id=2)
     sketch_strokes(sketch, 2)
-    sketch.wait_for_timeout(600)
-    # 两笔都在视野里：一笔在右下角，一笔在左上角，视图缩到能同时看见两笔（缩小后笔画变细变淡）
+    # 两笔都在视野里：一笔在右下角，一笔在左上角，视图缩到能同时看见两笔（缩小后笔画变细变淡）。
+    # 视图是停笔一会儿之后才调整的（FIT_DELAY），等画面上左右两半都有墨
+    sketch.wait_for_function(f"() => ({INK_HALVES})().every((dark) => dark > 0)", timeout=5000)
     left, right = sketch.evaluate(INK_HALVES)
     assert left > 0 and right > 0, (left, right)
 

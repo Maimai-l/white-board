@@ -585,8 +585,10 @@ def test_reconnect_with_same_client_id_keeps_broadcasting(tmp_path):
             await hello(stale, "ipad", client_id="ipad-1")
             fresh = await client.ws_connect("/ws")
             await hello(fresh, "ipad", client_id="ipad-1")
+            detached = asyncio.Event()
+            hub.core.on("detached", lambda conn: detached.set())
             await stale.close()
-            await asyncio.sleep(0.05)
+            await asyncio.wait_for(detached.wait(), timeout=5)  # 服务端处理完旧连接的断开
 
             assert hub.clients.get("ipad-1") is not None
             mac = await client.ws_connect("/ws")

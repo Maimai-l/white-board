@@ -34,16 +34,14 @@ def toggle_diagnostics(page):
 def test_page_errors_are_reported_to_the_server(browser, server):
     """iPad 上看不到控制台，页面报错必须能在 Mac 的终端里看到。"""
     mac, ipad = open_pages(browser, server.port)
-    posted = []
-    ipad.on("request", lambda request: posted.append(request.url) if request.url.endswith("/api/debug") else None)
-    ipad.evaluate("() => setTimeout(() => { throw new Error('故意炸一个'); }, 0)")
-    ipad.wait_for_timeout(500)
-    assert posted, "报错应该被送到 /api/debug"
+    # 报错应该被送到 /api/debug：等这个请求发出来，超时就是没送
+    with ipad.expect_request(lambda request: request.url.endswith("/api/debug"), timeout=5000):
+        ipad.evaluate("() => setTimeout(() => { throw new Error('故意炸一个'); }, 0)")
 
-    # 渲染循环不能因为一次异常就停摆
-    ipad.evaluate("() => { const t = whiteboard.renderer.tick.bind(whiteboard.renderer); let n = 0;"
-                  "whiteboard.renderer.tick = () => { if (n++ === 0) throw new Error('单帧异常'); return t(); }; }")
-    ipad.wait_for_timeout(300)
+    # 渲染循环不能因为一次异常就停摆：出错的那一帧之后还在接着画
+    ipad.evaluate("() => { const t = whiteboard.renderer.tick.bind(whiteboard.renderer); window.__ticks = 0;"
+                  "whiteboard.renderer.tick = () => { if (window.__ticks++ === 0) throw new Error('单帧异常'); return t(); }; }")
+    ipad.wait_for_function("() => window.__ticks >= 3")
     draw(ipad, [(300, 300), (380, 350), (460, 300)])
     wait_strokes(mac, 1)
 

@@ -8,6 +8,8 @@ import io
 import pytest
 
 from e2e.support import (
+    DROP_TARGET_LIT,
+    SLOT_IS_LAST,
     all_in_folder,
     draw,
     file_into,
@@ -27,9 +29,10 @@ BOARD_CARD = ".board-item[data-board] .board-card"
 COUNT_ITEMS = "() => document.querySelectorAll('.board-item').length"
 SAME_ORDER = "(ids) => JSON.stringify(whiteboard.ui.boards.map(b => b.id)) === JSON.stringify(ids)"
 
-# 手指按住一会儿再拖：按下在卡片上，移动和抬起发给 window（和浏览器的指针捕获一样）
+# 手指按住一会儿再拖：按下在卡片上，移动和抬起发给 window（和浏览器的指针捕获一样）。
+# 拖到落点之后停住，等 ready（页面上看得见的结果，见 support.mouse_drag）成立再松手
 TOUCH_DRAG = """
-async ([fromSel, toSel, holdMs, steps, dwellMs]) => {
+async ([fromSel, toSel, holdMs, steps, ready]) => {
   const from = document.querySelector(fromSel);
   const a = __t.center(fromSel), b = __t.center(toSel);
   const init = { pointerType: 'touch', pointerId: 11, pressure: 0, buttons: 0 };
@@ -39,10 +42,19 @@ async ([fromSel, toSel, holdMs, steps, dwellMs]) => {
     __t.fire('pointermove', a[0] + (b[0] - a[0]) * i / steps, a[1] + (b[1] - a[1]) * i / steps, init, window);
     await new Promise((done) => requestAnimationFrame(done));
   }
-  await new Promise((done) => setTimeout(done, dwellMs));
+  const isReady = new Function(`return (${ready})()`);
+  const end = performance.now() + 5000;
+  while (!isReady() && performance.now() < end) await new Promise((done) => requestAnimationFrame(done));
   __t.fire('pointerup', b[0], b[1], init, window);
 }
 """
+
+# TOUCH_DRAG 的 ready：空位离开了第一格（别的卡片让过位了）
+SLOT_MOVED = (
+    "() => { const items = document.querySelectorAll("
+    "'.gallery-grid .board-item[data-board], .gallery-grid .board-item.slot');"
+    " return items.length > 0 && !items[0].classList.contains('slot'); }"
+)
 
 # 一放下就划走（不按住），返回划的过程中卡片有没有浮起来
 SWIPE = """
@@ -294,7 +306,7 @@ def test_a_board_can_be_dragged_into_a_folder_and_back_out(browser, server):
     board = ".board-card:not(.folder):not(.add)"
 
     # 拖进去：松手之后这块白板收进文件夹，最外面那层只剩文件夹卡片和「新建」
-    mouse_drag(mac, board, ".board-card.folder", dwell=120)
+    mouse_drag(mac, board, ".board-card.folder", DROP_TARGET_LIT)
     mac.wait_for_function(all_in_folder(folder))
     ipad.wait_for_function(all_in_folder(folder))
     mac.wait_for_function(f"{COUNT_ITEMS} === 2")
@@ -302,7 +314,7 @@ def test_a_board_can_be_dragged_into_a_folder_and_back_out(browser, server):
     # 拖出来：进文件夹，把卡片拖到搜索框左边那个返回按钮上
     mac.click(".board-card.folder")
     mac.wait_for_selector(".folder-bar")
-    mouse_drag(mac, board, 'button[title^="返回"]', dwell=120)
+    mouse_drag(mac, board, 'button[title^="返回"]', DROP_TARGET_LIT)
     mac.wait_for_function("() => whiteboard.ui.boards.every(b => !b.folder)")
     assert mac.evaluate("() => whiteboard.ui.folders.length") == 1  # 文件夹还在，只是空了
 
@@ -323,7 +335,7 @@ def test_boards_can_be_dragged_into_a_new_order(browser, server):
 
     # 把第一块拖到第三块的右半边，它就排到最后（落点在左半边是插到前面）
     items = ".board-item[data-board] .board-card"
-    mouse_drag(mac, f"{items} >> nth=0", f"{items} >> nth=2", at=(0.85, 0.5))
+    mouse_drag(mac, f"{items} >> nth=0", f"{items} >> nth=2", SLOT_IS_LAST, at=(0.85, 0.5))
     mac.wait_for_function(SAME_ORDER, arg=expected)
     ipad.wait_for_function(SAME_ORDER, arg=expected)
     mac.wait_for_function("() => !document.querySelector('.board-item.lifted')")
@@ -374,7 +386,8 @@ def test_a_slow_tap_does_not_open_the_board(browser, server):
         }""",
         BOARD_CARD,
     )
-    ipad.wait_for_timeout(300)
+    # 卡片落回格子里，这次按住连同补的那一下 click 都处理完了（点卡片是同步切过去的）
+    ipad.wait_for_function("() => !document.querySelector('.board-item.lifted')")
     assert ipad.evaluate("() => whiteboard.state.id") == before
     assert ipad.query_selector(".gallery") is not None  # 界面也没被关掉
 
@@ -396,7 +409,7 @@ def test_a_finger_can_drag_a_board_on_a_touch_device(browser, server):
     assert ipad.evaluate("() => !document.querySelector('.board-card.ghost')")
 
     # 按住一会儿再拖：这次算数
-    ipad.evaluate(TOUCH_DRAG, [BOARD_CARD, ".board-card.folder", 500, 6, 200])
+    ipad.evaluate(TOUCH_DRAG, [BOARD_CARD, ".board-card.folder", 500, 6, DROP_TARGET_LIT])
     ipad.wait_for_function(all_in_folder(folder))
     mac.wait_for_function(all_in_folder(folder))
     # 副本是临时的，落位动画走完就撤掉
@@ -413,7 +426,7 @@ def test_a_finger_can_drag_a_board_into_a_new_order(browser, server):
 
     before = board_ids(ipad)
     ipad.evaluate(
-        TOUCH_DRAG, [BOARD_CARD, ".board-item[data-board]:nth-child(3) .board-card", 500, 8, 320]
+        TOUCH_DRAG, [BOARD_CARD, ".board-item[data-board]:nth-child(3) .board-card", 500, 8, SLOT_MOVED]
     )
     ipad.wait_for_function(f"(was) => !({SAME_ORDER})(was)", arg=before)
     after = board_ids(ipad)

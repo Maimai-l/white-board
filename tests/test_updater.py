@@ -2,7 +2,7 @@
 
 import os
 import stat
-import time
+import threading
 import zipfile
 
 from whiteboard import updater
@@ -254,15 +254,14 @@ def test_automatic_check_downloads_only_when_opted_in(tmp_path, monkeypatch):
     )
     for auto, expected in ((False, 0), (True, 1)):
         api = make_api(tmp_path, monkeypatch, auto=auto)
-        staged = []
-        monkeypatch.setattr(api, "_stage_update", lambda: staged.append(True))
+        staged = threading.Event()
+        monkeypatch.setattr(api, "_stage_update", staged.set)
         api._check_update(force=False)
-        # 自动下载是在后台线程里跑的，给它一点时间
-        for _ in range(50):
-            if len(staged) >= expected:
-                break
-            time.sleep(0.01)
-        assert len(staged) == expected
+        # 自动下载是在后台线程里跑的：要下载的话等它真的开始；不下载的话根本不会起线程
+        if expected:
+            assert staged.wait(timeout=5), "打开了自动下载，却没有开始下载"
+        else:
+            assert not staged.is_set()
 
 
 def test_install_requires_a_staged_package(tmp_path, monkeypatch):

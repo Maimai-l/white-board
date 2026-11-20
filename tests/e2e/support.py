@@ -39,6 +39,23 @@ ROOT = Path(__file__).resolve().parents[2]
 ONLINE = "() => window.whiteboard && whiteboard.net.status === 'online'"
 
 
+def app_constant(path, name):
+    """从应用源码里读一个数值常量（``const NAME = 120;`` 或 ``NAME: 120,``）。
+
+    测试里非得按时间等的地方用它：等多久跟着应用里的取值走，改了常量不用再来改测试。
+    """
+    text = (ROOT / path).read_text("utf-8")
+    match = re.search(rf"\b{name}\s*[:=]\s*(-?\d+(?:\.\d+)?)\b", text)
+    if not match:
+        raise LookupError(f"{path} 里找不到常量 {name}")
+    value = match.group(1)
+    return float(value) if "." in value else int(value)
+
+
+# 笔具盘：松手前多少毫秒内的移动算进速度（pkpicker.js 的 TUNING）
+VELOCITY_WINDOW_MS = app_constant("whiteboard/web/static/js/pkpicker.js", "VELOCITY_WINDOW_MS")
+
+
 # ----------------------------------------------------------------- 环境
 
 
@@ -100,6 +117,51 @@ def wait_online(page, timeout=None):
         page.wait_for_function(ONLINE)
     else:
         page.wait_for_function(ONLINE, timeout=timeout)
+
+
+def page_now(page):
+    """页面自己的时钟（performance.now()），应用里的计时窗口都按它算。"""
+    return page.evaluate("() => performance.now()")
+
+
+def wait_page_ms(page, ms, since=None):
+    """按页面自己的时钟，等到从 ``since``（默认是现在）起过了 ``ms`` 毫秒。
+
+    只给确实要量时间的地方用：应用里按 performance.now() 计时的窗口（外壳断流、
+    松手前停住）。和页面用同一个时钟比，不用再加余量去猜。
+    """
+    if since is None:
+        since = page_now(page)
+    page.wait_for_function("([since, ms]) => performance.now() - since > ms", arg=[since, ms])
+
+
+def poll_page(page, check, arg=None, timeout=5000, interval=50):
+    """在页面里反复调用异步的 ``check(arg)``，直到它返回真值，返回那个值；超时返回 None。
+
+    ``wait_for_function`` 不等 Promise（异步函数返回的 Promise 本身就算真值），
+    读剪贴板、IndexedDB 这类只有异步接口的条件用这个。
+    """
+    return page.evaluate(
+        "async ([arg, timeout, interval]) => {"
+        f" const check = {check};"
+        " const end = performance.now() + timeout;"
+        " for (;;) {"
+        "   const value = await check(arg);"
+        "   if (value) return value;"
+        "   if (performance.now() > end) return null;"
+        "   await new Promise((done) => setTimeout(done, interval));"
+        " } }",
+        [arg, timeout, interval],
+    )
+
+
+def wait_seq(page, other):
+    """等 ``page`` 收齐 ``other`` 已经确认过的全部操作（两边的 lastSeq 对齐）。
+
+    要比较两台设备上的内容时先等这个：对端的广播和发送端的回执不保证谁先到。
+    """
+    seq = other.evaluate("() => whiteboard.net.lastSeq")
+    page.wait_for_function("(seq) => whiteboard.net.lastSeq >= seq", arg=seq)
 
 
 def reload(page):
@@ -260,11 +322,22 @@ def all_in_folder(folder):
     return f"() => whiteboard.ui.boards.every(b => b.folder === {folder!r})"
 
 
-def mouse_drag(page, from_sel, to_sel, dwell=320, steps=12, at=(0.5, 0.5)):
-    """鼠标拖一张卡片。
+# mouse_drag 的 ready：指着的文件夹（或「移出」按钮）亮起来了
+DROP_TARGET_LIT = "() => !!document.querySelector('.drop-target')"
+# mouse_drag 的 ready：空位让到了白板卡片的最后（别的卡片已经让开；「新建」不算）
+SLOT_IS_LAST = (
+    "() => { const items = document.querySelectorAll("
+    "'.gallery-grid .board-item[data-board], .gallery-grid .board-item.slot');"
+    " return items.length > 0 && items[items.length - 1].classList.contains('slot'); }"
+)
 
-    ``dwell`` 是停在落点上多久再松手：让位要在同一个插入位置停够 REORDER_DELAY
-    （见 dragsort.js）。``at`` 是落点在目标元素上的相对位置。
+
+def mouse_drag(page, from_sel, to_sel, ready, steps=12, at=(0.5, 0.5)):
+    """鼠标拖一张卡片，停在落点上等 ``ready`` 成立再松手。
+
+    ``ready`` 是页面上看得见的结果，比如 :data:`DROP_TARGET_LIT`、:data:`SLOT_IS_LAST`：
+    让位要在同一个插入位置停够 REORDER_DELAY（见 dragsort.js），等的是它真的让开了。
+    ``at`` 是落点在目标元素上的相对位置。
     """
     a = page.locator(from_sel).bounding_box()
     b = page.locator(to_sel).bounding_box()
@@ -272,7 +345,7 @@ def mouse_drag(page, from_sel, to_sel, dwell=320, steps=12, at=(0.5, 0.5)):
     page.mouse.down()
     page.mouse.move(a["x"] + a["width"] / 2 + 12, a["y"] + a["height"] / 2, steps=3)
     page.mouse.move(b["x"] + b["width"] * at[0], b["y"] + b["height"] * at[1], steps=steps)
-    page.wait_for_timeout(dwell)
+    page.wait_for_function(ready)
     page.mouse.up()
 
 
@@ -293,16 +366,25 @@ def center(page, selector):
     return page.evaluate("(sel) => __t.center(sel)", selector)
 
 
-def settled_center(page, selector=GRIP, tries=30):
-    """贴边、收起都带动画：一直量到位置不再变，否则抓到的是半路上的坐标。"""
-    last = None
-    for _ in range(tries):
-        now = center(page, selector)
-        if now == last:
-            return now
-        last = now
-        page.wait_for_timeout(100)
-    return last
+# 这个元素和它里面的元素上没有正在走的动画（CSS 过渡也算）
+STILL = (
+    "(sel) => { const el = document.querySelector(sel);"
+    " return !!el && el.getAnimations({ subtree: true }).length === 0; }"
+)
+
+
+def wait_still(page, selector=PICKER, timeout=None):
+    """等动画走完：贴边、收起、展开、面板淡出都是 CSS 过渡。"""
+    if timeout is None:
+        page.wait_for_function(STILL, arg=selector)
+    else:
+        page.wait_for_function(STILL, arg=selector, timeout=timeout)
+
+
+def settled_center(page, selector=GRIP):
+    """贴边、收起都带动画：等工具盘的动画都走完再量，否则抓到的是半路上的坐标。"""
+    wait_still(page)
+    return center(page, selector)
 
 
 def picker_top(page):
@@ -326,9 +408,17 @@ def drag(page, x0, y0, x1, y1, steps=12):
     page.mouse.down()
     for i in range(1, steps + 1):
         page.mouse.move(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)
-    page.wait_for_timeout(180)  # 超过 VELOCITY_WINDOW_MS，算作手停住了
+    hold_still(page)
     page.mouse.move(x1, y1)
     page.mouse.up()
+
+
+def hold_still(page):
+    """拖着不动，停过 VELOCITY_WINDOW_MS：松手时速度归零，算慢放。
+
+    「手停住了」本身就是一段时间，只能按时间等（按页面的时钟，见 :func:`wait_page_ms`）。
+    """
+    wait_page_ms(page, VELOCITY_WINDOW_MS)
 
 
 def fling(page, x0, y0, x1, y1, steps=5):
@@ -348,12 +438,13 @@ def fling(page, x0, y0, x1, y1, steps=5):
 
 
 def nudge(page, x, y, offsets, pause=0):
-    """按下、沿 offsets 一点点挪、松手——「蹭一下」。"""
+    """按下、沿 offsets 一点点挪、松手——「蹭一下」。``pause`` 是每挪一下之后停多久（毫秒）。"""
     page.mouse.move(x, y)
     page.mouse.down()
     for dx, dy in offsets:
         page.mouse.move(x + dx, y + dy)
         if pause:
+            # 这是手移动的节奏，不是在等什么：慢慢蹭和一下划过去是两种手势
             page.wait_for_timeout(pause)
     page.mouse.up()
 

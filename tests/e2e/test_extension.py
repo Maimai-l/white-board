@@ -22,6 +22,9 @@ from whiteboard.config import Config  # noqa: E402
 from whiteboard.runner import ServerThread  # noqa: E402
 
 EXTENSION = ROOT / "extensions" / "sketch"
+# 等插件加载：每隔多久再试一次、最多试几次
+EXTENSION_RETRY_MS = 250
+EXTENSION_LOAD_TRIES = 40
 
 
 def test_manifest_is_complete():
@@ -70,15 +73,17 @@ def extension_context(tmp_path):
         ext = extension_id()
         page = context.new_page()
         loaded = False
-        for _ in range(40):
+        # 插件没有后台页，加载完没有事件可等：打开弹出页试试，没加载完就隔一会儿再试，最多 10 秒
+        for _ in range(EXTENSION_LOAD_TRIES):
             try:
                 page.goto(f"chrome-extension://{ext}/popup.html")
                 loaded = page.evaluate("() => typeof chrome !== 'undefined' && !!chrome.storage")
-            except Exception:  # noqa: BLE001 - 插件还没加载完
+            except Exception as exc:  # noqa: BLE001 - 插件还没加载完
+                print(f"test_extension.extension_context：插件还没加载好（{exc}），稍后再试")
                 loaded = False
             if loaded:
                 break
-            page.wait_for_timeout(250)
+            page.wait_for_timeout(EXTENSION_RETRY_MS)
         page.close()
         if not loaded:
             context.close()

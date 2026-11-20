@@ -14,23 +14,26 @@ from e2e.support import (
 )
 
 
+# 手掌屏蔽的时间窗（抬笔后 PALM_GRACE）过去了
+PALM_GONE = "() => !whiteboard.input.penActive()"
+
+
 def test_touch_pans_by_default_and_only_pencil_draws(browser, server):
     mac, ipad = open_pages(browser, server.port)
     draw(ipad, [(300, 300), (360, 340), (420, 300)], pointer_type="pen", pressure=0.8)
     wait_strokes(ipad, 1)
 
     # 默认只认 Pencil：手指只平移，不留笔迹（等过了手掌屏蔽的时间窗）
-    ipad.wait_for_timeout(700)
+    ipad.wait_for_function(PALM_GONE)
     before = view(ipad)
     draw(ipad, [(500, 500), (560, 560), (620, 600)], pointer_type="touch", pointer_id=7)
-    ipad.wait_for_timeout(300)
+    # 指针事件是同步处理的：手指要是画了线，抬起时就已经提交了
     assert stroke_count(ipad) == 1
     assert view(ipad) != before, "手指应该把画布拖动了"
 
     # 打开「手指书写」之后手指才画线，并且这个选择会被记住
     ipad.click('button[title="手指书写"]')
-    ipad.wait_for_timeout(100)
-    assert ipad.evaluate("() => whiteboard.input.fingerDraw") is True
+    ipad.wait_for_function("() => whiteboard.input.fingerDraw === true")
     draw(ipad, [(300, 600), (380, 640), (460, 600)], pointer_type="touch", pointer_id=8)
     wait_strokes(ipad, 2)
     wait_strokes(mac, 2)
@@ -59,7 +62,7 @@ def test_palm_is_ignored_while_pencil_writes(browser, server):
     assert stroke_count(ipad) == 1
 
     # 抬笔一会儿之后，手指恢复平移
-    ipad.wait_for_timeout(700)
+    ipad.wait_for_function(PALM_GONE)
     draw(ipad, [(300, 600), (420, 640)], pointer_type="touch", pointer_id=11)
     assert view(ipad) != before
 
