@@ -546,7 +546,8 @@ tools/          check_boards.py（升级前检查白板）及研究用脚本
 CI 的每个 job 都有同名的 `make` 目标，本地运行的命令与 CI 相同：
 
 ```bash
-make deps      # 测试依赖和 Chromium（requirements-test.txt）
+make deps      # 测试依赖（从 requirements-test.lock 安装）和 Chromium
+make lock      # 改了 requirements*.txt 之后重新生成锁文件（需要 uv）
 make fast      # checks + unit + js，不开浏览器
 make test      # checks、unit、js、inksync 和 e2e
 make e2e PYTEST_ARGS="-k sync -x"
@@ -554,11 +555,30 @@ make webkit    # 在 WebKit 上运行冒烟用例（WB_BROWSER=webkit）
 make plan FILES="whiteboard/app.py docs/sketch.md"   # 这些改动在 CI 里会跑哪些 job
 ```
 
-- `make checks` 运行只开错误类规则（语法错误、未定义的名字）的 ruff，以及 `CHANGELOG.md` 和提交说明的检查。
+- `make checks` 运行只开错误类规则（语法错误、未定义的名字）的 ruff，`CHANGELOG.md` 和提交说明的检查，以及依赖锁文件是不是最新的。
 
 - 端到端测试在 `tests/e2e/`，按领域分文件（同步、输入、橡皮、白板列表、笔具盘……）；共用的 fixture 在 `conftest.py`，共用的函数在 `support.py`，页面里用的小工具（`window.__t`）在 `probe.js`。不需要页面的纯计算放在 `tests/js/`。
 - 端到端测试打开两个浏览器页面（Mac 端和一台触摸设备）并在两者之间同步，覆盖书写、撤销、擦除、清空、Pencil 独占、切换白板、断线重连补发、文件夹、只读白板和导出对话框。未安装 Playwright 或浏览器时自动跳过。
 - `tests/test_compat.py` 检查旧版本写出的白板文件现在能否读出相同的内容。不要用新代码重新生成 `tests/fixtures/compat/` 中的测试数据。
+
+### 依赖
+
+人改的是输入文件，安装一律用由它们生成的锁文件（`tools/lock_deps.py`，`uv pip compile --universal --generate-hashes`，一份锁同时适用于 macOS arm64 和 Linux x86_64）：
+
+| 输入（改这里） | 锁文件（生成的） | 谁从它安装 |
+| --- | --- | --- |
+| `requirements.txt`（应用）+ `requirements-package.txt`（PyInstaller、cryptography） | `requirements.lock` | `package` 和 `updates` job |
+| `requirements-test.txt` | `requirements-test.lock` | `make deps`、所有测试 job、Playwright 容器 |
+
+测试的锁以 `requirements.lock` 为约束，两份锁里都有的包版本相同。从源码运行（`start-whiteboard.command`）仍然直接安装 `requirements.txt`。
+
+添加或升级依赖：
+
+1. 改输入文件。升级 Playwright 只改 `requirements-test.txt` 里 `playwright==` 那一行；CI 的容器镜像跟着锁文件里的版本走。
+2. 运行 `make lock`（需要 [uv](https://docs.astral.sh/uv/)：`pip install uv` 或 `brew install uv`）。已经锁定的版本保持不变；`make lock LOCK_ARGS="--upgrade-package aiohttp"` 升级一个包，`LOCK_ARGS=--upgrade` 全部升级。
+3. 输入文件和两份锁文件一起提交，单独成一个提交，CI 全绿后再合入。
+
+`tests/test_dependency_lock.py`（属于 `make checks`）在输入改了而锁文件没有重新生成时失败。`package` job 把装进去的版本（`pip freeze`）写进运行摘要。
 
 ### 持续集成
 

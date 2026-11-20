@@ -60,6 +60,13 @@ def test_changing_ci_itself_runs_everything():
     assert jobs(["Makefile"]) == ALL
 
 
+def test_dependency_inputs_and_locks_run_what_installs_them():
+    # 测试依赖装在每个测试 job 里；应用依赖进打包
+    assert jobs(["requirements-test.txt", "requirements-test.lock"]) == ALL
+    for path in ("requirements.txt", "requirements-package.txt", "requirements.lock"):
+        assert {"unit", "package"} <= jobs([path]), path
+
+
 def test_unknown_paths_run_everything():
     assert jobs(["something/new.cfg"]) == ALL
 
