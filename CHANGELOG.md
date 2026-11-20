@@ -28,6 +28,7 @@ This file lists the notable changes to the board app and to inksync. The section
 ### Changed
 
 - Interface: Labels and messages use consistent wording without full-width brackets or sentence punctuation. Error messages are short, and the details are written to the log file.
+- Boards: Deleting a board moves it to the Trash, where it can be restored or deleted permanently. Boards in the Trash for more than 30 days are deleted permanently.
 - Mac: Failures that used to leave no trace, such as a board thumbnail that could not be uploaded or a port in the configuration file that is not a number, are written to the log file.
 - Updates: The Mac app checks for updates with Sparkle and downloads only the changed parts of the app when updating from one of the three previous versions.
 - Updates: The Check for updates button opens the update window, which shows the result and the release notes.

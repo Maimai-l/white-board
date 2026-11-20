@@ -4,7 +4,8 @@
 
 * ``data.folder``：所在的文件夹名；
 * ``data.doc``：文档板的原件信息 ``{type, name, ext, pages}``；
-* ``data.app``：1.0.1 中建立这块白板的应用（1.1 起应用白板在各自的空间里）。
+* ``data.app``：1.0.1 中建立这块白板的应用（1.1 起应用白板在各自的空间里）；
+* ``data.trashed``：移进回收站的时间（Unix 秒）；没有这个键就是还在用的白板。
 
 ``kind_of`` 把画布和这些字段换回界面上的三种类型：大白板、笔记、文档板。
 """
@@ -82,6 +83,13 @@ def doc_of(meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 def folder_of(meta: Dict[str, Any]) -> str:
     data = meta.get("data") if isinstance(meta, dict) and isinstance(meta.get("data"), dict) else {}
     return sanitize_folder(data.get("folder"))
+
+
+def trashed_at(meta: Any) -> Optional[float]:
+    """移进回收站的时间（Unix 秒）；不在回收站里时返回 None。"""
+    data = meta.get("data") if isinstance(meta, dict) and isinstance(meta.get("data"), dict) else {}
+    stamp = data.get("trashed")
+    return float(stamp) if is_number(stamp) else None
 
 
 def kind_of(meta: Dict[str, Any]) -> str:

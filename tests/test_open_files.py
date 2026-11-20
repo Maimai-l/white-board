@@ -72,6 +72,33 @@ def test_a_board_file_of_this_store_switches_to_that_board(tmp_path):
     assert second != first
 
 
+def test_opening_a_board_file_from_the_trash_restores_it(tmp_path):
+    hub = make_hub(tmp_path)
+    first = hub.current_id
+    asyncio.run(hub.create_board())
+    assert asyncio.run(hub.trash_board(first))
+    hub.save_all()
+
+    meta = run(hub, hub.store.boards_dir / f"{first}.wbz")
+    assert meta["id"] == first
+    assert hub.current_id == first
+    assert models.trashed_at(hub.store.get_meta(first)) is None
+
+
+def test_a_backup_of_a_trashed_board_is_imported_outside_the_trash(tmp_path):
+    source = make_hub(tmp_path, "other")
+    board_id = source.current_id
+    assert asyncio.run(source.trash_board(board_id))
+    source.save_all()
+    backup = tmp_path / "备份.wbz"
+    backup.write_bytes((source.store.boards_dir / f"{board_id}.wbz").read_bytes())
+
+    hub = make_hub(tmp_path)
+    meta = run(hub, backup)
+    assert models.trashed_at(meta) is None
+    assert hub.current_id == meta["id"]
+
+
 def test_a_board_file_from_elsewhere_is_imported_as_a_copy(tmp_path):
     source = make_hub(tmp_path, "other")
     board_id = source.current_id

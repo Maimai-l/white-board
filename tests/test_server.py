@@ -3,6 +3,8 @@
 import asyncio
 import io
 import json
+import re
+import time
 from contextlib import asynccontextmanager
 
 import pytest
@@ -1017,5 +1019,189 @@ def test_allowed_hosts_from_config(tmp_path):
             assert (await client.get("/api/info", headers={"Host": "other.example.net"})).status == 403
         finally:
             await client.close()
+
+    run(main())
+
+
+# --------------------------------------------------- 回收站、复制、连接的设备、二维码
+
+
+async def hello_v2(ws, client_id, device="mac", **fields):
+    """1.1 起的页面：带协议版本，跟随当前白板。"""
+    await ws.send_json({"t": "hello", "v": 2, "client": client_id, "device": device, "follow": True, **fields})
+    return await ws.receive_json()
+
+
+async def receive_kind(ws, kind, timeout=2.0):
+    """收到某种消息为止，跳过别的；超时返回 None。"""
+    try:
+        while True:
+            msg = await ws.receive_json(timeout=timeout)
+            if msg.get("t") == kind:
+                return msg
+    except asyncio.TimeoutError:
+        return None
+
+
+async def wait_until(condition, timeout=5.0):
+    """等条件成立（轮询，不是固定等待）；超时返回 False。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not condition():
+        if loop.time() > deadline:
+            return False
+        await asyncio.sleep(0.01)
+    return True
+
+
+def by_id(boards):
+    return {m["id"]: m for m in boards}
+
+
+def test_deleting_a_board_moves_it_to_the_trash(tmp_path):
+    """删除不再是彻底删除：白板进回收站，列表里还在（带 data.trashed），设备都换到别的白板。
+    1.0.x 页面根本看不到回收站里的白板。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            first = hub.current_id
+            mac = await client.ws_connect("/ws")
+            old = await client.ws_connect("/ws")
+            await hello_v2(mac, "mac-1")
+            await hello(old, "ipad", client_id="old-ipad")
+
+            await mac.send_json({"t": "newboard"})
+            second = (await receive_kind(mac, "switch"))["board"]["id"]
+            await receive_kind(old, "switch")
+
+            await mac.send_json({"t": "delboard", "board": second})
+            switched = await receive_kind(mac, "switch")
+            assert switched["board"]["id"] == first
+            boards = by_id(switched["boards"])
+            assert boards[second]["data"]["trashed"] > 0
+            assert "trashed" not in boards[first]["data"]
+            legacy = await receive_kind(old, "switch")
+            assert [m["id"] for m in legacy["boards"]] == [first]
+            assert hub.store.get_meta(second) is not None
+
+            # 回收站里的白板选不了
+            await mac.send_json({"t": "sel", "board": second})
+            await mac.send_json({"t": "ping", "ts": 1})
+            assert (await mac.receive_json())["t"] == "pong"
+            assert hub.current_id == first
+            await mac.close()
+            await old.close()
+
+    run(main())
+
+
+def test_restore_purge_and_empty_the_trash_over_the_socket(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            store = hub.store
+            keep = hub.current_id
+            a = store.create_board(make_current=False)["id"]
+            b = store.create_board(make_current=False)["id"]
+            c = store.create_board(make_current=False)["id"]
+            mac = await client.ws_connect("/ws")
+            await hello_v2(mac, "mac-1")
+
+            for board in (a, b, c):
+                await mac.send_json({"t": "delboard", "board": board})
+                listed = await receive_kind(mac, "boards")
+                assert by_id(listed["boards"])[board]["data"]["trashed"] > 0
+
+            await mac.send_json({"t": "restore", "board": a})
+            listed = await receive_kind(mac, "boards")
+            assert "trashed" not in by_id(listed["boards"])[a]["data"]
+            assert listed["board"]["id"] == keep
+
+            await mac.send_json({"t": "purge", "board": a})  # 不在回收站里：不理
+            await mac.send_json({"t": "purge", "board": b})
+            listed = await receive_kind(mac, "boards")
+            assert set(by_id(listed["boards"])) == {keep, a, c}
+
+            await mac.send_json({"t": "emptytrash"})
+            listed = await receive_kind(mac, "boards")
+            assert set(by_id(listed["boards"])) == {keep, a}
+            assert store.get_meta(c) is None
+            await mac.close()
+
+    run(main())
+
+
+def test_a_device_without_manage_cannot_use_the_trash_or_duplicate(tmp_path, remote):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            store = hub.store
+            board = hub.current_id
+            trashed = store.create_board(make_current=False)["id"]
+            await hub.trash_board(trashed)
+            ws = await client.ws_connect("/ws")
+            await hello_v2(ws, "pad-1", device="ipad")
+            for message in (
+                {"t": "delboard", "board": board},
+                {"t": "duplicate", "board": board},
+                {"t": "restore", "board": trashed},
+                {"t": "purge", "board": trashed},
+                {"t": "emptytrash"},
+            ):
+                await ws.send_json(message)
+            await ws.send_json({"t": "ping", "ts": 1})
+            assert (await ws.receive_json())["t"] == "pong"
+            assert len(store.list_metas()) == 2
+            assert models.trashed_at(store.get_meta(board)) is None
+            assert models.trashed_at(store.get_meta(trashed)) is not None
+            await ws.close()
+
+    run(main())
+
+
+def test_the_trash_mark_cannot_be_set_with_a_meta_operation(tmp_path):
+    """回收站只能经过 delboard / restore：设置白板的权限改不了它。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            ws = await client.ws_connect("/ws")
+            await hello_v2(ws, "mac-1")
+            await ws.send_json({"t": "op", "cid": "m", "op": {"op": "meta", "meta": {"data": {"trashed": 1}}}})
+            ack = await receive_kind(ws, "ack")
+            assert ack.get("rejected")
+            assert models.trashed_at(hub.store.get_meta(hub.current_id)) is None
+            await ws.close()
+
+    run(main())
+
+
+def test_the_server_purges_old_trash_when_it_starts(tmp_path):
+    store = BoardStore(tmp_path / "data")
+    old = store.create_board(make_current=False)["id"]
+    recent = store.create_board(make_current=False)["id"]
+    store.edit_meta(old, data={"trashed": time.time() - 31 * 86400})
+    store.edit_meta(recent, data={"trashed": time.time() - 29 * 86400})
+    store.core.close()
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            store = app[HUB_KEY].store
+            assert await wait_until(lambda: store.get_meta(old) is None)
+            assert store.get_meta(recent) is not None
+
+    run(main())
+
+
+def test_trashed_boards_still_have_thumbnails_and_exports(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            hub = app[HUB_KEY]
+            board = hub.store.create_board(make_current=False)["id"]
+            await hub.trash_board(board)
+            assert (await client.get(f"/api/thumb/{board}")).status == 200
+            response = await client.post(f"/api/export/{board}", json={"format": "pdf", "frames": "whole"})
+            assert response.status == 200
 
     run(main())

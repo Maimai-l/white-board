@@ -5,6 +5,10 @@
 * **白板列表、文件夹、排序**：``boards`` 消息，以及 ``sel``、``newboard``、``delboard``、
   ``rename``、``folder``、``order``、``newfolder``、``delfolder``、``renamefolder``
   这些扩展消息（docs/protocol.md「白板管理」）。
+* **回收站**：``delboard`` 把白板移进回收站（``meta.data.trashed`` 记下时间），
+  ``restore``、``purge``、``emptytrash`` 恢复或彻底删除；在回收站里超过
+  ``TRASH_TTL`` 的白板由后台任务彻底删除（``start_maintenance``）。回收站里的白板
+  不会是当前白板，1.0.x 页面看不到它们。
 * **权限**：四项权限（manage、settings、clear、export）映射到 inksync 的规则；
   ``perms`` 消息告诉页面它现在有哪些权限。
 * **速写**：``/sketch`` 页面（以及 Edge 插件的弹出页）开始一次速写时，用一块
@@ -20,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, List, Optional
 
@@ -37,6 +42,9 @@ SKETCH_ID = "sketch"
 SKETCH_SPEC = {"name": "速写", "canvas": {"mode": "infinite"}, "background": {"pattern": "blank"}}
 # 速写页面断开之后等多久再结束：刷新页面、网络抖一下都不应该把速写丢掉
 SKETCH_GRACE = 3.0
+# 回收站里的白板放多久之后彻底删除，以及多久检查一次
+TRASH_TTL = 30 * 86400.0
+PURGE_INTERVAL = 3600.0
 
 
 def perms_of(who: Principal) -> FrozenSet[str]:
@@ -46,8 +54,8 @@ def perms_of(who: Principal) -> FrozenSet[str]:
 class WhiteboardPolicy(Policy):
     """用户空间的规则：四项权限的含义见 docs/protocol.md「权限」。"""
 
-    # 文件夹、文档板原件、1.0.1 的应用名只能由白板应用自己改
-    protected_data_keys = frozenset({"folder", "doc", "app"})
+    # 文件夹、文档板原件、1.0.1 的应用名、回收站标记只能由白板应用自己改
+    protected_data_keys = frozenset({"folder", "doc", "app", "trashed"})
 
     def __init__(self, hub: "Hub"):
         self.hub = hub
@@ -77,8 +85,18 @@ class WhiteboardPolicy(Policy):
 class Hub:
     """白板应用的用户空间，见模块说明。``core`` 是底下的 inksync Hub。"""
 
-    def __init__(self, store: BoardStore, autosave: float = AUTOSAVE_INTERVAL, sketch_grace: float = SKETCH_GRACE):
+    def __init__(
+        self,
+        store: BoardStore,
+        autosave: float = AUTOSAVE_INTERVAL,
+        sketch_grace: float = SKETCH_GRACE,
+        trash_ttl: float = TRASH_TTL,
+        purge_interval: float = PURGE_INTERVAL,
+    ):
         self.store = store
+        self.trash_ttl = trash_ttl
+        self.purge_interval = purge_interval
+        self._maintenance: Optional[asyncio.Task] = None
         # 跟随的连接现在是否应该在速写板上（Mac 上选了别的白板就不再跟着速写）
         self.sketch_follow = False
         self.sketch_grace = sketch_grace
@@ -98,6 +116,9 @@ class Hub:
             ("newfolder", self._on_new_folder),
             ("delfolder", self._on_delete_folder),
             ("renamefolder", self._on_rename_folder),
+            ("restore", self._on_restore),
+            ("purge", self._on_purge),
+            ("emptytrash", self._on_empty_trash),
         ):
             self.core.register(name, handler)
         self.core.on("detached", self._on_detached)
@@ -173,7 +194,8 @@ class Hub:
         if isinstance(msg.get("board"), dict):
             msg["board"] = models.to_v1(msg["board"])
         if isinstance(msg.get("boards"), list):
-            msg["boards"] = [models.to_v1(m) for m in msg["boards"]]
+            # 1.0.x 没有回收站：回收站里的白板对它来说就是删掉了
+            msg["boards"] = [models.to_v1(m) for m in msg["boards"] if models.trashed_at(m) is None]
         op = msg.get("op")
         if isinstance(op, dict) and op.get("op") == "meta":
             msg["op"] = dict(op, meta=models.to_v1(op.get("meta")))
@@ -194,6 +216,14 @@ class Hub:
         current = self.current_id
         for conn in self.followers():
             await self.core.open(conn, current, reply="switch")
+
+    async def announce(self, previous: Optional[str]) -> None:
+        """白板列表变了之后通知跟随的连接：当前白板换了（``previous`` 是之前那块）就整块
+        切换，否则只刷列表。"""
+        if self.current_id != previous:
+            await self.broadcast_switch()
+        else:
+            await self.broadcast_boards()
 
     async def broadcast_boards(self) -> None:
         """只刷白板列表：改的可能不是当前这块，没必要让所有人重载笔画。"""
@@ -266,8 +296,24 @@ class Hub:
             return await self.core.edit_meta(board_id, patch, touch=False, quiet=True) is not None
         return self.store.edit_meta(board_id, **patch)
 
+    def is_trashed(self, board_id: str) -> bool:
+        return models.trashed_at(self.core.board_meta(board_id)) is not None
+
+    async def ensure_current(self) -> bool:
+        """当前白板不存在或者在回收站里时，换成第一块还在用的白板；一块都没有就新建一块
+        空白板。换了返回 True（不广播，调用方决定）。"""
+        current = self.current_id
+        if current and self.core.exists(current) and not self.is_trashed(current):
+            return False
+        live = self.store.first_live_id()
+        if live is None:
+            await self.create_board()
+        else:
+            self.store.set_current(live)
+        return True
+
     async def select_board(self, board_id: str) -> bool:
-        if not self.core.exists(board_id) or board_id == self.current_id:
+        if not self.core.exists(board_id) or board_id == self.current_id or self.is_trashed(board_id):
             return False
         # 上次没读全的那块再打开时重新读一遍：读不出来可能只是暂时的（外置盘
         # 没挂上），锁住的白板内存里没有任何改动，丢掉重读不会丢东西
@@ -308,12 +354,14 @@ class Hub:
         return self.store.create_folder(name)
 
     async def delete_folder(self, name: str) -> bool:
-        """删文件夹不删白板：里面的白板先移出来，再把名字从名单里去掉。"""
+        """删文件夹不删白板：里面的白板先移出来，再把名字从名单里去掉。回收站里的白板
+        留着原来的文件夹名，恢复时文件夹重新建出来。"""
         clean = models.sanitize_folder(name)
         if clean not in self.store.folders():
             return False
         for meta in self.store.list_metas():
-            if models.folder_of(self.core.board_meta(meta["id"]) or meta) == clean:
+            meta = self.core.board_meta(meta["id"]) or meta
+            if models.folder_of(meta) == clean and models.trashed_at(meta) is None:
                 await self._edit(meta["id"], {"data": {"folder": None}})
         return self.store.forget_folder(clean)
 
@@ -331,11 +379,93 @@ class Hub:
         return True
 
     async def delete_board(self, board_id: str) -> bool:
+        """彻底删除：白板文件、缩略图和文档原件都删掉。当前白板被删时换成第一块还在用的。"""
         if not await self.core.delete_board(board_id):
             return False
         self.store.delete_files(board_id)
         self.store.forget_board(board_id)
         return True
+
+    # ------------------------------------------------------------ 回收站
+
+    async def trash_board(self, board_id: str) -> bool:
+        """把白板移进回收站（不广播）。它是当前白板时换成第一块还在用的，
+        一块都没有了就新建一块。速写板、不存在或已经在回收站里的返回 False。"""
+        if self.core.is_transient(board_id) or not self.core.exists(board_id) or self.is_trashed(board_id):
+            return False
+        if not await self._edit(board_id, {"data": {"trashed": time.time()}}):
+            return False
+        log.info("白板 %s 移进回收站", board_id)
+        await self.ensure_current()
+        return True
+
+    async def restore_board(self, board_id: str) -> bool:
+        """从回收站恢复（不广播，不换当前白板）。原来的文件夹已经删了就重新建一个。"""
+        meta = self.core.board_meta(board_id)
+        if self.core.is_transient(board_id) or models.trashed_at(meta) is None:
+            return False
+        if not await self._edit(board_id, {"data": {"trashed": None}}):
+            return False
+        folder = models.folder_of(meta)
+        if folder and folder not in self.store.folders():
+            self.store.create_folder(folder)
+        log.info("白板 %s 从回收站恢复", board_id)
+        return True
+
+    async def purge_board(self, board_id: str) -> bool:
+        """彻底删除回收站里的一块白板（不广播）；不在回收站里的不删。"""
+        if not self.is_trashed(board_id):
+            return False
+        return await self.delete_board(board_id)
+
+    def trashed_ids(self) -> List[str]:
+        return [m["id"] for m in self.store.list_metas() if self.is_trashed(m["id"])]
+
+    async def empty_trash(self) -> int:
+        """彻底删除回收站里的全部白板（不广播），返回删了几块。"""
+        purged = 0
+        for board_id in self.trashed_ids():
+            if await self.purge_board(board_id):
+                purged += 1
+        if purged:
+            log.info("清空回收站：彻底删除 %d 块白板", purged)
+        return purged
+
+    async def purge_expired(self, now: Optional[float] = None) -> List[str]:
+        """彻底删除在回收站里放了 ``trash_ttl`` 秒以上的白板（不广播），返回它们的 id。"""
+        now = time.time() if now is None else now
+        purged = []
+        for board_id in self.trashed_ids():
+            stamp = models.trashed_at(self.core.board_meta(board_id))
+            if stamp is not None and now - stamp >= self.trash_ttl and await self.purge_board(board_id):
+                log.info("白板 %s 在回收站里超过 %.0f 天，已彻底删除", board_id, self.trash_ttl / 86400)
+                purged.append(board_id)
+        return purged
+
+    def start_maintenance(self) -> None:
+        """后台任务：马上清理一次过期的回收站，之后每 ``purge_interval`` 秒一次。"""
+        if self._maintenance is None or self._maintenance.done():
+            self._maintenance = asyncio.get_running_loop().create_task(self._maintain())
+
+    async def stop_maintenance(self) -> None:
+        task, self._maintenance = self._maintenance, None
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:  # 忽略：刚刚自己取消的，等它真正停下
+            pass
+
+    async def _maintain(self) -> None:
+        while True:
+            previous = self.current_id
+            try:
+                if await self.purge_expired():
+                    await self.announce(previous)
+            except Exception:  # noqa: BLE001 - 一次清理失败不能让后台任务停掉，下次再试
+                log.exception("hub._maintain：清理回收站出错")
+            await asyncio.sleep(self.purge_interval)
 
     async def unlock(self, board_id: Optional[str] = None) -> bool:
         return await self.core.unlock(board_id or self.current_id)
@@ -371,8 +501,9 @@ class Hub:
         doc = models.doc_of(meta)
         if doc is not None:
             patch["layers"] = models.doc_layers(board_id, doc)
-        if models.folder_of(meta):
-            patch["data"] = {"folder": None}
+        # 导入的白板不进文件夹，也不在回收站里（备份里可能是一块删掉的白板）
+        if models.folder_of(meta) or models.trashed_at(meta) is not None:
+            patch["data"] = {"folder": None, "trashed": None}
         if patch:
             await self.core.edit_meta(board_id, patch, touch=False)
         self.store.put_front(board_id)
@@ -393,9 +524,27 @@ class Hub:
         await self.broadcast_switch()
 
     async def _on_delete_board(self, conn: Conn, msg: Dict[str, Any]) -> None:
+        """删除就是移进回收站；彻底删除走 ``purge``。"""
         board_id = msg.get("board")
-        if self._may(conn, "manage") and isinstance(board_id, str) and await self.delete_board(board_id):
-            await self.broadcast_switch()
+        previous = self.current_id
+        if self._may(conn, "manage") and isinstance(board_id, str) and await self.trash_board(board_id):
+            await self.announce(previous)
+
+    async def _on_restore(self, conn: Conn, msg: Dict[str, Any]) -> None:
+        board_id = msg.get("board")
+        if self._may(conn, "manage") and isinstance(board_id, str) and await self.restore_board(board_id):
+            await self.broadcast_boards()
+
+    async def _on_purge(self, conn: Conn, msg: Dict[str, Any]) -> None:
+        board_id = msg.get("board")
+        previous = self.current_id
+        if self._may(conn, "manage") and isinstance(board_id, str) and await self.purge_board(board_id):
+            await self.announce(previous)
+
+    async def _on_empty_trash(self, conn: Conn, msg: Dict[str, Any]) -> None:
+        previous = self.current_id
+        if self._may(conn, "manage") and await self.empty_trash():
+            await self.announce(previous)
 
     async def _on_rename(self, conn: Conn, msg: Dict[str, Any]) -> None:
         board_id, name = msg.get("board"), msg.get("name")
@@ -431,6 +580,8 @@ class Hub:
 
     def start(self) -> None:
         self.core.start()
+        self.start_maintenance()
 
     async def stop(self) -> None:
+        await self.stop_maintenance()
         await self.core.stop()

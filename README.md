@@ -319,7 +319,9 @@ The first icon in the top-right group (白板) opens the board chooser: full-scr
 - To file a board, drag it onto the folder, or use the folder icon next to its name and pick a folder or type a new name, which creates the folder.
 - A folder's name is its identity. Renaming a folder renames it on every board inside; a name already in use is rejected.
 - Boards created inside a folder stay in that folder. A PDF or image dropped onto the window, or opened from Finder, goes into the folder the board chooser shows; with the chooser closed, it goes into the current board's folder.
-- Deleting a folder does not delete its boards; they move out of it.
+- Deleting a folder does not delete its boards; they move out of it. Boards in the trash keep the folder's name and go back into a recreated folder when restored.
+
+**Trash.** Deleting a board moves it to the trash. A board in the trash can be restored or deleted permanently; boards in the trash for more than 30 days are deleted permanently when the app starts and once an hour while it runs. A board in the trash is never the current board: deleting the current board switches every device to the first board not in the trash, or to a new blank board. Opening a `.wbz` file of a board in the trash from Finder restores it.
 
 ### Documents (PDF and images)
 
@@ -409,7 +411,7 @@ boards-data/
 | `space.json` | Order, folder names and the current board. If deleted, the order falls back to last update; folders that contain boards are recovered, empty folders are not. |
 | `spaces/<app name>/` | Kept when the app (`apps/<app name>/`) is removed, and back when an app of the same name is installed again. |
 | `thumbs/<id>.png` | Uploaded by the Mac. Document boards have none; their first page is used. |
-| `docs/<id>.<ext>` | Read-only; deleted together with the board. |
+| `docs/<id>.<ext>` | Read-only; deleted when the board is deleted permanently. |
 
 The server saves changes every 3 seconds, and once more when the window closes or the process is interrupted (Ctrl+C).
 

@@ -546,6 +546,8 @@ async def open_local_file(hub: Hub, path: Path, folder: str = "") -> Dict[str, A
     if suffix == ".wbz":
         own = hub.store.board_id_of(path)
         if own is not None:
+            # 回收站里那块：打开它就是要用它，先恢复
+            await hub.restore_board(own)
             if not await hub.select_board(own):
                 await hub.broadcast_switch()
             return hub.core.board_meta(own) or {}
@@ -841,6 +843,11 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
 
     async def _on_startup(_app: web.Application) -> None:
         spaces.get("")  # 用户空间一直开着
+        hub.start_maintenance()  # 回收站：启动时清理一次过期的，之后每小时一次
+
+    async def _on_cleanup(_app: web.Application) -> None:
+        await hub.stop_maintenance()
 
     app.on_startup.append(_on_startup)
+    app.on_cleanup.append(_on_cleanup)
     return app

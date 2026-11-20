@@ -3,7 +3,8 @@
 * ``thumbs/<board_id>.png``：Mac 端选择白板用的缩略图；
 * ``docs/<board_id>.<扩展名>``：文档板的原件（PDF / 图片），原样保存、只读不改；
 * 文件夹名单、排序和当前白板：存在 ``space.json``（``FileStorage.kv``）；
-* 至少有一块白板：白板应用总要显示一块，存储为空时新建一块空白板。
+* 至少有一块还在用的白板：白板应用总要显示一块，当前白板不能在回收站里
+  （``meta.data.trashed``），一块还在用的都没有时新建一块空白板。
 
 这里的方法都在事件循环线程（或测试的主线程）中同步调用，只处理没有载入内存的
 白板；已经载入的白板必须经过 :class:`whiteboard.hub.Hub`，否则自动保存会拿内存里
@@ -53,10 +54,7 @@ class BoardStore:
         self.kv = self.core.kv
         self._migrate()
         self._sync_folders()
-        if not self.core.count():
-            self.create_board()
-        if self.current_id not in self.core.ids():
-            self.kv.set("current", self.list_metas()[0]["id"])
+        self.ensure_current()
 
     # ------------------------------------------------------------ 迁移
 
@@ -123,6 +121,27 @@ class BoardStore:
         current = self.kv.get("current")
         return current if isinstance(current, str) else None
 
+    def first_live_id(self) -> Optional[str]:
+        """按界面上的顺序，第一块不在回收站里的白板；全都在回收站里时返回 None。"""
+        for meta in self.list_metas():
+            if models.trashed_at(meta) is None:
+                return meta["id"]
+        return None
+
+    def ensure_current(self) -> bool:
+        """当前白板不存在或者在回收站里时，换成第一块还在用的；一块都没有就新建一块。
+        换了返回 True。"""
+        current = self.current_id
+        meta = self.core.get_meta(current) if current else None
+        if meta is not None and models.trashed_at(meta) is None:
+            return False
+        live = self.first_live_id()
+        if live is None:
+            self.create_board()
+        else:
+            self.kv.set("current", live)
+        return True
+
     def set_current(self, board_id: str) -> None:
         if self.core.exists(board_id) and board_id != self.current_id:
             self.kv.set("current", board_id)
@@ -130,10 +149,15 @@ class BoardStore:
     # ------------------------------------------------------------ 文件夹与排序
 
     def _sync_folders(self) -> None:
-        """白板上写着的文件夹名一定要在名单里，否则那块白板会从界面上消失。"""
+        """白板上写着的文件夹名一定要在名单里，否则那块白板会从界面上消失。
+
+        回收站里的白板不算：它记着的是删掉之前所在的文件夹，那个文件夹可能已经删了，
+        恢复的时候才重新建（``Hub.restore_board``）。"""
         known = self.folders()
         added = False
         for meta in self.core.list(limit=None):
+            if models.trashed_at(meta) is not None:
+                continue
             name = models.folder_of(meta)
             if name and name not in known:
                 known.append(name)
@@ -254,12 +278,13 @@ class BoardStore:
         return True
 
     def delete_folder(self, name: str) -> bool:
-        """删文件夹不删白板（白板都没有载入内存时用；否则走 Hub）。"""
+        """删文件夹不删白板（白板都没有载入内存时用；否则走 Hub）。回收站里的白板
+        留着原来的文件夹名，恢复时放回去。"""
         clean = models.sanitize_folder(name)
         if clean not in self.folders():
             return False
         for meta in self.list_metas():
-            if models.folder_of(meta) == clean:
+            if models.folder_of(meta) == clean and models.trashed_at(meta) is None:
                 self.edit_meta(meta["id"], data={"folder": None})
         return self.forget_folder(clean)
 
@@ -294,14 +319,12 @@ class BoardStore:
             doc.unlink(missing_ok=True)
 
     def forget_board(self, board_id: str) -> None:
-        """白板删除之后：从排序中去掉；没有白板了就新建一块；当前白板被删时换成第一块。"""
+        """白板彻底删除之后：从排序中去掉；当前白板被删时换成第一块还在用的，
+        没有还在用的白板了就新建一块。"""
         order = self.order()
         if board_id in order:
             self.kv.set("order", [b for b in order if b != board_id])
-        if not self.core.count():
-            self.create_board()
-        elif self.current_id == board_id or self.current_id not in self.core.ids():
-            self.kv.set("current", self.list_metas()[0]["id"])
+        self.ensure_current()
 
     def board_id_of(self, path: Path) -> Optional[str]:
         return self.core.owns(path)
