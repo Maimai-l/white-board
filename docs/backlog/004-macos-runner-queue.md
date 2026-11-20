@@ -29,3 +29,8 @@
   `.github/actions/ipad-shell`，package 自己编译外壳、最后接着演练发布，单独的 ipad job 只在不打包
   时跑；package 和 updates 换到 macos-26。工作分支上串起来的 macOS job 从三个（ipad → package →
   updates-dry-run）减到一个，dev 上从三个减到两个。合入后再量一周，看最长时间是否落到 15 分钟以内。
+- 2026-11-20 合入 `dev`（`f3f3bf0`）。改完之后工作分支上从推送到发布演练完成约 3.5 分钟（3 次）。
+- 2026-11-20 合并后发现：从 11-19 13:37 起 `dev` 再没发出 alpha。导出那次是 ipad job 排满 15 分钟被取消，
+  这次是 updates 的签名核对报缺文件——`appcast.py fetch` 只取回完整包，没取旧条目里的增量包
+  （`claude/appcast-fetch-deltas` 修复）。`dev` 的运行不属于 PR，失败没人收到通知：CLAUDE.md 加了
+  「合进 dev 之后确认 alpha 发出去了」。

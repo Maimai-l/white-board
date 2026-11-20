@@ -152,3 +152,23 @@ def test_tree_diff_reports_content_link_and_mode_changes(tmp_path, capsys):
     out = capsys.readouterr().out
     for name in ("Contents/Frameworks/lib/a.py", "Contents/Resources/lib", "Contents/MacOS/app", "Contents/extra.txt"):
         assert name in out
+
+
+def test_fetch_keeps_every_file_the_live_appcast_names(tmp_path, monkeypatch):
+    """线上 appcast 列出的完整包和增量包都要取回来：漏了增量包，重新生成的 appcast 仍然列着它，
+    verify 报缺文件，发布失败（2026-11-20 dev 上的 updates job）。"""
+    files = {
+        "Whiteboard-1.3.0-alpha.20261120.090000.zip": b"new",
+        "Whiteboard20261120.090000-20261119.153012.delta": b"dd",
+        "Whiteboard-1.2.0.zip": b"old",
+    }
+
+    def fake_get(url, timeout=60.0):
+        if "/appcast.xml" in url:
+            return FEED.encode()
+        return files.get(url.rsplit("/", 1)[1])
+
+    monkeypatch.setattr(appcast, "_get", fake_get)
+    assert appcast.fetch(SITE, tmp_path) == 0
+    for name, body in files.items():
+        assert (tmp_path / name).read_bytes() == body
