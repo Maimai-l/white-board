@@ -4,11 +4,33 @@
 // 从 ui.js 原样搬过来，只是换了个文件放。
 
 import { icon } from "./icons.js";
+import { leave } from "./motion.js";
 import { el } from "/inksync/util.js";
 
 /** 对话框里的文字按钮。title 和文字一样，按钮靠文字认，不靠图标。 */
 function textButton(text, onclick, kind = "") {
   return el("button", { class: `lib-btn${kind ? ` ${kind}` : ""}`, type: "button", title: text, text, onclick });
+}
+
+/**
+ * 把 scrim 挂上页面，返回关掉它的函数：淡出（motion.js），按 Esc 等于点 ``onEscape``
+ * 那个按钮（不给就是直接关）。
+ */
+function present(root, scrim, onEscape = null) {
+  const keys = (event) => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    event.preventDefault();
+    if (onEscape) onEscape();
+    else close();
+  };
+  const close = () => {
+    removeEventListener("keydown", keys, true);
+    leave(scrim);
+  };
+  addEventListener("keydown", keys, true);
+  root.append(scrim);
+  return close;
 }
 
 export function installDialogs(proto) {
@@ -21,23 +43,24 @@ const methods = {
    * 确认按钮上的动词，``note`` 是可选的第二句。图标只是陪衬。
    */
   confirm(iconName, question, onYes, { verb = "确定", note = "" } = {}) {
-    const scrim = el("div", { class: "scrim", onclick: () => scrim.remove() });
+    let close = null;
+    const scrim = el("div", { class: "scrim", onclick: () => close() });
     const dialog = el("div", { class: "dialog ask" }, [
       el("div", { class: "ask-icon", html: icon(iconName, 28) }),
       el("p", { class: "ask-text", text: question }),
       note ? el("p", { class: "ask-note", text: note }) : null,
       // 和 macOS 的提醒框一样用文字按钮：取消在左，要动手的那个在右、红色
       el("div", { class: "ask-actions" }, [
-        textButton("取消", () => scrim.remove()),
+        textButton("取消", () => close()),
         textButton(verb, () => {
-          scrim.remove();
+          close();
           onYes();
         }, "danger"),
       ]),
     ]);
     scrim.append(dialog);
     dialog.addEventListener("click", (event) => event.stopPropagation());
-    this.root.append(scrim);
+    close = present(this.root, scrim);
   },
 
   /**
@@ -51,11 +74,12 @@ const methods = {
     const canUnlock = this.may("manage");
     this.hideLocked();
     const scrim = el("div", { class: "scrim" });
+    let dismiss = null;
     const close = () => {
-      scrim.remove();
-      if (this.lockedDialog === scrim) this.lockedDialog = null;
+      dismiss();
+      if (this.lockedDialog && this.lockedDialog.scrim === scrim) this.lockedDialog = null;
     };
-    this.lockedDialog = scrim;
+    this.lockedDialog = { scrim, close };
     const actions = [textButton("保持只读", close, canUnlock ? "" : "primary")];
     if (canUnlock) {
       actions.push(
@@ -76,11 +100,12 @@ const methods = {
     ]);
     scrim.append(dialog);
     dialog.addEventListener("click", (event) => event.stopPropagation());
-    this.root.append(scrim);
+    // Esc 等于「保持只读」
+    dismiss = present(this.root, scrim, close);
   },
 
   hideLocked() {
-    if (this.lockedDialog) this.lockedDialog.remove();
+    if (this.lockedDialog) this.lockedDialog.close();
     this.lockedDialog = null;
   },
 

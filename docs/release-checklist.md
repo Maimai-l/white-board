@@ -39,6 +39,7 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 - [ ] Connect iPad: open “连接 iPad” (Connect iPad) and scan the QR code in the panel with the iPad's own Camera app. Safari opens this board, at the address shown in the panel. After “在 iPad 上安装白板” (Install on iPad), scanning again opens the shell install page. If the code does not scan or the address is wrong, send a screenshot of the panel and the address the iPad opened.
 - [ ] When the iPad opens the board, the Mac window shows “iPad 已连接” (iPad connected), the “连接 iPad” icon turns blue, and the panel lists the iPad under “已连接” (Connected). After the page is closed on the iPad (or its Wi-Fi is turned off), “iPad 已断开” (iPad disconnected) appears and the icon returns to its normal color. If a message is missing or appears twice, or the icon does not change color, send the log file and say how the iPad was disconnected.
 - [ ] Clicking “连接 iPad” three times opens the diagnostics panel; three more clicks close it.
+- [ ] Pointer and motion: moving the pointer over toolbar buttons, title bar buttons, library cards and dialog buttons gives each a gray fill or a slight lift; menus and panels grow from their button and fade out when closed, without flicker or a jump at the start or end. Esc closes the export dialog. If something has no reaction, flickers or jumps, send a screen recording.
 
 ### Library and settings
 
@@ -88,6 +89,7 @@ Run this section twice: once in the iPad shell and once from the Home Screen ico
 - [ ] “白板库” (Library) at the top left opens the library; tapping a board opens it.
 - [ ] In the library, long-pressing a board without moving and then releasing shows its menu (“打开”, “重命名”, “移到文件夹”, “复制”, “导出…”, “移到回收站”). The board does not open, and no magnifier, text selection or system menu appears. Long-pressing and then moving lifts the board, which can be dropped on a folder or “回收站” (Trash) in the sidebar. Long-pressing a folder in the sidebar shows “重命名”, “在此新建白板” (New board here) and “删除文件夹” (Delete folder). If the menu is missing, the board opens, or a system menu appears, send a screen recording.
 - [ ] The sidebar button at the top left of the library hides the sidebar, and a second tap shows it. In portrait the sidebar starts hidden and hides again after a row is chosen. If the sidebar covers the content or a button cannot be tapped, send one screenshot in landscape and one in portrait.
+- [ ] After tapping a button, menu item or card and lifting the finger, it does not stay highlighted as if still pressed.
 - [ ] Connection status at the top right: blue while connected to the Mac, and a tap shows “已连接到 <host>:<port>” (Connected to). After quitting the app on the Mac, the icon turns gray and a tap shows “未连接” (Not connected); it recovers when the app reopens. The shell also shows “换一台 Mac” (Switch Mac). Three taps open the diagnostics panel.
 
 ### Text input

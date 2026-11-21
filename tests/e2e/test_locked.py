@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import zlib
 
-from e2e.support import draw, open_pages, serve_with_perms, stroke_count, wait_strokes
+from e2e.support import draw, gone, open_pages, serve_with_perms, stroke_count, wait_strokes
 from whiteboard.store import BoardStore
 
 
@@ -59,7 +59,7 @@ def test_a_board_that_cannot_be_read_opens_read_only_until_unlocked(browser, mak
         page.wait_for_function("() => whiteboard.locked === null")
     # 在 Mac 上选了之后，iPad 上还开着的那个提示也自己收起来
     for page in (mac, ipad):
-        assert page.locator(".dialog.locked").count() == 0
+        gone(page, ".dialog.locked")
     backups = list((thread.config.data_dir / "backups" / "locked").glob("*.wbz"))
     assert len(backups) == 1 and backups[0].read_bytes() == b"not a board"
 
@@ -72,7 +72,7 @@ def test_keep_read_only_really_keeps_it_read_only(browser, make_server):
     mac, _ipad = open_pages(browser, thread.port)
     mac.wait_for_selector(".dialog.locked")
     mac.click('.dialog.locked button[title="保持只读"]')
-    assert mac.query_selector(".dialog.locked") is None
+    gone(mac, ".dialog.locked")
     draw(mac, [(300, 300), (380, 340)], pointer_type="mouse")
     assert stroke_count(mac) == 0
     assert thread.hub.board().locked

@@ -12,6 +12,7 @@
 import { icon } from "./icons.js";
 import { startCardDrag } from "./dragsort.js";
 import { closeMenu, menuOpen, showMenu } from "./ui-menu.js";
+import { leave } from "./motion.js";
 import { boardLabel, iconButton } from "./ui-common.js";
 import { el, isComposing } from "/inksync/util.js";
 import { reportError } from "/inksync/report.js";
@@ -119,7 +120,7 @@ const methods = {
     closeMenu();
     this.closeNewBoard();
     if (this.gallery) {
-      this.gallery.remove();
+      leave(this.gallery);
       this.gallery = null;
     }
     if (this._libraryKeys) {
@@ -1080,7 +1081,7 @@ const methods = {
     if (!this.newBoardPanel) return;
     removeEventListener("pointerdown", this.newBoardPanel.outside, true);
     removeEventListener("keydown", this.newBoardPanel.keys, true);
-    this.newBoardPanel.panel.remove();
+    leave(this.newBoardPanel.panel);
     this.newBoardPanel = null;
   },
 

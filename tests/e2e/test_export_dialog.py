@@ -10,7 +10,7 @@ import zipfile
 
 import pytest
 
-from e2e.support import draw, open_mac, serve_with_perms, wait_strokes
+from e2e.support import draw, gone, open_mac, serve_with_perms, wait_strokes
 
 pypdf = pytest.importorskip("pypdf")
 pdfium = pytest.importorskip("pypdfium2")
@@ -84,7 +84,7 @@ def test_the_export_button_opens_the_dialog_with_the_auto_pages(browser, server)
     assert mac.locator(".export-footer .primary").inner_text() == "导出 PDF"
     # 取消就关掉，什么都不下载
     mac.click('.export-footer button:has-text("取消")')
-    assert mac.locator(".export-dialog").count() == 0
+    gone(mac, ".export-dialog")
 
 
 def test_deselected_pages_are_left_out_of_the_pdf(browser, server):
@@ -96,7 +96,7 @@ def test_deselected_pages_are_left_out_of_the_pdf(browser, server):
     assert name.endswith(".pdf")
     assert pdf_pages(body) == 2
     mac.wait_for_selector(".toast")
-    assert mac.locator(".export-dialog").count() == 0
+    gone(mac, ".export-dialog")
 
     # 一页都不选时导出按钮是灰的；「全选」又全选上
     open_dialog(mac, 3)

@@ -506,7 +506,7 @@ select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
  * 磨砂的，半透明的时候底下那层暗底会直接透过来，看着像弹窗自己也黑了一下。
  */
 @keyframes pop {
-  from { opacity: 0; transform: translateY(6px) scale(.96); }
+  from { opacity: 0; translate: 0 6px; scale: .96; }
   30% { opacity: 1; }
 }
 
@@ -1835,6 +1835,8 @@ input.board-name {
   font-size: 12px;
   color: var(--on-surface);
   cursor: default;
+  /* 选中时样张外面那一圈蓝框画在按钮边界外面，不能裁 */
+  overflow: visible;
 }
 .bg-swatch {
   display: block;
@@ -1900,3 +1902,190 @@ input.board-name {
 :root[data-chrome="bar"] .notice { left: auto; right: 60px; transform: none; }
 .notice svg { width: 18px; height: 18px; }
 
+
+/* ------------------------------------------------------------- 动效 */
+
+/*
+ * 指针和动效（docs/design/motion.zh-CN.md）。每一种动作只有一条曲线、一个时长：
+ *
+ *   悬停  --t-hover  底色、颜色淡入淡出
+ *   按下  --t-press  再深一点，图标按钮缩一点
+ *   打开  --t-enter  从按钮的方向长出来（pop / menu-in / panel-in）
+ *   关上  --t-leave  淡出并缩一点，motion.js 的 leave() 等它走完再拿掉
+ *
+ * 位移和缩放用 translate / scale 这两个单独的属性，不用 transform：提示条这些靠
+ * transform 居中，动画要是改 transform，开头那一帧就会横着跳一下。
+ * 所有 :hover 都在 @media (hover: hover) 里（见文件开头 .icon-btn 那段的说明）。
+ */
+:root {
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-in: cubic-bezier(.4, 0, 1, 1);
+  --t-hover: 120ms;
+  --t-press: 90ms;
+  --t-enter: 180ms;
+  --t-leave: 140ms;
+  /* 有底色的按钮悬停、按下时的明暗：浅色模式压暗，深色模式提亮 */
+  --hover-filter: brightness(.95);
+  --press-filter: brightness(.88);
+  --press-fill: rgba(120, 120, 128, .22);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --hover-filter: brightness(1.18);
+    --press-filter: brightness(1.32);
+    --press-fill: rgba(120, 120, 128, .4);
+  }
+}
+
+/* --- 悬停和按下 */
+
+/* 有底色的按钮：灰底、蓝底、红底都一样，悬停稍暗，按下再暗 */
+.lib-btn,
+.bar-btn,
+.export-delete,
+.perm-row input[type="checkbox"],
+.kind-tile .kind-art {
+  transition: filter var(--t-hover) var(--ease-out), background-color var(--t-hover) var(--ease-out),
+    translate var(--t-hover) var(--ease-out), box-shadow var(--t-hover) var(--ease-out);
+}
+@media (hover: hover) {
+  .lib-btn:not(:disabled):hover,
+  .bar-btn:hover,
+  .export-delete:hover,
+  .perm-row input[type="checkbox"]:hover { filter: var(--hover-filter); }
+  .bar-btn:not(.primary):hover { background: var(--fill); filter: none; }
+}
+.lib-btn:not(:disabled):active,
+.bar-btn:active,
+.export-delete:active { filter: var(--press-filter); }
+.bar-btn:not(.primary):active { background: var(--press-fill); filter: none; }
+
+/* 图标按钮：Mac 的顶栏、工具栏、缩放都是悬停一层灰底，按下更深、图标缩一点 */
+:root[data-chrome="bar"] #toolbar .icon-btn::before,
+:root[data-chrome="bar"] #zoombar .icon-btn::before { display: none; }
+.icon-btn,
+#topbar .icon-btn,
+.zoom-level,
+.width-opt,
+.seg button,
+.lib-seg button {
+  transition: background-color var(--t-hover) var(--ease-out), color var(--t-hover) var(--ease-out),
+    scale var(--t-press) var(--ease-out), box-shadow var(--t-hover) var(--ease-out), transform var(--t-hover) var(--ease-out);
+}
+@media (hover: hover) {
+  :root[data-chrome="bar"] #toolbar .icon-btn:not(.active):hover,
+  :root[data-chrome="bar"] #zoombar .icon-btn:hover,
+  .zoom-level:hover { background: var(--fill); }
+  :root[data-chrome="bar"] #toolbar .icon-btn.active:hover,
+  #topbar .icon-btn.active:hover { background: color-mix(in srgb, var(--primary-tint), var(--primary) 8%); }
+  .seg button:not(.is-on):hover,
+  .lib-seg button:not([aria-pressed="true"]):hover { color: var(--on-surface); background: var(--fill-soft); }
+}
+:root[data-chrome="bar"] #toolbar .icon-btn:active,
+:root[data-chrome="bar"] #zoombar .icon-btn:active,
+#topbar .icon-btn:active,
+.zoom-level:active,
+.width-opt:active,
+.lib-seg button:not([aria-pressed="true"]):active { background: var(--press-fill); }
+.icon-btn:active { scale: .92; }
+
+/* 文字链接：悬停下划线，按下变淡 */
+.link,
+.text-btn { transition: opacity var(--t-press) var(--ease-out); }
+@media (hover: hover) {
+  .text-btn:hover { text-decoration: underline; }
+}
+.link:active,
+.text-btn:active { opacity: .6; }
+
+/* 下拉框：悬停描边加深 */
+select { transition: border-color var(--t-hover) var(--ease-out), box-shadow var(--t-hover) var(--ease-out); }
+@media (hover: hover) {
+  select:hover { border-color: var(--outline-strong); }
+  .export-radio:hover input[type="radio"] { filter: var(--hover-filter); }
+}
+.export-radio input[type="radio"] { transition: filter var(--t-hover) var(--ease-out); }
+
+/* 导出对话框里的页：没选中的半透明，指上去亮一些 */
+@media (hover: hover) {
+  .export-card:not(.is-selected):hover .export-thumb { opacity: .8; }
+  .export-card.is-selected:hover .export-thumb { box-shadow: 0 0 0 1px rgba(0, 0, 0, .1), 0 3px 10px rgba(0, 0, 0, .14); }
+}
+.export-card:active .export-thumb { opacity: .9; }
+
+/* 背景的样张、新建白板的样张：指上去浮起来一点（位移见上面各自的规则），按下落回去 */
+.bg-opt:active { translate: 0 1px; }
+
+/* --- 打开 */
+
+/* 菜单从按钮那一角长出来：在下面开就从左上角，在上面开就从左下角（ui-menu.js 设） */
+.menu { transform-origin: top left; }
+.menu[data-depth="0"] { animation: menu-in var(--t-enter) var(--ease-out); }
+@keyframes menu-in {
+  from { opacity: 0; scale: .96; }
+  40% { opacity: 1; }
+}
+/* 顶栏按钮下面的面板：从按钮那头往下展开 */
+.panel { transform-origin: top right; animation: panel-in var(--t-enter) var(--ease-out); }
+.lib-new-panel { transform-origin: top right; animation: panel-in var(--t-enter) var(--ease-out); }
+@keyframes panel-in {
+  from { opacity: 0; translate: 0 -4px; scale: .97; }
+  40% { opacity: 1; }
+}
+/* 颜色与粗细从工具栏上的按钮往上长（翻到下面时 ui.js 改成从上沿） */
+.popover { transform-origin: bottom center; animation-duration: var(--t-enter); animation-timing-function: var(--ease-out); }
+.dialog,
+.export-dialog,
+.toast,
+.notice { animation-duration: var(--t-enter); animation-timing-function: var(--ease-out); }
+.scrim { animation-duration: var(--t-enter); }
+
+/* --- 关上 */
+
+/* 退场时不再挡点击：淡出的那一下底下照样能点 */
+.leaving,
+#ui > .leaving { pointer-events: none !important; }
+.menu-layer.leaving .menu { animation: fade-out var(--t-leave) var(--ease-in) forwards; }
+.panel.leaving,
+.popover.leaving,
+.lib-new-panel.leaving,
+.notice.leaving,
+.toast.leaving { animation: shrink-out var(--t-leave) var(--ease-in) forwards; }
+.gallery.leaving { animation: fade-out var(--t-leave) var(--ease-in) forwards; }
+/* 暗底只淡背景色，不淡 opacity（见 .scrim 的说明）；里面的对话框自己缩着淡出 */
+.scrim.leaving { animation: scrim-out var(--t-leave) var(--ease-in) forwards; }
+.scrim.leaving > .dialog,
+.scrim.leaving > .export-dialog { animation: shrink-out var(--t-leave) var(--ease-in) forwards; }
+.scrim.leaving > .sheet { animation: slide-out var(--t-leave) var(--ease-in) forwards; }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes shrink-out { to { opacity: 0; scale: .97; } }
+@keyframes scrim-out { to { background-color: transparent; } }
+@keyframes slide-out { to { opacity: 0; translate: 24px 0; } }
+
+/* 减弱动态效果：不放进场和退场，悬停的变化直接到位（leave() 也直接拿掉） */
+@media (prefers-reduced-motion: reduce) {
+  .menu,
+  .panel,
+  .lib-new-panel,
+  .popover,
+  .dialog,
+  .export-dialog,
+  .toast,
+  .notice,
+  .scrim,
+  .sheet,
+  .gallery,
+  .leaving,
+  .leaving * { animation: none !important; }
+  .icon-btn,
+  .lib-btn,
+  .bar-btn,
+  .seg button,
+  .lib-seg button,
+  .zoom-level,
+  .width-opt,
+  .swatch,
+  .board-card,
+  .bg-opt { transition: none; }
+  .icon-btn:active { scale: none; }
+}

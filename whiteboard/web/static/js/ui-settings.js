@@ -6,6 +6,7 @@
 import { icon } from "./icons.js";
 import { inShell, shellCommand } from "/inksync/shell.js";
 import { closeMenu, dropChromeFocus } from "./ui-menu.js";
+import { leave } from "./motion.js";
 import { el } from "/inksync/util.js";
 import { reportError } from "/inksync/report.js";
 
@@ -93,7 +94,7 @@ const methods = {
     removeEventListener("pointerdown", state.outside, true);
     removeEventListener("keydown", state.keys, true);
     state.anchor.classList.remove("active");
-    state.node.remove();
+    leave(state.node);
   },
 
   /** 内容变了（换了白板、权限、连接的设备）：原地重画，不关面板。 */

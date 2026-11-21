@@ -22,6 +22,8 @@ WEBKIT_CASES = test_drawing_syncs_both_ways or test_undo_erase_and_clear \
   or test_undo_and_redo_round_trip or test_bite_syncs_and_undoes \
   or test_a_board_that_cannot_be_read_opens_read_only_until_unlocked \
   or test_text_fields_can_take_typing_on_the_ipad \
+  or test_menus_panels_and_dialogs_fade_out_instead_of_vanishing \
+  or test_a_closing_menu_does_not_get_in_the_way \
   or test_tapping_a_card_opens_that_board \
   or test_a_board_can_be_renamed_by_typing_on_the_ipad \
   or test_ipad_follows_a_sketch_and_returns \

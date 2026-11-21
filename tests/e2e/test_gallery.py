@@ -17,6 +17,7 @@ from e2e.support import (
     file_into,
     folder_row,
     gallery_with_folder,
+    gone,
     menu_pick,
     mouse_drag,
     new_board,
@@ -138,7 +139,7 @@ def test_board_switch_and_settings_follow(browser, server):
     new_board(mac, "大白板")
     ipad.wait_for_function("(was) => whiteboard.state.id !== was", arg=first_board)
     assert stroke_count(ipad) == 0  # 新白板是空的
-    assert mac.query_selector(".gallery") is None  # 新建之后直接进到新白板
+    gone(mac, ".gallery")  # 新建之后直接进到新白板
 
     # 背景改动会同步到 iPad
     mac.click('#topright button[title="白板设置"]')
@@ -172,7 +173,7 @@ def test_the_library_lists_recent_boards_with_the_current_one_selected(browser, 
     # 双击打开
     mac.dblclick(f'.board-item[data-board="{first}"] .board-card')
     mac.wait_for_function("(id) => whiteboard.state.id === id", arg=first)
-    assert mac.query_selector(".gallery") is None
+    gone(mac, ".gallery")
 
 
 def test_command_click_selects_several_boards(browser, server):
@@ -595,7 +596,7 @@ def test_tapping_a_card_opens_that_board(browser, server):
     ipad.tap(f'.board-item[data-board="{first}"] .board-card')
     for page in (ipad, mac):
         page.wait_for_function("(id) => whiteboard.state.id === id", arg=first)
-    assert ipad.query_selector(".gallery") is None
+    gone(ipad, ".gallery")
 
 
 def test_a_new_folder_can_be_named_on_the_ipad(browser, server):
