@@ -33,9 +33,9 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 
 ### Window
 
-- [ ] The title bar shows the board name on the left, with its folder under the name. Dragging the title bar moves the window.
+- [ ] The title bar shows the board name on the left, with its folder under the name.
 - [ ] Zoom: clicking “放大” (Zoom in) and “缩小” (Zoom out), and pinching on the trackpad, change the percentage at the bottom right; clicking the percentage returns to `100%`. If the percentage does not change or does not match the zoom, send a screenshot.
-- [ ] Toolbar: “更多” (More) → “工具栏移到左侧” (Move toolbar to the left) puts the toolbar upright on the left edge, and the “颜色与粗细” (Color and width) panel opens to its right without being covered. After quitting and reopening the app the toolbar is still on the left; “工具栏移到底部” (Move toolbar to the bottom) puts it back. If the position is wrong or the panel is covered, send a screenshot.
+- [ ] Menus and panels: “更多” (More), “颜色与粗细” (Color and width), “白板设置” (Board settings) and “连接 iPad” (Connect iPad) each close when clicking anywhere outside them, and the click also reaches what was under it. If one stays open, send a screenshot and say which one.
 - [ ] Connect iPad: open “连接 iPad” (Connect iPad) and scan the QR code in the panel with the iPad's own Camera app. Safari opens this board, at the address shown in the panel. After “在 iPad 上安装白板” (Install on iPad), scanning again opens the shell install page. If the code does not scan or the address is wrong, send a screenshot of the panel and the address the iPad opened.
 - [ ] When the iPad opens the board, the Mac window shows “iPad 已连接” (iPad connected), the “连接 iPad” icon turns blue, and the panel lists the iPad under “已连接” (Connected). After the page is closed on the iPad (or its Wi-Fi is turned off), “iPad 已断开” (iPad disconnected) appears and the icon returns to its normal color. If a message is missing or appears twice, or the icon does not change color, send the log file and say how the iPad was disconnected.
 - [ ] Clicking “连接 iPad” three times opens the diagnostics panel; three more clicks close it.

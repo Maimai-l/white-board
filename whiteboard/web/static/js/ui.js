@@ -15,12 +15,11 @@ import { icon } from "./icons.js";
 import { loadFingerDraw, loadShapeLines } from "./boards.js";
 import { loadPicker } from "./pkpicker.js";
 import { inShell } from "/inksync/shell.js";
-import { ToolDock } from "./toolpicker.js";
 import { boardLabel, iconButton } from "./ui-common.js";
 import { installBoards } from "./ui-boards.js";
 import { installDialogs } from "./ui-dialogs.js";
 import { installSettings } from "./ui-settings.js";
-import { closeMenu, showMenu } from "./ui-menu.js";
+import { closeMenu, dropChromeFocus, showMenu } from "./ui-menu.js";
 import { el, clamp } from "/inksync/util.js";
 import { reportError } from "/inksync/report.js";
 
@@ -145,7 +144,12 @@ export class UI {
 
     this.toolbar = el("div", { id: "toolbar", class: "pill", role: "toolbar", "aria-label": "绘图工具" });
     this.root.append(this.toolbar);
-    this.dock = new ToolDock({ bar: this.toolbar });
+    // 工具栏固定在底部（Mac 自带应用都是这样）。老版本存过的位置不再用，清掉
+    try {
+      localStorage.removeItem("whiteboard.toolbar");
+    } catch (err) {
+      console.warn("ui.js build：清不掉老的工具栏位置，不影响使用", err);
+    }
     this.fillToolbar();
 
     this.buildChrome();
@@ -305,7 +309,6 @@ export class UI {
     this.colorButton = null;
     this.colorDot = null;
     this.fillClassicBar(bar);
-    this.dock.apply(this.dock.dock, false);
     this.setUndoEnabled(this.undoEnabled);
     this.setRedoEnabled(this.redoEnabled);
     this.selectTool(this.tool.tool);
@@ -349,13 +352,7 @@ export class UI {
         "-"
       );
     }
-    items.push(
-      {
-        label: this.dock.dock === "left" ? "工具栏移到底部" : "工具栏移到左侧",
-        onSelect: () => this.toggleDock(),
-      },
-      { label: "回到内容", onSelect: () => this.actions.onFit() }
-    );
+    items.push({ label: "回到内容", onSelect: () => this.actions.onFit() });
     if (this.may("clear")) items.push("-", { label: "清空白板…", danger: true, onSelect: () => this.confirmClear() });
     if (this.native) items.push("-", { label: "关于白板", onSelect: () => this.openAbout() });
     this.closePopover();
@@ -470,10 +467,6 @@ export class UI {
     if (this.pk) this.pk.strokeStarted();
   }
 
-  toggleDock() {
-    this.closePopover();
-    this.dock.toggle();
-  }
 
   /** 连点三下状态圆点：在真机上打开 / 关掉诊断面板。 */
   countStatusTaps() {
@@ -578,18 +571,12 @@ export class UI {
     const rect = anchor.getBoundingClientRect();
     const width = popover.offsetWidth;
     const height = popover.offsetHeight;
-    if (this.dock && this.dock.dock === "left" && this.toolbar.contains(anchor)) {
-      // 工具栏竖在左边：面板开在它右边，和按钮中线对齐
-      popover.style.left = `${rect.right + 12}px`;
-      popover.style.top = `${clamp(rect.top + rect.height / 2 - height / 2, 12, innerHeight - height - 12)}px`;
-    } else {
-      popover.style.left = `${clamp(rect.left + rect.width / 2 - width / 2, 12, innerWidth - width - 12)}px`;
-      // 锚点上方没地方，翻到下面开
-      const above = rect.top - height - 12;
-      const below = rect.bottom + 12;
-      popover.style.top =
-        above >= 12 ? `${above}px` : `${clamp(below, 12, Math.max(12, innerHeight - height - 12))}px`;
-    }
+    popover.style.left = `${clamp(rect.left + rect.width / 2 - width / 2, 12, innerWidth - width - 12)}px`;
+    // 锚点上方没地方，翻到下面开
+    const above = rect.top - height - 12;
+    const below = rect.bottom + 12;
+    popover.style.top =
+      above >= 12 ? `${above}px` : `${clamp(below, 12, Math.max(12, innerHeight - height - 12))}px`;
     this.popover = popover;
     this._popoverCloser = (event) => {
       if (!popover.contains(event.target) && !anchor.contains(event.target)) this.closePopover();
@@ -599,12 +586,11 @@ export class UI {
       if (event.key !== "Escape") return;
       event.stopPropagation();
       this.closePopover();
+      dropChromeFocus();
     };
-    setTimeout(() => {
-      if (this.popover !== popover) return;
-      addEventListener("pointerdown", this._popoverCloser, true);
-      addEventListener("keydown", this._popoverKeys, true);
-    }, 0);
+    // 在按钮的 click 里打开，按下已经过去了：马上开始听（见 ui-menu.js）
+    addEventListener("pointerdown", this._popoverCloser, true);
+    addEventListener("keydown", this._popoverKeys, true);
     return popover;
   }
 

@@ -343,7 +343,9 @@ class App extends InkPad {
   /** 调整页框：先把全部页框放进视口（上面留出按钮条），返回原来的视口，结束时 restoreExportView。 */
   showExportArea(bounds) {
     const saved = { scale: this.viewport.scale, x: this.viewport.x, y: this.viewport.y };
-    this.viewport.fit(bounds, this.renderer.viewW, this.renderer.viewH, 80);
+    // 上面有按钮条（Mac 上还有顶栏），四周多留一些，页框不会钻到它们底下
+    const bar = document.getElementById("topbar");
+    this.viewport.fit(bounds, this.renderer.viewW, this.renderer.viewH, 80 + (bar ? bar.offsetHeight : 0));
     this.clampView();
     this.renderer.requestFull();
     return saved;

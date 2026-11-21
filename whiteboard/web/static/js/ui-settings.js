@@ -5,7 +5,7 @@
 
 import { icon } from "./icons.js";
 import { inShell, shellCommand } from "/inksync/shell.js";
-import { closeMenu } from "./ui-menu.js";
+import { closeMenu, dropChromeFocus } from "./ui-menu.js";
 import { el } from "/inksync/util.js";
 import { reportError } from "/inksync/report.js";
 
@@ -67,12 +67,11 @@ const methods = {
       if (event.key !== "Escape") return;
       event.stopPropagation();
       this.closePanel();
+      dropChromeFocus();
     };
-    setTimeout(() => {
-      if (this.panel !== state) return;
-      addEventListener("pointerdown", state.outside, true);
-      addEventListener("keydown", state.keys, true);
-    }, 0);
+    // 面板是在按钮的 click 里打开的，按下已经过去了：马上开始听（见 ui-menu.js）
+    addEventListener("pointerdown", state.outside, true);
+    addEventListener("keydown", state.keys, true);
   },
 
   /** 面板的右边和按钮的右边对齐，放不下就往左挪。 */
@@ -81,7 +80,10 @@ const methods = {
     const width = state.node.offsetWidth;
     const left = Math.max(12, Math.min(box.right - width + 8, innerWidth - width - 12));
     state.node.style.left = `${left}px`;
-    state.node.style.top = `${box.bottom + 8}px`;
+    // 顶栏比按钮高：面板从顶栏下沿往下开，不压住顶栏
+    const bar = this.root.querySelector("#topbar");
+    const floor = bar ? bar.getBoundingClientRect().bottom + 6 : 0;
+    state.node.style.top = `${Math.max(box.bottom + 8, floor)}px`;
   },
 
   closePanel() {

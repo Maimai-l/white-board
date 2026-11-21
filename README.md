@@ -188,7 +188,7 @@ The interface follows the system controls: frosted glass and the system blue acc
 
 **Mac window and desktop browsers**
 
-- **Title bar (top):** on the left, 白板库 (Library) and the board name, with its folder under the name. On the right, 连接 iPad (Connect iPad; only in the Mac window, see [Connecting an iPad](#connecting-an-ipad)), 导出 (Export) and 白板设置 (Board settings). In the Mac window, dragging the title bar moves the window.
+- **Title bar (top):** on the left, 白板库 (Library) and the board name, with its folder under the name. On the right, 连接 iPad (Connect iPad; only in the Mac window, see [Connecting an iPad](#connecting-an-ipad)), 导出 (Export) and 白板设置 (Board settings).
 - **Toolbar (bottom center):** see below.
 - **Zoom (bottom right):** 缩小 (zoom out), the current percentage, 放大 (zoom in) and 回到内容 (back to content). Clicking the percentage (for example `100%`) returns to actual size.
 - **Connection status:** in a desktop browser, a red dot appears next to the board name while the connection to the Mac is lost, yellow while connecting, and nothing while connected. The Mac window has no dot.
@@ -216,7 +216,6 @@ The classic toolbar's 更多 (More) menu:
 | Item | Detail |
 | --- | --- |
 | 手指书写 (Finger drawing), 形状识别 (Shape recognition) | Switches, only on touch devices without the tool picker. |
-| 工具栏移到左侧 / 工具栏移到底部 (Move toolbar to the left / bottom) | Moves the toolbar. |
 | 回到内容 (Back to content) | Same as in the zoom control. |
 | 清空白板… (Clear board) | Clears the whole board after confirmation; needs the Clear board permission. |
 | 关于白板 (About) | Only in the Mac window; see [Updates](#updates). |

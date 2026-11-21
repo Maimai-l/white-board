@@ -9,6 +9,11 @@ import { closeMenu } from "./ui-menu.js";
 import { el } from "/inksync/util.js";
 import { reportError } from "/inksync/report.js";
 
+/** 对话框里的文字按钮。title 和文字一样，按钮靠文字认，不靠图标。 */
+function textButton(text, onclick, kind = "") {
+  return el("button", { class: `lib-btn${kind ? ` ${kind}` : ""}`, type: "button", title: text, text, onclick });
+}
+
 export function installDialogs(proto) {
   Object.assign(proto, methods);
 }
@@ -79,10 +84,10 @@ const methods = {
       el("div", { class: "ask-icon", html: icon(iconName, 28) }),
       el("p", { class: "ask-text", text: question }),
       note ? el("p", { class: "ask-note", text: note }) : null,
+      // 和 macOS 的提醒框一样用文字按钮：取消在左，要动手的那个在右、红色
       el("div", { class: "ask-actions" }, [
-        iconButton("close", "取消", () => scrim.remove()),
-        // 要动手的那个染成警示色，两个灰勾灰叉分不清谁是谁
-        iconButton("check", verb, () => {
+        textButton("取消", () => scrim.remove()),
+        textButton(verb, () => {
           scrim.remove();
           onYes();
         }, "danger"),
@@ -109,10 +114,10 @@ const methods = {
       if (this.lockedDialog === scrim) this.lockedDialog = null;
     };
     this.lockedDialog = scrim;
-    const actions = [iconButton("close", "保持只读", close)];
+    const actions = [textButton("保持只读", close, canUnlock ? "" : "primary")];
     if (canUnlock) {
       actions.push(
-        iconButton("check", "仍然编辑", () => {
+        textButton("仍然编辑", () => {
           close();
           onUnlock();
         }, "danger"),

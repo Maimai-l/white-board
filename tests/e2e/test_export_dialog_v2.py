@@ -137,7 +137,7 @@ def test_whole_board_png_is_one_image_of_the_size_shown(browser, server):
     open_dialog(mac, 2)
     pick(mac, "PNG")
     pick(mac, "整张长图")
-    assert mac.locator(".export-whole-caption").inner_text() == "整块白板"
+    assert mac.locator(".export-whole-caption").inner_text() == "整张长图"
     assert not visible(mac, CARDS)
     assert not visible(mac, FIELD)
     assert not visible(mac, ".export-popup")
