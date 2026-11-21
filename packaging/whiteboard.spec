@@ -115,7 +115,8 @@ app = BUNDLE(
     bundle_identifier="local.whiteboard",
     version=MARKETING,
     info_plist={
-        "CFBundleName": "Whiteboard",
+        # 菜单栏上的应用名（关于、隐藏、退出后面接的也是它）；数据目录用的是 config.APP_NAME，不受影响
+        "CFBundleName": "白板",
         "CFBundleDisplayName": "白板",
         "CFBundleShortVersionString": DISPLAY,
         "CFBundleVersion": BUILD,

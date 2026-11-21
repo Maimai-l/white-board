@@ -17,6 +17,7 @@ This file lists the notable changes to the board app and to inksync. The section
 - Library: Several PDF and image files can be dropped at once. A file dropped on a folder in the sidebar is imported into that folder.
 - Mac: The Connect iPad panel shows a QR code of the board address for the iPad camera, the connected devices and a link to install the iPad app.
 - Mac: A message appears when an iPad connects or disconnects.
+- Mac: Check for Updates… is in the app menu, below About. About opens the app's About window.
 - Mac: The zoom control shows the zoom percentage. Clicking the percentage sets the zoom to 100%.
 - Boards: A board can be duplicated. The copy has the same ink, background and folder and is placed after the original; a document board is copied with its original file.
 - Export: The export button opens an export dialog that exports the selected pages as a PDF, one PNG file or a ZIP of PNG files.
@@ -41,7 +42,8 @@ This file lists the notable changes to the board app and to inksync. The section
 - Interface: On the Mac, a title bar shows the board name and its folder, with the Library, Connect iPad, Export and Board settings buttons.
 - Interface: Board settings and Connect iPad open as panels below their buttons.
 - Interface: The toolbar stays at the bottom of the window and contains the four tools, the color button, Undo, Redo and More.
-- Interface: Clear and About are in the More menu. The colors are the system colors.
+- Interface: Clear is in the More menu. The colors are the system colors.
+- Mac: The menu bar and the app name in it are in Chinese.
 - iPad: The Library button is at the top left. The connection state is shown by the color of the connection button at the top right, which replaces the status dot.
 - Export: The export dialog lists the pages in a sidebar. Pages are exported as all pages, a typed range or the pages selected in the sidebar.
 - Sketch: The sketch page shows the connection state as text, and its copy button is named Copy as image.

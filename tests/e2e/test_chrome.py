@@ -164,10 +164,14 @@ def test_connect_ipad_shows_a_qr_code_and_the_connected_devices(browser, server)
     mac.wait_for_function("() => document.getElementById('status').dataset.peers === ''")
 
 
-def test_about_is_in_the_more_menu_of_the_mac_window(browser, server):
+def test_about_opens_from_the_app_menu_not_the_toolbar(browser, server):
+    """关于白板在 Mac 菜单栏的应用菜单里（appmenu.py），它调的是 whiteboard.ui.openAbout()；
+    工具栏的更多里不再重复放一个。"""
     mac = native_mac(browser, server.port)
     mac.click('#toolbar button[title="更多"]')
-    menu_pick(mac, "关于白板")
+    assert "关于白板" not in mac.locator(".menu .menu-label").all_inner_texts()
+    mac.keyboard.press("Escape")
+    mac.evaluate("() => whiteboard.ui.openAbout()")
     dialog = mac.wait_for_selector(".dialog.about")
     assert mac.locator(".about-version").inner_text() == "版本 1.3.0"
     assert dialog.query_selector("button:has-text('检查更新')") is not None
