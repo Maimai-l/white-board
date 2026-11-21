@@ -16,12 +16,19 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from . import RELEASES_URL, __version__, backup, netinfo, profile, resources, sparkle
+from . import RELEASES_URL, __version__, appmenu, backup, netinfo, profile, resources, sparkle
 from .config import Config
 from .runner import ServerThread
 from .server import list_apps
 
 log = logging.getLogger(__name__)
+
+
+# 菜单栏的「检查更新…」交不给 Sparkle 时，在窗口里说一句（和关于窗口里检查更新的说法一样）
+UPDATE_MESSAGES = {
+    "source": "源码运行时用 git pull 更新",
+    "unavailable": "这个版本不能自动更新",
+}
 
 
 class NativeApi:
@@ -54,6 +61,20 @@ class NativeApi:
         }
 
     # ------------------------------------------------------------------ 更新
+
+    # 下划线开头的方法 pywebview 不暴露给网页：这两个只给菜单栏用
+
+    def _menu_check_update(self) -> None:
+        """应用菜单里的「检查更新…」：交给 Sparkle；交不了就在窗口里提示一句。"""
+        result = self.check_update_now()
+        text = UPDATE_MESSAGES.get(result.get("status", ""))
+        if text and self.window is not None:
+            self.window.evaluate_js(f"whiteboard.ui.message({json.dumps(text, ensure_ascii=False)})")
+
+    def _menu_about(self) -> None:
+        """应用菜单里的「关于白板」：打开应用自己的关于窗口（有更新日志、日志文件、检查更新）。"""
+        if self.window is not None:
+            self.window.evaluate_js("whiteboard.ui.openAbout()")
 
     def check_update_now(self) -> Dict[str, Any]:
         """「检查更新」：打包好的应用交给 Sparkle，它自己的窗口显示结果。
@@ -416,9 +437,23 @@ def run(
             log.warning("退出前保存失败：%s", exc)
 
     window.events.closing += _on_closing
+
+    def _on_started() -> None:
+        # Sparkle 要在主线程、事件循环跑起来之后创建；start 的回调在别的线程，转一下。
+        # 应用菜单也是这时候已经建好了，同样在主线程上改
+        api.sparkle.start_on_main_thread()
+        if sys.platform == "darwin":
+            from PyObjCTools import AppHelper
+
+            AppHelper.callAfter(appmenu.tidy_app_menu, api._menu_about)
+
     try:
-        # Sparkle 要在主线程、事件循环跑起来之后创建；start 的回调在别的线程，转一下
-        webview.start(api.sparkle.start_on_main_thread, debug=debug)
+        webview.start(
+            _on_started,
+            debug=debug,
+            localization=appmenu.LOCALIZATION,
+            menu=appmenu.build_menu(api._menu_check_update),
+        )
     finally:
         try:
             api.server.save_now()

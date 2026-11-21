@@ -340,8 +340,8 @@ export class UI {
   }
 
   /**
-   * 工具栏上的更多：工具栏换位置、回到内容、清空；触摸设备上多手指书写和形状识别
-   * 两个开关，Mac 窗口里多关于白板。
+   * 工具栏上的更多：回到内容、清空；触摸设备上多手指书写和形状识别两个开关。
+   * 关于白板和检查更新在 Mac 菜单栏的应用菜单里（appmenu.py），不放在这里。
    */
   moreMenu(anchor) {
     const items = [];
@@ -354,7 +354,6 @@ export class UI {
     }
     items.push({ label: "回到内容", onSelect: () => this.actions.onFit() });
     if (this.may("clear")) items.push("-", { label: "清空白板…", danger: true, onSelect: () => this.confirmClear() });
-    if (this.native) items.push("-", { label: "关于白板", onSelect: () => this.openAbout() });
     this.closePopover();
     showMenu(items, anchor, { root: this.root, label: "更多", className: "from-toolbar" });
   }

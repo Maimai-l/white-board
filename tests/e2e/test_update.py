@@ -64,8 +64,8 @@ def test_about_holds_version_and_update_entries(browser, server):
     ]
     mac.keyboard.press("Escape")
 
-    mac.click('#toolbar button[title="更多"]')
-    mac.click('.menu .menu-item:has-text("关于白板")')
+    # 关于白板在菜单栏的应用菜单里，菜单调的就是这个
+    mac.evaluate("() => whiteboard.ui.openAbout()")
     about = mac.locator(".dialog.about")
     about.wait_for(timeout=3000)
     assert "白板" in about.inner_text()
