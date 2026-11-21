@@ -26,6 +26,7 @@ import { downloadURL } from "/inksync/exporter.js";
 import { Renderer } from "/inksync/renderer.js";
 import { reportError } from "/inksync/report.js";
 import { el } from "/inksync/util.js";
+import { leave } from "./motion.js";
 
 const THUMB_WIDTH = 200;
 // 文档板页多：缩略图小一些，排两列
@@ -217,10 +218,18 @@ export class ExportDialog {
     this.dialog.addEventListener("click", (event) => event.stopPropagation());
     this.scrim = el("div", { class: "scrim export-scrim" }, [this.dialog]);
     this.scrim.addEventListener("click", () => this.close());
+    // Esc 等于取消，和 macOS 的表单一样。调整分页时对话框藏着，Esc 归调整那一层管
+    this.keys = (event) => {
+      if (event.key !== "Escape" || this.scrim.hidden || this.closed) return;
+      event.stopPropagation();
+      event.preventDefault();
+      this.close();
+    };
   }
 
   async open() {
     this.ui.root.append(this.scrim);
+    addEventListener("keydown", this.keys, true);
     this.refresh();
     await this.loadAuto();
   }
@@ -228,7 +237,8 @@ export class ExportDialog {
   close() {
     this.closed = true;
     if (this.adjustView) this.adjustView.destroy();
-    this.scrim.remove();
+    removeEventListener("keydown", this.keys, true);
+    leave(this.scrim);
     if (this.ui.exportDialog === this) this.ui.exportDialog = null;
   }
 

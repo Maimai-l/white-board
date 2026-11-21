@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from e2e.support import (
-    more_pick,
     draw,
     fire,
+    gone,
+    more_pick,
     open_mac,
     open_pages,
     open_touch,
@@ -122,7 +123,7 @@ def test_repeated_pen_interruptions_show_a_hint(browser, server):
     assert notice.inner_text().split("\n") == ["笔迹被随手写打断", "在 iPad 设置的 Apple Pencil 中关闭随手写"]
     assert ipad.evaluate("() => whiteboard.input.stats.penCancel") == 3
     notice.click()
-    assert notice.count() == 0
+    gone(ipad, ".notice")
 
 
 def test_stage_blocks_ios_selection_gestures(browser, server):

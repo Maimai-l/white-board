@@ -20,6 +20,7 @@ import { installBoards } from "./ui-boards.js";
 import { installDialogs } from "./ui-dialogs.js";
 import { installSettings } from "./ui-settings.js";
 import { closeMenu, dropChromeFocus, showMenu } from "./ui-menu.js";
+import { leave } from "./motion.js";
 import { el, clamp } from "/inksync/util.js";
 import { reportError } from "/inksync/report.js";
 
@@ -165,10 +166,11 @@ export class UI {
    */
   watchOverlays() {
     const sync = () => {
-      const open = !!this.root.querySelector(".gallery, .sheet");
+      // 正在淡出的白板库不算：笔具盘在它底下先露出来，跟着它一起淡入
+      const open = !!this.root.querySelector(".gallery:not(.leaving), .sheet:not(.leaving)");
       this.root.dataset.overlay = open ? "1" : "";
     };
-    new MutationObserver(sync).observe(this.root, { childList: true, subtree: true });
+    new MutationObserver(sync).observe(this.root, { childList: true, subtree: true, attributeFilter: ["class"] });
     sync();
   }
 
@@ -556,7 +558,7 @@ export class UI {
 
   closePopover() {
     if (this.popover) {
-      this.popover.remove();
+      leave(this.popover);
       this.popover = null;
       removeEventListener("pointerdown", this._popoverCloser, true);
       removeEventListener("keydown", this._popoverKeys, true);
@@ -576,6 +578,8 @@ export class UI {
     const below = rect.bottom + 12;
     popover.style.top =
       above >= 12 ? `${above}px` : `${clamp(below, 12, Math.max(12, innerHeight - height - 12))}px`;
+    // 进场动画从按钮那头长出来：开在按钮下面时从上沿
+    if (above < 12) popover.style.transformOrigin = "top center";
     this.popover = popover;
     this._popoverCloser = (event) => {
       if (!popover.contains(event.target) && !anchor.contains(event.target)) this.closePopover();
@@ -680,7 +684,7 @@ export class UI {
   toast(iconName) {
     const node = el("div", { class: "toast", html: icon(iconName) });
     this.root.append(node);
-    setTimeout(() => node.remove(), 1600);
+    setTimeout(() => leave(node), 1600);
   }
 
   /**
@@ -690,12 +694,12 @@ export class UI {
   message(text, iconName = "info", ms = 4000) {
     const node = el("div", { class: "notice", html: icon(iconName) });
     node.append(noticeText(text));
-    node.addEventListener("click", () => node.remove());
+    node.addEventListener("click", () => leave(node));
     this.root.append(node);
-    const timer = setTimeout(() => node.remove(), ms);
+    const timer = setTimeout(() => leave(node), ms);
     return () => {
       clearTimeout(timer);
-      node.remove();
+      leave(node);
     };
   }
 
@@ -710,16 +714,16 @@ export class UI {
     }
     const node = el("div", { class: "notice", html: icon(iconName) });
     node.append(noticeText(text));
-    node.addEventListener("click", () => node.remove());
+    node.addEventListener("click", () => leave(node));
     this.root.append(node);
-    setTimeout(() => node.remove(), 15000);
+    setTimeout(() => leave(node), 15000);
   }
 
   // ------------------------------------------------------------- 侧板
 
   closeSheet() {
     if (this.sheet) {
-      this.sheet.remove();
+      leave(this.sheet);
       this.sheet = null;
     }
   }
@@ -792,7 +796,7 @@ export class UI {
    * 这份信息有两个来源：服务端在 init / sync / switch 里给的（主机名、端口、
    * 地址、存储目录、版本号），以及 pywebview 那条只有 Mac 窗口才有的本地接口
    * （是不是打包版、日志路径、别的设备的权限）。整个换掉的话，切一次白板就会
-   * 把本地接口那几项冲掉，「关于」里的版本号也就没了。
+   * 把本地接口那几项冲掉。
    */
   setInfo(info) {
     this.info = { ...(this.info || {}), ...(info || {}) };

@@ -156,6 +156,12 @@ TOUCH_SIZES = {"ipad": (1180, 820), "ipad-portrait": (820, 1180)}
 def check(page, label):
     """截图存档，然后检查。返回问题清单（空就是没问题）。"""
     SHOTS.mkdir(parents=True, exist_ok=True)
+    # 等刚关掉的东西淡出完、刚打开的东西进场完：截图和检查看的是停下来之后的样子
+    page.wait_for_function(
+        "() => !document.querySelector('.leaving')"
+        " && document.getAnimations().every((a) => !(a instanceof CSSAnimation) || a.playState !== 'running')",
+        timeout=3000,
+    )
     page.evaluate("() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)))")
     page.screenshot(path=str(SHOTS / f"{label}.png"))
     problems = page.evaluate(CHECK, [BARS, POPUPS])
@@ -234,11 +240,6 @@ def test_mac_editor_states(browser, server, size_name):
     page.wait_for_function("() => document.querySelector('.connect-qr')?.naturalWidth > 0")
     problems += check(page, f"{size_name}-connect")
     page.keyboard.press("Escape")
-
-    page.evaluate("() => whiteboard.ui.openAbout()")
-    problems += check(page, f"{size_name}-about")
-    page.keyboard.press("Escape")
-    page.evaluate("() => document.querySelectorAll('.scrim').forEach(n => n.remove())")
 
     page.evaluate("() => whiteboard.ui.confirmClear()")
     problems += check(page, f"{size_name}-confirm")

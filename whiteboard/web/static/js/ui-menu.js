@@ -7,6 +7,7 @@
 // 同一时间只有一张菜单：再开一张会先关掉上一张。点菜单外面、按 Esc、
 // 窗口失焦都会关上。
 
+import { leave } from "./motion.js";
 import { el } from "/inksync/util.js";
 
 let open = null;
@@ -136,6 +137,8 @@ export function showMenu(items, at, { root = document.body, label = "", classNam
     const below = box.bottom + 6;
     const fitsBelow = below + panel.offsetHeight < innerHeight - 8;
     place(panel, { x: box.left, y: fitsBelow ? below : box.top - 6 - panel.offsetHeight });
+    // 进场动画从按钮那一角长出来（app.css 的 menu-in）
+    if (!fitsBelow) panel.style.transformOrigin = "bottom left";
   } else {
     place(panel, at);
   }
@@ -164,7 +167,7 @@ export function showMenu(items, at, { root = document.body, label = "", classNam
       removeEventListener("pointerdown", outside, true);
       removeEventListener("keydown", key, true);
       removeEventListener("blur", close);
-      layer.remove();
+      leave(layer);
     },
   };
   return close;

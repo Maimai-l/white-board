@@ -27,7 +27,7 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 - [ ] Drawing with the mouse, undo, and redo work. “清空白板” (Clear board) asks for confirmation before clearing.
 - [ ] The object eraser and the pixel eraser both erase. Undo restores the erased strokes.
 - [ ] Create an infinite board and a note board. Drag a PDF into the window to create a document board, write on the PDF, and export it.
-- [ ] Export (导出): export a PDF and a PNG with two pages selected. The save dialog suggests a name ending in `.pdf` or `.zip`, and the saved files open in Preview. If not, send the log file (更多 → 关于白板 → 日志文件) and the suggested name.
+- [ ] Export (导出): export a PDF and a PNG with two pages selected. The save dialog suggests a name ending in `.pdf` or `.zip`, and the saved files open in Preview. If not, send the log file (白板 menu → 关于白板 → 日志文件) and the suggested name.
 - [ ] Export → 调整: drag a page frame with the trackpad and resize it by a corner; panning with two fingers moves the board, not the frame. If a frame does not follow, send a screen recording.
 - [ ] Export → WBZ: the save dialog suggests `<board name>.wbz`. Save it outside the storage directory, then double-click the saved file in Finder: the app opens it as a new board with the same content. If the name is wrong or the board does not open, send the log file and the saved `.wbz`.
 
@@ -39,6 +39,7 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 - [ ] Connect iPad: open “连接 iPad” (Connect iPad) and scan the QR code in the panel with the iPad's own Camera app. Safari opens this board, at the address shown in the panel. After “在 iPad 上安装白板” (Install on iPad), scanning again opens the shell install page. If the code does not scan or the address is wrong, send a screenshot of the panel and the address the iPad opened.
 - [ ] When the iPad opens the board, the Mac window shows “iPad 已连接” (iPad connected), the “连接 iPad” icon turns blue, and the panel lists the iPad under “已连接” (Connected). After the page is closed on the iPad (or its Wi-Fi is turned off), “iPad 已断开” (iPad disconnected) appears and the icon returns to its normal color. If a message is missing or appears twice, or the icon does not change color, send the log file and say how the iPad was disconnected.
 - [ ] Clicking “连接 iPad” three times opens the diagnostics panel; three more clicks close it.
+- [ ] Pointer and motion: moving the pointer over toolbar buttons, title bar buttons, library cards and dialog buttons gives each a gray fill or a slight lift; menus and panels grow from their button and fade out when closed, without flicker or a jump at the start or end. Esc closes the export dialog. If something has no reaction, flickers or jumps, send a screen recording.
 
 ### Library and settings
 
@@ -69,7 +70,7 @@ CI checks that Sparkle loads in the packaged app and that delta updates apply. I
 - [ ] Install the newest alpha build from the GitHub Pages site. “关于白板” (About) shows a version ending in `-alpha.<build time>`.
 - [ ] Merge any change into `dev` and wait for CI to pass. Within an hour the update downloads without a prompt; after quitting and reopening the app, “关于白板” (About) shows the new build.
 - [ ] 检查更新 (Check for updates) opens the Sparkle window and reports the newest version.
-- [ ] Menu bar: the app name reads 白板 and every menu is in Chinese (关于白板, 检查更新…, 服务, 隐藏白板, 隐藏其他, 全部显示, 退出白板; in the Edit menu 剪切, 拷贝, 粘贴, 全选), with no space before the app name. 检查更新… (Check for Updates…) opens the Sparkle window; 关于白板 (About) opens the app's own About window with the release notes and log file links, not the system About panel. If an item is still in English or opens the wrong window, send a screenshot of the menu.
+- [ ] Menu bar: the app name reads 白板 and every menu is in Chinese (关于白板, 检查更新…, 服务, 隐藏白板, 隐藏其他, 全部显示, 退出白板; in the Edit menu 剪切, 拷贝, 粘贴, 全选), with no space before the app name. 检查更新… (Check for Updates…) opens the Sparkle window; 关于白板 (About) opens the standard macOS About window in Chinese: the icon, 白板, “版本 1.3.0 (alpha.…)” and the links 更新日志 and 日志文件; 更新日志 opens the releases page in the browser and 日志文件 opens the log in Console. If an item is still in English, the version line lacks the build, or a link does nothing, send a screenshot of the menu or the About window.
 - [ ] Upgrading from 1.2.0: the previous update dialog offers this release; after installing it, 检查更新 (Check for updates) opens the Sparkle window.
 
 If an item fails, send the lines of `~/Library/Logs/Whiteboard.log` that start with `Sparkle`, and the output of `/Applications/Whiteboard.app/Contents/MacOS/Whiteboard --check-updater`.
@@ -88,6 +89,7 @@ Run this section twice: once in the iPad shell and once from the Home Screen ico
 - [ ] “白板库” (Library) at the top left opens the library; tapping a board opens it.
 - [ ] In the library, long-pressing a board without moving and then releasing shows its menu (“打开”, “重命名”, “移到文件夹”, “复制”, “导出…”, “移到回收站”). The board does not open, and no magnifier, text selection or system menu appears. Long-pressing and then moving lifts the board, which can be dropped on a folder or “回收站” (Trash) in the sidebar. Long-pressing a folder in the sidebar shows “重命名”, “在此新建白板” (New board here) and “删除文件夹” (Delete folder). If the menu is missing, the board opens, or a system menu appears, send a screen recording.
 - [ ] The sidebar button at the top left of the library hides the sidebar, and a second tap shows it. In portrait the sidebar starts hidden and hides again after a row is chosen. If the sidebar covers the content or a button cannot be tapped, send one screenshot in landscape and one in portrait.
+- [ ] After tapping a button, menu item or card and lifting the finger, it does not stay highlighted as if still pressed.
 - [ ] Connection status at the top right: blue while connected to the Mac, and a tap shows “已连接到 <host>:<port>” (Connected to). After quitting the app on the Mac, the icon turns gray and a tap shows “未连接” (Not connected); it recovers when the app reopens. The shell also shows “换一台 Mac” (Switch Mac). Three taps open the diagnostics panel.
 
 ### Text input

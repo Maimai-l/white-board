@@ -1,4 +1,4 @@
-"""Mac 菜单栏（whiteboard/appmenu.py）：中文、应用菜单里的检查更新、关于打开应用自己的窗口。
+"""Mac 菜单栏（whiteboard/appmenu.py）：中文、应用菜单里的检查更新、关于用系统的关于窗口。
 
 菜单本身由 pywebview 在 Mac 上建，只能在真机上看（发版检查表）。这里测的是不依赖 AppKit 的部分。
 """
@@ -69,14 +69,24 @@ def test_check_for_updates_in_the_app_menu(tmp_path, monkeypatch):
     assert api.window.scripts == []
 
 
-def test_about_in_the_app_menu_opens_the_apps_own_about(tmp_path):
-    api = app.NativeApi(Config(tmp_path / "config.json"), server=None)
-    api.window = FakeWindow()
-    api._menu_about()
-    assert api.window.scripts == ["whiteboard.ui.openAbout()"]
+def test_about_shows_the_whole_version_and_two_links():
+    """系统关于窗口：「版本 1.3.0 (alpha.…)」，下面是更新日志和日志文件两个链接。"""
+    about = appmenu.about_options(
+        "1.3.0-alpha.20261121.150435", "1.3.0-alpha.20261121.150435", "https://r", "/L/白板.log"
+    )
+    assert about["ApplicationName"] == "白板"
+    assert about["ApplicationVersion"] == "1.3.0"
+    assert about["Version"] == "alpha.20261121.150435"
+    assert about["links"] == [("更新日志", "https://r"), ("日志文件", "file:///L/白板.log")]
+
+
+def test_about_shows_the_build_for_a_release_or_a_source_run():
+    assert appmenu.about_options("1.3.0", "1.3.0", "u", "/l")["Version"] == ""
+    assert appmenu.about_options("1.3.0", "dev@abc1234", "u", "/l")["Version"] == "dev@abc1234"
 
 
 def test_menu_methods_are_not_exposed_to_the_page():
-    """pywebview 把 js_api 上不以下划线开头的方法暴露给网页；菜单用的两个不该在里面。"""
+    """pywebview 把 js_api 上不以下划线开头的方法暴露给网页；菜单用的不该在里面。"""
     exposed = {name for name in dir(app.NativeApi) if not name.startswith("_")}
-    assert not {"_menu_about", "_menu_check_update"} & exposed
+    assert "_menu_check_update" not in exposed
+    assert not hasattr(app.NativeApi, "_menu_about")

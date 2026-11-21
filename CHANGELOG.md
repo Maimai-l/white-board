@@ -17,7 +17,8 @@ This file lists the notable changes to the board app and to inksync. The section
 - Library: Several PDF and image files can be dropped at once. A file dropped on a folder in the sidebar is imported into that folder.
 - Mac: The Connect iPad panel shows a QR code of the board address for the iPad camera, the connected devices and a link to install the iPad app.
 - Mac: A message appears when an iPad connects or disconnects.
-- Mac: Check for Updates… is in the app menu, below About. About opens the app's About window.
+- Mac: Check for Updates… is in the app menu, below About.
+- Mac: About is the standard macOS About window, with the full version and links to the changelog and the log file.
 - Mac: The zoom control shows the zoom percentage. Clicking the percentage sets the zoom to 100%.
 - Boards: A board can be duplicated. The copy has the same ink, background and folder and is placed after the original; a document board is copied with its original file.
 - Export: The export button opens an export dialog that exports the selected pages as a PDF, one PNG file or a ZIP of PNG files.
@@ -43,6 +44,9 @@ This file lists the notable changes to the board app and to inksync. The section
 - Interface: Board settings and Connect iPad open as panels below their buttons.
 - Interface: The toolbar stays at the bottom of the window and contains the four tools, the color button, Undo, Redo and More.
 - Interface: Clear is in the More menu. The colors are the system colors.
+- Interface: Buttons, switches, links and cards change when the pointer is over them and when they are pressed.
+- Interface: Menus, panels and dialogs grow from the button that opened them and fade out when they close. With Reduce motion turned on, they appear and disappear at once.
+- Interface: Esc closes the export dialog and confirmation dialogs, like Cancel.
 - Mac: The menu bar and the app name in it are in Chinese.
 - iPad: The Library button is at the top left. The connection state is shown by the color of the connection button at the top right, which replaces the status dot.
 - Export: The export dialog lists the pages in a sidebar. Pages are exported as all pages, a typed range or the pages selected in the sidebar.
@@ -51,7 +55,7 @@ This file lists the notable changes to the board app and to inksync. The section
 - Boards: Deleting a board moves it to the Trash, where it can be restored or deleted permanently. Boards in the Trash for more than 30 days are deleted permanently.
 - Mac: Failures that used to leave no trace, such as a board thumbnail that could not be uploaded or a port in the configuration file that is not a number, are written to the log file.
 - Updates: The Mac app checks for updates with Sparkle and downloads only the changed parts of the app when updating from one of the three previous versions.
-- Updates: The Check for updates button opens the update window, which shows the result and the release notes.
+- Updates: Check for Updates… opens the update window, which shows the result and the release notes.
 - Export: The paper follows the content by default: each page is its frame plus a margin, so the writing keeps its size. A4 and Letter pages are portrait.
 - Export: Document boards are exported through the export dialog, where single pages of the original can be selected.
 - Export: Exporting a document board with many strokes takes about one third of the previous time.

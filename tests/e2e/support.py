@@ -38,6 +38,16 @@ ROOT = Path(__file__).resolve().parents[2]
 
 ONLINE = "() => window.whiteboard && whiteboard.net.status === 'online'"
 
+# 关掉的菜单、面板、白板库会先淡出一小会儿再从页面上拿掉（motion.js 的 leave()），
+# 那段时间里它还在、带着 .leaving。找「开着的那一个」用这几个选择器。
+MENU = ".menu-layer:not(.leaving) .menu"
+LIBRARY = ".gallery.library:not(.leaving)"
+
+
+def gone(page, selector, timeout=3000):
+    """等 selector 从页面上消失：关掉的东西要淡出完才真的没了。"""
+    page.wait_for_function("(s) => !document.querySelector(s)", arg=selector, timeout=timeout)
+
 
 def app_constant(path, name):
     """从应用源码里读一个数值常量（``const NAME = 120;`` 或 ``NAME: 120,``）。
@@ -268,7 +278,9 @@ def mask_chains(op):
 def open_gallery(page):
     """点「白板库」，等白板库画出来。"""
     page.click('button[title="白板库"]')
-    page.wait_for_selector(".gallery.library")
+    page.wait_for_selector(LIBRARY)
+    # 刚关掉的那个白板库还在淡出的话，等它走完：两个白板库同时在，找东西会找到两份
+    gone(page, ".gallery.leaving")
 
 
 KIND_LABELS = {"笔记": "向下延伸", "大白板": "四向延伸"}
@@ -278,13 +290,14 @@ def new_board(page, kind="笔记"):
     """白板库 → 新建白板 → 选一种（「笔记」即向下延伸，「大白板」即四向延伸），等切过去
     之后返回新白板的 id。"""
     before = page.evaluate("() => whiteboard.state.id")
-    if not page.query_selector(".gallery.library"):
+    if not page.query_selector(LIBRARY):
         open_gallery(page)
     page.click(".lib-new")
     page.click(f'.kind-tile:has-text("{KIND_LABELS[kind]}")')
     page.wait_for_function("(was) => whiteboard.state.id !== was", arg=before)
     if kind == "笔记":
         page.wait_for_function("() => whiteboard.state.kind === 'note'")
+    gone(page, ".gallery")
     return page.evaluate("() => whiteboard.state.id")
 
 
@@ -319,13 +332,13 @@ def board_menu(page, board_id=None):
     """在白板卡片上右键（不给 id 就是第一块），等菜单出来。"""
     card = f'.board-item[data-board="{board_id}"]' if board_id else ".board-item[data-board]"
     page.click(card, button="right")
-    page.wait_for_selector(".menu")
+    page.wait_for_selector(MENU)
 
 
 def menu_pick(page, *labels):
     """在打开的菜单里一层层点下去，例如 ``menu_pick(page, "移到文件夹", "fs")``。"""
     for label in labels:
-        page.click(f'.menu .menu-item:has(.menu-label:text-is("{label}"))')
+        page.click(f'{MENU} .menu-item:has(.menu-label:text-is("{label}"))')
 
 
 def more_pick(page, label):
@@ -337,10 +350,10 @@ def more_pick(page, label):
 def more_checked(page, label):
     """普通工具栏更多菜单里某个开关是不是开着（看完把菜单关上）。"""
     page.click('#toolbar button[title="更多"]')
-    item = page.wait_for_selector(f'.menu .menu-item:has(.menu-label:text-is("{label}"))')
+    item = page.wait_for_selector(f'{MENU} .menu-item:has(.menu-label:text-is("{label}"))')
     checked = item.get_attribute("aria-checked") == "true"
     page.keyboard.press("Escape")
-    page.wait_for_selector(".menu", state="detached")
+    gone(page, ".menu")
     return checked
 
 
@@ -528,7 +541,6 @@ NATIVE_STUB = """
       data_dir: '/tmp/boards',
       remote_permissions: Object.assign({}, window.__perms),
       releases: 'https://github.com/Maimai-l/white-board/releases' }),
-    check_update_now: async () => ({ status: 'sparkle', version: '0.9.4' }),
     set_remote_permission: async (name, on) => {
       window.__perms[name] = !!on;
       return Object.assign({}, window.__perms);

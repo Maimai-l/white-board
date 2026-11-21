@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+import io
+
+from PIL import Image
+
 from e2e.support import (
     IPAD_UA,
     as_native,
@@ -135,6 +139,25 @@ def test_board_settings_open_as_a_panel(browser, server):
     mac.wait_for_function("() => !document.querySelector('.panel')")
 
 
+def test_the_selected_background_has_a_whole_ring(browser, server):
+    """选中的背景样张四周一圈强调色。以前按钮裁掉了画在外面的那一圈，只剩底边是蓝的。"""
+    mac = open_mac(browser, server.port)
+    mac.click('#topright button[title="白板设置"]')
+    swatch = mac.wait_for_selector(".bg-opt.active .bg-swatch")
+    mac.wait_for_function("() => document.getAnimations().every((a) => a.playState !== 'running')")
+    box = swatch.bounding_box()
+    shot = mac.screenshot(
+        clip={"x": box["x"] - 4, "y": box["y"] - 4, "width": box["width"] + 8, "height": box["height"] + 8}
+    )
+    image = Image.open(io.BytesIO(shot)).convert("RGB")
+    mid_x, mid_y = image.width // 2, image.height // 2
+    # 上、下、左、右四条边的中点往外 1 到 2 个像素：都应该是强调色（蓝）
+    edges = {"上": (mid_x, 3), "下": (mid_x, image.height - 4), "左": (3, mid_y), "右": (image.width - 4, mid_y)}
+    for side, point in edges.items():
+        r, g, b = image.getpixel(point)
+        assert b > 200 and r < 80, f"{side}边不是蓝的：{(r, g, b)}"
+
+
 def test_connect_ipad_shows_a_qr_code_and_the_connected_devices(browser, server):
     """连接 iPad：二维码能载入，地址在下面；iPad 连上之后列在已连接里、图标变蓝、
     弹一条提示，断开时也提示。"""
@@ -164,19 +187,15 @@ def test_connect_ipad_shows_a_qr_code_and_the_connected_devices(browser, server)
     mac.wait_for_function("() => document.getElementById('status').dataset.peers === ''")
 
 
-def test_about_opens_from_the_app_menu_not_the_toolbar(browser, server):
-    """关于白板在 Mac 菜单栏的应用菜单里（appmenu.py），它调的是 whiteboard.ui.openAbout()；
-    工具栏的更多里不再重复放一个。"""
+def test_about_is_not_in_the_toolbar(browser, server):
+    """关于白板在 Mac 菜单栏的应用菜单里，用的是系统的关于窗口（appmenu.py）；
+    工具栏的更多里不重复放，网页里也不画一个假的。"""
     mac = native_mac(browser, server.port)
     mac.click('#toolbar button[title="更多"]')
-    assert "关于白板" not in mac.locator(".menu .menu-label").all_inner_texts()
+    labels = mac.locator(".menu .menu-label").all_inner_texts()
+    assert labels and not any("关于" in label or "检查更新" in label for label in labels)
     mac.keyboard.press("Escape")
-    mac.evaluate("() => whiteboard.ui.openAbout()")
-    dialog = mac.wait_for_selector(".dialog.about")
-    assert mac.locator(".about-version").inner_text() == "版本 1.3.0"
-    assert dialog.query_selector("button:has-text('检查更新')") is not None
-    mac.click(".about-close")
-    mac.wait_for_function("() => !document.querySelector('.dialog.about')")
+    assert mac.evaluate("() => typeof whiteboard.ui.openAbout") == "undefined"
 
 
 def test_the_ipad_corner_shows_the_connection(browser, server):

@@ -57,7 +57,7 @@ The first launch shows two system prompts. Each appears once.
 
 ### Updates
 
-Builds published from 1.3.0 on update through [Sparkle](https://sparkle-project.org). The app reads `appcast.xml` from the project's GitHub Pages site, downloads only the changed parts of the app when it updates from one of the three previous builds, and checks the EdDSA signature of every download. Sparkle's own window shows the new version and its release notes; 检查更新 (Check for updates) in 关于白板 (About) opens it.
+Builds published from 1.3.0 on update through [Sparkle](https://sparkle-project.org). The app reads `appcast.xml` from the project's GitHub Pages site, downloads only the changed parts of the app when it updates from one of the three previous builds, and checks the EdDSA signature of every download. Sparkle's own window shows the new version and its release notes; 检查更新… (Check for Updates…) in the app menu opens it.
 
 | Channel | Published | Checked |
 | --- | --- | --- |
@@ -70,7 +70,7 @@ Builds published from 1.3.0 on update through [Sparkle](https://sparkle-project.
 
 1.2.0 and earlier have their own updater: it reads `releases/latest` on GitHub and offers 1.3.0 in its update dialog. From 1.3.0 on, the app has no updater other than Sparkle. A build without Sparkle (running from source, or a local build without the public key) does not update itself; update it with `git pull` or install a new download.
 
-In the Mac window, the app menu (白板) holds 关于白板 (About) and 检查更新… (Check for Updates…), and the whole menu bar is in Chinese. 检查更新… opens the Sparkle window directly; when running from source or without Sparkle, a message at the top of the window says why. 关于白板 opens the app's own About window: This small window shows the app icon, name and version, plus the build when it differs from the version (`branch@commit` when running from source), followed by 检查更新 (Check for updates) and two links: 更新日志 (changelog) and 日志文件 (log file). The address for the iPad is under 连接 iPad (Connect iPad). After 检查更新 is clicked, the line above the button shows the result: in a packaged build it reads 结果显示在更新窗口 (see the update window) and Sparkle's window opens; when running from source it says to update with `git pull`; in a packaged build without a working Sparkle it reads 这个版本不能自动更新 (this build cannot update automatically), the reason goes to the log file, and new versions are downloaded from the changelog link.
+In the Mac window, the app menu (白板) holds 关于白板 (About) and 检查更新… (Check for Updates…), and the whole menu bar is in Chinese. 检查更新… opens the Sparkle window directly; when running from source it says to update with `git pull`, and in a packaged build without a working Sparkle it reads 这个版本不能自动更新 (this build cannot update automatically), with the reason in the log file. 关于白板 opens the standard macOS About window: the app icon, name and version (an alpha shows its build time in parentheses, for example 版本 1.3.0 (alpha.20261121.150435); a source run shows `branch@commit`), and below them two links: 更新日志 (changelog) and 日志文件 (log file, opens in Console). The address for the iPad is under 连接 iPad (Connect iPad).
 
 ### Running from source
 
@@ -475,7 +475,7 @@ Any device that opens the address can write. Every other action must be granted 
 - Every request's source is checked too: requests from other web pages in a browser (carrying another site's `Origin`), and requests whose `Host` is not an IP address, `localhost`, `*.local` or this machine's host name, get 403. Otherwise any web page open on the Mac could read or delete boards with this machine's permissions. To open the whiteboard under another name (for example a VPN domain), add it to `allowed_hosts` in the config file (`~/Library/Application Support/Whiteboard/config.json`), for example `"allowed_hosts": ["mac.example.ts.net"]`, then restart the app. Details: [docs/protocol.md](docs/protocol.md#request-sources).
 - Writing is always allowed: the page, the WebSocket, page images, the profile and diagnostics reports need no permission.
 - The page receives the granted permissions in a `data-perms` attribute and shows only the allowed entries. This only affects the display; the server enforces the permissions.
-- Update checks and the storage directory choice use the local pywebview bridge, which other devices cannot reach. 关于白板 (About) and 连接 iPad (Connect iPad) therefore appear only in the Mac window.
+- Update checks and the storage directory choice use the local pywebview bridge, which other devices cannot reach. 连接 iPad (Connect iPad) therefore appears only in the Mac window, and 关于白板 (About) and 检查更新… only in its menu bar.
 
 ## Data
 
