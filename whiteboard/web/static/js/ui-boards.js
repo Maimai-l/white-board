@@ -1065,13 +1065,21 @@ const methods = {
     const outside = (event) => {
       if (!panel.contains(event.target)) this.closeNewBoard();
     };
-    setTimeout(() => addEventListener("pointerdown", outside, true), 0);
-    this.newBoardPanel = { panel, outside };
+    const keys = (event) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      this.closeNewBoard();
+    };
+    // 在按钮的 click 里打开，按下已经过去了：马上开始听（见 ui-menu.js）
+    addEventListener("pointerdown", outside, true);
+    addEventListener("keydown", keys, true);
+    this.newBoardPanel = { panel, outside, keys };
   },
 
   closeNewBoard() {
     if (!this.newBoardPanel) return;
     removeEventListener("pointerdown", this.newBoardPanel.outside, true);
+    removeEventListener("keydown", this.newBoardPanel.keys, true);
     this.newBoardPanel.panel.remove();
     this.newBoardPanel = null;
   },

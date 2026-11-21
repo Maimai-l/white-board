@@ -40,6 +40,7 @@
   --outline-strong: #c7c7cc;
   --primary-tint: rgba(0, 122, 255, .14);
   --hairline-bar: rgba(60, 60, 67, .12);
+  --dot-ring: rgba(0, 0, 0, .16);
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .10);
   --shadow-2: 0 6px 20px rgba(0, 0, 0, .12), 0 1px 3px rgba(0, 0, 0, .08);
@@ -83,6 +84,7 @@
     --outline-strong: rgba(235, 235, 245, .3);
     --primary-tint: rgba(10, 132, 255, .26);
     --hairline-bar: rgba(235, 235, 245, .14);
+    --dot-ring: rgba(235, 235, 245, .45);
     --secondary-container: rgba(10, 132, 255, .26);
     --tool-body: #6f6c7d;
     --tool-collar: #8d8a9b;
@@ -234,6 +236,11 @@ html, body {
 .icon-btn.active { background: var(--primary-container); color: var(--on-primary-container); }
 .icon-btn.danger { color: var(--error); }
 .icon-btn[disabled] { opacity: .38; pointer-events: none; }
+/* 键盘焦点：强调色的一圈，不用浏览器默认的黑框（按 Esc 关面板之后焦点回到按钮上也是这一圈） */
+button:focus-visible,
+a:focus-visible,
+select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.icon-btn:focus-visible { outline-offset: -1px; }
 
 .pill {
   display: flex;
@@ -271,7 +278,7 @@ html, body {
 
 .pill .sep { width: 1px; height: 26px; margin: 0 4px; background: var(--outline); opacity: .5; flex: 0 0 auto; }
 
-/* 主工具条（iPad 与 Mac 共用）：默认贴底，可以换边，笔具盘模式下还能拖 */
+/* 主工具条：固定在底部正中（iPad 上换成笔具盘，那条能拖） */
 #toolbar {
   position: absolute;
   left: 50%;
@@ -280,15 +287,6 @@ html, body {
   max-width: calc(100vw - 24px);
   transition: none;
 }
-:root[data-toolbar="left"] #toolbar {
-  left: calc(16px + env(safe-area-inset-left));
-  top: 50%;
-  bottom: auto;
-  transform: translateY(-50%);
-  flex-direction: column;
-  max-height: calc(100vh - 140px);
-}
-:root[data-toolbar="left"] #toolbar .sep { width: 24px; height: 1px; margin: 4px 0; }
 
 /* ------------------------------------------------- 笔具盘（beta） */
 
@@ -687,14 +685,17 @@ html, body {
   flex: none;
   min-height: 52px;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   padding: calc(10px + env(safe-area-inset-top)) 20px 10px;
   border-bottom: 1px solid var(--hairline-soft);
 }
-.lib-heading { flex: 1; min-width: 160px; display: flex; align-items: baseline; gap: 10px; }
-.lib-title { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.lib-heading { flex: 1 1 auto; min-width: 60px; display: flex; align-items: baseline; gap: 10px; overflow: hidden; }
+.lib-title { margin: 0; min-width: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-note { white-space: nowrap; }
+.lib-head > * { flex-shrink: 0; }
+.lib-head > .lib-heading { flex-shrink: 1; }
 .lib-note { font-size: 12px; color: var(--on-surface-variant); }
 .lib-show-side { display: none; }
 .gallery.library[data-side="hidden"] .lib-show-side { display: grid; }
@@ -732,6 +733,7 @@ html, body {
 .lib-head [hidden] { display: none; }
 .lib-head .search-box {
   flex: 0 1 200px;
+  min-width: 110px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -957,7 +959,7 @@ input.board-name {
 .gallery.library[data-touch="1"] .lib-side-head .icon-btn { width: 32px; height: 32px; }
 .gallery.library[data-touch="1"] .lib-head { min-height: 60px; padding-left: 20px; padding-right: 20px; border-bottom: 0; }
 .gallery.library[data-touch="1"] .lib-title { font-size: 28px; font-weight: 700; letter-spacing: -.02em; }
-.gallery.library[data-touch="1"] .lib-head .search-box { flex-basis: 240px; height: 36px; border-radius: 10px; }
+.gallery.library[data-touch="1"] .lib-head .search-box { flex-basis: 240px; flex-shrink: 1; height: 36px; border-radius: 10px; }
 .gallery.library[data-touch="1"] .board-search { font-size: 17px; }
 .gallery.library[data-touch="1"] .lib-seg button { width: 40px; height: 32px; }
 .gallery.library[data-touch="1"] .lib-sort,
@@ -972,7 +974,10 @@ input.board-name {
 
 /* 右键 / 长按 / 按钮弹出的菜单，样子照 macOS 的上下文菜单：磨砂底、5 px 内边距、
    指到哪一行哪一行染成强调色 */
-.menu-layer { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
+/* 这一层盖满屏幕只是为了摆放菜单，自己不接点击：点菜单外面要落到底下的东西上，
+   菜单才知道该关。`#ui > *` 会把它改回接点击，所以选择器要带上 #ui。 */
+.menu-layer,
+#ui > .menu-layer { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
 .menu {
   position: fixed;
   min-width: 200px;
@@ -1028,7 +1033,8 @@ input.board-name {
 /* ------------------------------------------------------------- 拖文件进来 */
 
 /* 拖着 PDF / 图片经过：白板库里主区域盖一层，白板里一圈蓝框加一句提示 */
-.drop-zone {
+.drop-zone,
+#ui > .drop-zone {
   position: absolute;
   z-index: 40;
   pointer-events: none;
@@ -1217,23 +1223,30 @@ input.board-name {
 .notice-lines { display: flex; flex-direction: column; }
 
 /* 问一句再动手：图标、一句话、两个按钮，竖着排 */
+/* 确认框：照 macOS 的提醒框，图标、一句粗体、可选的一句说明，底下两个一样宽的文字按钮 */
 .dialog.ask {
   flex-direction: column;
-  gap: 14px;
-  padding: 24px 28px 18px;
-  min-width: 220px;
+  gap: 10px;
+  width: 280px;
+  padding: 22px 18px 16px;
+  border-radius: 14px;
   text-align: center;
+  font-weight: 400;
 }
-.ask-icon { color: var(--error); display: flex; }
-.ask-text { margin: 0; font-size: 15px; color: var(--on-surface); }
-.ask-actions { display: flex; gap: 12px; }
+.ask-icon { color: var(--error); display: flex; margin-bottom: 2px; }
+.ask-text { margin: 0; font-size: 13px; font-weight: 600; color: var(--on-surface); }
+.ask-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-self: stretch; margin-top: 8px; }
+.ask-actions:has(> :only-child) { grid-template-columns: 1fr; }
+.ask-actions .lib-btn { justify-content: center; }
+.lib-btn.danger { background: var(--error); color: #ffffff; font-weight: 500; box-shadow: var(--shadow-1); }
 /* 只读提示：话比确认框长，限宽；补充说明用小一号的字 */
 .dialog.ask.locked { max-width: min(420px, calc(100vw - 48px)); }
-.ask-note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--on-surface-variant); }
+.ask-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--on-surface-variant); }
 
+/* 居中不用 transform（进场动画 pop 也在改 transform，见 .export-dialog） */
 .dialog {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, -50%);
+  position: absolute; inset: 0; margin: auto;
+  width: fit-content; height: fit-content;
   padding: 20px; border-radius: 20px;
   background: var(--glass);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -1322,11 +1335,12 @@ input.board-name {
 /* ------------------------------------------------------------- 导出对话框 */
 
 /* 左边一栏浅灰（要导出的页），右边是选项和按钮。白底、14 圆角，暗底用 .scrim */
+/* 用 inset + margin: auto 居中，不用 transform：进场动画 pop 也在改 transform，
+   两个叠在一起时对话框会先出现在偏右下的地方再跳回中间 */
 .export-dialog {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  margin: auto;
   width: min(760px, calc(100vw - 40px));
   height: min(540px, calc(100vh - 48px));
   display: grid;
@@ -1592,7 +1606,7 @@ input.board-name {
 .export-frame.is-drawing { background: rgba(255, 255, 255, .55); pointer-events: none; }
 .export-adjust-hint {
   position: absolute;
-  top: calc(74px + env(safe-area-inset-top));
+  top: calc(var(--top-inset) + 74px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   padding: 6px 12px;
@@ -1650,9 +1664,10 @@ input.board-name {
   color: var(--on-surface);
   cursor: pointer;
 }
+/* Mac 上顶栏还在：按钮条和提示都放在顶栏下面 */
 .export-bar {
   position: absolute;
-  top: calc(12px + env(safe-area-inset-top));
+  top: calc(var(--top-inset) + 12px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   height: 48px;
@@ -1736,8 +1751,8 @@ input.board-name {
 :root[data-chrome="bar"] #toolbar .icon-btn svg { width: 20px; height: 20px; }
 :root[data-chrome="bar"] #toolbar .icon-btn.active { background: var(--primary-tint); color: var(--primary); }
 :root[data-chrome="bar"] #toolbar .sep { height: 24px; margin: 0 6px; opacity: 1; background: var(--hairline-bar); }
-:root[data-chrome="bar"][data-toolbar="left"] #toolbar .sep { width: 24px; height: 1px; margin: 6px 0; }
-:root[data-chrome="bar"] .color-dot { width: 20px; height: 20px; box-shadow: 0 0 0 2px var(--surface-1), 0 0 0 3px rgba(0, 0, 0, .14); }
+/* 当前颜色：外面一圈和工具栏同色的空隙，再一圈细线；深色模式下细线是浅色，黑色也看得见 */
+:root[data-chrome="bar"] .color-dot { width: 20px; height: 20px; box-shadow: 0 0 0 2px var(--glass-solid), 0 0 0 3px var(--dot-ring); }
 
 /* 右下角缩放：减号、百分比、加号 | 回到内容 */
 :root[data-chrome="bar"] #zoombar {
@@ -1750,6 +1765,11 @@ input.board-name {
 :root[data-chrome="bar"] #zoombar .icon-btn { width: 40px; height: 40px; color: var(--on-surface); }
 :root[data-chrome="bar"] #zoombar .icon-btn svg { width: 16px; height: 16px; }
 :root[data-chrome="bar"] #zoombar .sep { height: 24px; margin: 0 6px; opacity: 1; background: var(--hairline-bar); }
+/* 窗口窄的时候（Mac 窗口最窄 800）工具栏和右下角的缩放会撞上：工具栏改成在缩放
+   左边那块地方里居中，不再按整个窗口居中 */
+@media (max-width: 1080px) {
+  :root[data-chrome="bar"] #toolbar { left: calc(50% - 120px); }
+}
 .zoom-level {
   width: 56px;
   height: 40px;
@@ -1805,6 +1825,8 @@ input.board-name {
   font-weight: 400;
   animation: pop var(--motion);
 }
+/* Mac 上面板底下还有工具栏和缩放：高度到工具栏上沿为止，放不下就在面板里滚 */
+:root[data-chrome="bar"] .panel { max-height: calc(100vh - var(--top-inset) - 14px - 96px); }
 .panel-connect { width: 300px; padding: 18px; align-items: center; gap: 12px; }
 .panel-status { width: 280px; gap: 12px; }
 .panel-section { display: flex; flex-direction: column; gap: 10px; align-self: stretch; }

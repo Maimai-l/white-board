@@ -30,43 +30,15 @@ def test_toolbar_still_responds_to_taps(browser, server):
     assert ipad.evaluate("() => whiteboard.input.fingerDraw") is True
 
 
-def test_the_toolbar_can_move_to_the_left(browser, server):
-    """底部那条够不着时可以竖到左边（更多菜单里），并且记在本机。"""
+def test_an_old_saved_toolbar_position_is_ignored(browser, server):
+    """老版本能把工具栏挪到上边或左边；现在固定在底部，存过的位置不再生效。"""
     ipad = open_touch(browser, server.port)
-
-    def dock():
-        return ipad.evaluate("() => document.documentElement.dataset.toolbar")
-
-    def toolbar_box():
-        return ipad.locator("#toolbar").bounding_box()
-
-    assert dock() == "bottom"
-    more_pick(ipad, "工具栏移到左侧")
-    assert dock() == "left"
-    box = toolbar_box()
-    assert box["x"] < 40 and box["height"] > box["width"]
-
-    # 颜色面板改成往右开，不会盖住工具栏，也不会跑到屏幕外面
-    ipad.click('button[title="颜色与粗细"]')
-    left, bottom = ipad.evaluate(
-        "() => { const r = document.querySelector('.popover').getBoundingClientRect(); return [r.left, r.bottom]; }"
-    )
-    assert left >= box["x"] + box["width"]
-    assert bottom <= ipad.evaluate("() => innerHeight")
-
-    reload(ipad)
-    assert dock() == "left"  # 换个位置之后记得住
-
-    more_pick(ipad, "工具栏移到底部")
-    assert dock() == "bottom"
-
-
-def test_the_old_top_position_becomes_the_left_side(browser, server):
-    """老版本存的是贴上边：顶上现在是标题栏，升级上来换到左边。"""
-    ipad = open_touch(browser, server.port)
-    ipad.evaluate("() => localStorage.setItem('whiteboard.toolbar', 'top')")
-    reload(ipad)
-    assert ipad.evaluate("() => document.documentElement.dataset.toolbar") == "left"
+    for saved in ("top", "left"):
+        ipad.evaluate("(v) => localStorage.setItem('whiteboard.toolbar', v)", saved)
+        reload(ipad)
+        box = ipad.locator("#toolbar").bounding_box()
+        assert box["width"] > box["height"]
+        assert box["y"] > ipad.evaluate("() => innerHeight") / 2
 
 
 def test_classic_toolbar_still_shares_one_colour(browser, server):

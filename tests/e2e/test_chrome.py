@@ -82,35 +82,23 @@ def test_the_zoom_control_shows_the_percentage(browser, server):
     mac.wait_for_function(f"{ZOOM_TEXT} === '125%'")
 
 
-def test_the_more_menu_moves_the_toolbar_and_clears_the_board(browser, server):
-    """工具栏只有工具、颜色、撤销重做和更多；更多里把工具栏挪到左边（记住），清空要确认。"""
+def test_the_toolbar_stays_at_the_bottom_and_more_clears_the_board(browser, server):
+    """工具栏固定在底部正中，只有工具、颜色、撤销重做和更多；更多里清空要确认。"""
     mac = open_mac(browser, server.port)
     titles = mac.evaluate("() => [...document.querySelectorAll('#toolbar button')].map(b => b.title)")
     assert titles == ["钢笔", "马克笔", "荧光笔", "橡皮擦", "颜色与粗细", "撤销", "重做", "更多"]
+    box = mac.locator("#toolbar").bounding_box()
+    assert box["width"] > box["height"] and box["y"] + box["height"] > 800 - 40
 
     draw(mac, [(500, 300), (600, 360)])
     wait_strokes(mac, 1)
     mac.click('#toolbar button[title="更多"]')
     labels = mac.locator(".menu .menu-label").all_inner_texts()
-    assert labels == ["工具栏移到左侧", "回到内容", "清空白板…"]  # 浏览器里没有关于
-    menu_pick(mac, "工具栏移到左侧")
-    box = mac.locator("#toolbar").bounding_box()
-    assert box["height"] > box["width"] and box["x"] < 40
-
-    reload(mac)
-    box = mac.locator("#toolbar").bounding_box()
-    assert box["height"] > box["width"], "工具栏的位置要记住"
-
-    mac.click('#toolbar button[title="更多"]')
+    assert labels == ["回到内容", "清空白板…"]  # 浏览器里没有关于
     menu_pick(mac, "清空白板…")
     assert mac.locator(".dialog.ask .ask-text").inner_text() == "清空这块白板"
     mac.click('.dialog button[title="清空"]')
     mac.wait_for_function("() => whiteboard.state.strokes.length === 0")
-
-    mac.click('#toolbar button[title="更多"]')
-    menu_pick(mac, "工具栏移到底部")
-    box = mac.locator("#toolbar").bounding_box()
-    assert box["width"] > box["height"]
 
 
 def test_the_color_panel_has_system_colors_and_five_widths(browser, server):
@@ -233,3 +221,61 @@ def test_the_connect_panel_uses_the_server_address(browser, server):
     as_native(mac)
     mac.click("#status")
     mac.wait_for_function("() => { const i = document.querySelector('.connect-qr'); return i && i.naturalWidth > 0; }")
+
+
+# ----------------------------------------------------------------- 点外面关上
+#
+# 每个弹出来的东西（菜单、面板）点外面的空白处都要关上，而且这一下点到的东西照常起作用，
+# 不用先选一项或者按 Esc。
+
+
+def test_clicking_outside_closes_the_more_menu(browser, server):
+    mac = open_mac(browser, server.port)
+    mac.click('#toolbar button[title="更多"]')
+    mac.wait_for_selector(".menu")
+    mac.mouse.click(600, 300)  # 画布上的空白处
+    mac.wait_for_selector(".menu", state="detached")
+
+    # 菜单开着时直接点工具栏上的别的按钮：菜单关上，按钮也照常生效
+    mac.click('#toolbar button[title="更多"]')
+    mac.wait_for_selector(".menu")
+    mac.click('#toolbar button[title="橡皮擦"]')
+    mac.wait_for_selector(".menu", state="detached")
+    assert mac.evaluate("() => whiteboard.tool.tool") == "eraser"
+
+
+def test_clicking_outside_closes_the_panels(browser, server):
+    mac = native_mac(browser, server.port)
+    mac.click('#toolbar button[title="颜色与粗细"]')
+    mac.wait_for_selector(".popover")
+    mac.mouse.click(600, 300)
+    mac.wait_for_selector(".popover", state="detached")
+
+    for title, panel in (("白板设置", ".panel-settings"), ("连接 iPad", ".panel-connect")):
+        mac.click(f'#topbar button[title="{title}"]')
+        mac.wait_for_selector(panel)
+        mac.mouse.click(600, 300)
+        mac.wait_for_selector(panel, state="detached")
+
+
+def test_clicking_outside_closes_the_library_menus(browser, server):
+    mac = open_mac(browser, server.port)
+    open_gallery(mac)
+    mac.click(".lib-scroll .board-item[data-board]", button="right")
+    mac.wait_for_selector(".menu")
+    mac.mouse.click(900, 600)  # 白板库的空白处
+    mac.wait_for_selector(".menu", state="detached")
+    assert mac.query_selector(".gallery") is not None  # 只关菜单，不关白板库
+
+    mac.click(".lib-new")
+    mac.wait_for_selector(".lib-new-panel")
+    mac.mouse.click(900, 600)
+    mac.wait_for_selector(".lib-new-panel", state="detached")
+
+
+def test_clicking_outside_closes_the_menu_on_the_ipad(browser, server):
+    tablet = open_touch(browser, server.port)
+    tablet.tap('#toolbar button[title="更多"]')
+    tablet.wait_for_selector(".menu")
+    tablet.tap("#stage", position={"x": 300, "y": 300})
+    tablet.wait_for_selector(".menu", state="detached")

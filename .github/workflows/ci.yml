@@ -111,6 +111,14 @@ jobs:
           name: test-results-e2e
           path: test-results/
           if-no-files-found: ignore
+      # 界面各个状态的截图（tests/e2e/test_ui_states.py），过没过都传，改界面之后可以直接翻看
+      - name: 上传界面截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-states
+          path: test-results/ui-states/
+          if-no-files-found: ignore
 
   # iPad 上的 Safari 是 WebKit：主要流程用 WebKit 再跑一遍（用例列表在 Makefile 的 WEBKIT_CASES）
   webkit:

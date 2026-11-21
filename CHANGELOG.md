@@ -40,7 +40,8 @@ This file lists the notable changes to the board app and to inksync. The section
 
 - Interface: On the Mac, a title bar shows the board name and its folder, with the Library, Connect iPad, Export and Board settings buttons.
 - Interface: Board settings and Connect iPad open as panels below their buttons.
-- Interface: The toolbar contains the four tools, the color button, Undo, Redo and More. Clear, About and moving the toolbar to the left side are in the More menu. The colors are the system colors.
+- Interface: The toolbar stays at the bottom of the window and contains the four tools, the color button, Undo, Redo and More.
+- Interface: Clear and About are in the More menu. The colors are the system colors.
 - iPad: The Library button is at the top left. The connection state is shown by the color of the connection button at the top right, which replaces the status dot.
 - Export: The export dialog lists the pages in a sidebar. Pages are exported as all pages, a typed range or the pages selected in the sidebar.
 - Sketch: The sketch page shows the connection state as text, and its copy button is named Copy as image.

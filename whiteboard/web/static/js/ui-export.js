@@ -88,7 +88,7 @@ export class ExportDialog {
     this.wholeThumb = el("div", { class: "export-whole-thumb" }, [this.wholeCanvas]);
     this.wholePanel = el("div", { class: "export-panel export-whole" }, [
       this.wholeThumb,
-      el("span", { class: "export-whole-caption", text: "整块白板" }),
+      el("span", { class: "export-whole-caption", text: "整张长图" }),
     ]);
 
     const meta = this.host.state.meta;

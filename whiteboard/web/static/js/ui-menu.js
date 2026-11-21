@@ -12,6 +12,15 @@ import { el } from "/inksync/util.js";
 let open = null;
 
 /** 关掉当前的菜单（没有就什么都不做）。 */
+/**
+ * 按 Esc 关掉菜单或面板之后，焦点还停在打开它的那个按钮上，浏览器会给它画一圈焦点框。
+ * 顶栏、工具栏上的按钮是用鼠标点的，这一圈只是噪音，所以把焦点拿掉（和 macOS 一样）。
+ */
+export function dropChromeFocus() {
+  const active = document.activeElement;
+  if (active && active.closest && active.closest("#topbar, #toolbar, #topleft, #topright, #zoombar, .lib-head")) active.blur();
+}
+
 export function closeMenu() {
   if (!open) return;
   const current = open;
@@ -131,24 +140,27 @@ export function showMenu(items, at, { root = document.body, label = "", classNam
     place(panel, at);
   }
 
+  // 落在任何一张菜单（含子菜单）以外就关；这一下本身照常落到底下的东西上
   const outside = (event) => {
-    if (!layer.contains(event.target)) close();
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !target.closest(".menu") || !layer.contains(target)) close();
   };
   const key = (event) => {
     if (event.key === "Escape") {
       event.stopPropagation();
       event.preventDefault();
       close();
+      dropChromeFocus();
     }
   };
-  // 打开菜单的那一下按下还没结束，等它过去再开始听
-  const timer = setTimeout(() => addEventListener("pointerdown", outside, true), 0);
+  // 菜单都是在一次点按（或右键、长按）结束时打开的，那一下的按下已经过去了，
+  // 所以马上开始听；晚一拍再听的话，手快时紧接着的那一下会漏掉
+  addEventListener("pointerdown", outside, true);
   addEventListener("keydown", key, true);
   addEventListener("blur", close);
   open = {
     layer,
     teardown() {
-      clearTimeout(timer);
       removeEventListener("pointerdown", outside, true);
       removeEventListener("keydown", key, true);
       removeEventListener("blur", close);
