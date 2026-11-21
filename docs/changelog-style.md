@@ -151,6 +151,7 @@ The app interface is in Chinese. Entries refer to controls by these English name
 | 仍然编辑 | Edit anyway |
 | 打开方式 (Finder) | Open With |
 | 检查更新 | Check for updates |
+| 检查更新… (app menu) | Check for Updates… |
 
 ## 8. Example
 

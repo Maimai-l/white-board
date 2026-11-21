@@ -71,7 +71,7 @@ def test_the_ui_only_draws_the_entries_it_is_allowed(browser, server):
     assert mac.evaluate(ENTRIES) == ["白板库", "导出", "白板设置"]
     as_native(mac)
     assert mac.evaluate(ENTRIES) == ["白板库", "连接 iPad", "导出", "白板设置"]
-    assert "关于白板" in more_menu(mac)
+    assert "关于白板" not in more_menu(mac)  # 在菜单栏的应用菜单里
 
     # 装成局域网里的别的设备：把服务端发下来的那份清单改成只有 export
     mac.add_init_script("delete window.pywebview;")  # 别的设备不是本地进程

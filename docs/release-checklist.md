@@ -19,7 +19,7 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 
 - [ ] Install the prerelease and open it for the first time. The storage directory contains `backups/upgrade/<time>_<old version>_to_<new version>/` with `boards/` inside, plus whichever of `index.json` (when upgrading from 1.0.x), `index.sqlite`, `space.json` and `spaces/` exist.
 - [ ] When upgrading from 1.0.x: the storage directory has `index.sqlite` and `space.json`, and `index.json` is renamed to `index.v1.json`; boards created by apps in 1.0.x are in `spaces/<app name>/` and open read-only from that app's row under “应用” (Apps) in the library sidebar.
-- [ ] “关于白板” (About; toolbar “更多” (More) → “关于白板”) shows the new version number, including the `-rc` suffix.
+- [ ] “关于白板” (About; menu bar “白板” → “关于白板”) shows the new version number, including the `-rc` suffix.
 - [ ] All existing boards are present, with the same content, folders, and order as before the upgrade. Opening several of them shows no read-only notice.
 
 ### Drawing and editing
@@ -69,6 +69,7 @@ CI checks that Sparkle loads in the packaged app and that delta updates apply. I
 - [ ] Install the newest alpha build from the GitHub Pages site. “关于白板” (About) shows a version ending in `-alpha.<build time>`.
 - [ ] Merge any change into `dev` and wait for CI to pass. Within an hour the update downloads without a prompt; after quitting and reopening the app, “关于白板” (About) shows the new build.
 - [ ] 检查更新 (Check for updates) opens the Sparkle window and reports the newest version.
+- [ ] Menu bar: the app name reads 白板 and every menu is in Chinese (关于白板, 检查更新…, 服务, 隐藏白板, 隐藏其他, 全部显示, 退出白板; in the Edit menu 剪切, 拷贝, 粘贴, 全选), with no space before the app name. 检查更新… (Check for Updates…) opens the Sparkle window; 关于白板 (About) opens the app's own About window with the release notes and log file links, not the system About panel. If an item is still in English or opens the wrong window, send a screenshot of the menu.
 - [ ] Upgrading from 1.2.0: the previous update dialog offers this release; after installing it, 检查更新 (Check for updates) opens the Sparkle window.
 
 If an item fails, send the lines of `~/Library/Logs/Whiteboard.log` that start with `Sparkle`, and the output of `/Applications/Whiteboard.app/Contents/MacOS/Whiteboard --check-updater`.

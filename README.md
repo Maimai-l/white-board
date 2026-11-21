@@ -70,7 +70,7 @@ Builds published from 1.3.0 on update through [Sparkle](https://sparkle-project.
 
 1.2.0 and earlier have their own updater: it reads `releases/latest` on GitHub and offers 1.3.0 in its update dialog. From 1.3.0 on, the app has no updater other than Sparkle. A build without Sparkle (running from source, or a local build without the public key) does not update itself; update it with `git pull` or install a new download.
 
-关于白板 (About) exists only in the Mac window and opens from the toolbar's 更多 (More) menu. This small window shows the app icon, name and version, plus the build when it differs from the version (`branch@commit` when running from source), followed by 检查更新 (Check for updates) and two links: 更新日志 (changelog) and 日志文件 (log file). The address for the iPad is under 连接 iPad (Connect iPad). After 检查更新 is clicked, the line above the button shows the result: in a packaged build it reads 结果显示在更新窗口 (see the update window) and Sparkle's window opens; when running from source it says to update with `git pull`; in a packaged build without a working Sparkle it reads 这个版本不能自动更新 (this build cannot update automatically), the reason goes to the log file, and new versions are downloaded from the changelog link.
+In the Mac window, the app menu (白板) holds 关于白板 (About) and 检查更新… (Check for Updates…), and the whole menu bar is in Chinese. 检查更新… opens the Sparkle window directly; when running from source or without Sparkle, a message at the top of the window says why. 关于白板 opens the app's own About window: This small window shows the app icon, name and version, plus the build when it differs from the version (`branch@commit` when running from source), followed by 检查更新 (Check for updates) and two links: 更新日志 (changelog) and 日志文件 (log file). The address for the iPad is under 连接 iPad (Connect iPad). After 检查更新 is clicked, the line above the button shows the result: in a packaged build it reads 结果显示在更新窗口 (see the update window) and Sparkle's window opens; when running from source it says to update with `git pull`; in a packaged build without a working Sparkle it reads 这个版本不能自动更新 (this build cannot update automatically), the reason goes to the log file, and new versions are downloaded from the changelog link.
 
 ### Running from source
 
@@ -218,7 +218,6 @@ The classic toolbar's 更多 (More) menu:
 | 手指书写 (Finger drawing), 形状识别 (Shape recognition) | Switches, only on touch devices without the tool picker. |
 | 回到内容 (Back to content) | Same as in the zoom control. |
 | 清空白板… (Clear board) | Clears the whole board after confirmation; needs the Clear board permission. |
-| 关于白板 (About) | Only in the Mac window; see [Updates](#updates). |
 
 The tool picker is the implementation in [static/vendor](whiteboard/web/static/vendor/README.md), with these additions:
 

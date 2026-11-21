@@ -27,8 +27,8 @@ Updates
 -------
 The app checks for new versions automatically (Sparkle). When one is
 available, Sparkle's window shows the new version and its release notes.
-To check manually: "更多" (More) in the bottom toolbar, then "关于白板"
-(About), then "检查更新" (Check for updates).
+To check manually: in the menu bar, "白板" (the app menu), then
+"检查更新…" (Check for Updates…).
 
 Run from source (optional)
 --------------------------
@@ -80,9 +80,9 @@ iPad:
 Mac and other devices (classic toolbar):
   - The bottom toolbar contains pen, marker, highlighter, eraser, "颜色与粗细"
     (Color and width), undo, redo, and "更多" (More). More returns to the
-    content and clears the board; in the Mac
-    window it also has "关于白板" (About), and on touch devices the finger
-    drawing and shape recognition switches.
+    content and clears the board; on touch devices it also has the finger
+    drawing and shape recognition switches. "关于白板" (About) is in the
+    app menu "白板" in the menu bar.
   - Mouse: the left button draws. Space + drag or the middle button pans.
     The scroll wheel pans. Cmd + scroll wheel zooms.
   - Keys: Cmd+Z undo, Cmd+Shift+Z redo, Cmd+= / Cmd+- zoom, Cmd+0 fit content.
