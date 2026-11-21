@@ -19,12 +19,12 @@ from typing import Any, Dict, Optional
 from . import RELEASES_URL, __version__, appmenu, backup, netinfo, profile, resources, sparkle
 from .config import Config
 from .runner import ServerThread
-from .server import list_apps
+from .server import list_apps, running_build
 
 log = logging.getLogger(__name__)
 
 
-# 菜单栏的「检查更新…」交不给 Sparkle 时，在窗口里说一句（和关于窗口里检查更新的说法一样）
+# 菜单栏的「检查更新…」交不给 Sparkle 时，在窗口里说一句
 UPDATE_MESSAGES = {
     "source": "源码运行时用 git pull 更新",
     "unavailable": "这个版本不能自动更新",
@@ -70,11 +70,6 @@ class NativeApi:
         text = UPDATE_MESSAGES.get(result.get("status", ""))
         if text and self.window is not None:
             self.window.evaluate_js(f"whiteboard.ui.message({json.dumps(text, ensure_ascii=False)})")
-
-    def _menu_about(self) -> None:
-        """应用菜单里的「关于白板」：打开应用自己的关于窗口（有更新日志、日志文件、检查更新）。"""
-        if self.window is not None:
-            self.window.evaluate_js("whiteboard.ui.openAbout()")
 
     def check_update_now(self) -> Dict[str, Any]:
         """「检查更新」：打包好的应用交给 Sparkle，它自己的窗口显示结果。
@@ -255,22 +250,6 @@ class NativeApi:
             return False
         return True
 
-    def open_log(self) -> bool:
-        """在访达里选中日志文件，方便直接拖去看。"""
-        path = resources.log_path()
-        if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.touch()
-        try:
-            if sys.platform == "darwin":
-                subprocess.run(["open", "-R", str(path)], check=False)
-            else:
-                subprocess.run(["xdg-open", str(path.parent)], check=False)
-        except OSError as exc:
-            log.warning("打开日志失败：%s", exc)
-            return False
-        return True
-
     def open_external(self, url: str) -> bool:
         if not url.startswith(("http://", "https://")):
             return False
@@ -445,7 +424,8 @@ def run(
         if sys.platform == "darwin":
             from PyObjCTools import AppHelper
 
-            AppHelper.callAfter(appmenu.tidy_app_menu, api._menu_about)
+            about = appmenu.about_options(__version__, running_build(), RELEASES_URL, str(resources.log_path()))
+            AppHelper.callAfter(appmenu.tidy_app_menu, about)
 
     try:
         webview.start(

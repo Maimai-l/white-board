@@ -235,11 +235,6 @@ def test_mac_editor_states(browser, server, size_name):
     problems += check(page, f"{size_name}-connect")
     page.keyboard.press("Escape")
 
-    page.evaluate("() => whiteboard.ui.openAbout()")
-    problems += check(page, f"{size_name}-about")
-    page.keyboard.press("Escape")
-    page.evaluate("() => document.querySelectorAll('.scrim').forEach(n => n.remove())")
-
     page.evaluate("() => whiteboard.ui.confirmClear()")
     problems += check(page, f"{size_name}-confirm")
     page.click('.dialog button[title="取消"]')

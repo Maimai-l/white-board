@@ -431,22 +431,6 @@ class App extends InkPad {
         // 录制和卡顿诊断同一个开关：iPad 是 Web Clip 打开的，没有地址栏
         this.recorderPanel?.toggle(this.perf.enabled);
       },
-      onCheckUpdate: async () => {
-        const api = nativeApi();
-        if (!api || !api.check_update_now) return "这个窗口没有本地接口";
-        const result = (await api.check_update_now()) || {};
-        switch (result.status) {
-          case "sparkle":
-            return "结果显示在更新窗口";
-          case "source":
-            return "源码运行时用 git pull 更新";
-          case "unavailable":
-            // 原因（result.message）app.py 的 check_update_now 已经写进日志
-            return "这个版本不能自动更新";
-          default:
-            return "检查失败";
-        }
-      },
       onFingerDraw: (enabled) => {
         this.input.setFingerDraw(enabled);
         saveFingerDraw(enabled);
@@ -540,14 +524,6 @@ class App extends InkPad {
         const api = nativeApi();
         if (!api || !api.set_ipad_home) return null;
         return api.set_ipad_home(name);
-      },
-      onOpenReleases: () => {
-        const info = this.ui.info || {};
-        this.actionsOpenUrl(info.releases || "https://github.com/Maimai-l/white-board/releases");
-      },
-      onOpenLog: () => {
-        const api = nativeApi();
-        if (api && api.open_log) api.open_log();
       },
       onOpenDir: () => {
         const api = nativeApi();

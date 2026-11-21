@@ -117,6 +117,9 @@ app = BUNDLE(
     info_plist={
         # 菜单栏上的应用名（关于、隐藏、退出后面接的也是它）；数据目录用的是 config.APP_NAME，不受影响
         "CFBundleName": "白板",
+        # 应用的语言是简体中文：系统的关于窗口、存储面板、Sparkle 的更新窗口都跟着显示中文
+        "CFBundleDevelopmentRegion": "zh-Hans",
+        "CFBundleLocalizations": ["zh-Hans"],
         "CFBundleDisplayName": "白板",
         "CFBundleShortVersionString": DISPLAY,
         "CFBundleVersion": BUILD,

@@ -1117,65 +1117,17 @@ input.board-name {
   pointer-events: none;
 }
 
-/* 关于面板 */
-.dialog.about {
-  flex-direction: column;
-  gap: 6px;
-  padding: 28px 32px 22px;
-  min-width: 280px;
-  text-align: center;
-}
-.about-icon { width: 96px; height: 96px; margin-bottom: 12px; }
-.about-name { font-size: 22px; font-weight: 700; letter-spacing: .2px; }
-/* 版本这些：左边灰色小标题右对齐，右边等宽字体，和系统的关于窗口一个样 */
-.about-rows {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 5px 12px;
-  align-items: baseline;
-  margin: 20px 0 2px;
-}
-.about-key { font-size: 12.5px; color: var(--on-surface-variant); text-align: right; }
-.about-val {
-  font: 500 12.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
-  user-select: text;
-  -webkit-user-select: text;
-}
-/* 更新日志 / 日志文件是链接，不是按钮 */
-.about-links { display: flex; gap: 18px; justify-content: center; margin-top: 14px; }
+/* 文字链接：在访达中显示、导入、存储描述文件 */
 .link {
   border: 0;
   padding: 0;
   background: none;
   color: var(--primary);
-  font: 500 12.5px/1.3 inherit;
+  font: 500 12px/1.3 inherit;
   cursor: pointer;
 }
 @media (hover: hover) {
   .link:hover { text-decoration: underline; }
-}
-.about-update {
-  margin-top: 16px;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-/* 检查更新的结果文字 */
-.check-note {
-  font-size: 12.5px;
-  color: var(--on-surface-variant);
-  /* 空着也占一行：有没有结果按钮都在原地 */
-  min-height: 1.25em;
-  max-width: 260px;
-  text-align: center;
-}
-
-/* 设置里的版本号 */
-.version {
-  font: 600 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--on-surface-variant);
-  padding-left: 8px;
 }
 
 .toast {
@@ -1948,24 +1900,3 @@ input.board-name {
 :root[data-chrome="bar"] .notice { left: auto; right: 60px; transform: none; }
 .notice svg { width: 18px; height: 18px; }
 
-/* 关于：小窗口的样子，左上角三个圆点只有红的能点 */
-.scrim.clear { background: transparent; animation: none; }
-.dialog.about {
-  width: 280px;
-  padding: 14px 24px 24px;
-  gap: 0;
-  border-radius: 12px;
-  background: var(--glass-solid);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-3);
-}
-.about-lights { align-self: flex-start; display: flex; gap: 8px; }
-.about-lights > * { width: 12px; height: 12px; padding: 0; border: 0; border-radius: 50%; background: #dcdce0; }
-.about-lights .about-close { background: var(--light-red); cursor: default; }
-.dialog.about .about-icon { width: 84px; height: 84px; margin: 14px 0 0; }
-.dialog.about .about-name { margin: 14px 0 2px; font-size: 17px; font-weight: 600; letter-spacing: 0; }
-.about-version { font-size: 12px; font-weight: 400; color: var(--on-surface-variant); }
-.about-build { margin-top: 2px; font-size: 11px; font-weight: 400; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
-.dialog.about .about-update { flex-direction: column; gap: 6px; margin-top: 18px; }
-.dialog.about .about-links { margin-top: 12px; }
-.link { font-size: 12px; }

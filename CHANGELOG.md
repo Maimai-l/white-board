@@ -17,7 +17,8 @@ This file lists the notable changes to the board app and to inksync. The section
 - Library: Several PDF and image files can be dropped at once. A file dropped on a folder in the sidebar is imported into that folder.
 - Mac: The Connect iPad panel shows a QR code of the board address for the iPad camera, the connected devices and a link to install the iPad app.
 - Mac: A message appears when an iPad connects or disconnects.
-- Mac: Check for Updates… is in the app menu, below About. About opens the app's About window.
+- Mac: Check for Updates… is in the app menu, below About.
+- Mac: About is the standard macOS About window, with the full version and links to the changelog and the log file.
 - Mac: The zoom control shows the zoom percentage. Clicking the percentage sets the zoom to 100%.
 - Boards: A board can be duplicated. The copy has the same ink, background and folder and is placed after the original; a document board is copied with its original file.
 - Export: The export button opens an export dialog that exports the selected pages as a PDF, one PNG file or a ZIP of PNG files.

@@ -27,7 +27,7 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 - [ ] Drawing with the mouse, undo, and redo work. “清空白板” (Clear board) asks for confirmation before clearing.
 - [ ] The object eraser and the pixel eraser both erase. Undo restores the erased strokes.
 - [ ] Create an infinite board and a note board. Drag a PDF into the window to create a document board, write on the PDF, and export it.
-- [ ] Export (导出): export a PDF and a PNG with two pages selected. The save dialog suggests a name ending in `.pdf` or `.zip`, and the saved files open in Preview. If not, send the log file (更多 → 关于白板 → 日志文件) and the suggested name.
+- [ ] Export (导出): export a PDF and a PNG with two pages selected. The save dialog suggests a name ending in `.pdf` or `.zip`, and the saved files open in Preview. If not, send the log file (白板 menu → 关于白板 → 日志文件) and the suggested name.
 - [ ] Export → 调整: drag a page frame with the trackpad and resize it by a corner; panning with two fingers moves the board, not the frame. If a frame does not follow, send a screen recording.
 - [ ] Export → WBZ: the save dialog suggests `<board name>.wbz`. Save it outside the storage directory, then double-click the saved file in Finder: the app opens it as a new board with the same content. If the name is wrong or the board does not open, send the log file and the saved `.wbz`.
 
@@ -69,7 +69,7 @@ CI checks that Sparkle loads in the packaged app and that delta updates apply. I
 - [ ] Install the newest alpha build from the GitHub Pages site. “关于白板” (About) shows a version ending in `-alpha.<build time>`.
 - [ ] Merge any change into `dev` and wait for CI to pass. Within an hour the update downloads without a prompt; after quitting and reopening the app, “关于白板” (About) shows the new build.
 - [ ] 检查更新 (Check for updates) opens the Sparkle window and reports the newest version.
-- [ ] Menu bar: the app name reads 白板 and every menu is in Chinese (关于白板, 检查更新…, 服务, 隐藏白板, 隐藏其他, 全部显示, 退出白板; in the Edit menu 剪切, 拷贝, 粘贴, 全选), with no space before the app name. 检查更新… (Check for Updates…) opens the Sparkle window; 关于白板 (About) opens the app's own About window with the release notes and log file links, not the system About panel. If an item is still in English or opens the wrong window, send a screenshot of the menu.
+- [ ] Menu bar: the app name reads 白板 and every menu is in Chinese (关于白板, 检查更新…, 服务, 隐藏白板, 隐藏其他, 全部显示, 退出白板; in the Edit menu 剪切, 拷贝, 粘贴, 全选), with no space before the app name. 检查更新… (Check for Updates…) opens the Sparkle window; 关于白板 (About) opens the standard macOS About window in Chinese: the icon, 白板, “版本 1.3.0 (alpha.…)” and the links 更新日志 and 日志文件; 更新日志 opens the releases page in the browser and 日志文件 opens the log in Console. If an item is still in English, the version line lacks the build, or a link does nothing, send a screenshot of the menu or the About window.
 - [ ] Upgrading from 1.2.0: the previous update dialog offers this release; after installing it, 检查更新 (Check for updates) opens the Sparkle window.
 
 If an item fails, send the lines of `~/Library/Logs/Whiteboard.log` that start with `Sparkle`, and the output of `/Applications/Whiteboard.app/Contents/MacOS/Whiteboard --check-updater`.
