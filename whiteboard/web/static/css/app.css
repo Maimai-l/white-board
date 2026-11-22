@@ -1904,7 +1904,22 @@ input.board-name {
 /* 工具栏更多菜单往上开，贴着按钮 */
 .from-toolbar .menu { min-width: 200px; }
 
-/* 消息条：一条磨砂胶囊，Mac 上在顶栏下面靠右，iPad 上居中 */
+/* 消息条：一条磨砂胶囊，Mac 上在顶栏下面靠右，iPad 上居中。几条同时在的时候在 #notices 里往下排 */
+#notices {
+  position: absolute;
+  z-index: 4;
+  top: calc(var(--top-inset) + 10px + env(safe-area-inset-top));
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+:root[data-chrome="bar"] #notices { left: auto; right: 60px; translate: none; align-items: flex-end; }
+#notices:empty { display: none; }
+#notices > .notice { position: relative; top: auto; left: auto; transform: none; pointer-events: auto; }
 .notice {
   top: calc(var(--top-inset) + 10px + env(safe-area-inset-top));
   height: auto;
