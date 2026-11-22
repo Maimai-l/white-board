@@ -667,6 +667,43 @@ def test_upload_creates_doc_board_and_switches(tmp_path):
     run(main())
 
 
+def test_a_textbook_sized_pdf_becomes_a_doc_board(tmp_path):
+    """用户反馈：拖进两本几百页的物理教材，都提示打不开。所有页从上往下排成一张长画布，
+    超过一百来页 A4 就超过了画布的高度上限，建板时被当成不合法拒掉。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            response = await client.post("/api/doc?name=教材.pdf", data=_doc_bytes([(595, 842)] * 300))
+            assert response.status == 200, await response.text()
+            body = await response.json()
+            meta = body["board"]
+            assert len(meta["data"]["doc"]["pages"]) == 300
+            assert body["total"] == 300
+            assert meta["canvas"]["height"] == 300 * 842 + 299 * models.DOC_PAGE_GAP
+            assert len(meta["layers"]) == 300 and meta["layers"][-1]["y"] == 299 * (842 + models.DOC_PAGE_GAP)
+            # 重新打开存储目录（重启应用）之后，这块白板和它的 300 页都还在
+            app[HUB_KEY].save_now() if hasattr(app[HUB_KEY], "save_now") else None
+            reloaded = BoardStore(app[HUB_KEY].store.data_dir).get_meta(meta["id"])
+            assert reloaded["canvas"] == meta["canvas"]
+            assert len(reloaded["layers"]) == 300
+
+    run(main())
+
+
+def test_a_pdf_over_the_page_limit_says_how_many_pages_it_has(tmp_path):
+    """超过 400 页的 PDF 导入前 400 页，回复里带上一共有几页，界面据此提示，不悄悄截掉。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            response = await client.post("/api/doc?name=大部头.pdf", data=_doc_bytes([(595, 842)] * 410))
+            assert response.status == 200, await response.text()
+            body = await response.json()
+            assert len(body["board"]["data"]["doc"]["pages"]) == 400
+            assert body["total"] == 410
+
+    run(main())
+
+
 def test_upload_rejects_unsupported_file(tmp_path):
     async def main():
         async with make_client(tmp_path) as (client, _app):

@@ -115,7 +115,11 @@ def probe(path: str | Path) -> Dict[str, Any]:
                 pages = [[float(img.width), float(img.height)]]
         except Exception as exc:
             raise DocError("图片打不开，可能格式不支持") from exc
-    return {"type": doc_type, "name": path.name, "ext": path.suffix.lower(), "pages": pages}
+    total = count if doc_type == "pdf" else 1
+    if total > len(pages):
+        log.warning("docs.probe：%s 有 %d 页，只导入前 %d 页", path.name, total, len(pages))
+    # total 是原件一共有几页（超过 MAX_PAGES 时比 pages 多），导入的接口据此告诉用户
+    return {"type": doc_type, "name": path.name, "ext": path.suffix.lower(), "pages": pages, "total": total}
 
 
 def layout(pages: Sequence[Sequence[float]], gap: float = PAGE_GAP) -> List[Dict[str, float]]:
