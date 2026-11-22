@@ -50,7 +50,10 @@ This file lists the notable changes to the board app and to inksync. The section
 - Interface: On the Mac, a title bar shows the board name and its folder, with the Library, Connect iPad, Export and Board settings buttons.
 - Mac: The top bar is the window's title bar, with the window buttons at its left end. Clicking it no longer moves the window down.
 - Mac: Dragging an empty part of the top bar moves the window, and double-clicking it zooms the window.
-- Interface: Board settings and Connect iPad open as panels below their buttons.
+- Interface: Board settings and Connect other devices open as panels below their buttons.
+- Library: Settings at the bottom of the sidebar shows the connection, the permissions for other devices and the storage location without opening a board.
+- Interface: All settings… at the bottom of the board settings panel opens the settings in the library.
+- Interface: Labels that apply to every device on the network say other devices instead of iPad.
 - Interface: The toolbar stays at the bottom of the window and contains the four tools, the color button, Undo, Redo and More.
 - Interface: Clear is in the More menu. The colors are the system colors.
 - Interface: Buttons, switches, links and cards change when the pointer is over them and when they are pressed.

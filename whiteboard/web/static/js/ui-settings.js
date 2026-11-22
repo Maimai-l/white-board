@@ -1,4 +1,5 @@
-// 顶栏按钮弹出的几个面板：白板设置、连接 iPad（Mac）、连接状态（iPad）。
+// 顶栏按钮弹出的几个面板：白板设置、连接其他设备（Mac）、连接状态（iPad），
+// 以及白板库左下角「设置」那一页（同样的设置，排成整页）。
 //
 // 这些方法装到 UI.prototype 上（见 ui.js 末尾），里面的 this 就是那个 UI。
 // 面板贴着按钮往下开，同一时间只开一个；点外面或者按 Esc 关上，再点一次按钮也关上。
@@ -139,14 +140,13 @@ const methods = {
     const hasBlank = Array.isArray(src) && src.includes(null);
     if ((!isDoc || hasBlank) && this.may("settings")) sections.push(this.section("背景", [this.backgroundOptions()]));
     // 选目录要开本地文件对话框，只有 pywebview 窗口里才有；别的设备看不到这几段。
+    // 像控制中心：常改的几项在这里随手改，完整的设置在白板库左下角（所有设置…）
     if (this.native) {
-      sections.push(
-        this.section("iPad 可以", [el("div", { class: "perm-list" }, PERMISSIONS.map((item) => this.permissionRow(item)))])
-      );
+      sections.push(this.section("其他设备可以", [this.permissionList()]));
       sections.push(this.section("存储位置", [this.dataDirCard()]));
       // 存储目录 apps/ 下装了应用时才有这一段
       const apps = (this.info && this.info.apps) || [];
-      if (apps.length) sections.push(this.section("iPad 首页", [this.ipadHomeCard(apps)]));
+      if (apps.length) sections.push(this.section("首页", [this.ipadHomeCard(apps)]));
     }
     if (!sections.length) return null;
     const children = [];
@@ -154,7 +154,28 @@ const methods = {
       if (index) children.push(el("div", { class: "panel-rule" }));
       children.push(node);
     });
+    if (this.may("manage")) {
+      children.push(el("div", { class: "panel-rule" }));
+      children.push(el("button", { class: "link panel-more", type: "button", text: "所有设置…", onclick: () => this.openAllSettings() }));
+    }
     return { label: "白板设置", children };
+  },
+
+  /** 白板设置面板底部的所有设置…：关掉面板，打开白板库停在设置那一页。 */
+  openAllSettings() {
+    this.closePanel();
+    this.openBoards("settings");
+  },
+
+  /** 其他设备可以：四个权限开关。 */
+  permissionList() {
+    return el("div", { class: "perm-list" }, PERMISSIONS.map((item) => this.permissionRow(item)));
+  },
+
+  /** 设置改了以后，开着的面板和白板库的设置页都跟着重画。 */
+  refreshSettingsViews() {
+    this.refreshPanel();
+    if (this.gallery && this.libNav === "settings") this.renderMain();
   },
 
   backgroundOptions() {
@@ -194,7 +215,7 @@ const methods = {
             if (!dir) return;
             if (this.info) this.info.data_dir = dir;
             this.toast("check");
-            this.refreshPanel();
+            this.refreshSettingsViews();
           },
         }),
       ]),
@@ -225,7 +246,7 @@ const methods = {
   /** iPad 打开时进入白板还是某个应用（docs/embed.md）。 */
   ipadHomeCard(apps) {
     const current = (this.info && this.info.ipad_home) || "";
-    const select = el("select", { class: "home-select", title: "iPad 首页" }, [
+    const select = el("select", { class: "home-select", title: "首页", "aria-label": "其他设备打开时进入" }, [
       el("option", { value: "", text: "白板" }),
       ...apps.map((name) => el("option", { value: name, text: name })),
     ]);
@@ -242,13 +263,13 @@ const methods = {
     return select;
   },
 
-  // ------------------------------------------------------------ 连接 iPad
+  // ------------------------------------------------------------ 连接其他设备
 
   /**
-   * Mac 上的连接面板：二维码、地址、连着的设备。下面那个链接把二维码换成外壳的
-   * 安装页，用 iPad 相机一扫就能装。
+   * 连接其他设备的几样东西：二维码、地址和拷贝、连着的设备、两个链接。顶栏的面板和白板库的
+   * 设置页用的是同一份，只是排法不同。下面那个链接把二维码换成 iPad 外壳的安装页。
    */
-  connectContent() {
+  connectParts(refresh) {
     const urls = (this.info && this.info.urls) || [];
     const base = urls[0] || "";
     const install = !!this.connectInstall;
@@ -266,7 +287,7 @@ const methods = {
           await navigator.clipboard.writeText(url);
           copy.textContent = "已拷贝";
         } catch (err) {
-          reportError("ui-settings.connectContent 拷贝地址失败", { message: String(err) });
+          reportError("ui-settings.connectParts 拷贝地址失败", { message: String(err) });
           this.message("没能拷贝", "close", 3000);
         }
       },
@@ -280,28 +301,75 @@ const methods = {
         )
       : [el("p", { class: "panel-note", text: "没有连接的设备" })];
     return {
-      label: "连接 iPad",
+      note: install ? "用 iPad 相机扫码安装白板" : "用相机扫码或在浏览器中打开",
+      qr,
+      address: el("div", { class: "panel-row boxed" }, [el("span", { class: "panel-row-text addr", text: shown }), copy]),
+      devices: el("div", { class: "panel-stack" }, [el("h3", { class: "group-title", text: "已连接" }), ...devices]),
+      links: el("div", { class: "panel-links" }, [
+        el("button", {
+          class: "link",
+          type: "button",
+          text: install ? "扫码连接白板" : "在 iPad 上安装白板",
+          onclick: () => {
+            this.connectInstall = !install;
+            refresh();
+          },
+        }),
+        el("button", { class: "link", type: "button", text: "存储描述文件", onclick: () => this.actions.onProfile() }),
+      ]),
+    };
+  },
+
+  /** Mac 上顶栏的连接面板：二维码、地址、连着的设备，竖着排。 */
+  connectContent() {
+    const parts = this.connectParts(() => this.refreshPanel());
+    return {
+      label: "连接其他设备",
       children: [
-        el("h2", { class: "panel-title", text: "连接 iPad" }),
-        el("p", { class: "panel-note center", text: install ? "用 iPad 相机扫码安装白板" : "用 iPad 相机扫码连接" }),
-        qr,
-        el("div", { class: "panel-row boxed" }, [el("span", { class: "panel-row-text addr", text: shown }), copy]),
+        el("h2", { class: "panel-title", text: "连接其他设备" }),
+        el("p", { class: "panel-note center", text: parts.note }),
+        parts.qr,
+        parts.address,
         el("div", { class: "panel-rule" }),
-        el("div", { class: "panel-stack" }, [el("h3", { class: "group-title", text: "已连接" }), ...devices]),
-        el("div", { class: "panel-links" }, [
-          el("button", {
-            class: "link",
-            type: "button",
-            text: install ? "扫码连接白板" : "在 iPad 上安装白板",
-            onclick: () => {
-              this.connectInstall = !install;
-              this.refreshPanel();
-            },
-          }),
-          el("button", { class: "link", type: "button", text: "存储描述文件", onclick: () => this.actions.onProfile() }),
-        ]),
+        parts.devices,
+        parts.links,
       ],
     };
+  },
+
+  // ------------------------------------------------------------ 白板库的设置页
+
+  /**
+   * 白板库左下角设置那一页的内容（docs/backlog/013-app-settings.md）。Mac 窗口里是完整的
+   * 设置；别的设备上只有连接（连的是哪台 Mac，外壳里可以换一台）。
+   */
+  librarySettings() {
+    const card = (children, extra = "") => el("div", { class: `settings-card${extra ? ` ${extra}` : ""}` }, children);
+    const section = (title, children) =>
+      el("section", { class: "settings-section" }, [el("h2", { class: "settings-title", text: title }), ...children]);
+    const sections = [];
+    if (this.native) {
+      const parts = this.connectParts(() => this.renderMain());
+      sections.push(
+        section("连接其他设备", [
+          card([parts.qr, el("div", { class: "settings-connect" }, [el("p", { class: "panel-note", text: parts.note }), parts.address, parts.devices, parts.links])], "connect"),
+        ])
+      );
+      sections.push(section("其他设备可以", [card([this.permissionList()], "list")]));
+      sections.push(section("存储位置", [card([this.dataDirCard()])]));
+      const apps = (this.info && this.info.apps) || [];
+      if (apps.length) {
+        sections.push(
+          section("首页", [
+            card([el("div", { class: "panel-row" }, [el("span", { class: "panel-row-text", text: "其他设备打开时进入" }), this.ipadHomeCard(apps)])]),
+          ])
+        );
+      }
+    } else {
+      const status = this.statusContent();
+      sections.push(section("连接", [card(status.children)]));
+    }
+    return el("div", { class: "lib-settings" }, sections);
   },
 
   /**

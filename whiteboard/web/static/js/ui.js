@@ -3,7 +3,7 @@
 // 两套外框，按有没有触摸屏分：
 //
 // - Mac（以及电脑上的浏览器）：顶上一条磨砂标题栏，左边是白板库和白板名字，右边
-//   是连接 iPad、导出、白板设置；底部正中一条工具栏（笔、颜色、撤销、更多），
+//   是连接其他设备、导出、白板设置；底部正中一条工具栏（笔、颜色、撤销、更多），
 //   右下角是缩放。
 // - iPad（以及别的触摸设备）：左上角一个返回白板库的按钮，右上角一组连接状态、
 //   导出、白板设置；工具栏是 pkpicker.js 接进来的那条 PencilKit 笔具盘（只给 iPad，
@@ -190,7 +190,7 @@ export class UI {
   /**
    * 工具栏以外的外框：Mac 上是顶栏和缩放，iPad 上是左右上角两组按钮。
    *
-   * 每个入口对应一项权限：本机全有，别的设备看 Mac 上放开了哪几项。「连接 iPad」
+   * 每个入口对应一项权限：本机全有，别的设备看 Mac 上放开了哪几项。「连接其他设备」
    * 要选文件、看本机地址，只有本机进程里才有意义，所以跟着 native 走，不进权限体系。
    * 外壳里设置还管着「换一台 Mac」，所以没有设置权限也要给。
    */
@@ -215,8 +215,8 @@ export class UI {
 
     const buttons = [];
     if (this.native) {
-      // 连接 iPad：图标是蓝色说明有 iPad 连着；连点三下打开诊断面板
-      this.status = iconButton("connect", "连接 iPad", (event) => {
+      // 连接其他设备：图标是蓝色说明有设备连着；连点三下打开诊断面板
+      this.status = iconButton("connect", "连接其他设备", (event) => {
         this.countStatusTaps();
         this.togglePanel("connect", event.currentTarget);
       });
@@ -843,13 +843,14 @@ export class UI {
     }
     this.devicesSeen = true;
     if (this.panel && this.panel.kind === "connect") this.refreshPanel();
+    if (this.gallery && this.libNav === "settings") this.renderMain();
   }
 
   syncDevices() {
     if (!this.status || this.touchDevice || !this.native) return;
     const count = this.devices.length;
     this.status.dataset.peers = count ? "1" : "";
-    const label = count ? `${this.devices[0].label} 已连接` : "连接 iPad";
+    const label = count ? `${this.devices[0].label} 已连接` : "连接其他设备";
     this.status.title = label;
     this.status.setAttribute("aria-label", label);
   }

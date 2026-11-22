@@ -439,7 +439,7 @@ InkProbe 四份会话的统计（只计 Pencil 的 80 笔，共 19139 个等待�
 
 主机名取查询参数 `host`；没有该参数时取 `netinfo.local_hostname()`，与 `/profile.mobileconfig` 使用的值相同。端口为服务实际监听的端口。
 
-iPad 打开安装页的方式与获取描述文件的方式相同：在 Mac 窗口的「连接 iPad」面板中点「在 iPad 上安装白板」，二维码换成 `<地址>ipad`，用 iPad 相机扫码即可打开。描述文件继续保留，供没有 TrollStore 的 iPad 使用。
+iPad 打开安装页的方式与获取描述文件的方式相同：在 Mac 窗口的「连接其他设备」面板中点「在 iPad 上安装白板」，二维码换成 `<地址>ipad`，用 iPad 相机扫码即可打开。描述文件继续保留，供没有 TrollStore 的 iPad 使用。
 
 ### 8.3 更新
 
@@ -607,7 +607,7 @@ Q2 的结论与措施：
 | 部分 | 位置 |
 |---|---|
 | 外壳（第 4 节） | `ipad/Whiteboard/`：`AppDelegate.swift`（窗口、URL scheme、回到前台），`PencilCapture.swift`（4.2、5.1），`ShellViewController.swift`（4.1、4.1.1、4.3、5.2、8.3），`StatusView.swift`（查找、列表、错误页面），`MacDiscovery.swift`（Bonjour 查找、更新检查），`MacAddress.swift`（地址、本机保存、版本比较），`Settings.bundle`（「重新查找 Mac」、版本号、当前 Mac），`Info.plist`；`ipad/project.yml`、`ipad/make_icon.py` |
-| 网页（第 7 节） | `input.js` 的外壳输入部分（输入来源、坐标偏差、估计属性更新、预测），`shell-fallback.js`（0.9.43 版外壳的补救逻辑），`shell.js`（握手），`recorder.js`（7.3），`perf.js`（7.4），`ui.js`（外壳中的笔具盘和「白板设置」按钮），`ui-settings.js`（「Mac」一段、「连接 iPad」面板中的安装页二维码、iPad 上的连接状态和「换一台 Mac」），`exporter.js`（4.1.1） |
+| 网页（第 7 节） | `input.js` 的外壳输入部分（输入来源、坐标偏差、估计属性更新、预测），`shell-fallback.js`（0.9.43 版外壳的补救逻辑），`shell.js`（握手），`recorder.js`（7.3），`perf.js`（7.4），`ui.js`（外壳中的笔具盘和「白板设置」按钮），`ui-settings.js`（「Mac」一段、「连接其他设备」面板中的安装页二维码、iPad 上的连接状态和「换一台 Mac」），`exporter.js`（4.1.1） |
 | Mac 端服务（第 8 节） | `whiteboard/ipadshell.py`（`/ipad`、`/ipad/version`、`/ipad/Whiteboard.ipa`），`whiteboard/server.py` 中的路由，`netinfo.BonjourService`（8.4），`runner.py`，`run.py`（`--no-bonjour`） |
 | 构建（8.1 节） | `.github/workflows/ci.yml` 的 `ipad` 和 `package` 任务；`packaging/whiteboard.spec`；`packaging/smoke_ipad.py`（检查打包后的应用能提供 IPA 和安装页） |
 | 测试 | `tests/e2e/test_shell_input.py`（网页端，含 A2、A4），`tests/test_ipadshell.py`（安装页、版本接口、Bonjour 注册、接口版本范围、下载处理） |

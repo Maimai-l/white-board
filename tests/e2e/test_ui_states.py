@@ -331,6 +331,10 @@ def test_mac_library_states(browser, server, size_name):
     menu_pick(page, "重命名")
     problems += check(page, f"{size_name}-library-rename")
     page.keyboard.press("Escape")
+    page.click('.lib-side .lib-nav:has(.lib-nav-label:text-is("设置"))')
+    page.wait_for_function("() => document.querySelector('.lib-settings .connect-qr')?.naturalWidth > 0")
+    problems += check(page, f"{size_name}-library-settings")
+    page.click('.lib-side .lib-nav:has(.lib-nav-label:text-is("最近"))')
 
     blank = (w - 40, h - 40)
     problems += closes(page, lambda: board_menu(page), ".menu", blank, f"{size_name}-library")

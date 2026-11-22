@@ -70,7 +70,7 @@ Builds published from 1.3.0 on update through [Sparkle](https://sparkle-project.
 
 1.2.0 and earlier have their own updater: it reads `releases/latest` on GitHub and offers 1.3.0 in its update dialog. From 1.3.0 on, the app has no updater other than Sparkle. A build without Sparkle (running from source, or a local build without the public key) does not update itself; update it with `git pull` or install a new download.
 
-In the Mac window, the app menu (白板) holds 关于白板 (About) and 检查更新… (Check for Updates…), and the whole menu bar is in Chinese. 检查更新… opens the Sparkle window directly; when running from source it says to update with `git pull`, and in a packaged build without a working Sparkle it reads 这个版本不能自动更新 (this build cannot update automatically), with the reason in the log file. 关于白板 opens the standard macOS About window: the app icon, name and version (an alpha shows its build time in parentheses, for example 版本 1.3.0 (alpha.20261121.150435); a source run shows `branch@commit`), and below them two links: 更新日志 (changelog) and 日志文件 (log file, opens in Console). The address for the iPad is under 连接 iPad (Connect iPad).
+In the Mac window, the app menu (白板) holds 关于白板 (About) and 检查更新… (Check for Updates…), and the whole menu bar is in Chinese. 检查更新… opens the Sparkle window directly; when running from source it says to update with `git pull`, and in a packaged build without a working Sparkle it reads 这个版本不能自动更新 (this build cannot update automatically), with the reason in the log file. 关于白板 opens the standard macOS About window: the app icon, name and version (an alpha shows its build time in parentheses, for example 版本 1.3.0 (alpha.20261121.150435); a source run shows `branch@commit`), and below them two links: 更新日志 (changelog) and 日志文件 (log file, opens in Console). The address for the iPad is under 连接其他设备 (Connect other devices).
 
 ### Running from source
 
@@ -109,7 +109,7 @@ python run.py                 # opens the Mac window and serves on the LAN
 > **Note**
 > `--port` and `--data-dir` apply to one run only and are not written to the configuration. To change the storage directory permanently, choose it in board settings. A port that rolls over because it is taken is also used for that run only; the next launch tries the configured port again.
 
-连接 iPad (Connect iPad) on the right of the title bar shows the address for the iPad, in the form `http://your-mac-name.local:8848/`, and its QR code.
+连接其他设备 (Connect other devices) on the right of the title bar shows the address for the iPad, in the form `http://your-mac-name.local:8848/`, and its QR code.
 
 ### Building
 
@@ -136,7 +136,7 @@ The packaged app and source runs share `~/Library/Application Support/Whiteboard
 
 ## Connecting an iPad
 
-In the Mac window, click 连接 iPad (Connect iPad) on the right of the title bar. A panel opens under the button:
+In the Mac window, click 连接其他设备 (Connect other devices) on the right of the title bar. A panel opens under the button:
 
 | Part | Content |
 | --- | --- |
@@ -146,13 +146,13 @@ In the Mac window, click 连接 iPad (Connect iPad) on the right of the title ba
 | 在 iPad 上安装白板 (Install on iPad) | Switches the QR code to the install page of the [iPad shell](#ipad-shell); 扫码连接白板 (scan to connect) switches back. |
 | 存储描述文件 (Save profile) | Saves the [home screen profile](#home-screen-profile). |
 
-- While another device is connected, the 连接 iPad icon is blue. When a device connects or disconnects, a message such as 「iPad 已连接」 (iPad connected) or 「iPad 已断开」 (iPad disconnected) appears in the window.
-- 连接 iPad appears only in the Mac window. Clicking outside, pressing Esc, or clicking the button again closes the panel.
-- Clicking 连接 iPad three times opens the diagnostics panel; see [Diagnostics panel](#diagnostics-panel).
+- While another device is connected, the 连接其他设备 icon is blue. When a device connects or disconnects, a message such as 「iPad 已连接」 (iPad connected) or 「iPad 已断开」 (iPad disconnected) appears in the window.
+- 连接其他设备 appears only in the Mac window. Clicking outside, pressing Esc, or clicking the button again closes the panel.
+- Clicking 连接其他设备 three times opens the diagnostics panel; see [Diagnostics panel](#diagnostics-panel).
 
 ### Home screen profile
 
-1. In the Mac window, click 连接 iPad, then 存储描述文件 (Save profile) at the bottom of the panel to save `whiteboard.mobileconfig`. Safari on the iPad can also open `http://your-mac-name.local:8848/profile.mobileconfig` directly.
+1. In the Mac window, click 连接其他设备, then 存储描述文件 (Save profile) at the bottom of the panel to save `whiteboard.mobileconfig`. Safari on the iPad can also open `http://your-mac-name.local:8848/profile.mobileconfig` directly.
 2. On the iPad, open the profile, then **Settings** → **Profile Downloaded** → **Install**. The profile is unsigned; confirm the installation.
 3. A **Whiteboard** icon appears on the home screen. It opens the board full screen, without Safari's address bar.
 
@@ -169,7 +169,7 @@ The iPad shell is an optional native app that wraps a `WKWebView`. It loads the 
 
 The shell installs through TrollStore, so the iPad must run a version TrollStore supports: iPadOS 14.0 beta 2 through 16.6.1, 16.7 RC, or 17.0. Without TrollStore, use the home screen profile; the features are the same.
 
-1. In the 连接 iPad panel in the Mac window, click 在 iPad 上安装白板 (Install on iPad). The QR code changes to the install page, `http://your-mac-name.local:8848/ipad`. Scan it with the iPad camera, or open the address in Safari on the iPad.
+1. In the 连接其他设备 panel in the Mac window, click 在 iPad 上安装白板 (Install on iPad). The QR code changes to the install page, `http://your-mac-name.local:8848/ipad`. Scan it with the iPad camera, or open the address in Safari on the iPad.
 2. In TrollStore's settings, enable URL schemes. Then tap **安装白板外壳** (Install shell).
 3. Open the shell. With one Mac on the network, it connects directly; with several, it lists them. If the router blocks Bonjour, return to the install page and tap **打开外壳** (Open shell).
 
@@ -188,7 +188,7 @@ The interface follows the system controls: frosted glass and the system blue acc
 
 **Mac window and desktop browsers**
 
-- **Title bar (top):** on the left, 白板库 (Library) and the board name, with its folder under the name. On the right, 连接 iPad (Connect iPad; only in the Mac window, see [Connecting an iPad](#connecting-an-ipad)), 导出 (Export) and 白板设置 (Board settings). In the Mac window this bar is the window's title bar: the close, minimize and zoom buttons sit at its left end, dragging an empty part of it moves the window, and double-clicking an empty part zooms the window (or minimizes it, following the setting in System Settings → Desktop & Dock). The library's top bar works the same way.
+- **Title bar (top):** on the left, 白板库 (Library) and the board name, with its folder under the name. On the right, 连接其他设备 (Connect other devices; only in the Mac window, see [Connecting an iPad](#connecting-an-ipad)), 导出 (Export) and 白板设置 (Board settings). In the Mac window this bar is the window's title bar: the close, minimize and zoom buttons sit at its left end, dragging an empty part of it moves the window, and double-clicking an empty part zooms the window (or minimizes it, following the setting in System Settings → Desktop & Dock). The library's top bar works the same way.
 - **Toolbar (bottom center):** see below.
 - **Zoom (bottom right):** 缩小 (zoom out), the current percentage, 放大 (zoom in) and 回到内容 (back to content). Clicking the percentage (for example `100%`) returns to actual size.
 - **Connection status:** in a desktop browser, a red dot appears next to the board name while the connection to the Mac is lost, yellow while connecting, and nothing while connected. The Mac window has no dot.
@@ -313,9 +313,15 @@ Clicking 白板设置 (Board settings) opens a panel under the button. Clicking 
 | Section | Content | Shown on |
 | --- | --- | --- |
 | 背景 (Background) | 空白, 方格, 横线, 点阵 (blank, grid, lines, dots) | Devices with the Board settings permission; on document boards only when they have blank pages |
-| iPad 可以 (iPad can) | Switches for other devices' permissions: 管理白板, 设置白板, 清空白板, 导出白板; see [Permissions for other devices](#permissions-for-other-devices) | The Mac window |
+| 其他设备可以 (Other devices can) | Switches for other devices' permissions: 管理白板, 设置白板, 清空白板, 导出白板; see [Permissions for other devices](#permissions-for-other-devices) | The Mac window |
 | 存储位置 (Storage) | The storage directory, with 更改… (Change) and 在访达中显示 (Show in Finder) | The Mac window |
-| iPad 首页 (iPad home) | Whether the iPad opens the whiteboard or an app; see [docs/embed.md](docs/embed.md) | The Mac window, when apps are installed |
+| 首页 (Home) | Whether other devices open the whiteboard or an app; see [docs/embed.md](docs/embed.md) | The Mac window, when apps are installed |
+
+At the bottom of the panel, 所有设置… (All settings) opens the library at its settings.
+
+### Settings in the library
+
+设置 (Settings) at the bottom of the library's sidebar shows the app's settings on one page, without opening a board. In the Mac window: 连接其他设备 (Connect other devices: the QR code, the address with 拷贝 (Copy), the connected devices and the links to install the iPad shell and save the profile), 其他设备可以 (Other devices can), 存储位置 (Storage) and, when apps are installed, 首页 (Home). On other devices the page shows the connection: the Mac's address and, in the iPad shell, 换一台 Mac (Switch Mac). The board settings panel keeps the same switches for quick changes.
 
 ### Board kinds
 
@@ -481,7 +487,7 @@ Any device that opens the address can write. Every other action must be granted 
 - Every request's source is checked too: requests from other web pages in a browser (carrying another site's `Origin`), and requests whose `Host` is not an IP address, `localhost`, `*.local` or this machine's host name, get 403. Otherwise any web page open on the Mac could read or delete boards with this machine's permissions. To open the whiteboard under another name (for example a VPN domain), add it to `allowed_hosts` in the config file (`~/Library/Application Support/Whiteboard/config.json`), for example `"allowed_hosts": ["mac.example.ts.net"]`, then restart the app. Details: [docs/protocol.md](docs/protocol.md#request-sources).
 - Writing is always allowed: the page, the WebSocket, page images, the profile and diagnostics reports need no permission.
 - The page receives the granted permissions in a `data-perms` attribute and shows only the allowed entries. This only affects the display; the server enforces the permissions.
-- Update checks and the storage directory choice use the local pywebview bridge, which other devices cannot reach. 连接 iPad (Connect iPad) therefore appears only in the Mac window, and 关于白板 (About) and 检查更新… only in its menu bar.
+- Update checks and the storage directory choice use the local pywebview bridge, which other devices cannot reach. 连接其他设备 (Connect other devices) therefore appears only in the Mac window, and 关于白板 (About) and 检查更新… only in its menu bar.
 
 ## Data
 
@@ -544,7 +550,7 @@ To check your boards before upgrading, run `python tools/check_boards.py`.
 
 ### Diagnostics panel
 
-Open the diagnostics panel in any of these ways: in the Mac window, click 连接 iPad (Connect iPad) three times; on the iPad, tap the connection status at the top right three times; in a desktop browser, click the red dot next to the board name three times while it shows; or add `?debug=1` to the address. It shows frame rate and longest frame gap, render time, sample rate, strokes started, strokes interrupted by the system, event intervals, disk write times, and the Pencil's raw tilt and altitude readings with the angle in use.
+Open the diagnostics panel in any of these ways: in the Mac window, click 连接其他设备 (Connect other devices) three times; on the iPad, tap the connection status at the top right three times; in a desktop browser, click the red dot next to the board name three times while it shows; or add `?debug=1` to the address. It shows frame rate and longest frame gap, render time, sample rate, strokes started, strokes interrupted by the system, event intervals, disk write times, and the Pencil's raw tilt and altitude readings with the angle in use.
 
 While the panel is open, stutter reports are also sent to the Mac's terminal. Page errors are sent in any case. Read the `[诊断]` lines in the Mac terminal or log:
 

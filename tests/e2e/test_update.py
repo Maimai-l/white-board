@@ -19,7 +19,7 @@ def test_settings_hold_no_update_or_about_entries(browser, server):
         "() => [...document.querySelectorAll('.panel-settings .group-title')].map(h => h.textContent)"
     ) == [
         "背景",
-        "iPad 可以",
+        "其他设备可以",
         "存储位置",
     ]
     for text in ("检查更新", "关于", "更新日志", "日志文件"):

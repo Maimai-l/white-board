@@ -439,7 +439,7 @@ The install page `GET /ipad` lets an iPad install the shell with TrollStore and 
 
 The host is the `host` query parameter if present, otherwise `netinfo.local_hostname()`, the same value as for `/profile.mobileconfig`. The port is the server's actual port.
 
-The iPad reaches the install page in the same way as the configuration profile: in the “连接 iPad” (Connect iPad) panel in the Mac window, “在 iPad 上安装白板” (Install on iPad) switches the QR code to `<url>ipad`, which the iPad camera opens. The configuration profile remains available for iPads without TrollStore.
+The iPad reaches the install page in the same way as the configuration profile: in the “连接其他设备” (Connect other devices) panel in the Mac window, “在 iPad 上安装白板” (Install on iPad) switches the QR code to `<url>ipad`, which the iPad camera opens. The configuration profile remains available for iPads without TrollStore.
 
 ### 8.3 Updates
 

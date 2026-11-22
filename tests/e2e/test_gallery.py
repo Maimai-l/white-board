@@ -148,7 +148,7 @@ def test_board_switch_and_settings_follow(browser, server):
 
 
 def test_the_library_lists_recent_boards_with_the_current_one_selected(browser, server):
-    """打开白板库：边栏有最近、全部白板（带数量）和回收站；最近按今天分段，
+    """打开白板库：边栏有最近、全部白板（带数量），最下面是回收站和设置；最近按今天分段，
     当前那块白板是选中的。单击只是选中，双击才打开。"""
     mac = open_mac(browser, server.port)
     first = mac.evaluate("() => whiteboard.state.id")
@@ -158,7 +158,7 @@ def test_the_library_lists_recent_boards_with_the_current_one_selected(browser, 
     assert mac.evaluate(TITLE) == "最近"
     assert mac.locator(".lib-section-title").all_inner_texts() == ["今天"]
     rows = mac.locator(".lib-side .lib-nav .lib-nav-label").all_inner_texts()
-    assert rows[:2] == ["最近", "全部白板"] and rows[-1] == "回收站"
+    assert rows[:2] == ["最近", "全部白板"] and rows[-2:] == ["回收站", "设置"]
     assert mac.locator('.lib-side .lib-nav[data-folder=""] .lib-nav-count').inner_text() == "2"
     assert mac.evaluate(SHOWN_NAMES) == ["笔记", "白板"]  # 最近改过的在前
     selected = (
