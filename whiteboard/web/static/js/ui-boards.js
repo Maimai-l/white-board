@@ -129,15 +129,18 @@ const methods = {
     }
   },
 
-  /** 打开白板库。先把当前白板的缩略图刷新一遍，免得看到的是旧图。 */
-  async openBoards() {
+  /**
+   * 打开白板库。先把当前白板的缩略图刷新一遍，免得看到的是旧图。``nav`` 给了就直接停在
+   * 那一栏（白板设置面板的所有设置…停在设置）。
+   */
+  async openBoards(nav = null) {
     this.boardQuery = "";
     this.libView = remembered(VIEW_KEY, ["grid", "list"], "grid");
     this.libSort = remembered(SORT_KEY, SORTS.map((sort) => sort.key), "updated");
     // 打开时停在当前白板所在的文件夹，并且选中它；没归类就停在最近
     const current = this.boards.find((board) => board.id === this.currentBoardId);
-    this.libNav = current && current.folder ? `folder:${current.folder}` : "recent";
-    this.selected = new Set(current ? [current.id] : []);
+    this.libNav = nav || (current && current.folder ? `folder:${current.folder}` : "recent");
+    this.selected = new Set(current && !nav ? [current.id] : []);
     this.renaming = null;
     this.folderEdit = null;
     if (this.sidebarHidden === undefined) this.sidebarHidden = this.touchDevice && innerWidth < 900;
@@ -380,6 +383,8 @@ const methods = {
     trash.dataset.folder = TRASH_TARGET;
     trash.dataset.dropRow = "";
     list.append(trash);
+    // 整个应用的设置：连接其他设备、权限、存储位置（白板设置面板里是这块白板的快捷入口）
+    list.append(row({ key: "settings", label: "设置", iconName: "settings", onclick: () => this.setNav("settings") }));
 
     return el("nav", { class: "lib-side", "aria-label": "白板库" }, [top, list]);
   },
@@ -505,6 +510,10 @@ const methods = {
     const nav = this.libNav || "recent";
     if (nav.startsWith("app:")) {
       this.renderAppMain(nav.slice(4));
+      return;
+    }
+    if (nav === "settings") {
+      this.renderSettingsMain();
       return;
     }
     const content = this.libraryContent();
@@ -1201,6 +1210,23 @@ const methods = {
   },
 
   // ------------------------------------------------------------ 应用
+
+  /** 边栏选中设置时的右边：顶栏只有标题，下面是 ui-settings.js 的 librarySettings。 */
+  renderSettingsMain() {
+    const main = this.libMain;
+    const scroll = this.libScroll && this.libScroll.isConnected ? this.libScroll.scrollTop : 0;
+    main.textContent = "";
+    this.libHead = null;
+    main.append(
+      el("header", { class: "lib-head pywebview-drag-region" }, [
+        this.touchDevice ? iconButton("sidebar", "显示边栏", () => this.toggleSidebar(), "lib-show-side") : null,
+        el("div", { class: "lib-heading" }, [el("h1", { class: "lib-title", text: "设置" })]),
+      ])
+    );
+    this.libScroll = el("div", { class: "lib-scroll" }, [this.librarySettings()]);
+    main.append(this.libScroll);
+    this.libScroll.scrollTop = scroll;
+  },
 
   renderAppMain(name) {
     const main = this.libMain;

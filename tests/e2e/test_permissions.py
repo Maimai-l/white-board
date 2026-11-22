@@ -67,10 +67,10 @@ def test_the_ui_only_draws_the_entries_it_is_allowed(browser, server):
     """顶栏里的入口按权限出，没权限就根本不画。"""
     mac = open_mac(browser, server.port)
 
-    # 本机：权限齐全，但连接 iPad 要本地进程才有
+    # 本机：权限齐全，但连接其他设备要本地进程才有
     assert mac.evaluate(ENTRIES) == ["白板库", "导出", "白板设置"]
     as_native(mac)
-    assert mac.evaluate(ENTRIES) == ["白板库", "连接 iPad", "导出", "白板设置"]
+    assert mac.evaluate(ENTRIES) == ["白板库", "连接其他设备", "导出", "白板设置"]
     assert "关于白板" not in more_menu(mac)  # 在菜单栏的应用菜单里
 
     # 装成局域网里的别的设备：把服务端发下来的那份清单改成只有 export

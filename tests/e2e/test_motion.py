@@ -11,7 +11,7 @@ import pytest
 
 from e2e.support import ENGINE, new_board, new_page, open_gallery, open_mac, wait_online
 
-# 本地进程的接口：有它才有顶栏上的连接 iPad 按钮和设置里的存储位置
+# 本地进程的接口：有它才有顶栏上的连接其他设备按钮和设置里的存储位置
 NATIVE = """
   window.pywebview = { api: {
     info: async () => ({ native: true, version: '1.3.0', packaged: true, hostname: 'MacBook.local',
@@ -125,7 +125,7 @@ def test_every_control_in_the_mac_window_answers_the_pointer(browser, server):
 
     mac.click("#status")
     mac.wait_for_selector(".panel-connect")
-    dead += [f"连接 iPad {d}" for d in dead_controls(mac, ".panel-connect", 400)]
+    dead += [f"连接其他设备 {d}" for d in dead_controls(mac, ".panel-connect", 400)]
     mac.keyboard.press("Escape")
 
     mac.click('#topbar button[title="导出"]')

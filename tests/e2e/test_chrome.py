@@ -1,5 +1,5 @@
 """编辑界面的外框（docs/backlog/011-ui-redesign.md）：Mac 的顶栏、工具栏的更多菜单、
-缩放百分比、白板设置和连接 iPad 两个面板、关于，以及 iPad 右上角的连接状态。"""
+缩放百分比、白板设置和连接其他设备两个面板、关于，以及 iPad 右上角的连接状态。"""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from e2e.support import (
 
 ZOOM_TEXT = "() => document.querySelector('#zoombar .zoom-level').textContent"
 
-# 本地进程的接口，多给一份地址：连接 iPad 的二维码要用
+# 本地进程的接口，多给一份地址：连接其他设备的二维码要用
 NATIVE_WITH_URL = """
   window.pywebview = { api: {
     info: async () => ({ native: true, version: '1.3.0', packaged: true, hostname: 'MacBook.local',
@@ -123,11 +123,11 @@ def test_the_color_panel_has_system_colors_and_five_widths(browser, server):
 
 
 def test_board_settings_open_as_a_panel(browser, server):
-    """白板设置从按钮下面弹出：背景四种带名字；Mac 窗口里还有 iPad 可以和存储位置。"""
+    """白板设置从按钮下面弹出：背景四种带名字；Mac 窗口里还有其他设备可以和存储位置。"""
     mac = native_mac(browser, server.port)
     mac.click('#topright button[title="白板设置"]')
     panel = mac.wait_for_selector(".panel-settings")
-    assert mac.locator(".panel-settings .group-title").all_inner_texts() == ["背景", "iPad 可以", "存储位置"]
+    assert mac.locator(".panel-settings .group-title").all_inner_texts() == ["背景", "其他设备可以", "存储位置"]
     assert mac.locator(".panel-settings .bg-label").all_inner_texts() == ["空白", "方格", "横线", "点阵"]
     perms = mac.locator(".panel-settings .perm-title").all_inner_texts()
     assert perms == ["管理白板", "设置白板", "清空白板", "导出白板"]
@@ -162,7 +162,7 @@ def test_the_selected_background_has_a_whole_ring(browser, server):
 
 
 def test_connect_ipad_shows_a_qr_code_and_the_connected_devices(browser, server):
-    """连接 iPad：二维码能载入，地址在下面；iPad 连上之后列在已连接里、图标变蓝、
+    """连接其他设备：二维码能载入，地址在下面；iPad 连上之后列在已连接里、图标变蓝、
     弹一条提示，断开时也提示。"""
     mac = native_mac(browser, server.port)
     mac.click("#status")
@@ -323,7 +323,7 @@ def test_clicking_outside_closes_the_panels(browser, server):
     mac.mouse.click(600, 300)
     mac.wait_for_selector(".popover", state="detached")
 
-    for title, panel in (("白板设置", ".panel-settings"), ("连接 iPad", ".panel-connect")):
+    for title, panel in (("白板设置", ".panel-settings"), ("连接其他设备", ".panel-connect")):
         mac.click(f'#topbar button[title="{title}"]')
         mac.wait_for_selector(panel)
         mac.mouse.click(600, 300)

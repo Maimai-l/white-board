@@ -42,14 +42,14 @@ If macOS blocks a script, right-click it and choose Open.
 
 Open the board on the iPad
 --------------------------
-In the Mac window, click "连接 iPad" (Connect iPad) on the right of the title
+In the Mac window, click "连接其他设备" (Connect other devices) on the right of the title
 bar at the top. The panel shows a QR code and the address, for example
 <computer-name>.local:8848. Scan the QR code with the iPad camera to open the
 board in Safari.
 
 Add the board to the iPad Home Screen
 -------------------------------------
-1. In the Mac window, click "连接 iPad" (Connect iPad).
+1. In the Mac window, click "连接其他设备" (Connect other devices).
 2. Click "存储描述文件" (Save profile) at the bottom of the panel and send the
    profile to the iPad with AirDrop. Alternatively, open this address in
    Safari on the iPad:
@@ -87,7 +87,7 @@ Mac and other devices (classic toolbar):
     The scroll wheel pans. Cmd + scroll wheel zooms.
   - Keys: Cmd+Z undo, Cmd+Shift+Z redo, Cmd+= / Cmd+- zoom, Cmd+0 fit content.
   - Title bar at the top: on the left, "白板库" (Library) and the board name;
-    on the right, "连接 iPad" (Connect iPad, only in the Mac window), "导出"
+    on the right, "连接其他设备" (Connect other devices, only in the Mac window), "导出"
     (Export), and "白板设置" (Board settings: background, permissions,
     storage location).
   - Bottom right: zoom out, the current percentage (click it for 100%), zoom
