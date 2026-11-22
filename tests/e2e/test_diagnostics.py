@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from e2e.support import draw, open_gallery, open_mac, open_pages, open_touch, wait_strokes
+from e2e.support import draw, open_gallery, open_mac, open_pages, open_touch, triple_tap_status, wait_strokes
 
 # 录一次像素擦除：切到像素橡皮、开始录制、拖一下、停止录制，返回录像
 RECORD_ERASE = """
@@ -27,8 +27,7 @@ RECORD_ERASE = """
 
 def toggle_diagnostics(page):
     """连点连接状态按钮三下。"""
-    for _ in range(3):
-        page.click("#status")
+    triple_tap_status(page)
 
 
 def test_page_errors_are_reported_to_the_server(browser, server):
