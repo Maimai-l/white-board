@@ -49,6 +49,9 @@ This file lists the notable changes to the board app and to inksync. The section
 - Interface: Esc closes the export dialog and confirmation dialogs, like Cancel.
 - Mac: The menu bar and the app name in it are in Chinese.
 - iPad: The Library button is at the top left. The connection state is shown by the color of the connection button at the top right, which replaces the status dot.
+- iPad: The connection panel shows the Mac's address without a colored dot. Switch Mac is only in the connection panel.
+- iPad: The buttons at the top corners have no background while their panel is open and dim while pressed. Their panels line up with the right edge of the group.
+- iPad: The diagnostics panel opens only after three quick taps on the connection button, not when the panel is opened and closed at a normal pace.
 - Export: The export dialog lists the pages in a sidebar. Pages are exported as all pages, a typed range or the pages selected in the sidebar.
 - Sketch: The sketch page shows the connection state as text, and its copy button is named Copy as image.
 - Interface: Labels and messages use consistent wording without full-width brackets or sentence punctuation. Error messages are short, and the details are written to the log file.
