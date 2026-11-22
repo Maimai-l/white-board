@@ -129,6 +129,17 @@ def wait_online(page, timeout=None):
         page.wait_for_function(ONLINE, timeout=timeout)
 
 
+def triple_tap_status(page):
+    """像人连点三下那样，快速点三下连接按钮（打开 / 关掉诊断面板）。
+
+    每两下之间要在 ui.js 的 TRIPLE_TAP_MS 以内：直接按坐标点，不走 click 每次的可点性检查。
+    """
+    box = page.locator("#status").bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    for _ in range(3):
+        page.mouse.click(x, y)
+
+
 def page_now(page):
     """页面自己的时钟（performance.now()），应用里的计时窗口都按它算。"""
     return page.evaluate("() => performance.now()")

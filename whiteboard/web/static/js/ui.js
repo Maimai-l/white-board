@@ -110,6 +110,9 @@ function noticeText(text) {
   return el("span", { class: "notice-lines" }, text.map((line) => el("span", { text: line })));
 }
 
+
+/** 连点三下：相邻两下之间最多隔这么久（毫秒）。 */
+const TRIPLE_TAP_MS = 300;
 export class UI {
   constructor({ role, native, perms, actions }) {
     this.role = role;
@@ -267,7 +270,7 @@ export class UI {
     if (this.may("export")) {
       buttons.push((this.exportButton = iconButton("download", "导出", () => this.actions.onExport())));
     }
-    if (this.may("settings") || inShell()) {
+    if (this.may("settings")) {
       buttons.push(iconButton("settings", "白板设置", (event) => this.togglePanel("settings", event.currentTarget)));
     }
     this.corner = el("div", { id: "topright", class: "pill tinted" }, buttons);
@@ -479,10 +482,13 @@ export class UI {
   }
 
 
-  /** 连点三下状态圆点：在真机上打开 / 关掉诊断面板。 */
+  /**
+   * 连点三下连接按钮：在真机上打开 / 关掉诊断面板。和系统的三连击一样，每两下之间
+   * 不超过 TRIPLE_TAP_MS；以前放宽到 1.2 秒，开一下、关一下、再开一下就误弹出来。
+   */
   countStatusTaps() {
     const now = Date.now();
-    if (now - (this._tapAt || 0) > 1200) this._taps = 0;
+    if (now - (this._tapAt || 0) > TRIPLE_TAP_MS) this._taps = 0;
     this._tapAt = now;
     this._taps = (this._taps || 0) + 1;
     if (this._taps >= 3) {

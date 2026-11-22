@@ -174,7 +174,7 @@ The shell installs through TrollStore, so the iPad must run a version TrollStore
 3. Open the shell. With one Mac on the network, it connects directly; with several, it lists them. If the router blocks Bonjour, return to the install page and tap **打开外壳** (Open shell).
 
 - **Updates.** After the Mac is updated, the shell offers to update on its next launch and passes the package to TrollStore.
-- **Another Mac.** Use 换一台 Mac (Switch Mac) in the Mac section of board settings or in the connection status at the top right, or turn on 重新查找 Mac (Find Mac again) under Whiteboard in the iPadOS Settings app. Either way the shell lists what it finds, even a single Mac, so you can confirm the choice.
+- **Another Mac.** Use 换一台 Mac (Switch Mac) in the connection status at the top right, or turn on 重新查找 Mac (Find Mac again) under Whiteboard in the iPadOS Settings app. Either way the shell lists what it finds, even a single Mac, so you can confirm the choice.
 - **Discovery.** The Mac registers `_whiteboard._tcp` through the system mDNS responder. `--no-bonjour` turns this off; the install page is then the only way in.
 - **Exports.** The shell receives exported files as downloads and opens the system share sheet, so they can be saved to Files or sent.
 
@@ -196,7 +196,7 @@ The interface follows the system controls: frosted glass and the system blue acc
 **iPad and other touch devices**
 
 - **Top left:** the back button 白板库 (Library).
-- **Top right:** connection status, 导出 (Export) and 白板设置 (Board settings). The status icon is blue while connected to the Mac and gray otherwise; tapping it shows 「已连接到 <host>:<port>」 (connected to) or 「未连接」 (not connected), and in the iPad shell also 换一台 Mac (Switch Mac).
+- **Top right:** connection status, 导出 (Export) and 白板设置 (Board settings). The status icon is blue while connected to the Mac and gray otherwise; tapping it shows 已连接 (connected) or 未连接 (not connected) with the Mac's address, and in the iPad shell also 换一台 Mac (Switch Mac). Three quick taps open the diagnostics panel.
 - **Toolbar:** the tool picker on the iPad, the classic toolbar on other touch devices. Touch devices have no zoom control; pinch to zoom.
 - When the tool picker is moved over the top-right group, the group fades out until the picker moves away.
 
@@ -316,7 +316,6 @@ Clicking 白板设置 (Board settings) opens a panel under the button. Clicking 
 | iPad 可以 (iPad can) | Switches for other devices' permissions: 管理白板, 设置白板, 清空白板, 导出白板; see [Permissions for other devices](#permissions-for-other-devices) | The Mac window |
 | 存储位置 (Storage) | The storage directory, with 更改… (Change) and 在访达中显示 (Show in Finder) | The Mac window |
 | iPad 首页 (iPad home) | Whether the iPad opens the whiteboard or an app; see [docs/embed.md](docs/embed.md) | The Mac window, when apps are installed |
-| Mac | The Mac in use and 换一台 Mac (Switch Mac) | The iPad shell |
 
 ### Board kinds
 
