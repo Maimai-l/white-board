@@ -301,7 +301,7 @@ Read-only properties:
 | Field | Rules |
 | --- | --- |
 | `name` | At most 64 characters. |
-| `canvas` | `{"mode":"infinite"}` (default); `{"mode":"column","width":W}`: fixed width, unbounded downward; `{"mode":"fixed","width":W,"height":H}`: fixed width and height. W and H are 1 to 100000. The writable range is `0 ≤ x ≤ W`, and `0 ≤ y` (`column`) or `0 ≤ y ≤ H` (`fixed`). Cannot be changed after creation. |
+| `canvas` | `{"mode":"infinite"}` (default); `{"mode":"column","width":W}`: fixed width, unbounded downward; `{"mode":"fixed","width":W,"height":H}`: fixed width and height. W and H are 1 to 10000000. The writable range is `0 ≤ x ≤ W`, and `0 ≤ y` (`column`) or `0 ≤ y ≤ H` (`fixed`). Cannot be changed after creation. |
 | `background` | `pattern`: `blank`, `grid`, `lines`, `dots`, default `grid`; `paper`: paper color `#rrggbb`. |
 | `layers` | At most 1000 items, drawn in order. Each is `{src, x, y, width, height?, z?, sheet?}` in board coordinates (at zoom 1, one unit is one CSS pixel). Without `height`, the image's aspect ratio is used. `z`: `below` (default, under the ink) or `above` (over the ink). `sheet: true` draws the layer as a sheet of paper with a shadow, and the background pattern is not drawn. `src` must pass `Policy.allow_src` and may contain `{w}`, which the front end replaces with one of 640, 1024, 1600, 2400 (by the pixel width needed for display), so the server can cache images per bucket. |
 | `data` | A JSON object of at most 16 KB when serialized, checked by `Policy.validate_data`. The server does not interpret it. |

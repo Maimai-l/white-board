@@ -12,7 +12,7 @@ import tempfile
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, Optional
+from typing import Any, Dict, FrozenSet, Optional, Tuple
 
 from aiohttp import web
 from inksync import DefaultPolicy, FileStorage, Principal, Spaces, guard_middleware, mount, serve_sdk
@@ -508,18 +508,22 @@ async def handle_doc_upload(request: web.Request) -> web.Response:
     folder = models.sanitize_folder(request.query.get("folder"))
     body = await _read_body(request, MAX_DOC_BYTES)
     try:
-        meta = await _create_doc(hub, body, filename, folder)
+        meta, total = await _create_doc(hub, body, filename, folder)
     except OpenFileError as exc:
         raise web.HTTPBadRequest(text=str(exc)) from exc
-    return web.json_response({"board": meta})
+    # total：原件一共有几页。比板上的页多，说明超过了上限只导入了前面的，页面据此提示
+    return web.json_response({"board": meta, "total": total})
 
 
 class OpenFileError(Exception):
     """文件打不开或不能建板。消息写进日志和接口的回复；界面上只说打不开哪个文件（docs/ui-text.md）。"""
 
 
-async def _create_doc(hub: Hub, body: bytes, filename: str, folder: str) -> Dict[str, Any]:
-    """由一份 PDF / 图片新建文档板，放进 ``folder``（存在的话），并让所有设备切过去。"""
+async def _create_doc(hub: Hub, body: bytes, filename: str, folder: str) -> Tuple[Dict[str, Any], int]:
+    """由一份 PDF / 图片新建文档板，放进 ``folder``（存在的话），并让所有设备切过去。
+
+    返回新板的元数据和原件一共的页数。
+    """
     from . import docs
 
     try:
@@ -534,7 +538,7 @@ async def _create_doc(hub: Hub, body: bytes, filename: str, folder: str) -> Dict
         log.exception("导入文档出错")
         raise OpenFileError("文件读不出来") from exc
     await hub.broadcast_switch()
-    return meta
+    return meta, int(prepared["info"].get("total") or len(prepared["info"]["pages"]))
 
 
 async def _file_and_switch(hub: Hub, meta: Dict[str, Any], folder: str) -> Dict[str, Any]:
@@ -566,7 +570,8 @@ async def open_local_file(hub: Hub, path: Path, folder: str = "") -> Dict[str, A
             body = await asyncio.to_thread(path.read_bytes)
         except OSError as exc:
             raise OpenFileError(f"文件打不开：{exc.strerror or exc}") from exc
-        return await _create_doc(hub, body, path.name, folder)
+        meta, _total = await _create_doc(hub, body, path.name, folder)
+        return meta
     if suffix == ".wbz":
         own = hub.store.board_id_of(path)
         if own is not None:

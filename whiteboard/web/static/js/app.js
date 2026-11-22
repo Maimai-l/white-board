@@ -296,13 +296,19 @@ class App extends InkPad {
     // 一个文件只有一条消息：进行中的那条，出错时原地换成打不开，成功就收起
     const done = this.ui.message(`正在导入 ${file.name}…`, "doc", 60000);
     let failed = false;
+    let partial = 0;
     try {
       const query = `name=${encodeURIComponent(file.name)}&folder=${encodeURIComponent(folder)}`;
       const response = await fetch(`/api/doc?${query}`, {
         method: "POST",
         body: file,
       });
-      if (!response.ok) {
+      if (response.ok) {
+        // 超过页数上限的 PDF 只导入前面的页：回复里 total 是原件一共的页数
+        const body = await response.json();
+        const imported = body.board?.data?.doc?.pages?.length || 0;
+        if (body.total > imported) partial = imported;
+      } else {
         const text = (await response.text()) || `${response.status}`;
         reportError("app.importDoc 打不开文件", { name: file.name, status: response.status, message: text.slice(0, 200) });
         failed = true;
@@ -312,6 +318,7 @@ class App extends InkPad {
       failed = true;
     }
     if (failed) done.update(`打不开 ${file.name}`, "close", 6000);
+    else if (partial) done.update([`只导入了前 ${partial} 页`, "把 PDF 拆成几份分别导入"], "info", 10000);
     else done();
   }
 

@@ -301,7 +301,7 @@ class Principal:
 | 字段 | 规则 |
 | --- | --- |
 | `name` | 最长 64 个字符。 |
-| `canvas` | `{"mode":"infinite"}`（默认）；`{"mode":"column","width":W}`：宽度固定，向下无限；`{"mode":"fixed","width":W,"height":H}`：宽高固定。W、H 为 1 到 100000。可书写范围为 `0 ≤ x ≤ W`，以及 `0 ≤ y`（`column`）或 `0 ≤ y ≤ H`（`fixed`）。新建后不可修改。 |
+| `canvas` | `{"mode":"infinite"}`（默认）；`{"mode":"column","width":W}`：宽度固定，向下无限；`{"mode":"fixed","width":W,"height":H}`：宽高固定。W、H 为 1 到 10000000。可书写范围为 `0 ≤ x ≤ W`，以及 `0 ≤ y`（`column`）或 `0 ≤ y ≤ H`（`fixed`）。新建后不可修改。 |
 | `background` | `pattern`：`blank`、`grid`、`lines`、`dots`，默认 `grid`；`paper`：纸张颜色 `#rrggbb`。 |
 | `layers` | 最多 1000 项，按顺序绘制。每项 `{src, x, y, width, height?, z?, sheet?}`。坐标为白板坐标（缩放为 1 时 1 单位 = 1 CSS 像素）。`height` 省略时按图片比例。`z`：`below`（默认，笔迹下方）或 `above`（笔迹上方）。`sheet: true`：画成带阴影的一张纸，此时不画背景图案。`src` 须通过 `Policy.allow_src`，可以包含 `{w}`：前端替换为 640、1024、1600、2400 之一（按显示所需的像素宽度），服务端可按档位缓存图片。 |
 | `data` | JSON 对象，序列化后不超过 16 KB，经 `Policy.validate_data` 校验。服务端不解释其内容。 |

@@ -67,6 +67,8 @@ This file lists the notable changes to the board app and to inksync. The section
 
 ### Fixed
 
+- Documents: A PDF of more than about 115 pages, such as a textbook, could not be imported, because the board's height was limited to 100,000 points.
+- Documents: A PDF of more than 400 pages imports its first 400 pages and says so, instead of leaving out the rest without a word.
 - Export: The PNG of a widely spread board was blurred, because its long edge was limited to 4096 px.
 - Interface: Messages shown at the same time are listed one under another instead of covering each other. Importing a file shows one message, which turns into the error if the file cannot be opened.
 
