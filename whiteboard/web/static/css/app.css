@@ -2121,3 +2121,48 @@ select { transition: border-color var(--t-hover) var(--ease-out), box-shadow var
   .bg-opt { transition: none; }
   .icon-btn:active { scale: none; }
 }
+
+/* ------------------------------------------------------------- 白板库：设置 */
+
+/* 边栏左下角设置那一页：照 macOS 系统设置，一段一个小标题，下面一张浅灰的卡（ui-settings.js 的 librarySettings） */
+.lib-settings {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 28px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.settings-section { display: flex; flex-direction: column; gap: 8px; }
+.settings-title { margin: 0 0 0 4px; font-size: 13px; font-weight: 600; color: var(--on-surface-variant); }
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-m);
+  background: var(--fill-faint);
+  box-shadow: inset 0 0 0 1px var(--hairline-soft);
+}
+.settings-card.connect { flex-direction: row; align-items: flex-start; gap: 20px; padding: 16px; }
+.settings-card.connect .connect-qr { flex: none; width: 132px; height: 132px; }
+.settings-connect { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.settings-connect .panel-note { margin: 0; }
+.settings-card.list { padding: 0 14px; }
+.settings-card .perm-list { border: 0; background: none; border-radius: 0; }
+.settings-card .perm-row { padding: 0; height: 40px; }
+.settings-card .perm-row + .perm-row { border-top: 1px solid var(--hairline-soft); }
+.settings-card .perm-title { font-size: 13px; }
+.settings-card .perm-row input[type="checkbox"]:checked { background: var(--primary); }
+.settings-card .home-select {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  background: var(--surface-1);
+  font: inherit;
+  font-size: 13px;
+  color: var(--on-surface);
+}
+/* 白板设置面板底部的所有设置… */
+.panel .panel-more { align-self: flex-start; }

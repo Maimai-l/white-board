@@ -543,7 +543,7 @@ def serve_with_perms(page, perms):
     assert page.evaluate("() => document.documentElement.dataset.perms") == perms
 
 
-# 「关于」「连接 iPad」「存储目录」这几段只有本地进程里才有意义，界面按
+# 「关于」「连接其他设备」「存储目录」这几段只有本地进程里才有意义，界面按
 # window.pywebview 在不在来决定给不给，所以要在页面加载之前就把它放好。
 NATIVE_STUB = """
   window.__perms = { manage: false, settings: false, clear: false, export: false };
