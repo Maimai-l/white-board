@@ -695,12 +695,35 @@ export class UI {
     const node = el("div", { class: "notice", html: icon(iconName) });
     node.append(noticeText(text));
     node.addEventListener("click", () => leave(node));
-    this.root.append(node);
-    const timer = setTimeout(() => leave(node), ms);
-    return () => {
+    this.noticeStack().append(node);
+    let timer = setTimeout(() => leave(node), ms);
+    const close = () => {
       clearTimeout(timer);
       leave(node);
     };
+    /** 原地换成另一句（进行中的消息变成结果），重新计时；不另起一条。 */
+    close.update = (next, nextIcon = iconName, nextMs = ms) => {
+      if (!node.isConnected || node.classList.contains("leaving")) return this.message(next, nextIcon, nextMs);
+      clearTimeout(timer);
+      node.replaceChildren();
+      node.insertAdjacentHTML("afterbegin", icon(nextIcon));
+      node.append(noticeText(next));
+      timer = setTimeout(() => leave(node), nextMs);
+      return close;
+    };
+    return close;
+  }
+
+  /**
+   * 消息条都放进同一个竖排的容器：同时有几条就往下排开，不互相盖住（Mac 上在顶栏下面靠右，
+   * iPad 上居中）。
+   */
+  noticeStack() {
+    if (!this._notices || !this._notices.isConnected) {
+      this._notices = el("div", { id: "notices", role: "status", "aria-live": "polite" });
+      this.root.append(this._notices);
+    }
+    return this._notices;
   }
 
   /** 一条可点掉的提示，用于页面无能为力、只能让用户去改系统设置的情况。一天只提示一次。 */
@@ -715,7 +738,7 @@ export class UI {
     const node = el("div", { class: "notice", html: icon(iconName) });
     node.append(noticeText(text));
     node.addEventListener("click", () => leave(node));
-    this.root.append(node);
+    this.noticeStack().append(node);
     setTimeout(() => leave(node), 15000);
   }
 

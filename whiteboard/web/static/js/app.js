@@ -293,7 +293,9 @@ class App extends InkPad {
 
   /** 上传一份 PDF / 图片，服务端建好板之后会广播切换，这里不用自己跳。 */
   async importDoc(file, folder = "") {
+    // 一个文件只有一条消息：进行中的那条，出错时原地换成打不开，成功就收起
     const done = this.ui.message(`正在导入 ${file.name}…`, "doc", 60000);
+    let failed = false;
     try {
       const query = `name=${encodeURIComponent(file.name)}&folder=${encodeURIComponent(folder)}`;
       const response = await fetch(`/api/doc?${query}`, {
@@ -302,15 +304,15 @@ class App extends InkPad {
       });
       if (!response.ok) {
         const text = (await response.text()) || `${response.status}`;
-        reportError("app.importDoc 打不开文件", { name: file.name, message: text.slice(0, 200) });
-        this.ui.message(`打不开 ${file.name}`, "close", 6000);
+        reportError("app.importDoc 打不开文件", { name: file.name, status: response.status, message: text.slice(0, 200) });
+        failed = true;
       }
     } catch (err) {
-      reportError("app.importDoc 上传文件失败", { name: file.name, message: String(err) });
-      this.ui.message(`打不开 ${file.name}`, "close", 6000);
-    } finally {
-      done();
+      reportError("app.importDoc 上传文件失败", { name: file.name, size: file.size, message: String(err) });
+      failed = true;
     }
+    if (failed) done.update(`打不开 ${file.name}`, "close", 6000);
+    else done();
   }
 
   /** 导出：打开导出对话框（分页、选页、格式都在里面，见 ui-export.js）。 */
