@@ -312,7 +312,7 @@ Clicking 白板设置 (Board settings) opens a panel under the button. Clicking 
 
 | Section | Content | Shown on |
 | --- | --- | --- |
-| 背景 (Background) | 空白, 方格, 横线, 点阵 (blank, grid, lines, dots) | Devices with the Board settings permission; not for document boards |
+| 背景 (Background) | 空白, 方格, 横线, 点阵 (blank, grid, lines, dots) | Devices with the Board settings permission; on document boards only when they have blank pages |
 | 其他设备可以 (Other devices can) | Switches for other devices' permissions: 管理白板, 设置白板, 清空白板, 导出白板; see [Permissions for other devices](#permissions-for-other-devices) | The Mac window |
 | 存储位置 (Storage) | The storage directory, with 更改… (Change) and 在访达中显示 (Show in Finder) | The Mac window |
 | 首页 (Home) | Whether other devices open the whiteboard or an app; see [docs/embed.md](docs/embed.md) | The Mac window, when apps are installed |
@@ -421,27 +421,34 @@ Right-clicking the background opens a menu with 新建白板 (New board, ⌘N), 
 Drop a PDF or an image onto the window, choose 导入 PDF 或图片… (Import PDF or image, ⌘I) in the library's background menu or in the 新建白板 (New board) panel (the way to import on the iPad), or open the file with the app from Finder, to create a document board (beta). The pages are laid out on the canvas, and connected devices switch to the new board.
 
 - Several files can be dropped or chosen at once. Each becomes a new board, and the view ends on the last one.
+- A PDF with more than one page first opens the import dialog. The left column shows a thumbnail of each page; click one to select or deselect it. On the right choose 全部 (all), 范围 (range, written as in export, for example `3-15` or `1-3, 8`) or 所选的页 (selected pages); tick 每页后面加一页空白 (add a blank page after each page) to follow every page with a blank page of the same size. The button reads 导入 N 页 (import N pages); 取消 (Cancel) or Esc creates nothing. A one-page PDF or an image becomes a board directly.
 - While files are dragged over the window, an overlay reads 「导入为新白板」 (import as new board), or 「导入到 <folder>」 (import into) when the library shows a folder.
 - Where the new board goes: with the library open, into the folder it shows, or into a sidebar folder the files are dropped on; with the library closed, into the current board's folder. Files opened from Finder likewise go into the folder the library shows, or the current board's folder.
+
+**Blank pages.** When the annotations need more room, add blank pages to a document board. This needs the Manage boards permission:
+
+- Right-click a page on the Mac, or hold a finger still on a page on a touch device (with 用手指绘图, draw with finger, on, the finger writes and a hold does nothing). The menu has 在后面插入空白页 (insert a blank page after) and 在前面插入空白页 (insert a blank page before); on a blank page it also has 删除这一空白页 (delete this blank page), which asks first because the ink on it goes too. Pages of the original cannot be deleted.
+- The toolbar's 更多 (More) menu, or the tool picker's “…” menu on the iPad, has 在这一页后面插入空白页 (insert a blank page after this page), which adds one after the page in the middle of the screen.
+- A blank page has the size of the page next to it and the pattern of the board's 背景 (Background) setting. Later pages move down with their ink, every device sees the new pages at once, and undo history is cleared after a page is added or deleted.
 
 **Opening files from Finder.** The packaged app is listed under “打开方式” (Open With) for PDF, png, jpeg, gif, bmp, webp and tiff files as an alternative app, so it does not replace the default app. `.wbz` files belong to the app and open with a double-click.
 
 | File | Result |
 | --- | --- |
-| PDF or image | A new document board, as when the file is dropped onto the window. |
+| PDF or image | A new document board, as when the file is dropped onto the window; a PDF with more than one page opens the import dialog first. |
 | `.wbz` in the current storage directory | Switches to that board. |
 | Other `.wbz` (for example from `backups/`) | Imported as a new board; the original file is not changed. A board that cannot be read completely opens read-only. A document board also needs its original in the `docs/` folder of the same storage directory. |
 
 | Item | Detail |
 | --- | --- |
 | Formats | PDF, png, jpg/jpeg, gif, bmp, webp, tif/tiff |
-| Limits | Up to 400 pages; for a longer PDF the first 400 pages are imported and a message says so. Uploads up to 256 MB |
+| Limits | Up to 400 pages per board, blank pages included; the import dialog lists the first 5000 pages of a PDF, and a longer PDF gets a message to split it. Uploads up to 256 MB |
 | Not supported | Password-protected PDFs |
 | Original file | Copied unchanged into `docs/` in the storage directory; never modified |
 | Ink | Vector data in the board's `.wbz` file; cannot be placed outside the pages; the view stops at the first and last page |
 | Page images | Rendered on the Mac per zoom step, only for visible pages |
 
-The export dialog (see [Export](#export)) uses the pages of the original. A PDF keeps the original pages with the ink appended; an image becomes a one-page PDF or a PNG at the chosen resolution.
+The export dialog (see [Export](#export)) uses the board's pages: the original pages chosen at import and the blank pages added, in board order. A PDF keeps the original pages with the ink appended; an image becomes a PDF or a PNG at the chosen resolution; blank pages are exported with the board's background pattern.
 
 - In a PDF, ink is appended as vectors and the original content is not re-encoded. The file grows by a few hundred bytes per stroke; a heavily annotated handout grows by a few hundred KB.
 - Ink in the gap between two pages is assigned to the nearer page; ink outside a page is clipped.
@@ -471,7 +478,7 @@ Any device that opens the address can write. Every other action must be granted 
 
 | Permission | Allows | Enforced at |
 | --- | --- | --- |
-| Manage boards (管理白板) | Open the library; switch, create, duplicate, rename, file into folders, move to the trash, restore, delete permanently, create from a PDF or image | `/api/info`, `/api/boards`, `/api/thumb`, uploads to `/api/doc`, and the matching WebSocket operations |
+| Manage boards (管理白板) | Open the library; switch, create, duplicate, rename, file into folders, move to the trash, restore, delete permanently, create from a PDF or image, add and delete blank pages on document boards | `/api/info`, `/api/boards`, `/api/thumb`, uploads and staging under `/api/doc`, `/api/board/<id>/pages`, and the matching WebSocket operations |
 | Board settings (设置白板) | Change the background | `meta` operations |
 | Clear board (清空白板) | Erase a whole board at once | `clear` operations |
 | Export board (导出白板) | Download a whole board, including the original file | `/api/export` |

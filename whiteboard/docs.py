@@ -18,7 +18,7 @@ import logging
 import math
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import inkpdf, inkraster
 
@@ -78,8 +78,8 @@ def kind_of(path: str | Path) -> str:
 # ---------------------------------------------------------------- 读取信息
 
 
-def probe(path: str | Path) -> Dict[str, Any]:
-    """读出页数与每页尺寸（PDF 用 pt，图片用像素）。"""
+def probe(path: str | Path, limit: int = MAX_PAGES) -> Dict[str, Any]:
+    """读出页数与每页尺寸（PDF 用 pt，图片用像素）。最多读 ``limit`` 页，``total`` 是一共几页。"""
     path = Path(path)
     if not path.exists():
         raise DocError("文件不存在")
@@ -96,7 +96,7 @@ def probe(path: str | Path) -> Dict[str, Any]:
                 if count < 1:
                     raise DocError("PDF 里没有页面")
                 pages = []
-                for index in range(min(count, MAX_PAGES)):
+                for index in range(min(count, limit)):
                     # 每一页用完当场关掉，不留给垃圾回收：pypdfium2 关文档时要遍历它
                     # 名下的页面，回收要是恰好在遍历中途把某一页收走，就会抛
                     # 「Set changed size during iteration」，导入随机失败
@@ -239,8 +239,19 @@ def group_by_page(strokes: Sequence[Dict[str, Any]], boxes: Sequence[Dict[str, f
     return groups
 
 
-def export_pdf(src: str | Path, strokes: Sequence[Dict[str, Any]], out: str | Path) -> Path:
-    """把笔迹追加到原 PDF 的每一页上。原有的内容流不做任何重写。"""
+def export_pdf(
+    src: str | Path,
+    strokes: Sequence[Dict[str, Any]],
+    out: str | Path,
+    doc: Optional[Dict[str, Any]] = None,
+    blank_page: Optional[Callable[[int, List[Dict[str, Any]]], bytes]] = None,
+) -> Path:
+    """把笔迹追加到原 PDF 的页上。原有的内容流不做任何重写。
+
+    不给 ``doc`` 时白板上的页就是原件的每一页。给了 ``doc``（文档板的页面信息）时按白板上的
+    页来：每一页取原件的哪一页看 ``doc`` 的页码映射，用户加的空白页由 ``blank_page(序号, 这一页的笔迹)``
+    生成（一页的 PDF 字节，墨迹已经画好）。
+    """
     pypdf = _pypdf()
     from pypdf.generic import (  # noqa: WPS433
         ArrayObject,
@@ -250,8 +261,15 @@ def export_pdf(src: str | Path, strokes: Sequence[Dict[str, Any]], out: str | Pa
         StreamObject,
     )
 
-    info = probe(src)
-    boxes = layout(info["pages"])
+    if doc is None:
+        info = probe(src)
+        boxes = layout(info["pages"])
+        sources: List[Optional[int]] = list(range(len(boxes)))
+    else:
+        from .models import doc_sources  # noqa: WPS433
+
+        boxes = layout(doc["pages"])
+        sources = doc_sources(doc)
     groups = group_by_page(strokes, boxes)
 
     reader = pypdf.PdfReader(str(src))
@@ -264,7 +282,20 @@ def export_pdf(src: str | Path, strokes: Sequence[Dict[str, Any]], out: str | Pa
             raise
         except Exception as exc:  # noqa: BLE001 - pypdf 的异常类型不稳定
             raise DocError("这份 PDF 有密码，导不出来") from exc
-    writer = pypdf.PdfWriter(clone_from=reader)
+    if sources == list(range(len(reader.pages))):
+        writer = pypdf.PdfWriter(clone_from=reader)  # 一页对一页：整份克隆，书签、元数据都留着
+    else:
+        writer = pypdf.PdfWriter()
+        for index, source in enumerate(sources):
+            if source is None:
+                if blank_page is None:
+                    raise DocError("缺少空白页的生成方法")
+                blank = pypdf.PdfReader(io.BytesIO(blank_page(index, groups[index])))
+                writer.add_page(blank.pages[0])
+            else:
+                if source >= len(reader.pages):
+                    raise DocError(f"原件没有第 {source + 1} 页")
+                writer.add_page(reader.pages[source])
 
     def add_stream(raw: bytes):
         stream = StreamObject()
@@ -273,8 +304,8 @@ def export_pdf(src: str | Path, strokes: Sequence[Dict[str, Any]], out: str | Pa
         return writer._add_object(stream)
 
     for index, page in enumerate(writer.pages):
-        if index >= len(boxes) or not groups[index]:
-            continue
+        if index >= len(boxes) or not groups[index] or sources[index] is None:
+            continue  # 空白页的墨迹在 blank_page 里已经画好
         matrix, _, _ = inkpdf.page_geometry(page)
         raw, alphas = inkpdf.content_stream(groups[index], origin=(boxes[index]["x"], boxes[index]["y"]), matrix=matrix)
         if not raw:

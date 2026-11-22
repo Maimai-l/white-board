@@ -154,11 +154,15 @@ def sanitize_layer(raw: Any, allow_src: Callable[[str], bool] = default_allow_sr
     if not isinstance(raw, dict):
         return None
     src = raw.get("src")
-    if not isinstance(src, str) or not src or len(src) > MAX_SRC:
-        return None
-    if any(ord(ch) < 32 for ch in src) or not allow_src(src):
-        return None
-    out: Dict[str, Any] = {"src": src}
+    out: Dict[str, Any] = {}
+    if src is None and raw.get("sheet") is True:
+        pass  # 只有纸张、没有图片的层：文档板上用户加的空白页
+    else:
+        if not isinstance(src, str) or not src or len(src) > MAX_SRC:
+            return None
+        if any(ord(ch) < 32 for ch in src) or not allow_src(src):
+            return None
+        out["src"] = src
     for key in ("x", "y"):
         value = raw.get(key, 0)
         if not is_number(value) or abs(float(value)) > MAX_CANVAS:

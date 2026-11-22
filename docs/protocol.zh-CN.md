@@ -417,7 +417,7 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 
 | 权限 | 界面名称 | 允许的动作 |
 | --- | --- | --- |
-| `manage` | 「管理白板」 | 打开当前白板以外的白板；扩展消息 `sel`、`newboard`、`delboard`、`duplicate`、`restore`、`purge`、`emptytrash`、`rename`、`folder`、`order`、`newfolder`、`delfolder`、`renamefolder`；`unlock`；`GET /api/info`、`GET /api/boards`、`GET /api/spaces/{应用}/boards`、`GET`/`POST /api/thumb/{board}`、`POST /api/doc` |
+| `manage` | 「管理白板」 | 打开当前白板以外的白板；扩展消息 `sel`、`newboard`、`delboard`、`duplicate`、`restore`、`purge`、`emptytrash`、`rename`、`folder`、`order`、`newfolder`、`delfolder`、`renamefolder`；`unlock`；`GET /api/info`、`GET /api/boards`、`GET /api/spaces/{应用}/boards`、`GET`/`POST /api/thumb/{board}`、`POST /api/doc`、`/api/doc/stage` 下的各个接口、`POST /api/board/{board}/pages` |
 | `settings` | 「设置白板」 | `meta` 操作 |
 | `clear` | 「清空白板」 | `clear` 操作 |
 | `export` | 「导出白板」 | `GET`/`POST /api/export/{board}`、`GET /api/export/{board}/pages` |
@@ -473,6 +473,11 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 | POST | `/api/debug` | — | 客户端诊断信息，写入服务端日志。请求体为 JSON 对象；记录前 20 个键，最多 1000 个字符。 |
 | POST | `/api/recording` | — | 将输入录制保存到 `recordings/`。请求体为带 `events` 数组的 JSON 对象，最大 32 MB。保留最新的 50 个文件，总共不超过 256 MB。见 [recording.md](recording.md)。 |
 | POST | `/api/doc?name=<文件名>&folder=<文件夹>` | `manage` | 由 PDF 或图片新建文档板。请求体为文件本身，最大 256 MB。 |
+| POST | `/api/doc/stage?name=<文件名>` | `manage` | 暂存一份 PDF 给导入对话框选页，不建白板。请求体为文件本身，最大 256 MB。 |
+| GET | `/api/doc/stage/{stage}/{页码}?w=<宽度>` | `manage` | 暂存 PDF 某一页的缩略图 |
+| POST | `/api/doc/stage/{stage}` | `manage` | 用暂存 PDF 中选的页新建文档板 |
+| DELETE | `/api/doc/stage/{stage}` | `manage` | 丢掉暂存的 PDF（取消导入） |
+| POST | `/api/board/{board}/pages` | `manage` | 在文档板上插入或删除空白页 |
 | GET | `/api/doc/{board}/{页码}?w=<宽度>` | 当前白板不需要，其他白板需要 `manage` | 渲染后的页面图像 |
 | GET | `/api/apps` | — | `apps`（已安装的应用名称）、`ipad_home` |
 | GET | `/api/spaces/{应用}/boards?offset=&limit=` | `manage` | 某个应用空间里的白板：`boards`（元数据，按 `updated` 从新到旧）、`total`。`limit` 为 1～500，默认 100。应用不存在时返回 `404`。 |
@@ -494,6 +499,9 @@ inksync 的每条连接有一个身份（`Principal`：`id`、`local`、`address
 | `GET /api/qr` | `Content-Type: image/svg+xml`。纠错级别 M，四周空白 2 个模块，深色模块 `#1C1C1E`，背景透明。`<svg>` 只有 `viewBox`，没有 `width` 和 `height`，大小由 CSS 决定。`text` 缺少、为空、超过 1024 个字符或放不进二维码时返回 `400`。由 segno 生成。 |
 | `POST /api/thumb/{board}` | 白板不存在时返回 `404`；请求体不是 PNG 时返回 `400`。 |
 | `POST /api/doc` | 文件名也可以通过 `X-Filename` 请求头发送。`folder` 可省略，仅在该文件夹存在时生效。请求体按 64 KB 分块读取直到结束（`StreamReader.read(n)` 最多返回 `n` 字节）。超过上限返回 `413`，文件类型不支持或无法读取返回 `400`。响应为 `{"board": <meta>}`。随后服务端向所有跟随的连接发送 `switch`。 |
+| `POST /api/doc/stage` | 请求体和错误与 `POST /api/doc` 相同。响应为 `{"stage", "name", "type", "total", "pages"}`：`total` 是 PDF 的总页数，`pages` 是前 5000 页每页的 `[宽, 高]`。暂存的文件放在 `docs/staging/`，一小时没有建板就删掉，服务端启动时清空。 |
+| `POST /api/doc/stage/{stage}` | 请求体为 `{"pages": [原件页码，从 0 起], "blanks": 布尔值, "folder": "…"}`。`blanks` 为 true 时每个选中的页后面跟一页同样大的空白页。白板最多 400 页。暂存不存在或已过期、页码不对时返回 `400`。响应为 `{"board": <meta>}`，随后服务端向所有跟随的连接发送 `switch`。 |
+| `POST /api/board/{board}/pages` | 请求体为 `{"action": "insert-after" \| "insert-before" \| "delete", "page": <白板上的页码>}`。空白页和插入位置旁边那一页一样大；`delete` 只删空白页，连同上面的笔迹。后面的笔画移动一页高度加页间距。白板的元数据和笔画整体替换并换一个新的 `epoch`，这块白板上的每个连接都收到 `reply` 为 `switch` 的 `open`，并清空撤销记录。动作或页码不对、已到 400 页、不是文档板时返回 `400`。响应为 `{"board": <meta>}`。 |
 | `GET /api/doc/{board}/{页码}` | `w` 默认为 1200，限制在 160～2600 之间。PDF 页面和不透明图片返回 JPEG（质量 82），带透明度的图片返回 PNG。`ETag` 为 `"<board>-<页码>-<宽度>"`，`If-None-Match` 匹配时返回 `304`。`Cache-Control: private, max-age=31536000, immutable`，因为原件不会改变。白板不是文档板、原件丢失或页码超出范围时返回 `404`。 |
 | `GET /api/export/{board}` | 不带 `format` 时仅限文档板（否则返回 `404`）。`Content-Type: application/octet-stream`，`Content-Disposition: attachment; filename*=UTF-8''<文件名>`，`Cache-Control: no-store`。文件名为 `<原文件名>-批注<扩展名>`。 |
 | `POST /api/recording` | 保存为 `recordings/<YYYYmmdd-HHMMSS>[-<名称>].json`；`name` 只保留字母、数字、`-` 和 `_`，最长 40 个字符。响应为 `{"ok": true, "path": ..., "events": <条数>}`。 |

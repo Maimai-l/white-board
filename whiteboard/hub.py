@@ -30,14 +30,14 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from inksync.hub import AUTOSAVE_INTERVAL, OPS_HISTORY, BoardRuntime, Conn  # noqa: F401
 from inksync.hub import Hub as CoreHub
 from inksync.policy import Policy, Principal
 from inksync.storage import BoardFileError
 
-from . import models
+from . import doc_pages, models
 from .store import BoardStore
 
 log = logging.getLogger(__name__)
@@ -50,6 +50,8 @@ SKETCH_GRACE = 3.0
 # 回收站里的白板放多久之后彻底删除，以及多久检查一次
 TRASH_TTL = 30 * 86400.0
 PURGE_INTERVAL = 3600.0
+# 导入对话框暂存的原件多久没建板就丢掉（秒）
+STAGE_TTL = 3600.0
 # devices 名单里各类设备的名字
 DEVICE_LABELS = {"ipad": "iPad", "browser": "浏览器"}
 
@@ -111,6 +113,9 @@ class Hub:
         self.sketch_follow = False
         self.sketch_grace = sketch_grace
         self._sketch_check: Optional[asyncio.Task] = None
+        # 导入前暂存的原件（导入对话框还开着）：id → (暂存时间, prepare 的结果)
+        self.staged: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        store.clear_staging()
         self.core = CoreHub(store.core, policy=WhiteboardPolicy(self), autosave=autosave, accept_v1=True)
         self.core.name = ""
         self.core.closable = False
@@ -579,6 +584,88 @@ class Hub:
         meta = await self.core.create_board(None, meta=meta)
         self.store.put_front(meta["id"])
         self.store.set_current(meta["id"])
+        return meta
+
+    async def change_doc_pages(self, board_id: str, action: str, page: int) -> Dict[str, Any]:
+        """文档板插入或删除空白页（doc_pages.py），整块换掉白板，所有显示它的设备马上看到。
+
+        ``action``：``insert-after``、``insert-before`` 或 ``delete``；``page`` 从 0 起。
+        改不了时抛 :class:`doc_pages.PageError`。"""
+        runtime = await self.core.load(board_id)
+        if runtime is None:
+            raise doc_pages.PageError("白板不存在")
+        if runtime.locked:
+            raise doc_pages.PageError("白板是只读的")
+        strokes = runtime.stroke_list()
+        if action == "delete":
+            meta, strokes = doc_pages.delete_blank(runtime.meta, strokes, page)
+        elif action in ("insert-after", "insert-before"):
+            meta, strokes = doc_pages.insert_blank(runtime.meta, strokes, page, after=action == "insert-after")
+        else:
+            raise doc_pages.PageError(f"不认识的操作 {action!r}")
+        result = await self.core.replace_board(board_id, meta, strokes)
+        if result is None:
+            raise doc_pages.PageError("换不了白板的内容")
+        log.info(
+            "白板 %s 页面：%s 第 %d 页，现在 %d 页", board_id, action, page + 1, len(models.doc_of(result)["pages"])
+        )
+        return result
+
+    # ------------------------------------------------------------ 导入前选页
+
+    def stage_doc(self, data: bytes, filename: str) -> Dict[str, Any]:
+        """暂存一份原件，给导入对话框看页（在工作线程里调用）。一小时没建板就丢掉。"""
+        self.drop_stale_stages()
+        prepared = self.store.stage_doc(data, filename, models.MAX_SOURCE_PAGES)
+        self.staged[prepared["id"]] = (time.monotonic(), prepared)
+        return prepared
+
+    def drop_stale_stages(self, max_age: float = STAGE_TTL) -> None:
+        now = time.monotonic()
+        for stage_id, (stamp, _prepared) in list(self.staged.items()):
+            if now - stamp > max_age:
+                self.drop_stage(stage_id)
+
+    def drop_stage(self, stage_id: str) -> None:
+        self.staged.pop(stage_id, None)
+        self.store.drop_staged(stage_id)
+
+    async def create_from_stage(
+        self, stage_id: str, pages: List[int], blanks: bool = False, folder: str = ""
+    ) -> Dict[str, Any]:
+        """用暂存的原件建文档板：只要 ``pages``（原件页码，从 0 起），``blanks`` 时每页后面
+        跟一页同样大的空白。设为当前白板（不广播）。参数不对抛 :class:`doc_pages.PageError`。"""
+        entry = self.staged.get(stage_id)
+        if entry is None:
+            raise doc_pages.PageError("暂存的文件已经过期")
+        prepared = entry[1]
+        info = prepared["info"]
+        sizes = info["pages"]
+        chosen = sorted(set(pages))
+        if not chosen or any(not isinstance(i, int) or isinstance(i, bool) or not 0 <= i < len(sizes) for i in chosen):
+            raise doc_pages.PageError("选的页不对")
+        board_pages: List[List[float]] = []
+        sources: List[Optional[int]] = []
+        for index in chosen:
+            board_pages.append(list(sizes[index]))
+            sources.append(index)
+            if blanks:
+                board_pages.append(list(sizes[index]))
+                sources.append(None)
+        if len(board_pages) > models.MAX_DOC_PAGES:
+            raise doc_pages.PageError(f"一块白板最多 {models.MAX_DOC_PAGES} 页")
+        self.store.commit_staged(stage_id)
+        self.staged.pop(stage_id, None)
+        doc_info = {**info, "pages": board_pages, "src": sources}
+        doc_info.pop("total", None)
+        meta = await self.add_doc({**prepared, "info": doc_info}, folder)
+        log.info(
+            "从暂存建文档板 %s：原件 %d 页里选了 %d 页，空白页 %s",
+            meta["id"],
+            len(sizes),
+            len(chosen),
+            "有" if blanks else "无",
+        )
         return meta
 
     async def import_doc(self, data: bytes, filename: str) -> Dict[str, Any]:

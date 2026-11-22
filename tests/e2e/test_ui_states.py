@@ -392,3 +392,45 @@ def test_sketch_page_states(browser, server, size):
     page.wait_for_function("() => window.sketchPad && sketchPad.status === 'online'")
     problems = check(page, f"sketch-{size[0]}x{size[1]}")
     assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize("size_name", list(MAC_SIZES))
+def test_mac_import_and_page_states(browser, server, size_name):
+    """导入对话框、页的右键菜单、空白页（docs/backlog/014-import-pages.md）。"""
+    from e2e.test_doc_pages import drop_pdf, page_point, wait_doc
+
+    size = MAC_SIZES[size_name]
+    page = mac_page(browser, server, size)
+    w, h = size
+    problems = []
+    before = page.evaluate("() => whiteboard.state.id")
+    drop_pdf(page, "高等数学 上册.pdf", 12)
+    page.wait_for_function(
+        "() => [...document.querySelectorAll('.import-dialog .export-thumb-image')].slice(0, 4)"
+        ".every((i) => i.complete && i.naturalWidth > 0)",
+        timeout=20000,
+    )
+    problems += check(page, f"{size_name}-import")
+    page.fill(".import-dialog .export-range-field", "3-15")
+    problems += check(page, f"{size_name}-import-range-error")
+    page.fill(".import-dialog .export-range-field", "3-5")
+    page.check('.import-dialog .export-radio:has-text("每页后面加一页空白") input')
+    problems += check(page, f"{size_name}-import-range")
+    page.click(".import-dialog .lib-btn.primary")
+    wait_doc(page, before)
+
+    x, y = page_point(page, 1)
+    page.mouse.click(x, y, button="right")
+    problems += check(page, f"{size_name}-page-menu-blank")
+    page.keyboard.press("Escape")
+    x, y = page_point(page, 0)
+    page.mouse.click(x, y, button="right")
+    problems += check(page, f"{size_name}-page-menu")
+    page.keyboard.press("Escape")
+    page.wait_for_selector(".menu", state="detached")
+    page_point(page, 1, fraction=0.5)
+    problems += check(page, f"{size_name}-doc-blank-page")
+    problems += closes(
+        page, lambda: page.mouse.click(x, y, button="right"), ".menu", (w - 30, h - 30), f"{size_name}-page-menu"
+    )
+    assert not problems, "\n".join(problems)

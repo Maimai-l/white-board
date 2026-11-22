@@ -1343,3 +1343,168 @@ def test_qr_code_is_an_svg_that_css_can_size(tmp_path):
             assert (await client.get("/api/qr", params={"text": "汉" * 1000})).status == 400  # 放不进二维码
 
     run(main())
+
+
+# ------------------------------------------------------------ 文档板：空白页
+
+
+def _ink(stroke_id, y, x=100.0):
+    return {"id": stroke_id, "tool": "pen", "color": "#000000", "w": 3, "p": [x, y, 0.5, x + 20, y + 10, 0.6]}
+
+
+async def _receive(ws, kind):
+    while True:
+        message = await ws.receive_json()
+        if message.get("t") == kind:
+            return message
+
+
+def test_inserting_a_blank_page_moves_later_pages_and_their_ink_down(tmp_path):
+    """用户要在两页之间加一页空白写批注：后面的页和上面的笔迹都往下挪一页的高度，
+    连着的设备马上收到整块白板，原件的页图地址不变。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            meta = (await (await client.post("/api/doc?name=讲义.pdf", data=_doc_bytes([(595, 842)] * 3))).json())[
+                "board"
+            ]
+            board_id = meta["id"]
+            ws = await client.ws_connect("/ws")
+            await hello(ws, role="ipad", client_id="pad", board=board_id)
+            step = 842 + models.DOC_PAGE_GAP
+            page_ink = [_ink("p1", 100), _ink("p2", step + 100), _ink("p3", 2 * step + 100)]
+            await ws.send_json({"t": "op", "cid": "c1", "op": {"op": "add", "strokes": page_ink}})
+            await _receive(ws, "ack")
+
+            response = await client.post(f"/api/board/{board_id}/pages", json={"action": "insert-after", "page": 0})
+            assert response.status == 200, await response.text()
+            board = (await response.json())["board"]
+            assert board["data"]["doc"]["pages"] == [[595.0, 842.0]] * 4
+            assert board["data"]["doc"]["src"] == [0, None, 1, 2]
+            assert board["canvas"]["height"] == 4 * 842 + 3 * models.DOC_PAGE_GAP
+            assert "src" not in board["layers"][1] and board["layers"][1]["sheet"] is True
+            assert board["layers"][2]["src"].startswith(f"/api/doc/{board_id}/1?")  # 原件第 2 页，地址没变
+
+            switched = await _receive(ws, "switch")
+            assert switched["board"]["id"] == board_id
+            ys = {s["id"]: s["p"][1] for s in switched["strokes"]}
+            assert ys == {"p1": 100, "p2": 2 * step + 100, "p3": 3 * step + 100}
+            await ws.close()
+
+            # 写进了文件：存盘后重新读，四页和挪过的笔迹都在
+            app[HUB_KEY].core.save_all()
+            meta_on_disk, strokes_on_disk, problem = BoardStore(app[HUB_KEY].store.data_dir).open_board(board_id)
+            assert problem is None
+            assert meta_on_disk["data"]["doc"]["src"] == [0, None, 1, 2]
+            assert "src" not in meta_on_disk["layers"][1]
+            assert sorted(round(s["p"][1]) for s in strokes_on_disk) == [100, 2 * step + 100, 3 * step + 100]
+
+    run(main())
+
+
+def test_deleting_a_blank_page_takes_its_ink_and_moves_the_rest_up(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            meta = (await (await client.post("/api/doc?name=讲义.pdf", data=_doc_bytes([(595, 842)] * 2))).json())[
+                "board"
+            ]
+            board_id = meta["id"]
+            step = 842 + models.DOC_PAGE_GAP
+            await client.post(f"/api/board/{board_id}/pages", json={"action": "insert-before", "page": 1})
+            ws = await client.ws_connect("/ws")
+            await hello(ws, role="ipad", client_id="pad", board=board_id)
+            ink = [_ink("on-blank", step + 100), _ink("after", 2 * step + 100)]
+            await ws.send_json({"t": "op", "cid": "c1", "op": {"op": "add", "strokes": ink}})
+            await _receive(ws, "ack")
+
+            # 原件的页不能删
+            refused = await client.post(f"/api/board/{board_id}/pages", json={"action": "delete", "page": 0})
+            assert refused.status == 400
+
+            response = await client.post(f"/api/board/{board_id}/pages", json={"action": "delete", "page": 1})
+            assert response.status == 200, await response.text()
+            board = (await response.json())["board"]
+            assert board["data"]["doc"]["pages"] == [[595.0, 842.0]] * 2
+            assert "src" not in board["data"]["doc"]  # 又是原件的一页对一页
+            switched = await _receive(ws, "switch")
+            assert {s["id"]: s["p"][1] for s in switched["strokes"]} == {"after": step + 100}
+            await ws.close()
+
+    run(main())
+
+
+def test_page_changes_need_the_manage_permission(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            meta = (await (await client.post("/api/doc?name=讲义.pdf", data=_doc_bytes([(595, 842)] * 2))).json())[
+                "board"
+            ]
+            app[CONFIG_KEY].set_remote_permission("manage", False)
+            response = await client.post(
+                f"/api/board/{meta['id']}/pages",
+                json={"action": "insert-after", "page": 0},
+                headers={"X-Forwarded-For": "192.168.1.20"},
+            )
+            assert response.status == 403
+
+    run(main())
+
+
+# ------------------------------------------------------------ 导入前选页
+
+
+def test_a_staged_pdf_becomes_a_board_of_the_chosen_pages(tmp_path):
+    """导入对话框：先暂存，看页数和缩略图，只要第 3 到 5 页、每页后面加一页空白。"""
+
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            sizes = [(595, 842)] * 5 + [(842, 595)]
+            staged = await client.post("/api/doc/stage?name=教材.pdf", data=_doc_bytes(sizes))
+            assert staged.status == 200, await staged.text()
+            info = await staged.json()
+            assert info["total"] == 6 and info["name"] == "教材.pdf" and len(info["pages"]) == 6
+            thumb = await client.get(f"/api/doc/stage/{info['stage']}/5?w=160")
+            assert thumb.status == 200 and thumb.content_type == "image/jpeg"
+            assert not app[HUB_KEY].core.exists(info["stage"])  # 还没建板
+
+            created = await client.post(f"/api/doc/stage/{info['stage']}", json={"pages": [2, 3, 5], "blanks": True})
+            assert created.status == 200, await created.text()
+            board = (await created.json())["board"]
+            doc = board["data"]["doc"]
+            assert doc["src"] == [2, None, 3, None, 5, None]
+            assert doc["pages"] == [[595.0, 842.0]] * 4 + [[842.0, 595.0]] * 2
+            assert board["layers"][0]["src"].startswith(f"/api/doc/{board['id']}/2?")
+            page = await client.get(f"/api/doc/{board['id']}/5?w=200")
+            assert page.status == 200  # 原件搬到了 docs/ 下，原件第 6 页照样能取
+            assert app[HUB_KEY].current_id == board["id"]
+            # 用过的暂存不能再用
+            again = await client.post(f"/api/doc/stage/{info['stage']}", json={"pages": [0]})
+            assert again.status == 400
+
+    run(main())
+
+
+def test_cancelling_the_import_dialog_removes_the_staged_file(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, app):
+            info = await (await client.post("/api/doc/stage?name=a.pdf", data=_doc_bytes())).json()
+            store = app[HUB_KEY].store
+            assert store.staged_path(info["stage"]) is not None
+            assert (await client.delete(f"/api/doc/stage/{info['stage']}")).status == 200
+            assert store.staged_path(info["stage"]) is None
+            assert (await client.get(f"/api/doc/stage/{info['stage']}/0")).status == 404
+            bad = await client.post("/api/doc/stage?name=a.pdf", data=b"broken")
+            assert bad.status == 400
+
+    run(main())
+
+
+def test_staged_choices_are_checked(tmp_path):
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            info = await (await client.post("/api/doc/stage?name=a.pdf", data=_doc_bytes())).json()
+            for pages in ([], [5], ["1"], [True]):
+                response = await client.post(f"/api/doc/stage/{info['stage']}", json={"pages": pages})
+                assert response.status == 400, pages
+
+    run(main())

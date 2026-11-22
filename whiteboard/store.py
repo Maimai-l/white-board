@@ -391,6 +391,60 @@ class BoardStore:
         info["name"] = Path(filename).name  # 存的是改名后的副本，这里留原文件名
         return {"id": board_id, "info": info, "filename": filename}
 
+    # 导入前先暂存：PDF 多于一页时，页面先弹出导入对话框让用户选页（docs/backlog/014-import-pages.md）。
+    # 暂存的原件放在 docs/staging/ 里，建板时搬到 docs/ 下；没建板的在下次启动时清掉。
+
+    @property
+    def staging_dir(self) -> Path:
+        return self.docs_dir / "staging"
+
+    def stage_doc(self, data: bytes, filename: str, limit: int) -> Dict[str, Any]:
+        """把原件写进 docs/staging/ 并读出最多 ``limit`` 页的尺寸，返回和 prepare_doc 一样的结构。"""
+        from . import docs  # 局部导入：没装 pypdf / pypdfium2 时其余功能照常
+
+        suffix = Path(filename or "").suffix.lower()
+        if suffix not in docs.SUFFIXES:
+            raise docs.DocError(f"不支持的文件类型：{suffix or '无扩展名'}")
+        if not data:
+            raise docs.DocError("文件是空的")
+        stage_id = models.new_id()
+        self.staging_dir.mkdir(parents=True, exist_ok=True)
+        target = self.staging_dir / f"{stage_id}{suffix}"
+        atomic_write(target, data)
+        try:
+            info = docs.probe(target, limit=limit)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+        info["name"] = Path(filename).name
+        return {"id": stage_id, "info": info, "filename": filename}
+
+    def staged_path(self, stage_id: str) -> Optional[Path]:
+        safe = _safe(stage_id)
+        if not safe or not self.staging_dir.is_dir():
+            return None
+        for path in sorted(self.staging_dir.glob(f"{safe}.*")):
+            if path.is_file():
+                return path
+        return None
+
+    def commit_staged(self, stage_id: str) -> None:
+        """暂存的原件搬到 docs/ 下，成为同一个 id 的文档板的原件。"""
+        path = self.staged_path(stage_id)
+        if path is None:
+            raise FileNotFoundError(stage_id)
+        path.replace(self.docs_dir / path.name)
+
+    def drop_staged(self, stage_id: str) -> None:
+        path = self.staged_path(stage_id)
+        if path is not None:
+            path.unlink(missing_ok=True)
+
+    def clear_staging(self) -> None:
+        """启动时清掉上次没建成板的暂存原件。"""
+        if self.staging_dir.is_dir():
+            shutil.rmtree(self.staging_dir, ignore_errors=True)
+
     @staticmethod
     def doc_meta(prepared: Dict[str, Any], name: str = "") -> Dict[str, Any]:
         """为 :meth:`prepare_doc` 准备好的原件生成文档板的元数据。"""

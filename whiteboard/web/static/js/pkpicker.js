@@ -294,6 +294,7 @@ function makeClass(Base) {
         const what = row.dataset.wb;
         this._closePop();
         if (what === "clear" && this.onClear) this.onClear();
+        if (what === "blank" && this.onBlank) this.onBlank();
       });
     }
 
@@ -847,7 +848,11 @@ function makeClass(Base) {
       if (this.allowClear !== false) {
         rows += `<button type="button" class="pk-row" data-wb="clear"><span>清空白板</span></button>`;
       }
-      return html.replace(/<\/div>$/, rows + "</div>");
+      // 文档板：最上面一行在屏幕中间那一页后面插一页空白（长按一页不好发现，这里是看得见的入口）
+      const blank = this.allowBlank
+        ? `<button type="button" class="pk-row" data-wb="blank"><span>在这一页后面插入空白页</span></button>`
+        : "";
+      return html.replace(/^<div class="pk-mp">/, `<div class="pk-mp">${blank}`).replace(/<\/div>$/, rows + "</div>");
     }
 
     /* ---------------- 和白板对接 ---------------- */
