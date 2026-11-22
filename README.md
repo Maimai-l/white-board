@@ -312,7 +312,7 @@ Clicking 白板设置 (Board settings) opens a panel under the button. Clicking 
 
 | Section | Content | Shown on |
 | --- | --- | --- |
-| 背景 (Background) | 空白, 方格, 横线, 点阵 (blank, grid, lines, dots) | Devices with the Board settings permission; on document boards only when they have blank pages |
+| 背景 (Background) | 空白, 方格, 横线, 点阵 (blank, grid, lines, dots) | Devices with the Board settings permission; on document boards it is called 空白页的背景 (background of blank pages), and the pattern shows only on added blank pages |
 | 其他设备可以 (Other devices can) | Switches for other devices' permissions: 管理白板, 设置白板, 清空白板, 导出白板; see [Permissions for other devices](#permissions-for-other-devices) | The Mac window |
 | 存储位置 (Storage) | The storage directory, with 更改… (Change) and 在访达中显示 (Show in Finder) | The Mac window |
 | 首页 (Home) | Whether other devices open the whiteboard or an app; see [docs/embed.md](docs/embed.md) | The Mac window, when apps are installed |

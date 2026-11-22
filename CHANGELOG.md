@@ -77,6 +77,7 @@ This file lists the notable changes to the board app and to inksync. The section
 
 ### Fixed
 
+- iPad: The board settings button did nothing on a document board. It now opens the background of blank pages.
 - Documents: A PDF of more than about 115 pages, such as a textbook, could not be imported, because the board's height was limited to 100,000 points.
 - Documents: The pages of a PDF of more than 400 pages are chosen in the import dialog, instead of the pages after the 400th being left out without a word.
 - Export: The PNG of a widely spread board was blurred, because its long edge was limited to 4096 px.
