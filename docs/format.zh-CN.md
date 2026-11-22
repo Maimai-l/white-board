@@ -129,7 +129,7 @@
 | `name` | 字符串 | 去除首尾空白，最长 64 个字符。空串表示未命名，界面显示默认名称。 |
 | `created` | 数字 | 创建时间，Unix 秒。 |
 | `updated` | 数字 | 最近一次被接受的操作的时间，Unix 秒。改名和归入文件夹不改变它。 |
-| `canvas` | 对象 | `{"mode":"infinite"}`（四个方向延伸）；`{"mode":"column","width":W}`（宽度固定，向下延伸，白板应用的笔记为 1000）；`{"mode":"fixed","width":W,"height":H}`（宽高固定）。W、H 为 1 至 100000。创建时确定，之后不能修改。不合法时按 `infinite` 处理。 |
+| `canvas` | 对象 | `{"mode":"infinite"}`（四个方向延伸）；`{"mode":"column","width":W}`（宽度固定，向下延伸，白板应用的笔记为 1000）；`{"mode":"fixed","width":W,"height":H}`（宽高固定）。W、H 为 1 至 10000000。创建时确定，之后不能修改。不合法时按 `infinite` 处理。 |
 | `background` | 对象 | `pattern`：`blank`、`grid`、`lines`、`dots`，不合法时为 `grid`；`paper`：可选，纸张颜色 `#rrggbb`。 |
 | `layers` | 数组 | 图片层，最多 1000 项，按顺序绘制。每项 `{src, x, y, width, height?, z?, sheet?}`：`src` 为同源路径（以一个 `/` 开头，不含 `..`、`\` 和协议名），最长 512 个字符，可以包含 `{w}`（按显示宽度换成 640、1024、1600 或 2400）；`x`、`y`、`width`、`height` 为白板坐标；`height` 省略时按图片比例；`z` 为 `above` 时画在笔迹上方；`sheet` 为 true 时画成带阴影的一页纸。任何一项不合法时整个数组按空处理。 |
 | `data` | 对象 | 使用者自己的字段，JSON 序列化后不超过 16 KB。白板应用使用 `folder`（文件夹）、`doc`（文档板原件信息，见[文档板](#文档板)）、`trashed`（见[回收站](#回收站)）；1.0.1 中应用建立的白板另有 `app`。 |

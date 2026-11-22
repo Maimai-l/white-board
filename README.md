@@ -430,7 +430,7 @@ Drop a PDF or an image onto the window, choose 导入 PDF 或图片… (Import P
 | Item | Detail |
 | --- | --- |
 | Formats | PDF, png, jpg/jpeg, gif, bmp, webp, tif/tiff |
-| Limits | Up to 400 pages; uploads up to 256 MB |
+| Limits | Up to 400 pages; for a longer PDF the first 400 pages are imported and a message says so. Uploads up to 256 MB |
 | Not supported | Password-protected PDFs |
 | Original file | Copied unchanged into `docs/` in the storage directory; never modified |
 | Ink | Vector data in the board's `.wbz` file; cannot be placed outside the pages; the view stops at the first and last page |

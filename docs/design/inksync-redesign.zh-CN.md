@@ -225,7 +225,7 @@ await hub.refresh() / await hub.reauthenticate()
 | `id` | `^[A-Za-z0-9_-]{1,64}$`，在空间内唯一，同时是文件名。 |
 | `name` | 字符串，最长 64 个字符。 |
 | `created`、`updated` | 服务端维护。 |
-| `canvas` | `{"mode":"infinite"}`（默认）；`{"mode":"column","width":W}`：宽度固定，向下延伸；`{"mode":"fixed","width":W,"height":H}`：宽高固定。W、H 在 1 到 100000 之间。可书写范围：`column` 为 `0 ≤ x ≤ W, y ≥ 0`；`fixed` 为 `0 ≤ x ≤ W, 0 ≤ y ≤ H`。新建后不可修改（已有笔画的位置依赖它）。 |
+| `canvas` | `{"mode":"infinite"}`（默认）；`{"mode":"column","width":W}`：宽度固定，向下延伸；`{"mode":"fixed","width":W,"height":H}`：宽高固定。W、H 在 1 到 10000000 之间。可书写范围：`column` 为 `0 ≤ x ≤ W, y ≥ 0`；`fixed` 为 `0 ≤ x ≤ W, 0 ≤ y ≤ H`。新建后不可修改（已有笔画的位置依赖它）。 |
 | `background` | `pattern`：`blank`、`grid`、`lines`、`dots` 之一，默认 `grid`；`paper`：`#rrggbb`，默认与 1.0.x 相同的纸色。 |
 | `layers` | 图片层数组，最多 1000 项，按顺序绘制。每项 `{src, x, y, width, height?, z?, sheet?}`。`height` 省略时按图片比例计算。`z` 为 `below`（默认，笔迹下方）或 `above`（笔迹上方，不接收输入）。`sheet` 为 true 时这一层画成一张带阴影的纸，层与层之间的空白处用画布外的颜色（与 1.0.x 文档板的页面相同），此时 `background.pattern` 不绘制。`src` 须通过 `Policy.allow_src`，最长 512 个字符；可以包含 `{w}`，见下文。 |
 | `data` | JSON 对象，序列化后不超过 16 KB，经 `Policy.validate_data` 校验。 |
