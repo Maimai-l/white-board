@@ -1764,6 +1764,15 @@ input.board-name {
 :root[data-chrome="touch"] #topright .icon-btn { width: 44px; height: 44px; }
 /* 连接状态：连着是强调色，断了是灰色 */
 :root[data-chrome="touch"] #status:not([data-status="online"]) { color: var(--on-surface-variant); }
+/* 两组按钮照 iPadOS 导航栏上的按钮：没有底，按下时变淡；弹出面板时按钮上也不留一块底 */
+:root[data-chrome="touch"] #topleft .icon-btn::before,
+:root[data-chrome="touch"] #topright .icon-btn::before { display: none; }
+:root[data-chrome="touch"] #topleft .icon-btn.active,
+:root[data-chrome="touch"] #topright .icon-btn.active { background: transparent; color: var(--primary); }
+:root[data-chrome="touch"] #topleft .icon-btn,
+:root[data-chrome="touch"] #topright .icon-btn { transition: opacity var(--t-press, 90ms) ease-out; }
+:root[data-chrome="touch"] #topleft .icon-btn:active,
+:root[data-chrome="touch"] #topright .icon-btn:active { opacity: .35; scale: none; }
 
 /* ------------------------------------------------------------- 面板 */
 
@@ -1872,8 +1881,6 @@ input.board-name {
 }
 .device-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .device-icon { display: flex; color: var(--primary); }
-.status-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--error); }
-.status-dot.on { background: var(--light-green); }
 
 /* 颜色与粗细：一行颜色，一行粗细，宽 252 */
 .popover { width: 252px; padding: 14px; gap: 14px; border-radius: var(--radius-l); box-shadow: var(--shadow-2); }

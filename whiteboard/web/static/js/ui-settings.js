@@ -79,12 +79,16 @@ const methods = {
   placePanel(state) {
     const box = state.anchor.getBoundingClientRect();
     const width = state.node.offsetWidth;
-    const left = Math.max(12, Math.min(box.right - width + 8, innerWidth - width - 12));
+    // iPad 右上角那组按钮是一个整体：面板和这一组的右边对齐，不跟着某一个按钮歪出去
+    const group = state.anchor.closest(".pill");
+    const right = group ? group.getBoundingClientRect().right : box.right + 8;
+    const left = Math.max(12, Math.min(right - width, innerWidth - width - 12));
     state.node.style.left = `${left}px`;
     // 顶栏比按钮高：面板从顶栏下沿往下开，不压住顶栏
     const bar = this.root.querySelector("#topbar");
     const floor = bar ? bar.getBoundingClientRect().bottom + 6 : 0;
-    state.node.style.top = `${Math.max(box.bottom + 8, floor)}px`;
+    const below = group ? group.getBoundingClientRect().bottom : box.bottom;
+    state.node.style.top = `${Math.max(below + 8, floor)}px`;
   },
 
   closePanel() {
@@ -132,8 +136,6 @@ const methods = {
     // 文档板的底是原件本身，背景纹理没有意义。
     const isDoc = this.meta && this.meta.kind === "doc";
     if (!isDoc && this.may("settings")) sections.push(this.section("背景", [this.backgroundOptions()]));
-    // 在 iPad 外壳里才有这一段：局域网里有好几台 Mac 时，从这里换一台连。
-    if (inShell()) sections.push(this.section("Mac", [this.macCard()]));
     // 选目录要开本地文件对话框，只有 pywebview 窗口里才有；别的设备看不到这几段。
     if (this.native) {
       sections.push(
@@ -173,23 +175,6 @@ const methods = {
       );
     }
     return row;
-  },
-
-  /** 外壳里多的那一段：现在连的是哪台 Mac，以及换一台。 */
-  macCard() {
-    const info = this.info || {};
-    const host = info.hostname || "";
-    return el("div", { class: "panel-row" }, [
-      el("span", { class: "panel-row-text", text: host ? `${host}:${info.port || ""}` : "未知" }),
-      el("button", {
-        class: "lib-btn tinted small",
-        type: "button",
-        text: "换一台 Mac",
-        onclick: () => {
-          if (shellCommand("rediscover")) this.closePanel();
-        },
-      }),
-    ]);
   },
 
   dataDirCard() {
@@ -317,21 +302,19 @@ const methods = {
     };
   },
 
-  /** iPad 上的连接状态：连的是哪台 Mac；外壳里可以换一台。 */
+  /**
+   * iPad 上的连接状态：连没连上、连的是哪台 Mac；外壳里可以换一台（只在这里，白板设置里不重复放）。
+   * 连没连上已经由按钮的颜色说了（蓝 / 灰），面板里不再加圆点。
+   */
   statusContent() {
     const info = this.info || {};
     const online = this.netStatus === "online";
-    const host = info.hostname ? `${info.hostname}:${info.port || ""}` : "Mac";
-    const children = [
-      el("div", { class: "panel-row" }, [
-        el("span", { class: `status-dot ${online ? "on" : ""}` }),
-        el("span", { class: "panel-row-text", text: online ? `已连接到 ${host}` : "未连接" }),
-      ]),
-    ];
+    const host = info.hostname ? `${info.hostname}:${info.port || ""}` : "";
+    const row = el("div", { class: "panel-row" }, [el("span", { class: "panel-row-text", text: host || "Mac" })]);
     if (inShell()) {
-      children.push(
+      row.append(
         el("button", {
-          class: "lib-btn tinted",
+          class: "lib-btn tinted small",
           type: "button",
           text: "换一台 Mac",
           onclick: () => {
@@ -340,6 +323,7 @@ const methods = {
         })
       );
     }
+    const children = [el("h2", { class: "panel-title", text: online ? "已连接" : "未连接" }), row];
     return { label: "连接状态", children };
   },
 

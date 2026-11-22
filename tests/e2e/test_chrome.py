@@ -11,6 +11,7 @@ from e2e.support import (
     IPAD_UA,
     as_native,
     draw,
+    gone,
     menu_pick,
     new_page,
     open_gallery,
@@ -18,7 +19,9 @@ from e2e.support import (
     open_touch,
     reload,
     stroke_count,
+    triple_tap_status,
     wait_online,
+    wait_page_ms,
     wait_strokes,
 )
 
@@ -199,7 +202,8 @@ def test_about_is_not_in_the_toolbar(browser, server):
 
 
 def test_the_ipad_corner_shows_the_connection(browser, server):
-    """iPad 左上角回白板库；右上角第一个按钮的颜色和名字就是连接状态，点开说连的是哪台 Mac。"""
+    """iPad 左上角回白板库；右上角第一个按钮的颜色和名字就是连接状态，点开说连的是哪台 Mac。
+    连没连上只看按钮的颜色，面板里没有绿色的圆点；面板和整组按钮的右边对齐。"""
     ipad = open_touch(browser, server.port)
     assert ipad.evaluate("() => [...document.querySelectorAll('#topleft button')].map(b => b.title)") == ["白板库"]
     status = ipad.locator("#topright #status")
@@ -207,7 +211,12 @@ def test_the_ipad_corner_shows_the_connection(browser, server):
     assert status.get_attribute("aria-label").startswith("已连接到")
     status.click()
     ipad.wait_for_selector(".panel-status")
-    assert ipad.locator(".panel-status .panel-row-text").inner_text().startswith("已连接到")
+    assert ipad.locator(".panel-status .panel-title").inner_text() == "已连接"
+    assert ipad.locator(".panel-status .panel-row-text").inner_text().endswith(f":{server.port}")
+    assert ipad.locator(".panel-status .status-dot").count() == 0
+    group = ipad.locator("#topright").bounding_box()
+    panel = ipad.locator(".panel-status").bounding_box()
+    assert abs((panel["x"] + panel["width"]) - (group["x"] + group["width"])) <= 1
 
     ipad.click('#topleft button[title="白板库"]')
     ipad.wait_for_selector(".gallery.library")
@@ -216,9 +225,49 @@ def test_the_ipad_corner_shows_the_connection(browser, server):
 def test_the_status_button_still_opens_diagnostics(browser, server):
     """连点三下连接按钮打开诊断面板（原来是左上角的圆点）。"""
     ipad = open_touch(browser, server.port)
+    triple_tap_status(ipad)
+    ipad.wait_for_selector("#perf", state="visible")
+
+
+def test_opening_and_closing_the_status_panel_does_not_open_diagnostics(browser, server):
+    """用户反馈：只是点开、关上、再点开连接面板，诊断面板就弹出来了。三连击要像系统的那样快。"""
+    ipad = open_touch(browser, server.port)
+    ipad.wait_for_function("() => document.getElementById('status').dataset.status === 'online'")
     for _ in range(3):
         ipad.click("#status")
-    ipad.wait_for_selector("#perf", state="visible")
+        wait_page_ms(ipad, 450)  # 人点开、看一眼、再点：两下之间隔着零点几秒
+    assert ipad.locator("#perf").is_hidden()
+    ipad.wait_for_selector(".panel-status")
+
+
+def test_switching_macs_is_only_in_the_connection_panel(browser, server):
+    """外壳里「换一台 Mac」只在连接面板里有一个，白板设置里不再放第二个。"""
+    ipad = new_page(browser, user_agent=IPAD_UA, touch=True)
+    # 外壳就是页面里多了一个 webkit.messageHandlers.whiteboard（shell.js 的 inShell）
+    ipad.add_init_script("window.webkit = { messageHandlers: { whiteboard: { postMessage() {} } } };")
+    ipad.goto(f"http://127.0.0.1:{server.port}/?role=ipad")
+    wait_online(ipad)
+    ipad.click("#status")
+    ipad.wait_for_selector(".panel-status")
+    assert ipad.locator('.panel-status button:has-text("换一台 Mac")').count() == 1
+    ipad.click("#status")
+    gone(ipad, ".panel")
+    if ipad.locator('#topright button[title="白板设置"]').count():
+        ipad.click('#topright button[title="白板设置"]')
+        ipad.wait_for_selector(".panel-settings")
+        assert ipad.locator('.panel-settings button:has-text("换一台 Mac")').count() == 0
+
+
+def test_the_ipad_corner_buttons_have_no_circle(browser, server):
+    """照 iPadOS 导航栏的惯例：按钮打开面板时，按钮上不出现一块圆形的底。"""
+    ipad = open_touch(browser, server.port)
+    ipad.click('#topright button[title="白板设置"]')
+    ipad.wait_for_selector(".panel-settings")
+    button = ipad.locator('#topright button[title="白板设置"]')
+    # 底色有渐变：等按钮上的过渡走完再看
+    button.evaluate("(b) => Promise.all(b.getAnimations().map((a) => a.finished))")
+    background = button.evaluate("(b) => getComputedStyle(b).backgroundColor")
+    assert background in ("rgba(0, 0, 0, 0)", "transparent"), background
 
 
 def test_strokes_survive_switching_through_the_library(browser, server):
