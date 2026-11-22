@@ -65,6 +65,7 @@ This file lists the notable changes to the board app and to inksync. The section
 ### Fixed
 
 - Export: The PNG of a widely spread board was blurred, because its long edge was limited to 4096 px.
+- Interface: Messages shown at the same time are listed one under another instead of covering each other. Importing a file shows one message, which turns into the error if the file cannot be opened.
 
 ## 1.2.0 (2026-10-22)
 
