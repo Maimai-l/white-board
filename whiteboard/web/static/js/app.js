@@ -525,6 +525,10 @@ class App extends InkPad {
         if (!api || !api.set_ipad_home) return null;
         return api.set_ipad_home(name);
       },
+      onZoomWindow: () => {
+        const api = nativeApi();
+        if (api && api.zoom_window) api.zoom_window();
+      },
       onOpenDir: () => {
         const api = nativeApi();
         if (api && api.open_data_dir) api.open_data_dir();
