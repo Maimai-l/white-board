@@ -119,9 +119,9 @@ def test_right_clicking_a_page_inserts_and_deletes_blank_pages(browser, server):
     mac.wait_for_function(f"() => JSON.stringify(({SOURCES})()) === '[0,null,1]'")
     assert menu is not None
 
-    # 空白页上铺的是白板的背景纹理：白板设置里这时有背景一段
+    # 空白页上铺的是白板的背景纹理：白板设置里有空白页的背景一段
     mac.click('#topbar button[title="白板设置"]')
-    mac.wait_for_selector('.panel-settings .group-title:has-text("背景")')
+    mac.wait_for_selector('.panel-settings .group-title:text-is("空白页的背景")')
     mac.keyboard.press("Escape")
     gone(mac, ".panel")
 
@@ -190,3 +190,20 @@ def test_the_ipad_picker_more_menu_adds_a_blank_page(browser, server):
     ipad.click("#pk-host button[data-act='more']")
     ipad.click("#pk-host .pk-pop [data-wb='blank']")
     mac.wait_for_function(f"() => JSON.stringify(({SOURCES})()) === '[0,null,1]'")
+
+
+def test_the_ipad_settings_button_opens_on_a_document_board(browser, server):
+    """用户反馈：iPad 右上角的设置按钮点了没有任何反应。文档板没有空白页时面板里一段也没有，
+    按钮就什么都不做。现在文档板上有空白页的背景这一段（加空白页之前就能选好）。"""
+    mac = open_mac(browser, server.port)
+    before = mac.evaluate("() => whiteboard.state.id")
+    drop_pdf(mac, "讲义.pdf", 1)
+    wait_doc(mac, before)
+
+    ipad = open_touch(browser, server.port, picker=True)
+    enable_pk_picker(ipad)
+    ipad.wait_for_function(f"() => !!({DOC})()")
+    ipad.tap('#topright button[title="白板设置"]')
+    ipad.wait_for_selector('.panel-settings .group-title:text-is("空白页的背景")')
+    ipad.tap('.panel-settings .bg-opt[title="方格"]')
+    mac.wait_for_function("() => whiteboard.state.meta.background.pattern === 'grid'")
