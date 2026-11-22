@@ -417,7 +417,7 @@ The whiteboard app maps four permissions onto this policy (user space):
 
 | Permission | Interface label | Allows |
 | --- | --- | --- |
-| `manage` | “管理白板” (Manage boards) | Opening boards other than the current one; the extension messages `sel`, `newboard`, `delboard`, `duplicate`, `restore`, `purge`, `emptytrash`, `rename`, `folder`, `order`, `newfolder`, `delfolder`, `renamefolder`; `unlock`; `GET /api/info`, `GET /api/boards`, `GET /api/spaces/{app}/boards`, `GET`/`POST /api/thumb/{board}`, `POST /api/doc` |
+| `manage` | “管理白板” (Manage boards) | Opening boards other than the current one; the extension messages `sel`, `newboard`, `delboard`, `duplicate`, `restore`, `purge`, `emptytrash`, `rename`, `folder`, `order`, `newfolder`, `delfolder`, `renamefolder`; `unlock`; `GET /api/info`, `GET /api/boards`, `GET /api/spaces/{app}/boards`, `GET`/`POST /api/thumb/{board}`, `POST /api/doc`, the `/api/doc/stage` routes, `POST /api/board/{board}/pages` |
 | `settings` | “设置白板” (Board settings) | `meta` operation |
 | `clear` | “清空白板” (Clear board) | `clear` operation |
 | `export` | “导出白板” (Export board) | `GET`/`POST /api/export/{board}`, `GET /api/export/{board}/pages` |
@@ -473,7 +473,12 @@ The role (`mac` or `ipad`) selects the interface layout.
 | POST | `/api/debug` | — | Client diagnostics written to the server log. Body: JSON object; the first 20 keys, up to 1000 characters. |
 | POST | `/api/recording` | — | Save an input recording to `recordings/`. Body: JSON object with an `events` array, at most 32 MB. The newest 50 files, up to 256 MB in total, are kept. See [recording.md](recording.md). |
 | POST | `/api/doc?name=<file name>&folder=<folder>` | `manage` | Create a document board from a PDF or image. Body: the file, at most 256 MB. |
-| GET | `/api/doc/{board}/{page}?w=<width>` | — for the current board, `manage` otherwise | Rendered page image |
+| GET | `/api/doc/{board}/{page}?w=<width>` | — for the current board, `manage` otherwise | Rendered page image; `page` is a page of the original |
+| POST | `/api/doc/stage?name=<file name>` | `manage` | Keep a PDF for the import dialog without creating a board. Body: the file, at most 256 MB. |
+| GET | `/api/doc/stage/{stage}/{page}?w=<width>` | `manage` | Thumbnail of a page of a staged PDF |
+| POST | `/api/doc/stage/{stage}` | `manage` | Create a document board from chosen pages of a staged PDF |
+| DELETE | `/api/doc/stage/{stage}` | `manage` | Drop a staged PDF (import cancelled) |
+| POST | `/api/board/{board}/pages` | `manage` | Insert or delete a blank page on a document board |
 | GET | `/api/apps` | — | `apps` (installed app names), `ipad_home` |
 | GET | `/api/spaces/{app}/boards?offset=&limit=` | `manage` | Boards in an app's space: `boards` (metadata, newest `updated` first) and `total`. `limit` is 1–500, default 100. 404 if the app does not exist. |
 | GET | `/apps/{app}/{path}` | — | Static files of an installed app; a directory returns its `index.html`. See [embed.md](embed.md). |
@@ -494,6 +499,9 @@ A missing permission returns `403`.
 | `POST /api/thumb/{board}` | `404` for an unknown board; `400` if the body is not PNG. |
 | `GET /api/qr` | `Content-Type: image/svg+xml`. Error correction level M, a quiet zone of 2 modules, dark modules `#1C1C1E`, transparent background. The `<svg>` has a `viewBox` and no `width` or `height`, so CSS sets its size. `400` if `text` is missing, empty, longer than 1024 characters or does not fit in a QR code. Rendered with segno. |
 | `POST /api/doc` | The file name can also be sent in the `X-Filename` header. `folder` is optional and applies only if the folder exists. The body is read in 64 KB chunks until the end (`StreamReader.read(n)` returns at most `n` bytes). `413` over the limit, `400` for unsupported or unreadable files. Response: `{"board": <meta>}`. The server then sends `switch` to every following connection. |
+| `POST /api/doc/stage` | Same body rules and errors as `POST /api/doc`. Response: `{"stage", "name", "type", "total", "pages"}`: `total` is the page count of the PDF, `pages` the `[width, height]` of the first 5000 pages. Staged files live in `docs/staging/`, are dropped after an hour without a board, and are cleared when the server starts. |
+| `POST /api/doc/stage/{stage}` | Body: `{"pages": [original page indexes from 0], "blanks": bool, "folder": "…"}`. With `blanks`, every chosen page is followed by a blank page of the same size. At most 400 board pages. `400` when the stage is unknown or expired, or the pages are bad. Response: `{"board": <meta>}`; the server then sends `switch` to every following connection. |
+| `POST /api/board/{board}/pages` | Body: `{"action": "insert-after" \| "insert-before" \| "delete", "page": <board page index>}`. A blank page takes the size of the page it is inserted next to; `delete` only deletes blank pages and drops their ink. Later strokes move by the page height plus the gap. The board's meta and strokes are replaced with a new `epoch`, so every connection on the board gets `open` with `reply: "switch"` and clears its undo history. `400` for a bad action or page, at the 400-page limit, or on a board that is not a document board. Response: `{"board": <meta>}`. |
 | `GET /api/doc/{board}/{page}` | `w` defaults to 1200 and is clamped to 160–2600. PDF pages and opaque images return JPEG (quality 82); images with transparency return PNG. `ETag` is `"<board>-<page>-<width>"`; a matching `If-None-Match` returns `304`. `Cache-Control: private, max-age=31536000, immutable`, because the original never changes. `404` if the board is not a document board, the original is missing, or the page is out of range. |
 | `GET /api/export/{board}` | Without `format`: document boards only (`404` otherwise). `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename*=UTF-8''<name>`, `Cache-Control: no-store`. File name: `<original name>-批注<ext>`. |
 | `POST /api/recording` | Saved as `recordings/<YYYYmmdd-HHMMSS>[-<name>].json`; `name` keeps letters, digits, `-` and `_`, up to 40 characters. Response: `{"ok": true, "path": ..., "events": <count>}`. |

@@ -38,7 +38,7 @@ export class ImageLayers {
   /** 换了白板或图片层：``key`` 不同就全部释放。 */
   setLayers(key, layers) {
     const list = layers || [];
-    const signature = `${key}|${list.map((l) => l.src).join("\n")}`;
+    const signature = `${key}|${list.map((l) => l.src || "").join("\n")}`;
     if (this.key === signature) {
       this.layers = list;
       return;
@@ -91,6 +91,7 @@ export class ImageLayers {
     for (let index = from; index <= to; index++) {
       const layer = this.layers[index];
       const entry = this.entries.get(index);
+      if (!layer.src) continue; // 只有纸张、没有图片的层（文档板上的空白页）
       if (!layer.src.includes("{w}")) {
         if (!entry) this.load(index, 0);
         continue;
@@ -143,6 +144,10 @@ export function loadAll(layers) {
     (layers || []).map(
       (layer) =>
         new Promise((resolve) => {
+          if (!layer.src) {
+            resolve(null); // 只有纸张的层没有图
+            return;
+          }
           const img = new Image();
           img.crossOrigin = "anonymous";
           img.onload = () => resolve(img);

@@ -535,6 +535,48 @@ class Hub:
         await self._after_op(board_id, runtime, op, source=None)
         return _copy_meta(runtime.meta)
 
+    async def replace_board(
+        self, board_id: str, meta: Dict[str, Any], strokes: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """服务端把一块白板的元数据（含 ``canvas``）和全部笔画整块换掉。
+
+        给不能拆成普通操作的改动用，例如文档板插入或删除空白页：后面的页和上面的笔迹
+        整体挪动，画布也跟着变高或变矮。笔画保留原来的 id 和顺序。换一个 epoch，断线
+        重连的设备拿到的是整块白板而不是旧的差量；正在显示这块白板的连接马上收到整块
+        快照（``reply="switch"``，同一块白板，视图不动）。锁住的白板不换。
+        返回新的元数据；白板不存在、锁住或者内容不合法时返回 None。"""
+        runtime = await self.load(board_id)
+        if runtime is None or runtime.locked:
+            return None
+        clean = models.sanitize_meta({**meta, "id": board_id}, self.policy.allow_src)
+        for key in ("canvas", "layers", "data"):
+            if clean.get(key) != meta.get(key, clean.get(key)):
+                log.warning("白板 %s 整块替换时 %s 不合法，不换", board_id, key)
+                return None
+        kept = []
+        for stroke in strokes:
+            fixed = models.sanitize_stroke(stroke)
+            if fixed is None:
+                log.warning("白板 %s 整块替换时丢掉一笔不合法的笔画 %r", board_id, stroke.get("id"))
+                continue
+            if "n" in stroke:
+                fixed["n"] = stroke["n"]
+            kept.append(fixed)
+        clean["updated"] = models.now()
+        runtime.meta = clean
+        runtime.strokes = OrderedDict((stroke["id"], stroke) for stroke in kept)
+        runtime.next_n = max((stroke.get("n", 0) for stroke in kept), default=-1) + 1
+        runtime.ops.clear()
+        runtime.epoch = models.new_id()
+        runtime.version += 1
+        runtime.touch()
+        if board_id not in self._transient:
+            self.storage.put_meta(clean)
+        for conn in self.connections():
+            if conn.board == board_id:
+                await self.open(conn, board_id, reply="switch")
+        return _copy_meta(clean)
+
     async def delete_board(self, board_id: str) -> bool:
         """删除白板。显示它的连接收到 ``deleted``；之后针对它的操作只回执，不应用。"""
         if board_id in self._transient:

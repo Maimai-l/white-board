@@ -179,6 +179,15 @@ class ServerThread:
             raise RuntimeError("服务端未启动")
         return self.run_coroutine(open_local_file(hub, Path(path), folder)).result(timeout)
 
+    def stage_file(self, path, timeout: float = 120.0):
+        """在服务端暂存一份本地 PDF（见 ``server.stage_local_file``），返回给导入对话框的信息。"""
+        from .server import stage_local_file  # noqa: WPS433
+
+        hub = self.hub
+        if hub is None:
+            raise RuntimeError("服务端未启动")
+        return self.run_coroutine(stage_local_file(hub, Path(path))).result(timeout)
+
     def refresh_permissions(self) -> None:
         """权限设置改了之后调用：已连接的设备立即按新设置生效。"""
         from .server import refresh_permissions  # noqa: WPS433

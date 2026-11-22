@@ -131,7 +131,7 @@ A `.wbz` file contains the result of `zlib.compress(json_utf8, 6)` applied to th
 | `updated` | number | Time of the last accepted operation, Unix seconds. Renaming and filing do not change it. |
 | `canvas` | object | `{"mode":"infinite"}` (extends in four directions); `{"mode":"column","width":W}` (fixed width, extends downward; the whiteboard app's note boards use 1000); `{"mode":"fixed","width":W,"height":H}` (fixed size). W and H are 1 to 10000000. Set at creation and cannot change. Invalid values become `infinite`. |
 | `background` | object | `pattern`: `blank`, `grid`, `lines` or `dots` (`grid` if invalid); `paper`: optional paper color `#rrggbb`. |
-| `layers` | array | Image layers, at most 1000, drawn in order. Each is `{src, x, y, width, height?, z?, sheet?}`: `src` is a same-origin path (starting with a single `/`, without `..`, `\` or a scheme), at most 512 characters, and may contain `{w}` (replaced by 640, 1024, 1600 or 2400 according to the displayed width); `x`, `y`, `width`, `height` are in board coordinates; without `height` the image's aspect ratio is used; `z: "above"` draws the layer above the ink; `sheet: true` draws it as a page with a shadow. If any item is invalid, the whole array is treated as empty. |
+| `layers` | array | Image layers, at most 1000, drawn in order. Each is `{src, x, y, width, height?, z?, sheet?}`: `src` is a same-origin path (starting with a single `/`, without `..`, `\` or a scheme), at most 512 characters, and may contain `{w}` (replaced by 640, 1024, 1600 or 2400 according to the displayed width); `x`, `y`, `width`, `height` are in board coordinates; without `height` the image's aspect ratio is used; `z: "above"` draws the layer above the ink; `sheet: true` draws it as a page with a shadow, and then `src` may be omitted: a blank sheet showing the board's background pattern. If any item is invalid, the whole array is treated as empty. |
 | `data` | object | The host's own fields, at most 16 KB as JSON. The whiteboard app uses `folder` (folder), `doc` (document board original; see [Document boards](#document-boards)) and `trashed` (see [Trash](#trash)); boards created by an app in 1.0.1 also have `app`. |
 
 ### Stroke fields
@@ -446,8 +446,8 @@ PNG export of ordinary boards happens in the browser (export button in the inter
 A document board (beta) is created from a PDF or image; the ink is stored in the `.wbz` file and the original is kept unchanged in `docs/`. A document board's metadata:
 
 - `canvas` is `fixed`, sized to the pages laid out;
-- one `sheet` image layer per page, with `src` `/api/doc/<board id>/<page>?w={w}`;
-- the original's information in `data.doc` (below), and `background.pattern` `blank`.
+- one `sheet` image layer per page, with `src` `/api/doc/<board id>/<original page>?w={w}`; a blank page's layer has no `src`;
+- the original's information in `data.doc` (below), and `background.pattern` `blank` (the pattern drawn on blank pages, which board settings can change).
 
 ### data.doc fields
 
@@ -465,7 +465,8 @@ A document board (beta) is created from a PDF or image; the ink is stored in the
 | `type` | string | `pdf` or `image` |
 | `name` | string | Original file name, at most 128 characters. Used only for the export file name. |
 | `ext` | string | Original extension, lowercase, `^\.[a-z0-9]{1,7}$`. |
-| `pages` | array | `[width, height]` per page, rounded to 0.01. Each value 0 < v < 10^6. At most 400 pages. PDF in pt, images in pixels. Sizes already include `/Rotate`. |
+| `pages` | array | `[width, height]` per board page, rounded to 0.01. Each value 0 < v < 10^6. At most 400 pages, blank pages included. PDF in pt, images in pixels. Sizes already include `/Rotate`. |
+| `src` | array, optional | Which page of the original each board page shows: an original page index (from 0, below 5000) or `null` for a blank page. Same length as `pages`, with at least one non-`null` entry. When omitted, board page i is original page i; it is written only when import chose some pages or blank pages were added. |
 
 | Supported original | Extensions |
 | --- | --- |

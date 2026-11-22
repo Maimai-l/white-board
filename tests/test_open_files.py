@@ -186,9 +186,16 @@ def test_unsupported_files_are_refused(tmp_path):
 
 
 class _FakeServer:
-    def __init__(self, fail=()):
+    def __init__(self, fail=(), pages=None):
         self.opened = []
         self.fail = set(fail)
+        self.pages = pages or {}
+
+    def stage_file(self, path):
+        if path in self.fail:
+            raise OpenFileError("坏了")
+        count = self.pages.get(path, 1)
+        return {"stage": "s1", "name": path.rsplit("/", 1)[-1], "total": count, "pages": [[595, 842]] * count}
 
     def open_file(self, path, folder=""):
         if path in self.fail:
@@ -233,6 +240,21 @@ def test_files_opened_before_the_page_loads_wait_for_it(tmp_path, caplog):
     assert any('"打不开 b.pdf"' in script for script in opener.window.scripts)
     assert not any("坏了" in script for script in opener.window.scripts)
     assert "坏了" in caplog.text
+
+
+def test_a_pdf_of_several_pages_from_finder_opens_the_import_dialog():
+    """访达里用打开方式交过来的多页 PDF 和拖进窗口一样，先弹出导入对话框选页。"""
+    from whiteboard.app import FileOpener
+
+    server = _FakeServer(pages={"/tmp/书.pdf": 12})
+    opener = FileOpener(server)
+    opener.window = _FakeWindow()
+    opener.on_loaded()
+    opener.open(["/tmp/书.pdf", "/tmp/单页.pdf"])
+    _drain(opener)
+    assert server.opened == [("/tmp/单页.pdf", "课件")]  # 一页的照旧直接建板
+    calls = [script for script in opener.window.scripts if script.startswith("whiteboard.importStaged(")]
+    assert len(calls) == 1 and '"total": 12' in calls[0] and calls[0].endswith(', "课件")')
 
 
 def test_the_open_files_handler_is_only_installed_on_macos(monkeypatch):

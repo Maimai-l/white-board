@@ -423,6 +423,50 @@ def test_document_board_exports_only_the_selected_original_pages(tmp_path):
     assert count_color(page_png, COLORS[0]) > 1000
 
 
+def test_a_document_board_with_a_blank_page_exports_its_own_pages(tmp_path):
+    """插入了空白页的文档板：导出按白板上的页来，空白页是一页同样大的纸，上面的墨迹在它自己那页上，
+    后面原件的页还是原件的内容。以前导出假定白板第几页就是原件第几页，墨迹会落到别的页上。"""
+    source = io.BytesIO()
+    writer = pypdf.PdfWriter()
+    for _ in range(2):
+        writer.add_blank_page(width=595, height=842)
+    writer.write(source)
+
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            meta = (await (await client.post("/api/doc?name=讲义.pdf", data=source.getvalue())).json())["board"]
+            board_id = meta["id"]
+            inserted = await client.post(f"/api/board/{board_id}/pages", json={"action": "insert-after", "page": 0})
+            assert inserted.status == 200, await inserted.text()
+            ws, _ = await connect(client, board=board_id)
+            step = 842 + 24
+            await draw(ws, [line("blank", 100, step + 200, 400, step + 200, color=COLORS[0])])
+            await draw(ws, [line("after", 100, 2 * step + 200, 400, 2 * step + 200, color=COLORS[1])])
+            pdf = await export(client, board_id, format="pdf")
+            assert pdf.status == 200, await pdf.text()
+            pdf_body = await pdf.read()
+            png = await export(client, board_id, format="png", select=[1], dpi=72)
+            assert png.status == 200, await png.text()
+            png_body = await png.read()
+            legacy = await client.get(f"/api/export/{board_id}")
+            assert legacy.status == 200, await legacy.text()
+            legacy_body = await legacy.read()
+            await ws.close()
+        return pdf_body, png_body, legacy_body
+
+    pdf_body, png_body, legacy_body = run(main())
+    for body in (pdf_body, legacy_body):
+        reader = pypdf.PdfReader(io.BytesIO(body))
+        assert [tuple(round(float(v)) for v in page.mediabox[2:]) for page in reader.pages] == [(595, 842)] * 3
+    images = pdf_images(pdf_body)
+    assert count_color(images[0], COLORS[0]) == 0 and count_color(images[0], COLORS[1]) == 0
+    assert count_color(images[1], COLORS[0]) > 1000 and count_color(images[1], COLORS[1]) == 0
+    assert count_color(images[2], COLORS[1]) > 1000 and count_color(images[2], COLORS[0]) == 0
+    blank_png = Image.open(io.BytesIO(png_body)).convert("RGB")
+    assert blank_png.size == (595, 842)
+    assert count_color(blank_png, COLORS[0]) > 1000
+
+
 def test_image_document_exports_as_pdf_with_ink(tmp_path):
     buffer = io.BytesIO()
     Image.new("RGB", (800, 600), (240, 240, 240)).save(buffer, "PNG")

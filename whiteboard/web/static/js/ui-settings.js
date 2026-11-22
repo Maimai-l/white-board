@@ -133,9 +133,11 @@ const methods = {
 
   settingsContent() {
     const sections = [];
-    // 文档板的底是原件本身，背景纹理没有意义。
+    // 文档板的底是原件本身，背景纹理只铺在用户加的空白页上：有空白页才有这一段。
     const isDoc = this.meta && this.meta.kind === "doc";
-    if (!isDoc && this.may("settings")) sections.push(this.section("背景", [this.backgroundOptions()]));
+    const src = isDoc && this.meta.doc && this.meta.doc.src;
+    const hasBlank = Array.isArray(src) && src.includes(null);
+    if ((!isDoc || hasBlank) && this.may("settings")) sections.push(this.section("背景", [this.backgroundOptions()]));
     // 选目录要开本地文件对话框，只有 pywebview 窗口里才有；别的设备看不到这几段。
     if (this.native) {
       sections.push(

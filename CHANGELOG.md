@@ -35,8 +35,15 @@ This file lists the notable changes to the board app and to inksync. The section
 - Settings: `update_channel` in the configuration file selects `alpha` test builds or `stable` releases.
 - iPad: The Ruler button in the tool picker shows a ruler. Two fingers move and rotate it, and the ruler shows its angle while it turns.
 - iPad: An Apple Pencil stroke started on the ruler or near its edge is drawn as a straight line along the edge. The line syncs; the ruler is not shown on the Mac.
+- Documents: Importing a PDF of more than one page opens an import dialog with page thumbnails. All pages, a range such as `3-15` or the selected pages are imported.
+- Documents: The import dialog can add a blank page after each imported page.
+- Documents: Blank pages are inserted before or after a page from its menu: right-click on the Mac, hold a finger on touch devices.
+- Documents: The More menu and the tool picker's More menu insert a blank page after the page in view. Blank pages show the board's background pattern.
+- Documents: A blank page can be deleted with the ink on it. Pages of the original cannot be deleted. Exports include the blank pages.
 
 - inksync: Hubs emit an `attached` event when a connection is registered after its handshake.
+- inksync: `Hub.replace_board` replaces a board's metadata and strokes, and connections on the board reopen it with a new epoch.
+- inksync: A `sheet` layer without `src` is drawn as a blank page with the board's background pattern.
 
 ### Changed
 
@@ -68,7 +75,7 @@ This file lists the notable changes to the board app and to inksync. The section
 ### Fixed
 
 - Documents: A PDF of more than about 115 pages, such as a textbook, could not be imported, because the board's height was limited to 100,000 points.
-- Documents: A PDF of more than 400 pages imports its first 400 pages and says so, instead of leaving out the rest without a word.
+- Documents: The pages of a PDF of more than 400 pages are chosen in the import dialog, instead of the pages after the 400th being left out without a word.
 - Export: The PNG of a widely spread board was blurred, because its long edge was limited to 4096 px.
 - Interface: Messages shown at the same time are listed one under another instead of covering each other. Importing a file shows one message, which turns into the error if the file cannot be opened.
 

@@ -57,6 +57,10 @@ def open_doc_board(mac, path):
     with mac.expect_file_chooser() as chooser:
         mac.click('.lib-new-panel button:has-text("导入 PDF 或图片…")')
     chooser.value.set_files(str(path))
+    if len(pytest.importorskip("pypdf").PdfReader(str(path)).pages) > 1:
+        # 多于一页的 PDF 先弹导入对话框（docs/backlog/014-import-pages.md），默认全部
+        mac.click(".import-dialog .lib-btn.primary")
+        mac.locator(".import-dialog").wait_for(state="detached")
     mac.wait_for_function(HAS_DOC, timeout=15000)
 
 

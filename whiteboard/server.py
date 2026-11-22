@@ -20,7 +20,7 @@ from inksync.hub import Hub as CoreHub
 from inksync import server as inksync_server
 from inksync.server import MAX_WS_MESSAGE  # noqa: F401
 
-from . import RELEASES_URL, __version__, ipadshell, models, netinfo, profile, resources
+from . import RELEASES_URL, __version__, doc_pages, ipadshell, models, netinfo, profile, resources
 from .config import REMOTE_PERMISSIONS, Config
 from .hub import SKETCH_ID, Hub, perms_of
 from .store import BoardStore
@@ -515,6 +515,134 @@ async def handle_doc_upload(request: web.Request) -> web.Response:
     return web.json_response({"board": meta, "total": total})
 
 
+async def handle_doc_pages_change(request: web.Request) -> web.Response:
+    """``POST /api/board/<id>/pages``：文档板插入或删除空白页。
+
+    请求体 ``{"action": "insert-after" | "insert-before" | "delete", "page": 页码（从 0 起）}``。
+    动的是白板的结构，和新建、整理白板一样要管理白板的权限。改好之后所有显示这块白板的
+    设备收到整块白板。"""
+    require(request, "manage")
+    hub: Hub = request.app[HUB_KEY]
+    board_id = request.match_info["board_id"]
+    try:
+        body = await request.json()
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise web.HTTPBadRequest(text="请求不是 JSON") from exc
+    action = body.get("action") if isinstance(body, dict) else None
+    page = body.get("page") if isinstance(body, dict) else None
+    if not isinstance(page, int) or isinstance(page, bool):
+        raise web.HTTPBadRequest(text="page 必须是整数")
+    try:
+        meta = await hub.change_doc_pages(board_id, str(action), page)
+    except doc_pages.PageError as exc:
+        log.warning("server.handle_doc_pages_change：白板 %s %s 第 %s 页没做成：%s", board_id, action, page, exc)
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+    return web.json_response({"board": meta})
+
+
+async def handle_doc_stage(request: web.Request) -> web.Response:
+    """``POST /api/doc/stage?name=…``：先暂存一份原件，回复页数和每页尺寸，给导入对话框选页。
+
+    选好之后 ``POST /api/doc/stage/<id>`` 建板，取消就 ``DELETE``；一小时没动静自己丢掉。"""
+    require(request, "manage")
+    hub: Hub = request.app[HUB_KEY]
+    filename = request.query.get("name") or ""
+    body = await _read_body(request, MAX_DOC_BYTES)
+    from . import docs
+
+    try:
+        prepared = await asyncio.to_thread(hub.stage_doc, body, filename)
+    except docs.DocError as exc:
+        log.warning("server.handle_doc_stage：暂存 %s 失败：%s", filename, exc)
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - 坏文件不该把服务端带崩
+        log.exception("server.handle_doc_stage：暂存 %s 出错", filename)
+        raise web.HTTPBadRequest(text="文件读不出来") from exc
+    return web.json_response(staged_reply(prepared, filename))
+
+
+def staged_reply(prepared: Dict[str, Any], filename: str) -> Dict[str, Any]:
+    """暂存的回复：给导入对话框用的页数和每页尺寸。"""
+    info = prepared["info"]
+    return {
+        "stage": prepared["id"],
+        "name": info.get("name") or filename,
+        "type": info["type"],
+        "total": info["total"],
+        "pages": info["pages"],
+    }
+
+
+async def stage_local_file(hub: Hub, path: Path) -> Dict[str, Any]:
+    """Mac 上从访达交过来的 PDF：暂存起来，由页面弹出导入对话框选页。"""
+    from . import docs
+
+    try:
+        body = await asyncio.to_thread(path.read_bytes)
+        prepared = await asyncio.to_thread(hub.stage_doc, body, path.name)
+    except OSError as exc:
+        raise OpenFileError(f"文件打不开：{exc.strerror or exc}") from exc
+    except docs.DocError as exc:
+        raise OpenFileError(str(exc)) from exc
+    if len(prepared["info"]["pages"]) <= 1:
+        hub.drop_stage(prepared["id"])  # 只有一页不用选，调用方照旧直接建板
+    return staged_reply(prepared, path.name)
+
+
+async def handle_doc_stage_page(request: web.Request) -> web.Response:
+    """``GET /api/doc/stage/<id>/<页码>?w=``：暂存原件的一页缩略图（JPEG）。"""
+    require(request, "manage")
+    from . import docs
+
+    hub: Hub = request.app[HUB_KEY]
+    stage_id = request.match_info["stage_id"]
+    path = hub.store.staged_path(stage_id) if stage_id in hub.staged else None
+    if path is None:
+        raise web.HTTPNotFound(text="暂存的文件已经过期")
+    try:
+        index = int(request.match_info["index"])
+        width = max(80, min(int(request.query.get("w", "240")), 800))
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text="页码不对") from exc
+    try:
+        async with request.app[RENDER_KEY]:
+            body, content_type = await asyncio.to_thread(docs.render_page, path, index, width)
+    except docs.DocError as exc:
+        raise web.HTTPNotFound(text=str(exc)) from exc
+    return web.Response(body=body, content_type=content_type, headers={"Cache-Control": "private, max-age=3600"})
+
+
+async def handle_doc_stage_create(request: web.Request) -> web.Response:
+    """``POST /api/doc/stage/<id>``：用暂存的原件建文档板。
+
+    请求体 ``{"pages": [原件页码…], "blanks": 每页后面加空白页, "folder": 文件夹}``，页码从 0 起。"""
+    require(request, "manage")
+    hub: Hub = request.app[HUB_KEY]
+    stage_id = request.match_info["stage_id"]
+    try:
+        body = await request.json()
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise web.HTTPBadRequest(text="请求不是 JSON") from exc
+    if not isinstance(body, dict) or not isinstance(body.get("pages"), list):
+        raise web.HTTPBadRequest(text="pages 必须是页码列表")
+    folder = models.sanitize_folder(body.get("folder"))
+    try:
+        meta = await hub.create_from_stage(stage_id, body["pages"], blanks=body.get("blanks") is True, folder=folder)
+    except doc_pages.PageError as exc:
+        log.warning("server.handle_doc_stage_create：暂存 %s 建板没做成：%s", stage_id, exc)
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+    await hub.broadcast_switch()
+    return web.json_response({"board": meta})
+
+
+async def handle_doc_stage_drop(request: web.Request) -> web.Response:
+    """``DELETE /api/doc/stage/<id>``：导入对话框点了取消，暂存的原件删掉。"""
+    require(request, "manage")
+    hub: Hub = request.app[HUB_KEY]
+    hub.drop_stage(request.match_info["stage_id"])
+    return web.json_response({"ok": True})
+
+
 class OpenFileError(Exception):
     """文件打不开或不能建板。消息写进日志和接口的回复；界面上只说打不开哪个文件（docs/ui-text.md）。"""
 
@@ -651,6 +779,22 @@ async def handle_doc_export(request: web.Request) -> web.StreamResponse:
 
     strokes = await hub.strokes_of(board_id)
     name = docs.default_export_name(meta)
+    if "src" in models.doc_of(meta):
+        # 选过页或加过空白页的文档板：白板上的页和原件对不上，按白板上的页导出 PDF
+        from . import export as exporter
+
+        try:
+            result = await asyncio.to_thread(exporter.export, meta, strokes, exporter.Options(format="pdf"), path)
+        except docs.DocError as exc:
+            raise web.HTTPBadRequest(text=str(exc)) from exc
+        name = str(Path(name).with_suffix(".pdf"))
+        quoted = urllib.parse.quote(name)
+        log.info("导出文档板 %s：%d 笔，%.1f KB", board_id, len(strokes), len(result.body) / 1024)
+        return web.Response(
+            body=result.body,
+            content_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}", "Cache-Control": "no-store"},
+        )
     out_dir = Path(tempfile.mkdtemp(prefix="whiteboard-export-"))
     out = out_dir / name
     try:
@@ -856,6 +1000,11 @@ def create_app(config: Config, store: Optional[BoardStore] = None) -> web.Applic
     app.router.add_get("/api/thumb/{board_id}", handle_thumb_get)
     app.router.add_post("/api/thumb/{board_id}", handle_thumb_post)
     app.router.add_post("/api/doc", handle_doc_upload)
+    app.router.add_post("/api/board/{board_id}/pages", handle_doc_pages_change)
+    app.router.add_post("/api/doc/stage", handle_doc_stage)
+    app.router.add_get("/api/doc/stage/{stage_id}/{index}", handle_doc_stage_page)
+    app.router.add_post("/api/doc/stage/{stage_id}", handle_doc_stage_create)
+    app.router.add_delete("/api/doc/stage/{stage_id}", handle_doc_stage_drop)
     app.router.add_get("/api/doc/{board_id}/{index}", handle_doc_page)
     app.router.add_get("/api/export/{board_id}", handle_doc_export)
     app.router.add_post("/api/export/{board_id}", handle_page_export)

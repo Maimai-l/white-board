@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
-from . import docs, inkpdf, inkraster, pagination
+from . import docs, inkpdf, inkraster, models, pagination
 
 log = logging.getLogger(__name__)
 
@@ -441,20 +441,40 @@ def _board_pdf(meta, strokes, pages, indices, background: bool) -> bytes:
     return builder.data()
 
 
-def _doc_pdf(strokes, pages, indices, path: Path) -> bytes:
+def _blank_doc_page(meta, page: Dict[str, Any], strokes) -> Tuple[bytes, Any]:
+    """文档板上用户加的空白页：一张新纸，纸色、白板的背景纹理和墨迹，和普通白板的页一样画。"""
+    pattern, paper_color = background_of(meta)
+    return _pdf_page_stream(page, strokes, pattern, paper_color, True)
+
+
+def _doc_pdf(meta, strokes, pages, indices, path: Path) -> bytes:
+    doc = docs.doc_of(meta)
+    sources = models.doc_sources(doc)
     if docs.kind_of(path) == "image":
-        page = pages[0]
         groups = docs.group_by_page(strokes, [{"x": p["x"], "y": p["y"], "w": p["w"], "h": p["h"]} for p in pages])
-        content, alphas = inkpdf.content_stream(
-            groups[0], origin=(page["x"], page["y"]), matrix=[1.0, 0.0, 0.0, -1.0, 0.0, page["h"]]
-        )
         builder = _PdfBuilder()
-        builder.add_page(page["w"], page["h"], content, alphas, image=_image_xobject(path))
+        for index in indices:
+            page = pages[index]
+            if sources[index] is None:
+                content, alphas = _blank_doc_page(meta, page, groups[index])
+                builder.add_page(page["paper"][0], page["paper"][1], content, alphas)
+                continue
+            content, alphas = inkpdf.content_stream(
+                groups[index], origin=(page["x"], page["y"]), matrix=[1.0, 0.0, 0.0, -1.0, 0.0, page["h"]]
+            )
+            builder.add_page(page["w"], page["h"], content, alphas, image=_image_xobject(path))
+        return builder.data()
+
+    def blank_page(index: int, page_strokes) -> bytes:
+        page = pages[index]
+        content, alphas = _blank_doc_page(meta, page, page_strokes)
+        builder = _PdfBuilder()
+        builder.add_page(page["paper"][0], page["paper"][1], content, alphas)
         return builder.data()
 
     with tempfile.TemporaryDirectory(prefix="whiteboard-export-") as folder:
         merged = Path(folder) / "merged.pdf"
-        docs.export_pdf(path, strokes, merged)
+        docs.export_pdf(path, strokes, merged, doc=doc, blank_page=blank_page)
         if indices == list(range(len(pages))):
             return merged.read_bytes()
         pypdf = docs._pypdf()
@@ -531,11 +551,15 @@ def _board_png(meta, pairs, page, dpi: float, background: bool):
     return (canvas.convert("RGB") if background else canvas), k
 
 
-def _doc_png(strokes, pages, index: int, path: Path, dpi: Optional[float]):
+def _doc_png(meta, strokes, pages, index: int, path: Path, dpi: Optional[float]):
     """文档板的一页 PNG，返回 ``(图, 实际的每 pt 像素数)``。"""
     Image = docs._pil()
     page = pages[index]
     groups = docs.group_by_page(strokes, [{"x": p["x"], "y": p["y"], "w": p["w"], "h": p["h"]} for p in pages])
+    source = models.doc_sources(docs.doc_of(meta))[index]
+    if source is None:
+        # 用户加的空白页：和普通白板的一页一样画（纸色、背景纹理、墨迹）
+        return _board_png(meta, boxed(groups[index]), page, DEFAULT_DPI if dpi is None else dpi, True)
     if docs.kind_of(path) == "image":
         k = 1.0 if dpi is None else _pixels_per_pt(page, dpi)
         with Image.open(path) as source:
@@ -549,16 +573,16 @@ def _doc_png(strokes, pages, index: int, path: Path, dpi: Optional[float]):
         with docs._PDFIUM_LOCK:
             pdf = pdfium.PdfDocument(str(path))
             try:
-                source = pdf[index]
+                original = pdf[source]  # 白板上这一页对应原件的哪一页
                 try:
-                    bitmap = source.render(scale=k)
+                    bitmap = original.render(scale=k)
                     try:
                         # 和 docs.render_page 一样：位图和 PIL 图共享内存，复制一份再放掉
                         canvas = bitmap.to_pil().convert("RGBA").copy()
                     finally:
                         bitmap.close()
                 finally:
-                    source.close()
+                    original.close()
             finally:
                 pdf.close()
     inkraster.paint_strokes(canvas, groups[index], origin=(page["x"], page["y"]), scale=k)
@@ -629,7 +653,7 @@ def export(
 
     if options.format == "pdf":
         if is_doc:
-            body = _doc_pdf(strokes, pages, indices, doc_path)
+            body = _doc_pdf(meta, strokes, pages, indices, doc_path)
         else:
             body = _board_pdf(meta, strokes, pages, indices, options.background)
         return Exported(body, CONTENT_TYPES["pdf"], f"{base}.pdf")
@@ -639,7 +663,7 @@ def export(
 
     def render(index: int) -> bytes:
         if is_doc:
-            image, k = _doc_png(strokes, pages, index, doc_path, options.dpi)
+            image, k = _doc_png(meta, strokes, pages, index, doc_path, options.dpi)
         else:
             image, k = _board_png(meta, pairs, pages[index], options.dpi or DEFAULT_DPI, options.background)
         used.append(k)

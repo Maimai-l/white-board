@@ -31,6 +31,7 @@ import {
 } from "./boards.js";
 import { ExportDialog } from "./ui-export.js";
 import { reportError, reportUncaughtErrors, setReportURL } from "/inksync/report.js";
+import { ImportDialog } from "./ui-import.js";
 
 export { reportError };
 
@@ -57,6 +58,9 @@ function nativeApi() {
   return (window.pywebview && window.pywebview.api) || null;
 }
 
+
+// 文档板上手指按住一页多久弹出页面菜单（毫秒），和白板库里长按卡片一样
+const PAGE_HOLD_MS = 500;
 class App extends InkPad {
   constructor() {
     const role = resolveRole();
@@ -202,6 +206,110 @@ class App extends InkPad {
       if (this.role === "mac") uploadThumb(this.state, this.state.id);
     });
     if (this.role === "mac") this.bindDrop();
+    this.bindPageMenu();
+  }
+
+  // ------------------------------------------------------------ 文档板的页
+
+  /**
+   * 文档板上 (clientX, clientY) 那一页：``{ index, blank }``，不是文档板或不在任何一页附近
+   * 时返回 null。落在页间空隙里的算最近的一页（和服务端的 doc_pages 同一条规则）。
+   */
+  docPageAt(clientX, clientY) {
+    return this.docPageNear(this.toWorld(clientX, clientY));
+  }
+
+  /** 屏幕正中那一页（更多菜单里的在这一页后面插入空白页）。 */
+  currentDocPage() {
+    return this.docPageNear(this.viewCenter());
+  }
+
+  docPageNear(point) {
+    const doc = this.state.meta && this.state.meta.data && this.state.meta.data.doc;
+    if (!doc || !point) return null;
+    const y = point[1]; // viewport.toWorld 给的是 [x, y]
+    const sheets = this.state.layers.filter((layer) => layer.sheet);
+    let best = null;
+    let bestDistance = Infinity;
+    sheets.forEach((layer, index) => {
+      const top = layer.y;
+      const bottom = layer.y + (layer.height || layer.width);
+      const distance = y < top ? top - y : y > bottom ? y - bottom : 0;
+      if (distance < bestDistance) {
+        best = { index, blank: !layer.src };
+        bestDistance = distance;
+      }
+    });
+    return best;
+  }
+
+  /** 插入或删除空白页（服务端整块换掉白板，所有设备马上看到）。 */
+  async changePages(action, page) {
+    const failed = action === "delete" ? "没能删除空白页" : "没能插入空白页";
+    try {
+      const response = await fetch(`/api/board/${encodeURIComponent(this.state.id)}/pages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, page }),
+      });
+      if (!response.ok) {
+        reportError("app.changePages 服务端没做成", { action, page, status: response.status, message: (await response.text()).slice(0, 200) });
+        this.ui.message(failed, "close", 4000);
+      }
+    } catch (err) {
+      reportError("app.changePages 请求失败", { action, page, message: String(err) });
+      this.ui.message(failed, "close", 4000);
+    }
+  }
+
+  /**
+   * 文档板上一页的菜单：Mac 上右键，触摸设备上手指按住不动。手指书写打开时手指是在写字，
+   * 不认长按，用更多菜单里的那一项。
+   */
+  bindPageMenu() {
+    const open = (clientX, clientY) => {
+      if (!this.ui.may("manage") || this.locked) return false;
+      const page = this.docPageAt(clientX, clientY);
+      if (!page) return false;
+      this.ui.pageMenu(page, { x: clientX, y: clientY }, (action) => this.changePages(action, page.index));
+      return true;
+    };
+    this.input.stage.addEventListener("contextmenu", (event) => {
+      if (open(event.clientX, event.clientY)) event.preventDefault();
+    });
+    let hold = null;
+    const cancel = () => {
+      if (hold) clearTimeout(hold.timer);
+      hold = null;
+    };
+    addEventListener(
+      "pointerdown",
+      (event) => {
+        if (event.pointerType !== "touch" || this.input.fingerDraw || event.target !== this.input.stage) return;
+        if (hold) {
+          cancel(); // 第二根手指：是捏合缩放，不是长按
+          return;
+        }
+        const { clientX, clientY, pointerId } = event;
+        hold = { pointerId, x: clientX, y: clientY, timer: setTimeout(() => {
+          hold = null;
+          open(clientX, clientY);
+        }, PAGE_HOLD_MS) };
+      },
+      true
+    );
+    addEventListener(
+      "pointermove",
+      (event) => {
+        if (hold && event.pointerId === hold.pointerId && Math.hypot(event.clientX - hold.x, event.clientY - hold.y) > 10) cancel();
+      },
+      true
+    );
+    for (const type of ["pointerup", "pointercancel"]) {
+      addEventListener(type, (event) => {
+        if (hold && event.pointerId === hold.pointerId) cancel();
+      }, true);
+    }
   }
 
   /**
@@ -285,9 +393,76 @@ class App extends InkPad {
     this.importing = true;
     try {
       await uploadThumb(this.state, this.state.id);
-      for (const file of files) await this.importDoc(file, folder);
+      for (const file of files) {
+        const pdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
+        await (pdf ? this.importPdf(file, folder) : this.importDoc(file, folder));
+      }
     } finally {
       this.importing = false;
+    }
+  }
+
+  /**
+   * 导入一份 PDF：先暂存，多于一页就弹出导入对话框选页（ui-import.js），选好了再建板。
+   * 只有一页的 PDF 直接建板。图片和旧的路子一样直接上传（importDoc）。
+   */
+  async importPdf(file, folder = "") {
+    const notice = this.ui.message(`正在导入 ${file.name}…`, "doc", 60000);
+    let staged = null;
+    try {
+      const response = await fetch(`/api/doc/stage?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+      if (!response.ok) {
+        const text = (await response.text()) || `${response.status}`;
+        reportError("app.importPdf 暂存不了", { name: file.name, status: response.status, message: text.slice(0, 200) });
+      } else {
+        staged = await response.json();
+      }
+    } catch (err) {
+      reportError("app.importPdf 上传失败", { name: file.name, size: file.size, message: String(err) });
+    }
+    if (!staged) {
+      notice.update(`打不开 ${file.name}`, "close", 6000);
+      return;
+    }
+    await this.importStaged(staged, folder, notice);
+  }
+
+  /**
+   * 暂存好的原件：多于一页弹出导入对话框，选好了建板；取消就删掉暂存。Mac 上从访达用
+   * 打开方式交过来的 PDF 也走这里（app.py 的 FileOpener 在服务端暂存后调用）。
+   */
+  async importStaged(staged, folder = "", notice = () => {}) {
+    const name = staged.name;
+    let choice = { pages: [0], blanks: false };
+    if (staged.pages.length > 1) {
+      notice();
+      choice = await new ImportDialog(this.ui, staged).open();
+      if (!choice) {
+        fetch(`/api/doc/stage/${encodeURIComponent(staged.stage)}`, { method: "DELETE" }).catch((err) =>
+          reportError("app.importStaged 取消时没能删掉暂存", { message: String(err) })
+        );
+        return;
+      }
+    }
+    try {
+      const response = await fetch(`/api/doc/stage/${encodeURIComponent(staged.stage)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...choice, folder }),
+      });
+      if (!response.ok) {
+        reportError("app.importStaged 建板没做成", { name, status: response.status, message: (await response.text()).slice(0, 200) });
+        this.ui.message(`打不开 ${name}`, "close", 6000);
+        return;
+      }
+    } catch (err) {
+      reportError("app.importStaged 建板请求失败", { name, message: String(err) });
+      this.ui.message(`打不开 ${name}`, "close", 6000);
+      return;
+    }
+    notice();
+    if (staged.total > staged.pages.length) {
+      this.ui.message([`只能从前 ${staged.pages.length} 页里选`, "把 PDF 拆成几份分别导入"], "info", 10000);
     }
   }
 
@@ -464,6 +639,10 @@ class App extends InkPad {
       onFit: () => {
         this.fit();
         this.syncZoom();
+      },
+      onInsertBlankHere: () => {
+        const page = this.currentDocPage();
+        if (page) this.changePages("insert-after", page.index);
       },
       onBoardsOpen: () => uploadThumb(this.state, this.state.id),
       onSelectBoard: async (boardId) => {

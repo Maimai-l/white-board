@@ -71,6 +71,7 @@ def test_a_textbook_pdf_dropped_on_the_window_opens(browser, server):
     mac = open_mac(browser, server.port)
     before = mac.evaluate("() => whiteboard.state.id")
     mac.evaluate(DROP_FILE, ["教材.pdf", "application/pdf", pdf_base64(300)])
+    mac.click('.import-dialog .lib-btn.primary:has-text("导入 300 页")', timeout=20000)
     mac.wait_for_function(
         "(was) => whiteboard.state.id !== was && !!whiteboard.state.meta?.data?.doc", arg=before, timeout=20000
     )
@@ -83,10 +84,19 @@ def test_a_textbook_pdf_dropped_on_the_window_opens(browser, server):
     )
 
 
-def test_a_pdf_over_the_page_limit_says_only_part_was_imported(browser, server):
+def test_a_pdf_over_the_page_limit_asks_which_pages_to_import(browser, server):
+    """一块白板最多 400 页：更长的 PDF 在导入对话框里选，不再悄悄只导入前 400 页。"""
     mac = open_mac(browser, server.port)
+    before = mac.evaluate("() => whiteboard.state.id")
     mac.evaluate(DROP_FILE, ["大部头.pdf", "application/pdf", pdf_base64(410)])
-    notice = mac.locator('.notice:not(.leaving):has-text("只导入了前 400 页")')
-    notice.wait_for(timeout=20000)
-    assert notice.inner_text().split("\n") == ["只导入了前 400 页", "把 PDF 拆成几份分别导入"]
+    primary = mac.locator(".import-dialog .lib-btn.primary")
+    primary.wait_for(timeout=20000)
+    assert mac.locator(".import-dialog .export-range-error").inner_text() == "一块白板最多 400 页"
+    assert primary.is_disabled()
+    mac.fill(".import-dialog .export-range-field", "11-410")
+    mac.click('.import-dialog .lib-btn.primary:has-text("导入 400 页")')
+    mac.wait_for_function(
+        "(was) => whiteboard.state.id !== was && !!whiteboard.state.meta?.data?.doc", arg=before, timeout=20000
+    )
+    assert mac.evaluate("() => whiteboard.state.meta.data.doc.src.slice(0, 2)") == [10, 11]
     assert mac.evaluate("() => whiteboard.state.meta.data.doc.pages.length") == 400

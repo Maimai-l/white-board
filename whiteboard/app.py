@@ -307,6 +307,8 @@ class FileOpener:
                 path = self._pending.pop(0)
             log.info("打开文件：%s", path)
             try:
+                if Path(path).suffix.lower() == ".pdf" and self._choose_pages(path):
+                    continue
                 self.server.open_file(path, self._folder())
             except OpenFileError as exc:
                 log.warning("app.FileOpener 打不开 %s：%s", path, exc)
@@ -314,6 +316,17 @@ class FileOpener:
             except Exception:  # noqa: BLE001 - 一个文件出错不该挡住后面的
                 log.exception("打开文件出错：%s", path)
                 self._message(f"打不开 {Path(path).name}")
+
+    def _choose_pages(self, path: str) -> bool:
+        """多于一页的 PDF：在服务端暂存，让页面弹出导入对话框选页（和拖进窗口一样）。
+        交给页面了返回 True；只有一页、或者页面不在时返回 False，照旧直接建板。"""
+        staged = self.server.stage_file(path)
+        if len(staged.get("pages") or []) <= 1 or self.window is None:
+            return False
+        folder = self._folder()
+        script = f"whiteboard.importStaged({json.dumps(staged, ensure_ascii=False)}, {json.dumps(folder, ensure_ascii=False)})"
+        self.window.evaluate_js(script)
+        return True
 
     def _folder(self) -> str:
         try:

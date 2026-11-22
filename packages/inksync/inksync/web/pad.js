@@ -690,12 +690,15 @@ export class InkPad {
     this.transient = msg.transient === true;
     this.setLocked(msg.board.id, msg.locked);
     const switched = this.state.id !== msg.board.id;
+    // 同一块白板换了 epoch：服务端重启过，或者整块换过内容（文档板插入、删除空白页，
+    // 笔迹挪了位置）。本地的撤销记录对不上了，清掉
+    const replaced = !switched && !!msg.epoch && !!this.net.epoch && msg.epoch !== this.net.epoch;
     this.net.boardId = msg.board.id;
     this.net.lastSeq = msg.seq || 0;
     if (msg.epoch) this.net.epoch = msg.epoch;
     this.remoteLive.clear();
     this.renderer.clearLive();
-    if (switched) {
+    if (switched || replaced) {
       this.undoStack = [];
       this.redoStack = [];
       this.syncHistory();

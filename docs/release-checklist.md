@@ -27,6 +27,7 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 - [ ] Drawing with the mouse, undo, and redo work. “清空白板” (Clear board) asks for confirmation before clearing.
 - [ ] The object eraser and the pixel eraser both erase. Undo restores the erased strokes.
 - [ ] Create an infinite board and a note board. Drag a PDF into the window to create a document board, write on the PDF, and export it.
+- [ ] Drag a PDF of several pages into the window: the import dialog shows a thumbnail of every page. Type `2-3`, tick “每页后面加一页空白” (add a blank page after each page) and import: the board has 4 pages, original page 2, a blank page, page 3, a blank page. Right-click a blank page → “删除这一空白页” asks first and then removes it. Export to PDF: the PDF has the same pages, and the remaining blank page carries the board's background pattern. If the thumbnails stay empty or the pages differ, send a screenshot and the log file.
 - [ ] Export (导出): export a PDF and a PNG with two pages selected. The save dialog suggests a name ending in `.pdf` or `.zip`, and the saved files open in Preview. If not, send the log file (白板 menu → 关于白板 → 日志文件) and the suggested name.
 - [ ] Export → 调整: drag a page frame with the trackpad and resize it by a corner; panning with two fingers moves the board, not the frame. If a frame does not follow, send a screen recording.
 - [ ] Export → WBZ: the save dialog suggests `<board name>.wbz`. Save it outside the storage directory, then double-click the saved file in Finder: the app opens it as a new board with the same content. If the name is wrong or the board does not open, send the log file and the saved `.wbz`.
@@ -60,7 +61,7 @@ CI runs only Chromium and WebKit on Linux. Apple Pencil input, iPadOS Safari, th
 CI cannot check these items: they depend on the packaged app's Info.plist and on Finder.
 
 - [ ] In Finder, “打开方式” (Open With) for a PDF and a JPEG lists the app; the default app for those files is unchanged.
-- [ ] With the app closed, opening a PDF with it launches the app and creates a document board.
+- [ ] With the app closed, opening a PDF with it launches the app and creates a document board; a PDF of several pages opens the import dialog first.
 - [ ] With the library showing a folder, opening an image with the app puts the new board in that folder.
 - [ ] Double-clicking a `.wbz` from `backups/upgrade/` imports it as a new board, and the file in `backups/` is unchanged.
 
@@ -91,6 +92,7 @@ Run this section twice: once in the iPad shell and once from the Home Screen ico
 - [ ] In the library, long-pressing a board without moving and then releasing shows its menu (“打开”, “重命名”, “移到文件夹”, “复制”, “导出…”, “移到回收站”). The board does not open, and no magnifier, text selection or system menu appears. Long-pressing and then moving lifts the board, which can be dropped on a folder or “回收站” (Trash) in the sidebar. Long-pressing a folder in the sidebar shows “重命名”, “在此新建白板” (New board here) and “删除文件夹” (Delete folder). If the menu is missing, the board opens, or a system menu appears, send a screen recording.
 - [ ] The sidebar button at the top left of the library hides the sidebar, and a second tap shows it. In portrait the sidebar starts hidden and hides again after a row is chosen. If the sidebar covers the content or a button cannot be tapped, send one screenshot in landscape and one in portrait.
 - [ ] After tapping a button, menu item or card and lifting the finger, it does not stay highlighted as if still pressed.
+- [ ] On a document board, hold a finger still on a page: after half a second a menu with “在后面插入空白页” (insert a blank page after) appears, without a magnifier, text selection or system menu, and nothing is drawn. Pinching with two fingers does not open it. The tool picker's “…” menu has “在这一页后面插入空白页” at the top, which adds a page after the one in the middle of the screen. If the menu does not appear or a system menu does, send a screen recording.
 - [ ] Connection status at the top right: blue while connected to the Mac, and a tap shows “已连接” (Connected) with the Mac's address, with no colored dot. After quitting the app on the Mac, the icon turns gray and a tap shows “未连接” (Not connected); it recovers when the app reopens. The shell also shows a small “换一台 Mac” (Switch Mac) button, and board settings do not show it a second time. The buttons in the corner have no circle behind them while their panel is open and dim while pressed. Opening, closing and reopening the panel at a normal pace does not open the diagnostics panel; three quick taps do. If the diagnostics panel opens by accident, say how fast the taps were.
 
 ### Text input

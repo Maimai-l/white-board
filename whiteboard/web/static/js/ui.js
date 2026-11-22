@@ -311,6 +311,7 @@ export class UI {
     closeMenu();
     this.buildChrome();
     if (this.pk) this.pk.allowClear = this.may("clear");
+    if (this.pk) this.pk.allowBlank = this.canAddPages();
     if (!this.may("manage")) this.closeGallery();
     if (!this.may("export") && this.exportDialog) this.exportDialog.close();
   }
@@ -367,10 +368,38 @@ export class UI {
         "-"
       );
     }
+    // 文档板：屏幕中间那一页后面插一页空白，批注写不下时接着写
+    if (this.canAddPages()) items.push({ label: "在这一页后面插入空白页", onSelect: () => this.actions.onInsertBlankHere() }, "-");
     items.push({ label: "回到内容", onSelect: () => this.actions.onFit() });
     if (this.may("clear")) items.push("-", { label: "清空白板…", danger: true, onSelect: () => this.confirmClear() });
     this.closePopover();
     showMenu(items, anchor, { root: this.root, label: "更多", className: "from-toolbar" });
+  }
+
+  /** 这块白板能不能加空白页：文档板，并且有管理白板的权限（改的是白板的结构）。 */
+  canAddPages() {
+    return !!(this.meta && this.meta.kind === "doc") && this.may("manage");
+  }
+
+  /**
+   * 文档板上一页的菜单（Mac 上右键，触摸设备上手指按住）。``page``：``{ index, blank }``；
+   * ``run(action)`` 交给 app.js 发给服务端。删空白页先问一句，上面写的会一起删掉。
+   */
+  pageMenu(page, at, run) {
+    const items = [
+      { label: "在后面插入空白页", onSelect: () => run("insert-after") },
+      { label: "在前面插入空白页", onSelect: () => run("insert-before") },
+    ];
+    if (page.blank) {
+      items.push("-", {
+        label: "删除这一空白页",
+        danger: true,
+        onSelect: () =>
+          this.confirm("trash", "删除这一空白页", () => run("delete"), { verb: "删除", note: "上面写的会一起删除" }),
+      });
+    }
+    this.closePopover();
+    showMenu(items, at, { root: this.root, label: `第 ${page.index + 1} 页` });
   }
 
   /* ---------------------------------------------------- 笔具盘 */
@@ -390,6 +419,8 @@ export class UI {
       pk.onRedo = () => this.actions.onRedo();
       pk.allowClear = this.may("clear");
       pk.onClear = () => this.confirmClear();
+      pk.allowBlank = this.canAddPages();
+      pk.onBlank = () => this.actions.onInsertBlankHere();
       // 尺子只在笔具盘里有，也就是只在 iPad 上有（见 isIPad）
       pk.onRuler = (shown) => this.actions.onRuler(shown);
       pk.applyState({
@@ -825,6 +856,7 @@ export class UI {
 
   setMeta(meta) {
     this.meta = meta;
+    if (this.pk) this.pk.allowBlank = this.canAddPages();
     this.syncTitle();
     if (this.panel && this.panel.kind === "settings") this.refreshPanel();
   }

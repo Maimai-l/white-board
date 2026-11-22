@@ -273,7 +273,7 @@ export class Renderer {
     if (!layers.length) return;
     const { scale, x, y } = this.viewport;
     const view = this.viewport.visibleRect(this.viewW, this.viewH);
-    const paper = backgroundOf(this.state.meta).paper;
+    const { paper, pattern } = backgroundOf(this.state.meta);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     for (let index = 0; index < layers.length; index++) {
@@ -288,6 +288,18 @@ export class Renderer {
       const width = box.w * scale;
       const height = box.h * scale;
       if (layer.sheet) this.paintPaper(ctx, left, top, width, height, paper);
+      if (!layer.src) {
+        // 只有纸张的层（文档板上的空白页）：纸上铺这块白板的背景纹理
+        if (pattern && pattern !== "blank") {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(left, top, width, height);
+          ctx.clip();
+          drawPattern(ctx, pattern, scale, x, y, this.viewW, this.viewH);
+          ctx.restore();
+        }
+        continue;
+      }
       const img = this.images.get(index);
       if (!img) continue;
       try {
@@ -530,6 +542,18 @@ export class Renderer {
         target.fillRect(0, 0, width, height);
         if (background && !layers.some((layer) => layer.sheet)) {
           drawPattern(target, pattern, scale, -area.x0 * scale, -area.y0 * scale, width, height);
+        } else if (background && pattern && pattern !== "blank") {
+          // 文档板上的空白页：只在那几张纸上铺背景纹理
+          for (const layer of layers) {
+            if (!layer.sheet || layer.src) continue;
+            const box = layerBox(layer, null);
+            target.save();
+            target.beginPath();
+            target.rect((box.x - area.x0) * scale, (box.y - area.y0) * scale, box.w * scale, box.h * scale);
+            target.clip();
+            drawPattern(target, pattern, scale, -area.x0 * scale, -area.y0 * scale, width, height);
+            target.restore();
+          }
         }
       } else {
         target.clearRect(0, 0, width, height);
