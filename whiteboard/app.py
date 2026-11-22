@@ -16,7 +16,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from . import RELEASES_URL, __version__, appmenu, backup, netinfo, profile, resources, sparkle
+from . import RELEASES_URL, __version__, appmenu, backup, netinfo, profile, resources, sparkle, titlebar
 from .config import Config
 from .runner import ServerThread
 from .server import list_apps, running_build
@@ -70,6 +70,21 @@ class NativeApi:
         text = UPDATE_MESSAGES.get(result.get("status", ""))
         if text and self.window is not None:
             self.window.evaluate_js(f"whiteboard.ui.message({json.dumps(text, ensure_ascii=False)})")
+
+    def zoom_window(self) -> bool:
+        """双击顶栏空白处：和双击系统标题栏一样，按系统设置放大或最小化窗口（titlebar.py）。"""
+        if sys.platform != "darwin" or self.window is None or self.window.native is None:
+            return False
+        from PyObjCTools import AppHelper
+
+        def run() -> None:
+            try:
+                titlebar.zoom_on_double_click(self.window.native)
+            except Exception:  # noqa: BLE001 - 放大不了就算了，记下来
+                log.exception("app.zoom_window：双击顶栏放大窗口失败")
+
+        AppHelper.callAfter(run)
+        return True
 
     def check_update_now(self) -> Dict[str, Any]:
         """「检查更新」：打包好的应用交给 Sparkle，它自己的窗口显示结果。
@@ -367,6 +382,27 @@ def _decode_data_url(data_url: str) -> Optional[bytes]:
         return None
 
 
+def window_options(port: int, platform: str = sys.platform) -> Dict[str, Any]:
+    """主窗口的参数。
+
+    Mac 上不要系统标题栏（frameless）：网页的顶栏就是标题栏，红绿灯摆在它左边（titlebar.py），
+    地址里的 window=inset 让页面给红绿灯让出位置。留着系统标题栏的话，pywebview 用 JS 做的
+    拖动区域会把窗口往下挪一个标题栏的高度（见 titlebar.py 开头）。easy_drag 关掉：开着时
+    点网页里任何地方都会拖动窗口。
+    """
+    mac = platform == "darwin"
+    return {
+        "url": f"http://127.0.0.1:{port}/?role=mac" + ("&window=inset" if mac else ""),
+        "width": 1280,
+        "height": 860,
+        "min_size": (800, 560),
+        "background_color": "#FDFBFF",
+        "text_select": False,
+        "frameless": mac,
+        "easy_drag": False,
+    }
+
+
 def run(
     config: Optional[Config] = None,
     debug: bool = False,
@@ -394,16 +430,11 @@ def run(
     install_open_files_handler(opener.open)
 
     api = NativeApi(config, server)
-    window = webview.create_window(
-        "白板",
-        f"http://127.0.0.1:{server.port}/?role=mac",
-        js_api=api,
-        width=1280,
-        height=860,
-        min_size=(800, 560),
-        background_color="#FDFBFF",
-        text_select=False,
-    )
+    if sys.platform == "darwin":
+        # 拖动区域只认直接点在它上面的（顶栏的空白处），点在顶栏里的按钮上不拖窗口
+        webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
+    window = webview.create_window("白板", js_api=api, **window_options(server.port))
+    titlebar.install(window)
     api.window = window
     opener.window = window
     window.events.loaded += opener.on_loaded

@@ -627,6 +627,8 @@ select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .gallery.library[data-side="hidden"] .lib-side { margin-left: -232px; }
 /* Mac 窗口的红绿灯落在这一条里，所以它只是一块能拖动窗口的空白 */
 .lib-side-top { flex: none; height: 40px; display: flex; align-items: center; }
+/* Mac 上红绿灯浮在边栏顶上这一条里，和右边白板库的顶栏同高、同一条中线 */
+:root[data-chrome="bar"] .lib-side-top { height: 52px; margin: 0 -10px; }
 .lib-side-title { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
 .lib-nav-list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
 .lib-nav {
@@ -695,6 +697,8 @@ select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .lib-title { margin: 0; min-width: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lib-note { white-space: nowrap; }
 .lib-head > * { flex-shrink: 0; }
+/* Mac 上顶栏 52 高，和编辑界面的顶栏、边栏顶上红绿灯那一条同高 */
+:root[data-chrome="bar"] .lib-head { height: 52px; min-height: 52px; padding-top: 0; padding-bottom: 0; }
 .lib-head > .lib-heading { flex-shrink: 1; }
 .lib-note { font-size: 12px; color: var(--on-surface-variant); }
 .lib-show-side { display: none; }
@@ -1649,11 +1653,17 @@ input.board-name {
 /* ------------------------------------------------------------- 外框：Mac 顶栏 */
 
 /* 顶上一条磨砂标题栏：左边白板库和白板名字，右边连接 iPad、导出、白板设置。
-   打包版的窗口没有系统标题栏，红绿灯直接画在这一条里（见 app.py），所以左边
-   让出 --lights 那么宽。 */
+   Mac 窗口没有系统标题栏，红绿灯摆在这一条的左边、垂直居中（whiteboard/titlebar.py：
+   离左边 20，三个 12 的按钮间隔 8，到 72 为止），所以左边让出 --lights 那么宽；
+   全屏时红绿灯由系统收起，data-window 变成 full，不用再让。 */
 :root { --top-inset: 0px; --lights: 0px; }
 :root[data-chrome="bar"] { --top-inset: 52px; }
 :root[data-chrome="bar"][data-window="inset"] { --lights: 72px; }
+/* 顶栏和白板库顶上那一条是拖动窗口的地方（pywebview-drag-region，只认直接点在它上面的）。
+   标题这些不能点的字让点击穿过去，落到拖动区域上 */
+:root[data-window] .topbar-title,
+:root[data-window] .topbar-spacer,
+:root[data-window] .lib-heading { pointer-events: none; }
 #topbar {
   position: absolute;
   left: 0;
