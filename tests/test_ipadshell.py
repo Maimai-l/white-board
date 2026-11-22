@@ -110,6 +110,45 @@ def test_install_page_and_download_with_a_bundled_ipa(tmp_path, monkeypatch):
     run(main())
 
 
+def fake_ipa(path, build, rev, binary=True):
+    """一个最小的 IPA：zip 里 Payload/Whiteboard.app/Info.plist（xcodebuild 写的是二进制 plist）。"""
+    import plistlib
+    import zipfile
+
+    info = {"CFBundleShortVersionString": "1.3.0", "CFBundleVersion": build, "WBShellRevision": rev}
+    fmt = plistlib.FMT_BINARY if binary else plistlib.FMT_XML
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("Payload/Whiteboard.app/Info.plist", plistlib.dumps(info, fmt=fmt))
+        archive.writestr("Payload/Whiteboard.app/Whiteboard", b"binary")
+    return path
+
+
+def test_version_reports_the_bundled_shell_build_and_revision(tmp_path, monkeypatch):
+    """用户反馈：alpha 之间 iPad 外壳从不提示更新。版本号都是 1.3.0，外壳去掉 -alpha 后缀再比，
+    永远一样。现在回复里带上 Mac 附带的外壳自己的构建号和源码指纹（ipad/ 目录的 git tree），
+    外壳的源码变了才提示。"""
+    ipa = fake_ipa(tmp_path / "Whiteboard.ipa", "20261122.071630", "3f9c2a1b7d4e")
+    monkeypatch.setattr(ipadshell, "ipa_path", lambda: ipa)
+
+    async def main():
+        async with make_client(tmp_path) as (client, _app):
+            info = await (await client.get("/ipad/version")).json()
+            assert info["build"] == "20261122.071630"
+            assert info["rev"] == "3f9c2a1b7d4e"
+
+    run(main())
+
+
+def test_an_unreadable_ipa_still_reports_a_version(tmp_path, monkeypatch, caplog):
+    ipa = tmp_path / "Whiteboard.ipa"
+    ipa.write_bytes(b"PK\x03\x04 fake ipa")
+    monkeypatch.setattr(ipadshell, "ipa_path", lambda: ipa)
+    info = ipadshell.version_info()
+    assert info["ipa"] is True and info["version"] == __version__
+    assert "build" not in info and "rev" not in info
+    assert "读不了外壳" in caplog.text
+
+
 def test_install_page_uses_the_local_hostname_by_default(tmp_path, monkeypatch):
     monkeypatch.setattr(netinfo, "local_hostname", lambda: "mac-mini.local")
 

@@ -11,10 +11,15 @@
 from __future__ import annotations
 
 import html
+import logging
+import plistlib
+import zipfile
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from . import __version__, resources
+
+log = logging.getLogger(__name__)
 
 # 网页认得的接口版本范围，必须与 inksync 前端 input.js（packages/inksync/inksync/web）的 SHELL_BRIDGE 一致
 # （tests/test_ipadshell.py 会核对）。外壳据此判断自己要不要提示更新。
@@ -32,8 +37,48 @@ def ipa_path() -> Optional[Path]:
     return path if path.is_file() else None
 
 
+_ipa_cache: Dict[Tuple[str, float], Dict[str, str]] = {}
+
+
+def ipa_info(path: Path) -> Dict[str, str]:
+    """附带的外壳自己的构建号（``build``，CFBundleVersion）和源码指纹（``rev``，CI 写入的
+    ``ipad/`` 目录的 git tree，见 docs/ipad-shell.md 8.3 节）。读不出来时返回空字典。
+
+    alpha 的版本号都是同一个数字版本（1.3.0），外壳只比版本号就永远不会提示更新；
+    有了指纹，外壳的源码变了才提示，只改了网页的 alpha 不打扰。
+    """
+    try:
+        key = (str(path), path.stat().st_mtime)
+    except OSError as exc:
+        log.warning("ipadshell.ipa_info 读不了外壳 %s：%s", path, exc)
+        return {}
+    if key in _ipa_cache:
+        return _ipa_cache[key]
+    found: Dict[str, str] = {}
+    try:
+        with zipfile.ZipFile(path) as archive:
+            name = next(
+                (n for n in archive.namelist() if n.startswith("Payload/") and n.endswith(".app/Info.plist")), None
+            )
+            if name is None:
+                raise ValueError("IPA 里没有 Payload/*.app/Info.plist")
+            plist = plistlib.loads(archive.read(name))
+        for field, plist_key in (("build", "CFBundleVersion"), ("rev", "WBShellRevision")):
+            value = plist.get(plist_key)
+            if isinstance(value, str) and value:
+                found[field] = value
+    except (OSError, ValueError, zipfile.BadZipFile, plistlib.InvalidFileException) as exc:
+        log.warning("ipadshell.ipa_info 读不了外壳 %s 的版本信息：%s", path, exc)
+    _ipa_cache[key] = found
+    return found
+
+
 def version_info() -> Dict[str, Any]:
-    return {"version": __version__, "ipa": ipa_path() is not None, "bridge": list(BRIDGE)}
+    path = ipa_path()
+    info: Dict[str, Any] = {"version": __version__, "ipa": path is not None, "bridge": list(BRIDGE)}
+    if path is not None:
+        info.update(ipa_info(path))
+    return info
 
 
 def base_url(host: str, port: int) -> str:

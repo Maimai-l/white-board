@@ -449,13 +449,14 @@ iPad 打开安装页的方式与获取描述文件的方式相同：在 Mac 窗�
 
 | 接口 | 响应 |
 |---|---|
-| `GET /ipad/version` | `{"version": "1.3.0", "ipa": true, "bridge": [1, 1]}`。从源码运行时 `ipa` 为 `false`。 |
+| `GET /ipad/version` | `{"version": "1.3.0", "ipa": true, "bridge": [1, 1], "build": "20261122.071630", "rev": "3f9c2a1b7d4e"}`。从源码运行时 `ipa` 为 `false`。`build`（`CFBundleVersion`）和 `rev`（`WBShellRevision`）取自附带 IPA 的 `Info.plist`，读不出来时省略并记日志。 |
 | `GET /ipad/Whiteboard.ipa` | Mac 应用附带的 IPA（`application/octet-stream`，`Content-Disposition: attachment`）。没有附带 IPA 时返回 404「这个版本没有附带外壳」。 |
 
 更新检查：
 
 - 外壳在每次页面加载完成后、页面已加载时每次回到前台时，以及握手版本不兼容后，请求 `/ipad/version`。请求忽略缓存，超时时间为 5 秒。
 - `ipa` 为 `true` 且 `version` 比外壳自身版本新时，外壳显示「可以更新到 X」，按钮为「更新」和「以后再说」。
+- 版本号相同时（alpha 之间都是 `1.3.0`），`rev` 和外壳自己的 `WBShellRevision` 不同、而且 `build` 比自己的 `CFBundleVersion` 新，才提示，标题为「外壳有新版本」。`rev` 是 `ipad/` 目录的 git tree（`git rev-parse --short=12 HEAD:ipad`，由 `.github/actions/ipad-shell` 写入），只有外壳自己的代码变了才变：只改网页的 alpha 不提示。本地编译的 `rev` 是 `dev`。
 - 点「更新」后，外壳打开 `apple-magnifier://install?url=http://<主机名>.local:<端口>/ipad/Whiteboard.ipa`，由 TrollStore 下载并安装。这是 TrollStore 1.3 起提供的 URL 安装接口，需要在 TrollStore 的设置中开启 URL Scheme。
 - 点「以后再说」后，本次运行期间不再提示。
 

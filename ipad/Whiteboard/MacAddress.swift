@@ -180,6 +180,32 @@ enum ShellVersion {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.0"
     }
 
+    /// 构建时间 ``YYYYMMDD.HHMMSS``（CFBundleVersion），只会增长。
+    static var build: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "0"
+    }
+
+    /// 外壳源码的指纹：CI 写入的 ``ipad/`` 目录的 git tree，本地编译是 ``dev``。
+    static var revision: String {
+        (Bundle.main.object(forInfoDictionaryKey: "WBShellRevision") as? String) ?? "dev"
+    }
+
+    /// Mac 附带的外壳要不要装（docs/ipad-shell.md 8.3 节）。版本号更新就提示；版本号相同
+    /// （alpha 之间都是 1.3.0）时，外壳源码变了、而且 Mac 带的那份构建得更晚才提示。
+    /// 只改了网页的 alpha 指纹不变，不打扰。
+    static func offers(version: String, build: String?, revision: String?) -> Bool {
+        if isNewer(version, than: current) {
+            return true
+        }
+        guard !isNewer(current, than: version),
+              let build = build, let revision = revision,
+              revision != self.revision
+        else {
+            return false
+        }
+        return isNewer(build, than: self.build)
+    }
+
     /// 按数字逐段比较，``1.10.0`` 比 ``1.9.3`` 新；段里的非数字后缀忽略。
     /// 预发布后缀（``1.0.0-rc.1`` 的 ``-rc.1``）整个不算：外壳自己的版本号只有
     /// 数字（CFBundleShortVersionString），带着后缀比的话 1.0.0-rc.1 会被当成比

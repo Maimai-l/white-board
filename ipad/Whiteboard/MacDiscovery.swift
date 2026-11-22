@@ -82,7 +82,11 @@ final class UpdateChecker {
                       let info = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                       info["ipa"] as? Bool == true,
                       let version = info["version"] as? String,
-                      ShellVersion.isNewer(version, than: ShellVersion.current)
+                      ShellVersion.offers(
+                          version: version,
+                          build: info["build"] as? String,
+                          revision: info["rev"] as? String
+                      )
                 else {
                     return
                 }

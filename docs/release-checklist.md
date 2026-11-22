@@ -85,6 +85,7 @@ Run this section twice: once in the iPad shell and once from the Home Screen ico
 ### Shell and toolbar
 
 - [ ] Shell: after launch, the “有新版本” (New version available) prompt does not reappear repeatedly. When the shell needs an update, the installed shell has the same version number as the Mac app.
+- [ ] Shell updates between alphas: after the Mac installs an alpha that changes the shell's code (`ipad/`), returning the shell to the foreground shows “外壳有新版本” (A new shell is available), and “更新” installs it through TrollStore; an alpha that only changes the web page shows no prompt. If no prompt appears, check “版本” on the shell's page in the Settings app, and send the contents of `http://<Mac address>/ipad/version`.
 - [ ] The toolbar is the tool picker, including on an iPad where the tool picker was previously turned off.
 
 ### Library and chrome
