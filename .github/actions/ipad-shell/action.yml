@@ -30,6 +30,10 @@ runs:
     - name: 编译
       shell: bash
       run: |
+        # 外壳源码的指纹：ipad/ 目录的 git tree。只有外壳自己的代码变了它才变，
+        # 外壳据此决定要不要提示更新（docs/ipad-shell.md 8.3 节）；浅克隆也取得到
+        rev="$(git rev-parse --short=12 HEAD:ipad)"
+        echo "外壳源码指纹 $rev"
         xcodebuild \
           -project ipad/WhiteboardShell.xcodeproj \
           -target Whiteboard \
@@ -38,6 +42,7 @@ runs:
           SYMROOT="$PWD/ipad/build" \
           MARKETING_VERSION="${{ inputs.marketing }}" \
           CURRENT_PROJECT_VERSION="${{ inputs.build }}" \
+          WB_SHELL_REV="$rev" \
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
           build
     - name: 伪签名并打包 IPA

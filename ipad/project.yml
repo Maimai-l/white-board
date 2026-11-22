@@ -15,6 +15,8 @@ settings:
   base:
     MARKETING_VERSION: "0.0.0"
     CURRENT_PROJECT_VERSION: "1"
+    # 外壳源码的指纹，CI 写入 ipad/ 目录的 git tree（.github/actions/ipad-shell）
+    WB_SHELL_REV: "dev"
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "2"
     CODE_SIGNING_ALLOWED: "NO"

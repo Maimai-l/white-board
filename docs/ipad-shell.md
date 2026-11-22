@@ -449,13 +449,14 @@ Server endpoints (no permission required, `Cache-Control: no-store`):
 
 | Endpoint | Response |
 |---|---|
-| `GET /ipad/version` | `{"version": "1.3.0", "ipa": true, "bridge": [1, 1]}`. `ipa` is `false` when running from source. |
+| `GET /ipad/version` | `{"version": "1.3.0", "ipa": true, "bridge": [1, 1], "build": "20261122.071630", "rev": "3f9c2a1b7d4e"}`. `ipa` is `false` when running from source. `build` (`CFBundleVersion`) and `rev` (`WBShellRevision`) come from the bundled IPA's `Info.plist` and are left out when it cannot be read (logged). |
 | `GET /ipad/Whiteboard.ipa` | The bundled IPA (`application/octet-stream`, `Content-Disposition: attachment`). 404 “这个版本没有附带外壳” when there is none. |
 
 Update check:
 
 - The shell requests `/ipad/version` after each page load, on each return to the foreground while a page is loaded, and after an incompatible handshake. The request ignores the cache and times out after 5 s.
 - If `ipa` is `true` and `version` is newer than the shell's version, the shell shows “可以更新到 X” (X is available) with the buttons “更新” (Update) and “以后再说” (Later).
+- If the versions are equal, as between alpha builds (all `1.3.0`), the shell offers the update only when `rev` differs from its own `WBShellRevision` and `build` is newer than its own `CFBundleVersion`; the title is then “外壳有新版本” (A new shell is available). `rev` is the git tree of `ipad/` (`git rev-parse --short=12 HEAD:ipad`, written by `.github/actions/ipad-shell`), so it changes only when the shell's own code changes: an alpha that only changes the web page does not prompt. A local build has `rev` `dev`.
 - “更新” opens `apple-magnifier://install?url=http://<host>.local:<port>/ipad/Whiteboard.ipa`; TrollStore downloads and installs the IPA. This URL install interface exists since TrollStore 1.3 and requires URL Scheme to be enabled in TrollStore settings.
 - “以后再说” suppresses the prompt for the rest of the current run.
 

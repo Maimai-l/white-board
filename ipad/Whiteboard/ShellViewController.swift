@@ -465,7 +465,9 @@ final class ShellViewController: UIViewController, WKNavigationDelegate, WKUIDel
 
     private func offerUpdate(_ version: String, from mac: MacAddress) {
         guard presentedViewController == nil else { return }
-        let dialog = UIAlertController(title: "可以更新到 \(version)", message: nil, preferredStyle: .alert)
+        // alpha 之间版本号相同，只是外壳的源码变了：不说「更新到 1.3.0」这种和自己一样的版本号
+        let title = ShellVersion.isNewer(version, than: ShellVersion.current) ? "可以更新到 \(version)" : "外壳有新版本"
+        let dialog = UIAlertController(title: title, message: nil, preferredStyle: .alert)
         dialog.addAction(UIAlertAction(title: "以后再说", style: .cancel) { [weak self] _ in
             self?.updates.decline()
         })
