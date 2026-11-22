@@ -140,6 +140,16 @@ export class UI {
 
   build() {
     document.documentElement.dataset.chrome = this.touchDevice ? "touch" : "bar";
+    // Mac 窗口没有系统标题栏，红绿灯在顶栏左边（app.py 在地址里带上 window=inset，
+    // whiteboard/titlebar.py）。顶栏的空白处能拖动窗口，双击和系统标题栏一样放大
+    if (new URLSearchParams(location.search).get("window") === "inset" && !this.touchDevice) {
+      document.documentElement.dataset.window = "inset";
+      document.addEventListener("dblclick", (event) => {
+        if (event.target instanceof Element && event.target.matches(".pywebview-drag-region")) {
+          this.actions.onZoomWindow();
+        }
+      });
+    }
     this.fingerDraw = loadFingerDraw();
     this.shapeLines = loadShapeLines();
 

@@ -188,7 +188,7 @@ The interface follows the system controls: frosted glass and the system blue acc
 
 **Mac window and desktop browsers**
 
-- **Title bar (top):** on the left, 白板库 (Library) and the board name, with its folder under the name. On the right, 连接 iPad (Connect iPad; only in the Mac window, see [Connecting an iPad](#connecting-an-ipad)), 导出 (Export) and 白板设置 (Board settings).
+- **Title bar (top):** on the left, 白板库 (Library) and the board name, with its folder under the name. On the right, 连接 iPad (Connect iPad; only in the Mac window, see [Connecting an iPad](#connecting-an-ipad)), 导出 (Export) and 白板设置 (Board settings). In the Mac window this bar is the window's title bar: the close, minimize and zoom buttons sit at its left end, dragging an empty part of it moves the window, and double-clicking an empty part zooms the window (or minimizes it, following the setting in System Settings → Desktop & Dock). The library's top bar works the same way.
 - **Toolbar (bottom center):** see below.
 - **Zoom (bottom right):** 缩小 (zoom out), the current percentage, 放大 (zoom in) and 回到内容 (back to content). Clicking the percentage (for example `100%`) returns to actual size.
 - **Connection status:** in a desktop browser, a red dot appears next to the board name while the connection to the Mac is lost, yellow while connecting, and nothing while connected. The Mac window has no dot.
