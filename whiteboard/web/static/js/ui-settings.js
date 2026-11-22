@@ -53,7 +53,11 @@ const methods = {
     closeMenu();
     this.closePopover();
     const body = this.panelContent(kind);
-    if (!body) return;
+    if (!body) {
+      // 按钮在、面板却没有内容：不能悄悄什么都不做，记下来查
+      reportError("ui-settings.openPanel 面板没有内容", { kind, board: this.meta && this.meta.kind });
+      return;
+    }
     const panel = el("div", { class: `panel panel-${kind}`, role: "dialog", "aria-label": body.label }, body.children);
     panel.addEventListener("pointerdown", (event) => event.stopPropagation());
     this.root.append(panel);
@@ -134,11 +138,11 @@ const methods = {
 
   settingsContent() {
     const sections = [];
-    // 文档板的底是原件本身，背景纹理只铺在用户加的空白页上：有空白页才有这一段。
+    // 文档板的底是原件本身，背景纹理只铺在用户加的空白页上，这一段在文档板上叫空白页的背景。
+    // 没有空白页时也在：加页之前就能选好；而且 iPad 上这往往是唯一的一段，没有它设置按钮
+    // 点了什么都不会发生。
     const isDoc = this.meta && this.meta.kind === "doc";
-    const src = isDoc && this.meta.doc && this.meta.doc.src;
-    const hasBlank = Array.isArray(src) && src.includes(null);
-    if ((!isDoc || hasBlank) && this.may("settings")) sections.push(this.section("背景", [this.backgroundOptions()]));
+    if (this.may("settings")) sections.push(this.section(isDoc ? "空白页的背景" : "背景", [this.backgroundOptions()]));
     // 选目录要开本地文件对话框，只有 pywebview 窗口里才有；别的设备看不到这几段。
     // 像控制中心：常改的几项在这里随手改，完整的设置在白板库左下角（所有设置…）
     if (this.native) {
