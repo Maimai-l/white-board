@@ -857,6 +857,7 @@ export class UI {
 
   setMeta(meta) {
     this.meta = meta;
+    if (meta) this.boardArrived(meta.id);
     if (this.pk) this.pk.allowBlank = this.canAddPages();
     this.syncTitle();
     if (this.panel && this.panel.kind === "settings") this.refreshPanel();

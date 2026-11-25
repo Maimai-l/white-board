@@ -48,18 +48,37 @@ export function boardView(meta) {
 
 /** 上传白板选择界面用的缩略图（Mac 端）。文档板的缩略图由服务端渲染原件首页。 */
 export async function uploadThumb(state, boardId) {
-  if (!boardId || docOf(state.meta)) return false;
+  const send = await prepareThumb(state, boardId);
+  return send ? send() : false;
+}
+
+/**
+ * 先画好当前白板的缩略图，返回一个之后再上传的函数（没有可传的时候是 null）。
+ *
+ * 换白板时用：图必须趁白板还没换掉时画，上传却不该拦着切换——以前等它传完才发 sel，
+ * 白板库已经关了，iPad 上要盯着上一块白板看上一阵。
+ */
+export async function prepareThumb(state, boardId) {
+  if (!boardId || docOf(state.meta)) return null;
+  let blob = null;
   try {
-    const blob = await thumbBlob(state);
-    if (!blob) return false;
-    const response = await fetch(`/api/thumb/${boardId}`, { method: "POST", body: blob });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return true;
+    blob = await thumbBlob(state);
   } catch (err) {
-    // 白板列表里只是还显示旧的缩略图，界面上看不出来，所以上报
-    reportError("boards.uploadThumb 缩略图上传失败", { board: boardId, message: String(err) });
-    return false;
+    reportError("boards.prepareThumb 缩略图画不出来", { board: boardId, message: String(err) });
+    return null;
   }
+  if (!blob) return null;
+  return async () => {
+    try {
+      const response = await fetch(`/api/thumb/${boardId}`, { method: "POST", body: blob });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return true;
+    } catch (err) {
+      // 白板列表里只是还显示旧的缩略图，界面上看不出来，所以上报
+      reportError("boards.uploadThumb 缩略图上传失败", { board: boardId, message: String(err) });
+      return false;
+    }
+  };
 }
 
 const FINGER_FLAG = "whiteboard.fingerDraw";

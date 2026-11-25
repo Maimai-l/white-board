@@ -17,6 +17,8 @@ import { boardLabel, iconButton } from "./ui-common.js";
 import { el, isComposing } from "/inksync/util.js";
 import { reportError } from "/inksync/report.js";
 
+// 点了一块白板，等这么久还没切过去就提示打不开（正常在一秒以内）
+const OPEN_TIMEOUT_MS = 10000;
 const APP_PAGE = 60;
 const DAY = 24 * 3600 * 1000;
 // 拖到回收站那一行：dragsort 只认文件夹名，回收站用一个不可能是文件夹名的值
@@ -115,6 +117,8 @@ const methods = {
   },
 
   closeGallery() {
+    this.opening = null;
+    clearTimeout(this.openingTimer);
     // 正在起名的新文件夹，关界面就按当前输入的名字建好（和点别处一样）
     if (!this.rerendering && this.folderEdit && this.folderEdit.commit) this.folderEdit.commit();
     closeMenu();
@@ -892,10 +896,35 @@ const methods = {
     return [board.id];
   },
 
+  /**
+   * 打开一块白板。白板库一直开着，等点的那块到了（setMeta 里的 boardArrived）再关：先关的话，
+   * 切过去之前看到的是上一块白板，像是打开错了。
+   */
   openBoard(id) {
     closeMenu();
-    this.closeGallery();
+    const current = this.meta && this.meta.id;
+    if (!this.gallery || id === current) {
+      this.closeGallery();
+      this.actions.onSelectBoard(id);
+      return;
+    }
+    this.opening = id;
+    clearTimeout(this.openingTimer);
+    this.openingTimer = setTimeout(() => {
+      if (this.opening !== id) return;
+      this.opening = null;
+      reportError("ui-boards.openBoard 等不到切换", { board: id, waited: OPEN_TIMEOUT_MS });
+      this.message("没能打开这块白板", "close", 4000);
+    }, OPEN_TIMEOUT_MS);
     this.actions.onSelectBoard(id);
+  },
+
+  /** 换了白板：正在打开的就是这块的话，关掉白板库。 */
+  boardArrived(id) {
+    if (!this.opening || this.opening !== id) return;
+    this.opening = null;
+    clearTimeout(this.openingTimer);
+    this.closeGallery();
   },
 
   boardMenu(board, at, trash) {

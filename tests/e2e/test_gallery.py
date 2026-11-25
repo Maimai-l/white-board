@@ -17,6 +17,7 @@ from e2e.support import (
     file_into,
     folder_row,
     gallery_with_folder,
+    finger_tap,
     gone,
     menu_pick,
     mouse_drag,
@@ -74,6 +75,9 @@ async ([sel, dx, dy, steps]) => {
   return lifted;
 }
 """
+
+# 比拎起来要按住的时间（dragsort.js 的 HOLD_MS，半秒）长一些：这才是长按
+HOLD = 700
 
 # 长按：按住 holdMs 不动再松手，浏览器补的那一下 click 也发出去
 LONG_PRESS = """
@@ -556,7 +560,7 @@ def test_a_long_press_opens_the_menu_instead_of_the_board(browser, server):
     open_gallery(ipad)
     ipad.wait_for_selector(".board-card")
     before = ipad.evaluate("() => whiteboard.state.id")
-    ipad.evaluate(LONG_PRESS, [BOARD_CARD, 400])
+    ipad.evaluate(LONG_PRESS, [BOARD_CARD, HOLD])
     ipad.wait_for_selector(".menu")
     labels = ipad.locator(".menu .menu-label").all_inner_texts()
     assert labels[:2] == ["打开", "重命名"] and labels[-1] == "移到回收站"
@@ -569,7 +573,7 @@ def test_a_finger_can_drag_a_board_onto_a_sidebar_folder(browser, server):
     folder = gallery_with_folder(mac)
     open_gallery(ipad)
     ipad.wait_for_selector(folder_row(folder))
-    ipad.evaluate(TOUCH_DRAG, [BOARD_CARD, folder_row(folder), 500, 6, DROP_TARGET_LIT])
+    ipad.evaluate(TOUCH_DRAG, [BOARD_CARD, folder_row(folder), HOLD, 6, DROP_TARGET_LIT])
     ipad.wait_for_function(all_in_folder(folder))
     mac.wait_for_function(all_in_folder(folder))
 
@@ -589,6 +593,35 @@ def ipad_with_two_boards(browser, server):
 def board_field(board, field):
     """``wait_for_function`` 用：某块白板的某个字段，参数是期望值。"""
     return f"(want) => whiteboard.ui.boards.find(b => b.id === '{board}').{field} === want"
+
+
+# 白板库关掉的那一刻，编辑界面上是哪块白板（关掉之前一直开着就是 null）
+WATCH_CLOSE = """() => {
+  window.__closedOn = null;
+  const gallery = document.querySelector('.gallery');
+  new MutationObserver((_, observer) => {
+    if (!gallery.isConnected || gallery.classList.contains('leaving')) {
+      window.__closedOn = whiteboard.state.id;
+      observer.disconnect();
+    }
+  }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+}"""
+
+
+def test_a_finger_tap_of_normal_length_opens_the_board_it_was_on(browser, server):
+    """用户反馈：iPad 上单击打开不了白板，甚至打开的是上次的白板。
+
+    真手指点一下要在玻璃上停一会儿：停 300ms 原来就被当成长按，弹出了菜单。打开时白板库又
+    先关掉、等上一块的缩略图传完才切，看到的是上一块。现在点一下就打开，白板库一直开到
+    点的那块到了才关。"""
+    mac, ipad, first, _second = ipad_with_two_boards(browser, server)
+    ipad.evaluate(WATCH_CLOSE)
+    finger_tap(ipad, f'.board-item[data-board="{first}"] .board-card', hold_ms=300)
+    ipad.wait_for_function("(id) => whiteboard.state.id === id", arg=first)
+    gone(ipad, ".gallery")
+    assert ipad.evaluate("() => window.__closedOn") == first
+    assert ipad.locator(".menu-layer:not(.leaving) .menu").count() == 0
+    mac.wait_for_function("(id) => whiteboard.state.id === id", arg=first)
 
 
 def test_tapping_a_card_opens_that_board(browser, server):
@@ -616,7 +649,7 @@ def test_a_new_folder_can_be_named_on_the_ipad(browser, server):
 
 def test_a_board_can_be_renamed_by_typing_on_the_ipad(browser, server):
     mac, ipad, first, _second = ipad_with_two_boards(browser, server)
-    ipad.evaluate(LONG_PRESS, [f'.board-item[data-board="{first}"] .board-card', 400])
+    ipad.evaluate(LONG_PRESS, [f'.board-item[data-board="{first}"] .board-card', HOLD])
     ipad.tap('.menu .menu-item:has-text("重命名")')
     ipad.wait_for_selector(f'input.board-name[data-focus-key="name:{first}"]')
     style = ipad.evaluate(
@@ -633,7 +666,7 @@ def test_a_board_can_be_renamed_by_typing_on_the_ipad(browser, server):
 def test_a_board_can_be_trashed_from_the_ipad(browser, server):
     """长按卡片，移到回收站：两边都看到它进了回收站，当前白板仍然有效。"""
     mac, ipad, first, second = ipad_with_two_boards(browser, server)
-    ipad.evaluate(LONG_PRESS, [f'.board-item[data-board="{first}"] .board-card', 400])
+    ipad.evaluate(LONG_PRESS, [f'.board-item[data-board="{first}"] .board-card', HOLD])
     ipad.tap('.menu .menu-item:has-text("移到回收站")')
     for page in (ipad, mac):
         page.wait_for_function(f"() => whiteboard.ui.boards.find(b => b.id === '{first}').trashed > 0")
