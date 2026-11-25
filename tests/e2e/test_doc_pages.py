@@ -11,7 +11,7 @@ import io
 
 import pytest
 
-from e2e.support import TABLET_UA, enable_pk_picker, gone, new_page, open_mac, open_touch, wait_online
+from e2e.support import TABLET_UA, enable_pk_picker, finger_hold, gone, new_page, open_mac, open_touch, wait_online
 
 DROP_FILE = """([name, type, base64]) => {
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -148,6 +148,8 @@ def test_the_more_menu_adds_a_blank_page_after_the_page_in_view(browser, server)
 
 
 def test_a_finger_held_on_a_page_opens_the_page_menu_on_a_tablet(browser, server):
+    """用户反馈：iPad 上长按没法加页。真手指的触摸落在 #stage 里面的画布上，以前只认 #stage
+    本身，所以真机上从来不弹（原来的测试直接往 #stage 上发事件，测不出来）。这里用真触摸事件。"""
     mac = open_mac(browser, server.port)
     before = mac.evaluate("() => whiteboard.state.id")
     drop_pdf(mac, "讲义.pdf", 2)
@@ -160,18 +162,14 @@ def test_a_finger_held_on_a_page_opens_the_page_menu_on_a_tablet(browser, server
     wait_online(tablet)
     tablet.wait_for_function(f"() => !!({DOC})()")
     x, y = page_point(tablet, 0)
-    tablet.evaluate(
-        """([x, y]) => {
-          const stage = whiteboard.input.stage;
-          stage.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 7, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, isPrimary: true }));
-        }""",
-        [x, y],
-    )
-    tablet.wait_for_selector('.menu-layer:not(.leaving) .menu-item:has-text("在后面插入空白页")', timeout=3000)
-    tablet.evaluate(
-        """([x, y]) => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 7, pointerType: 'touch', clientX: x, clientY: y, bubbles: true }))""",
-        [x, y],
-    )
+    item = '.menu-layer:not(.leaving) .menu-item:has-text("在后面插入空白页")'
+    finger_hold(tablet, x, y, 900, during=lambda: tablet.wait_for_selector(item, timeout=1000))
+    # 松手之后菜单还在，页没有变：不能因为松手就选了菜单里的一项
+    tablet.wait_for_timeout(400)  # 给补发的 click 留出时间，它要是会选中菜单项，就在这段时间里
+    assert tablet.locator(item).count() == 1
+    assert mac.evaluate(SOURCES) == [0, 1]
+    tablet.tap(item)
+    mac.wait_for_function(f"() => JSON.stringify(({SOURCES})()) === '[0,null,1]'")
 
 
 def test_the_ipad_picker_more_menu_adds_a_blank_page(browser, server):
