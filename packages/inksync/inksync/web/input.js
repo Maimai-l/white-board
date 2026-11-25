@@ -18,6 +18,7 @@ import { installErase } from "./input-erase.js";
 import { installGesture } from "./input-gesture.js";
 import { installRuler } from "./input-ruler.js";
 import { PAUSE_MS, PauseTracker, isLine, straighten, thinPoints } from "./shape.js";
+import { reportError } from "./report.js";
 
 // Pencil 落笔期间以及抬笔后的这段时间里，手指 / 手掌一律不参与任何操作。
 const PALM_GRACE = 500;
@@ -310,6 +311,14 @@ export class InputController {
     for (const name of ["touchstart", "touchmove", "touchend", "touchcancel"]) {
       stage.addEventListener(name, (e) => e.preventDefault(), { passive: false });
     }
+    // 最后一根手指抬起（不管落在哪个元素上）：对应的 pointerup 已经先到过了，这时还记着的
+    // 触摸就是幽灵（见 dropStaleTouches）。挂在 window 上，抬起落在菜单上也收得到。
+    const touchTarget = this.embedded ? stage : window;
+    for (const name of ["touchend", "touchcancel"]) {
+      touchTarget.addEventListener(name, (e) => {
+        if (!e.touches || e.touches.length === 0) this.dropStaleTouches();
+      }, { capture: true, passive: true });
+    }
     // Safari 的双指缩放手势会顶掉 pointer 事件，这里屏蔽掉。
     for (const name of ["gesturestart", "gesturechange", "gestureend"]) {
       stage.addEventListener(name, (e) => e.preventDefault());
@@ -483,6 +492,8 @@ export class InputController {
     }
     this.stopMomentum();
     this.hooks.onInteractionStart?.();
+    // 新的一次触摸的第一根手指（isPrimary）：屏幕上此刻没有别的手指，还记着的触摸都是幽灵
+    if (event.pointerType === "touch" && event.isPrimary) this.dropStaleTouches();
     // 有选区在就先清掉：放大镜是跟着选区走的。
     const selection = getSelection && getSelection();
     if (selection && !selection.isCollapsed) selection.removeAllRanges();
@@ -660,6 +671,37 @@ export class InputController {
       return;
     }
     this.endGesturePointer(event.pointerId);
+  }
+
+  /**
+   * 清掉还记着、但已经不在屏幕上的触摸（「幽灵手指」）。
+   *
+   * iPadOS 偶尔把一根手指的指针捕获从 #stage 拿走（菜单、弹层在手指底下出现时），这根手指
+   * 抬起时 pointerup 落到别处，这里收不到，它就一直留在手势里：之后单指一拖算成和它捏合，
+   * 往下拖成了缩小；双指张开也拿它当其中一根。新的一次触摸开始、或者所有手指都抬起时调用：
+   * 那一刻还记着的触摸都不可能还在屏幕上。
+   */
+  dropStaleTouches() {
+    let dropped = 0;
+    for (const [pointerId, entry] of [...this.pointers]) {
+      if (entry.type !== "touch") continue;
+      this.pointers.delete(pointerId);
+      dropped += 1;
+      if (this.gesture) this.gesture.points.delete(pointerId);
+      if (entry.role === "draw" && this.draw && this.draw.type === "touch") this.cancelDraw();
+      if (entry.role === "ruler") this.endRulerPointer(pointerId);
+    }
+    if (this.claimed && this.claimed.type === "touch") {
+      this.claimed = null;
+      this.claim?.cancel?.();
+      dropped += 1;
+    }
+    if (this.gesture && !this.gesture.points.size) this.gesture = null;
+    else if (this.gesture) this.updateGestureRef();
+    if (dropped) {
+      this.stats.staleTouch = (this.stats.staleTouch || 0) + dropped;
+      reportError("input.dropStaleTouches 清掉没收到抬起的手指", { dropped });
+    }
   }
 
   onLeave(event) {

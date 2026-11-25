@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from e2e.support import draw, new_board, open_pages, wait_strokes
+from e2e.support import draw, new_board, open_pages, touch_frames, wait_strokes
 
 # 带时间间隔的一串触摸移动：快速划过有惯性，慢慢拖没有
 FLICK = """
@@ -196,3 +196,40 @@ def test_note_snaps_to_screen_width_when_close(browser, server):
     # 要吸附的话松手当下就开始了（见上面那一下）：等十帧，看缩放有没有被动过
     ipad.evaluate(FRAMES, 10)
     assert ipad.evaluate("() => whiteboard.viewport.scale") > target * 1.5
+
+
+SCALE = "() => whiteboard.viewport.scale"
+
+
+def lose_a_finger(ipad):
+    """iPadOS 偶尔会把一根手指的指针捕获从 #stage 拿走（菜单、弹层在手指底下出现时），这根手指
+    抬起时 pointerup 就落到别处，#stage 收不到。Chromium 不会这样，这里用脚本把捕获拿走、再把
+    手指挪到工具栏上抬起，造出同样的局面——这是测试专用的接缝，只用来造出这个起点。"""
+    box = ipad.locator("#pk-host .pk-picker").bounding_box()
+    target = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+    def release():
+        ipad.wait_for_function("() => whiteboard.input.pointers.size === 1")
+        ipad.evaluate(
+            "() => { for (const id of whiteboard.input.pointers.keys()) whiteboard.input.stage.releasePointerCapture(id); }"
+        )
+
+    touch_frames(ipad, [[(600, 400)], [(600, 420)], [target]], on_start=release)
+
+
+def test_a_finger_lost_by_the_browser_does_not_turn_later_gestures_into_zoom(browser, server):
+    """用户反馈（紧急）：iPad 上双指张开变成缩小，单指往下滑也变成缩小。
+
+    一根手指的抬起没送到 #stage，手势里就一直记着这根「幽灵手指」：之后单指一拖，算成和它
+    捏合，往下拖成了缩小；双指张开也拿它当其中一根。新的一次触摸开始（第一根手指落下）或
+    所有手指都抬起时，还记着的触摸都是幽灵，要清掉。"""
+    _mac, ipad = open_pages(browser, server.port, picker=True)
+    ipad.wait_for_selector("#pk-host .pk-picker", timeout=20000)
+    lose_a_finger(ipad)
+
+    before = ipad.evaluate(SCALE)
+    touch_frames(ipad, [[(600, 300 + d)] for d in range(0, 200, 10)])  # 单指往下拖
+    assert ipad.evaluate(SCALE) == before  # 只是平移，不缩放
+
+    touch_frames(ipad, [[(500 - d, 400), (700 + d, 400)] for d in range(0, 150, 10)])  # 双指张开
+    assert ipad.evaluate(SCALE) > before * 1.5  # 放大

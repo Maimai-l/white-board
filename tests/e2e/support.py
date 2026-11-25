@@ -226,13 +226,23 @@ def open_pages(browser, port, picker=False):
 
 
 # 在页面里合成指针事件，可以指定 pointerType，用来验证 Pencil 相关行为。
+# isPrimary 和浏览器一样：同一种指针里，落下时屏幕上没有别的那一根才是主指针（第二根手指不是）。
+# 输入层靠它认出新的一次触摸（见 input.js 的 dropStaleTouches），全标成 true 会把第一根手指当成幽灵。
 FIRE = """
 ([type, x, y, pointerType, pointerId, pressure]) => {
   const stage = document.getElementById('stage');
+  const down = window.__fireDown || (window.__fireDown = {});
+  const kind = down[pointerType] || (down[pointerType] = { ids: new Set(), primary: null });
+  if (type === 'pointerdown') {
+    if (!kind.ids.size) kind.primary = pointerId;
+    kind.ids.add(pointerId);
+  }
   stage.dispatchEvent(new PointerEvent(type, {
     clientX: x, clientY: y, pointerType, pointerId, pressure,
-    buttons: type === 'pointerup' ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true,
+    buttons: type === 'pointerup' ? 0 : 1, bubbles: true, cancelable: true,
+    isPrimary: kind.primary === pointerId,
   }));
+  if (type === 'pointerup' || type === 'pointercancel') kind.ids.delete(pointerId);
 }
 """
 
@@ -326,6 +336,26 @@ def finger_drag(page, start, end, steps=12, hold_ms=0):
             x = start[0] + (end[0] - start[0]) * step / steps
             y = start[1] + (end[1] - start[1]) * step / steps
             cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": point(x, y)})
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    finally:
+        cdp.detach()
+
+
+def touch_frames(page, frames, gap_ms=16, on_start=None):
+    """真触摸事件：``frames`` 是一串「这一刻每根手指在哪」（第一帧按下，其余是移动），最后全部抬起。
+    ``on_start`` 给了的话，在按下之后、移动之前调用。"""
+    cdp = page.context.new_cdp_session(page)
+
+    def points(frame):
+        return [{"x": x, "y": y, "id": i + 1, "radiusX": 8, "radiusY": 8} for i, (x, y) in enumerate(frame)]
+
+    try:
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": points(frames[0])})
+        if on_start is not None:
+            on_start()
+        for frame in frames[1:]:
+            page.wait_for_timeout(gap_ms)  # 手指每一帧之间的间隔，和真机的触摸节奏一样
+            cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": points(frame)})
         cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
     finally:
         cdp.detach()
