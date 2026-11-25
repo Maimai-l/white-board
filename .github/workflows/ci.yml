@@ -379,6 +379,7 @@ jobs:
       contents: read
       pages: write
       id-token: write
+      actions: read # 部署前确认 Pages 包在 API 里看得到
     env:
       SITE: ${{ needs.plan.outputs.site }}
       CHANNEL: ${{ needs.plan.outputs.publish }}
@@ -463,12 +464,33 @@ jobs:
         if: steps.keys.outputs.ok == 'true'
         run: python3 packaging/appcast.py verify site packaging/sparkle-public-key.txt
 
+      # Pages 包按这次运行的第几次尝试命名：重跑失败的 job 时，上一次上传的包还在同一个运行里，
+      # 同名的话 deploy-pages 会因为「找到两个 github-pages」直接失败，重跑永远过不去
       - uses: actions/upload-pages-artifact@v3
         if: steps.keys.outputs.ok == 'true'
         with:
           path: site
+          name: github-pages-${{ github.run_attempt }}
+      # 刚上传的包要过一会儿才在 API 里列得出来；deploy-pages 只查一次，查不到就失败
+      # （2026-11-25 dev 上遇到过一次）。等它出现再部署
+      - name: 等 Pages 包在 API 里出现
+        if: steps.keys.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: github-pages-${{ github.run_attempt }}
+        run: |
+          for i in $(seq 1 30); do
+            n="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?name=$NAME" --jq '.total_count')"
+            [ "$n" = "1" ] && exit 0
+            echo "第 $i 次：API 里还看不到 $NAME（$n 个），2 秒后再看"
+            sleep 2
+          done
+          echo "等了 60 秒，API 里还是看不到 $NAME" >&2
+          exit 1
       - uses: actions/deploy-pages@v4
         if: steps.keys.outputs.ok == 'true'
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
       - name: 摘要
         if: steps.keys.outputs.ok == 'true'
         run: |
