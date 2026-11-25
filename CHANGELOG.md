@@ -79,6 +79,7 @@ This file lists the notable changes to the board app and to inksync. The section
 
 ### Fixed
 
+- iPad: After the browser lost track of a lifted finger, spreading two fingers zoomed out and dragging one finger zoomed. Such fingers are now forgotten when the next touch starts.
 - Documents: Holding a finger on a page of a document board on a touch screen did not open the page menu. It now does.
 - iPad: A tap on a board in the Library opened its menu instead of the board when the finger rested a little. A card is now picked up after half a second.
 - Library: The Library stays open until the chosen board has arrived, instead of showing the previous board first.
