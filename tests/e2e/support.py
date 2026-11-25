@@ -286,6 +286,23 @@ def mask_chains(op):
 # ----------------------------------------------------------------- 白板选择界面
 
 
+def finger_tap(page, selector, hold_ms=300):
+    """像手指那样点一下：按下、停 ``hold_ms`` 再抬起（走 CDP 的真触摸事件）。
+
+    Playwright 的 ``tap()`` 按下和抬起之间没有间隔，真手指点一下在玻璃上要停一两百毫秒，
+    慢一点的会到 300ms：按住多久算长按，要用这个测。
+    """
+    box = page.locator(selector).bounding_box()
+    point = [{"x": box["x"] + box["width"] / 2, "y": box["y"] + box["height"] / 2, "id": 1, "radiusX": 8, "radiusY": 8}]
+    cdp = page.context.new_cdp_session(page)
+    try:
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": point})
+        page.wait_for_timeout(hold_ms)  # 手指停在玻璃上的时间本身就是被测的条件
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    finally:
+        cdp.detach()
+
+
 def open_gallery(page):
     """点「白板库」，等白板库画出来。"""
     page.click('button[title="白板库"]')

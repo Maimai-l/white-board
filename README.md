@@ -409,7 +409,7 @@ Right-clicking the background opens a menu with 新建白板 (New board, ⌘N), 
 | Between two boards | Reorders. Only with the 手动排列 (Manual) sort, outside 最近 and the trash, and without a search; other cards move aside only after the pointer rests in one place. |
 | Near the top or bottom edge | Scrolls the list. |
 
-- With a mouse or trackpad, a drag starts after the pointer moves a few pixels. A finger or Pencil starts a drag by moving sideways or by holding the card still for 220 ms; a vertical swipe scrolls.
+- With a mouse or trackpad, a drag starts after the pointer moves a few pixels. A finger or Pencil starts a drag by moving sideways or by holding the card still for half a second, as a long press on iOS; a shorter tap opens the board, and a vertical swipe scrolls.
 - The order is stored in `space.json` on the Mac, so it is the same on every device and survives restarts.
 - Dragging uses pointer events, not browser drag and drop, which iOS Safari does not implement. Timings and spring curves are at the top of `static/js/dragsort.js`.
 - `static/lab/drag.html` is a standalone copy for tuning those values on an iPad. It is available only when running from source; the packaged app excludes `static/lab/`.

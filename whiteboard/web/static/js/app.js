@@ -27,6 +27,7 @@ import {
   loadShapeLines,
   saveFingerDraw,
   saveShapeLines,
+  prepareThumb,
   uploadThumb,
 } from "./boards.js";
 import { ExportDialog } from "./ui-export.js";
@@ -647,8 +648,10 @@ class App extends InkPad {
       onBoardsOpen: () => uploadThumb(this.state, this.state.id),
       onSelectBoard: async (boardId) => {
         if (boardId === this.state.id) return;
-        await uploadThumb(this.state, this.state.id);
+        // 图趁现在画（白板一换就画不了这块了），传等 sel 发出去之后再传，不拦着切换
+        const sendThumb = await prepareThumb(this.state, this.state.id);
         this.net.send({ t: "sel", board: boardId });
+        if (sendThumb) sendThumb();
       },
       onNewBoard: async (kind, folder = "") => {
         await uploadThumb(this.state, this.state.id);

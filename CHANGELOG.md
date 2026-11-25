@@ -77,6 +77,8 @@ This file lists the notable changes to the board app and to inksync. The section
 
 ### Fixed
 
+- iPad: A tap on a board in the Library opened its menu instead of the board when the finger rested a little. A card is now picked up after half a second.
+- Library: The Library stays open until the chosen board has arrived, instead of showing the previous board first.
 - Updates: The iPad app never offered a newer shell from an alpha build, because alpha builds share one version number. It now offers one when the shell itself changed.
 - iPad: The board settings button did nothing on a document board. It now opens the background of blank pages.
 - Documents: A PDF of more than about 115 pages, such as a textbook, could not be imported, because the board's height was limited to 100,000 points.
