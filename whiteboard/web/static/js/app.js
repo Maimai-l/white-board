@@ -268,6 +268,23 @@ class App extends InkPad {
    * 不认长按，用更多菜单里的那一项。
    */
   bindPageMenu() {
+    // 菜单开在手指底下：有的浏览器长按松手后还会补一下 click，它会落在菜单项上，不吞掉就等于
+    // 替用户选了一项（Chromium 不补，测试里看不出来；这里是保险）
+    const swallowLiftClick = (pointerId) => {
+      const lifted = (event) => {
+        if (event.pointerId !== pointerId) return;
+        removeEventListener("pointerup", lifted, true);
+        removeEventListener("pointercancel", lifted, true);
+        const eat = (click) => {
+          click.stopPropagation();
+          click.preventDefault();
+        };
+        addEventListener("click", eat, { capture: true, once: true });
+        setTimeout(() => removeEventListener("click", eat, true), 400);
+      };
+      addEventListener("pointerup", lifted, true);
+      addEventListener("pointercancel", lifted, true);
+    };
     const open = (clientX, clientY) => {
       if (!this.ui.may("manage") || this.locked) return false;
       const page = this.docPageAt(clientX, clientY);
@@ -286,7 +303,9 @@ class App extends InkPad {
     addEventListener(
       "pointerdown",
       (event) => {
-        if (event.pointerType !== "touch" || this.input.fingerDraw || event.target !== this.input.stage) return;
+        // 真手指落在 #stage 里面的画布上（#base、#live），不是 #stage 本身：以前只认 #stage，
+        // 真机上长按从来不弹
+        if (event.pointerType !== "touch" || this.input.fingerDraw || !this.input.stage.contains(event.target)) return;
         if (hold) {
           cancel(); // 第二根手指：是捏合缩放，不是长按
           return;
@@ -294,7 +313,7 @@ class App extends InkPad {
         const { clientX, clientY, pointerId } = event;
         hold = { pointerId, x: clientX, y: clientY, timer: setTimeout(() => {
           hold = null;
-          open(clientX, clientY);
+          if (open(clientX, clientY)) swallowLiftClick(pointerId);
         }, PAGE_HOLD_MS) };
       },
       true
