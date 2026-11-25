@@ -472,23 +472,45 @@ jobs:
           path: site
           name: github-pages-${{ github.run_attempt }}
       # 刚上传的包要过一会儿才在 API 里列得出来；deploy-pages 只查一次，查不到就失败
-      # （2026-11-25 dev 上遇到过一次）。等它出现再部署
+      # （2026-11-25 dev 上遇到过两次）。按名字过滤的查询早就看得到时，不过滤的列表（deploy-pages
+      # 查的就是它）可能还没有：所以等的是不过滤的列表，而且要连着看到三次
       - name: 等 Pages 包在 API 里出现
         if: steps.keys.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           NAME: github-pages-${{ github.run_attempt }}
         run: |
-          for i in $(seq 1 30); do
-            n="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?name=$NAME" --jq '.total_count')"
-            [ "$n" = "1" ] && exit 0
-            echo "第 $i 次：API 里还看不到 $NAME（$n 个），2 秒后再看"
-            sleep 2
+          seen=0
+          for i in $(seq 1 40); do
+            n="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" \
+              --jq "[.artifacts[] | select(.name == \"$NAME\")] | length")"
+            if [ "$n" = "1" ]; then seen=$((seen + 1)); else seen=0; fi
+            [ "$seen" -ge 3 ] && exit 0
+            echo "第 $i 次：列表里 $NAME 有 $n 个（连续看到 $seen 次），3 秒后再看"
+            sleep 3
           done
-          echo "等了 60 秒，API 里还是看不到 $NAME" >&2
-          exit 1
+          echo "等了 2 分钟，列表里还是看不稳 $NAME，照样去部署（部署本身还会重试）" >&2
+      # 部署还查不到就隔一会儿再试，最多三次
       - uses: actions/deploy-pages@v4
+        id: deploy
         if: steps.keys.outputs.ok == 'true'
+        continue-on-error: true
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
+      - name: 部署没成，30 秒后再试
+        if: steps.keys.outputs.ok == 'true' && steps.deploy.outcome == 'failure'
+        run: sleep 30
+      - uses: actions/deploy-pages@v4
+        id: deploy2
+        if: steps.keys.outputs.ok == 'true' && steps.deploy.outcome == 'failure'
+        continue-on-error: true
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
+      - name: 又没成，90 秒后最后试一次
+        if: steps.keys.outputs.ok == 'true' && steps.deploy2.outcome == 'failure'
+        run: sleep 90
+      - uses: actions/deploy-pages@v4
+        if: steps.keys.outputs.ok == 'true' && steps.deploy2.outcome == 'failure'
         with:
           artifact_name: github-pages-${{ github.run_attempt }}
       - name: 摘要
