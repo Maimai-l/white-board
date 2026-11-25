@@ -293,11 +293,19 @@ def finger_tap(page, selector, hold_ms=300):
     慢一点的会到 300ms：按住多久算长按，要用这个测。
     """
     box = page.locator(selector).bounding_box()
-    point = [{"x": box["x"] + box["width"] / 2, "y": box["y"] + box["height"] / 2, "id": 1, "radiusX": 8, "radiusY": 8}]
+    finger_hold(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, hold_ms)
+
+
+def finger_hold(page, x, y, hold_ms, during=None):
+    """手指在窗口坐标 (x, y) 按下、停 ``hold_ms`` 再抬起（CDP 的真触摸事件，落在那里真正的元素上）。
+    ``during`` 给了的话，抬起之前调一下它（看按住时屏幕上是什么样）。"""
+    point = [{"x": x, "y": y, "id": 1, "radiusX": 8, "radiusY": 8}]
     cdp = page.context.new_cdp_session(page)
     try:
         cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": point})
         page.wait_for_timeout(hold_ms)  # 手指停在玻璃上的时间本身就是被测的条件
+        if during is not None:
+            during()
         cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
     finally:
         cdp.detach()
