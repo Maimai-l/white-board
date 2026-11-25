@@ -30,6 +30,8 @@ export function layerBox(layer, img) {
 export class ImageLayers {
   constructor(onChange) {
     this.onChange = onChange || (() => {});
+    // 拖页码滑条时一路经过几十页：先不取图，停下来再取（hold(false)）
+    this.held = false;
     this.key = null;
     this.layers = [];
     this.entries = new Map(); // index -> {img, bucket, pending, failed, src}
@@ -77,7 +79,7 @@ export class ImageLayers {
 
   /** 按当前缩放把该出现的层取回来，并把用不到的释放。 */
   update(view, scale, dpr) {
-    if (!this.layers.length) return;
+    if (!this.layers.length || this.held) return;
     const range = this.visibleRange(view);
     const from = range ? Math.max(0, range[0] - KEEP_AROUND) : 0;
     const to = range ? Math.min(this.layers.length - 1, range[1] + KEEP_AROUND) : -1;
@@ -103,6 +105,12 @@ export class ImageLayers {
       if (entry && entry.failed && entry.pending) continue;
       this.load(index, wanted);
     }
+  }
+
+  /** 暂停取图（``on``）或恢复：恢复时请求重画一次，这时视野里的层才去取。 */
+  hold(on) {
+    this.held = !!on;
+    if (!this.held) this.onChange();
   }
 
   load(index, width) {

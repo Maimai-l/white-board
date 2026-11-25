@@ -33,6 +33,7 @@ import {
 import { ExportDialog } from "./ui-export.js";
 import { reportError, reportUncaughtErrors, setReportURL } from "/inksync/report.js";
 import { ImportDialog } from "./ui-import.js";
+import { PageScrubber } from "./page-scrubber.js";
 
 export { reportError };
 
@@ -208,6 +209,12 @@ class App extends InkPad {
     });
     if (this.role === "mac") this.bindDrop();
     this.bindPageMenu();
+    // 文档白板右边的页码滑条（多于一页时才有）
+    this.scrubber = new PageScrubber(this);
+    this.on("meta", () => this.scrubber.setBoard());
+    this.on("view", () => this.scrubber.onView());
+    addEventListener("resize", () => this.scrubber.place(), { passive: true });
+    this.scrubber.setBoard();
   }
 
   // ------------------------------------------------------------ 文档板的页

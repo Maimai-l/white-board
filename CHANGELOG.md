@@ -37,6 +37,7 @@ This file lists the notable changes to the board app and to inksync. The section
 - iPad: An Apple Pencil stroke started on the ruler or near its edge is drawn as a straight line along the edge. The line syncs; the ruler is not shown on the Mac.
 - Documents: Importing a PDF of more than one page opens an import dialog with page thumbnails. All pages, a range such as `3-15` or the selected pages are imported.
 - Documents: The import dialog can add a blank page after each imported page.
+- Documents: A page scrubber on the right edge of a document board turns to any page by dragging or clicking, and shows the page number while dragging.
 - Documents: Blank pages are inserted before or after a page from its menu: right-click on the Mac, hold a finger on touch devices.
 - Documents: The More menu and the tool picker's More menu insert a blank page after the page in view. Blank pages show the board's background pattern.
 - Documents: A blank page can be deleted with the ink on it. Pages of the original cannot be deleted. Exports include the blank pages.
@@ -44,6 +45,7 @@ This file lists the notable changes to the board app and to inksync. The section
 - inksync: Hubs emit an `attached` event when a connection is registered after its handshake.
 - inksync: `Hub.replace_board` replaces a board's metadata and strokes, and connections on the board reopen it with a new epoch.
 - inksync: A `sheet` layer without `src` is drawn as a blank page with the board's background pattern.
+- inksync: Pads emit a `view` event when the view moves or zooms.
 
 ### Changed
 

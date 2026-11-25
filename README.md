@@ -425,6 +425,12 @@ Drop a PDF or an image onto the window, choose 导入 PDF 或图片… (Import P
 - While files are dragged over the window, an overlay reads 「导入为新白板」 (import as new board), or 「导入到 <folder>」 (import into) when the library shows a folder.
 - Where the new board goes: with the library open, into the folder it shows, or into a sidebar folder the files are dropped on; with the library closed, into the current board's folder. Files opened from Finder likewise go into the folder the library shows, or the current board's folder.
 
+**Page scrubber.** A document board of more than one page has a page scrubber on the right edge for turning to a page quickly:
+
+- It is hidden at first. Scrolling or zooming shows a thin thumb on the right, which fades 1.5 s after the view stops. While hidden it takes no input, so writing near the right edge works as usual.
+- Moving the pointer to the right edge on the Mac, or holding the thumb on a touch device, shows the track and a wider thumb. Dragging moves the pages along and shows the page, such as 12 / 300, beside the thumb; releasing stops at the top of that page. Clicking or tapping the track jumps to that page.
+- Dragging the thumb never writes. Page images are loaded once the thumb stops, not for every page passed.
+
 **Blank pages.** When the annotations need more room, add blank pages to a document board. This needs the Manage boards permission:
 
 - Right-click a page on the Mac, or hold a finger still on a page on a touch device (with 用手指绘图, draw with finger, on, the finger writes and a hold does nothing). The menu has 在后面插入空白页 (insert a blank page after) and 在前面插入空白页 (insert a blank page before); on a blank page it also has 删除这一空白页 (delete this blank page), which asks first because the ink on it goes too. Pages of the original cannot be deleted.

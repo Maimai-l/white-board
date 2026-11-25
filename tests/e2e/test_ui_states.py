@@ -434,3 +434,25 @@ def test_mac_import_and_page_states(browser, server, size_name):
         page, lambda: page.mouse.click(x, y, button="right"), ".menu", (w - 30, h - 30), f"{size_name}-page-menu"
     )
     assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize("size_name", list(MAC_SIZES))
+def test_mac_page_scrubber_states(browser, server, size_name):
+    """文档白板右边的页码滑条：拖动时的样子（docs/backlog/015-page-scrubber.md 的设计稿）。"""
+    from e2e.test_page_scrubber import box, doc_board, wait_state
+
+    size = MAC_SIZES[size_name]
+    page = mac_page(browser, server, size)
+    w, _h = size
+    doc_board(page)
+    track = box(page, ".scrubber")
+    page.mouse.move(w - 6, track["y"] + 40)
+    wait_state(page, "active")
+    problems = check(page, f"{size_name}-scrubber-hover")
+    thumb = box(page, ".scrubber-hit")
+    page.mouse.move(thumb["x"] + thumb["width"] / 2, thumb["y"] + thumb["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(thumb["x"] + thumb["width"] / 2, track["y"] + track["height"] * 0.4, steps=8)
+    problems += check(page, f"{size_name}-scrubber-drag")
+    page.mouse.up()
+    assert not problems, "\n".join(problems)

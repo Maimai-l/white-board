@@ -2172,3 +2172,104 @@ select { transition: border-color var(--t-hover) var(--ease-out), box-shadow var
 }
 /* 白板设置面板底部的所有设置… */
 .panel .panel-more { align-self: flex-start; }
+
+/* ------------------------------------------------------------- 页码滑条 */
+
+/* 文档白板右边的页码滑条（page-scrubber.js）。看不到的时候整条不接输入，贴着右边写字不受影响。
+   Mac 上夹在顶栏和右下角缩放之间，触摸设备上夹在右上角那组按钮和底下的笔具盘之间。 */
+.scrubber {
+  position: absolute;
+  z-index: 1;
+  right: calc(4px + env(safe-area-inset-right));
+  top: 72px;
+  bottom: 100px;
+  width: 36px;
+  pointer-events: none;
+}
+:root[data-chrome="touch"] .scrubber { top: calc(84px + env(safe-area-inset-top)); bottom: 120px; width: 44px; }
+.scrubber[hidden] { display: none; }
+.scrubber-track {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 4px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, .1);
+  opacity: 0;
+  transition: opacity var(--motion);
+}
+/* 轨道左右各放宽一些当作点按的范围 */
+.scrubber-track::before { content: ""; position: absolute; inset: 0 -14px; }
+/* 滑块：一整条宽的可按区域，里面是看得见的那根 */
+.scrubber-hit {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  outline: none;
+}
+.scrubber-thumb {
+  width: 5px;
+  height: 36px;
+  border-radius: 3px;
+  background: rgba(60, 60, 67, .55);
+  opacity: 0;
+  transition: opacity var(--motion), width var(--motion), height var(--motion), background-color var(--motion);
+}
+.scrubber-bubble {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 6px);
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--on-surface);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: 0 0 0 .5px var(--glass-border), var(--shadow-2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion);
+}
+:root[data-chrome="touch"] .scrubber-bubble { height: 44px; padding: 0 16px; font-size: 17px; border-radius: 12px; }
+.scrubber-total { color: var(--on-surface-variant); font-weight: 500; }
+
+.scrubber[data-state="scroll"] .scrubber-thumb { opacity: 1; }
+.scrubber[data-state="scroll"] .scrubber-hit,
+.scrubber[data-state="active"] .scrubber-hit,
+.scrubber[data-state="active"] .scrubber-track { pointer-events: auto; }
+.scrubber[data-state="active"] .scrubber-track { opacity: 1; }
+.scrubber[data-state="active"] .scrubber-thumb {
+  opacity: 1;
+  width: 8px;
+  height: 44px;
+  border-radius: 4px;
+  background: #636366;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .9);
+}
+:root[data-chrome="touch"] .scrubber[data-state="active"] .scrubber-thumb { width: 10px; height: 48px; border-radius: 5px; }
+.scrubber.dragging .scrubber-bubble { opacity: 1; }
+
+@media (prefers-color-scheme: dark) {
+  .scrubber-track { background: rgba(255, 255, 255, .16); }
+  .scrubber-thumb { background: rgba(235, 235, 245, .55); }
+  .scrubber[data-state="active"] .scrubber-thumb { background: #aeaeb2; box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .6); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scrubber-track, .scrubber-thumb, .scrubber-bubble { transition: none; }
+}
