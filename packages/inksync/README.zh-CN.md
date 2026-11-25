@@ -256,6 +256,7 @@ class Principal:
 | `change` | `{board}` | 当前白板的笔迹变化（本机或其他设备）。 |
 | `op` | `{board, op}` | 本机发出一个操作。 |
 | `strokestart`、`strokeend` | 笔画 | 本机一笔开始、结束。 |
+| `view` | `{x, y, scale}` | 本机的视野平移或缩放了（手势、惯性、动画，或代码直接改了 `viewport`）。每帧最多一次。 |
 | `locked` | `{board, locked, unlock}` | 白板进入或解除只读。`caps.unlock` 为 true 时，调用 `unlock()` 请求服务端允许编辑。 |
 | `caps` | `caps` | 权限变化。 |
 | `deleted` | `{board}` | 当前白板被删除。 |

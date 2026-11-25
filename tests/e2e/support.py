@@ -303,6 +303,26 @@ def finger_tap(page, selector, hold_ms=300):
         cdp.detach()
 
 
+def finger_drag(page, start, end, steps=12, hold_ms=0):
+    """一根手指从 ``start`` 按下（先停 ``hold_ms``），分 ``steps`` 步移到 ``end`` 再抬起（CDP 真触摸事件）。"""
+    cdp = page.context.new_cdp_session(page)
+
+    def point(x, y):
+        return [{"x": x, "y": y, "id": 1, "radiusX": 8, "radiusY": 8}]
+
+    try:
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": point(*start)})
+        if hold_ms:
+            page.wait_for_timeout(hold_ms)  # 按住的时间本身就是被测的条件
+        for step in range(1, steps + 1):
+            x = start[0] + (end[0] - start[0]) * step / steps
+            y = start[1] + (end[1] - start[1]) * step / steps
+            cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": point(x, y)})
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    finally:
+        cdp.detach()
+
+
 def open_gallery(page):
     """点「白板库」，等白板库画出来。"""
     page.click('button[title="白板库"]')

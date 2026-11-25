@@ -303,6 +303,18 @@ export class InkPad {
     };
   }
 
+  /**
+   * 视野（平移、缩放）这一帧变了就发 ``view``：手势、惯性、动画、外部直接改 viewport 都算，
+   * 所以放在每帧的末尾比，而不是挂在某一种改法上。只比三个数，不变的时候什么都不做。
+   */
+  noticeView() {
+    const { x, y, scale } = this.viewport;
+    const last = this.lastView;
+    if (last && last.x === x && last.y === y && last.scale === scale) return;
+    this.lastView = { x, y, scale };
+    if (last) this.emit("view", { x, y, scale });
+  }
+
   loop() {
     let previous = performance.now();
     const frame = () => {
@@ -311,6 +323,7 @@ export class InkPad {
       try {
         this.input.flushLive();
         this.renderer.tick();
+        this.noticeView();
         if (this.perf.enabled) {
           this.perf.countSamples(this.input.takeSampleCount());
           this.perf.frame(started, started - previous, performance.now() - started);

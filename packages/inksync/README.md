@@ -256,6 +256,7 @@ Read-only properties:
 | `change` | `{board}` | The ink of the current board changes (on this device or another). |
 | `op` | `{board, op}` | This device sends an operation. |
 | `strokestart`, `strokeend` | stroke | A stroke on this device starts or ends. |
+| `view` | `{x, y, scale}` | The view on this device moved or zoomed (gestures, momentum, animations, or code that changes `viewport`). Sent at most once per frame. |
 | `locked` | `{board, locked, unlock}` | A board becomes read-only or stops being read-only. When `caps.unlock` is true, `unlock()` asks the server to allow editing. |
 | `caps` | `caps` | Permissions change. |
 | `deleted` | `{board}` | The current board was deleted. |
