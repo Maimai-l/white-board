@@ -133,6 +133,9 @@ checks 总是跑。package 需要 iPad 外壳，所以 package 跑时 ipad 也�
 5. 去掉文件已经不在的增量包条目：generate_appcast 会删掉从已不保留的版本出发的增量包文件，旧条目却还列着
    它们（2026-11-20 两次发布因此失败）。再删掉 appcast 不再引用的文件，核对签名，用 `upload-pages-artifact`
    和 `deploy-pages` 发布。
+6. Pages 包叫 `github-pages-<第几次尝试>`，部署前等它在 API 里列得出来（最多 60 秒）。2026-11-25 一次发布里
+   刚上传的包 API 还查不到，`deploy-pages` 只查一次就失败了；重跑这个 job 又因为同一个运行里有了两个同名的
+   `github-pages` 而失败。按尝试命名之后，重跑也能过。
 
 增量包：每个新版本对前 3 个版本各生成一个，Python 运行时和依赖基本不变，所以增量包通常只有几 MB 甚至更小。
 没有增量包可用时（跳了很多版本）Sparkle 下载完整包。
