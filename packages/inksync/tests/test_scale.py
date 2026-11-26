@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import statistics
 import time
 
 from inksync import FileStorage, Hub, models
@@ -35,13 +36,18 @@ def test_twenty_thousand_boards(tmp_path):
 
     async def create():
         hub = Hub(store)
-        began = time.perf_counter()
-        await hub.create_board("new-board", {"name": "新的一块"})
-        return time.perf_counter() - began
+        times = []
+        for index in range(5):
+            began = time.perf_counter()
+            await hub.create_board(f"new-board-{index}", {"name": "新的一块"})
+            times.append(time.perf_counter() - began)
+        return times
 
-    created = asyncio.run(create())
+    # 量五次取中位数：只量一次的话，CI 共享机器上偶尔一次磁盘抖动（2026-11-26 一次到了 100 ms，
+    # 本机 1.5 ms）就会误报。随白板数增长的毛病每次都要几秒，中位数照样拦得住
+    created = statistics.median(asyncio.run(create()))
     assert created < 0.05, created  # 规格 20 ms；CI 上留出余量
-    assert store.count() == COUNT + 1
+    assert store.count() == COUNT + 5
     assert len(store.list(prefix="u7-", limit=None)) == COUNT // 500
     store.close()
 
