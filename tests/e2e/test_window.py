@@ -109,3 +109,37 @@ def test_a_browser_tab_leaves_no_room_for_traffic_lights(browser, server):
     mac = mac_window(browser, server.port, query="")
     assert mac.evaluate("() => document.documentElement.dataset.window") is None
     assert box(mac, '#topbar button[title="白板库"]')["x"] < 40
+
+
+def test_the_dimmed_background_of_a_dialog_drags_the_window(browser, server):
+    """用户反馈：导入时没法拖动窗口。窗口有一截在屏幕外，导入按钮在外面点不到，又拖不动，只能
+    先取消、挪好窗口再来。和 Mac 上的表单一样：对话框后面变暗的那一片能拖动窗口，点它不会关掉
+    对话框（关只靠按钮和 Esc）。"""
+    from e2e.test_doc_pages import drop_pdf
+
+    mac = mac_window(browser, server.port)
+    drop_pdf(mac, "讲义.pdf", 3)
+    mac.wait_for_selector(".import-dialog")
+    dialog = box(mac, ".import-dialog")
+    corner = (20, 780)  # 对话框外面、变暗的那一片
+    assert not (dialog["x"] <= corner[0] <= dialog["x"] + dialog["width"])
+    hit = mac.evaluate(HIT, list(corner))
+    assert hit and hit["drag"], hit
+    top = mac.evaluate(HIT, [600, 20])  # 顶栏那一条也被盖住了，同样能拖
+    assert top and top["drag"], top
+    mac.mouse.click(*corner)
+    mac.wait_for_timeout(300)  # 点完给关闭动画留出时间：要是会关，这段时间里就开始淡出了
+    assert mac.locator(".import-dialog:not(.leaving)").count() == 1
+    mac.keyboard.press("Escape")
+    gone(mac, ".import-dialog")
+
+
+def test_in_a_browser_clicking_outside_a_dialog_still_closes_it(browser, server):
+    from e2e.support import open_mac
+    from e2e.test_doc_pages import drop_pdf
+
+    mac = open_mac(browser, server.port)
+    drop_pdf(mac, "讲义.pdf", 3)
+    mac.wait_for_selector(".import-dialog")
+    mac.mouse.click(20, 780)
+    gone(mac, ".import-dialog")

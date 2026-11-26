@@ -141,6 +141,31 @@ export class UI {
 
   // ------------------------------------------------------------- 构建
 
+  /**
+   * Mac 窗口里，对话框后面变暗的那一片（.scrim）和 Mac 的表单一样：能拖动窗口，点它不关对话框，
+   * 关只靠按钮和 Esc。对话框一盖，顶栏这个唯一能拖窗口的地方也被盖住了；窗口有一截在屏幕外时，
+   * 对话框的按钮点不到又挪不动窗口，只能先取消（用户反馈）。浏览器里照旧点外面就关。
+   */
+  sheetBackdrops() {
+    const mark = (node) => {
+      if (!(node instanceof Element)) return;
+      if (node.matches(".scrim")) node.classList.add("pywebview-drag-region");
+      for (const scrim of node.querySelectorAll(".scrim")) scrim.classList.add("pywebview-drag-region");
+    };
+    new MutationObserver((records) => {
+      for (const record of records) record.addedNodes.forEach(mark);
+    }).observe(this.root, { childList: true, subtree: true });
+    mark(this.root);
+    // 捕获阶段拦下直接点在暗处的那一下：对话框自己挂在 .scrim 上的「点外面就关」收不到
+    document.addEventListener(
+      "click",
+      (event) => {
+        if (event.target instanceof Element && event.target.matches(".scrim")) event.stopPropagation();
+      },
+      true
+    );
+  }
+
   build() {
     document.documentElement.dataset.chrome = this.touchDevice ? "touch" : "bar";
     // Mac 窗口没有系统标题栏，红绿灯在顶栏左边（app.py 在地址里带上 window=inset，
@@ -152,6 +177,7 @@ export class UI {
           this.actions.onZoomWindow();
         }
       });
+      this.sheetBackdrops();
     }
     this.fingerDraw = loadFingerDraw();
     this.shapeLines = loadShapeLines();

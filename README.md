@@ -188,7 +188,7 @@ The interface follows the system controls: frosted glass and the system blue acc
 
 **Mac window and desktop browsers**
 
-- **Title bar (top):** on the left, 白板库 (Library) and the board name, with its folder under the name. On the right, 连接其他设备 (Connect other devices; only in the Mac window, see [Connecting an iPad](#connecting-an-ipad)), 导出 (Export) and 白板设置 (Board settings). In the Mac window this bar is the window's title bar: the close, minimize and zoom buttons sit at its left end, dragging an empty part of it moves the window, and double-clicking an empty part zooms the window (or minimizes it, following the setting in System Settings → Desktop & Dock). The library's top bar works the same way.
+- **Title bar (top):** on the left, 白板库 (Library) and the board name, with its folder under the name. On the right, 连接其他设备 (Connect other devices; only in the Mac window, see [Connecting an iPad](#connecting-an-ipad)), 导出 (Export) and 白板设置 (Board settings). In the Mac window this bar is the window's title bar: the close, minimize and zoom buttons sit at its left end, dragging an empty part of it moves the window, and double-clicking an empty part zooms the window (or minimizes it, following the setting in System Settings → Desktop & Dock). The library's top bar works the same way. While a dialog (import, export, confirmation) is open, dragging the dimmed area behind it also moves the window; as with Mac sheets, clicking the dimmed area does not close the dialog, its buttons or Esc do.
 - **Toolbar (bottom center):** see below.
 - **Zoom (bottom right):** 缩小 (zoom out), the current percentage, 放大 (zoom in) and 回到内容 (back to content). Clicking the percentage (for example `100%`) returns to actual size.
 - **Connection status:** in a desktop browser, a red dot appears next to the board name while the connection to the Mac is lost, yellow while connecting, and nothing while connected. The Mac window has no dot.
@@ -429,7 +429,7 @@ Drop a PDF or an image onto the window, choose 导入 PDF 或图片… (Import P
 
 - It is hidden at first. Scrolling or zooming shows a thin thumb on the right, which fades 1.5 s after the view stops. While hidden it takes no input, so writing near the right edge works as usual.
 - Moving the pointer to the right edge on the Mac, or holding the thumb on a touch device, shows the track and a wider thumb. Dragging moves the pages along and shows the page, such as 12 / 300, beside the thumb; releasing stops at the top of that page. Clicking or tapping the track jumps to that page.
-- Dragging the thumb never writes. Page images are loaded once the thumb stops, not for every page passed.
+- Only fingers and the mouse drag the thumb, and dragging it never writes. An Apple Pencil touching the thumb writes as usual, so writing at the right edge does not turn pages. Page images are loaded once the thumb stops, not for every page passed.
 
 **Blank pages.** When the annotations need more room, add blank pages to a document board. This needs the Manage boards permission:
 

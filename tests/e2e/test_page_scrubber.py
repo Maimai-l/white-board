@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from e2e.support import draw, enable_pk_picker, finger_drag, open_mac, open_touch, wait_strokes
+from e2e.support import draw, enable_pk_picker, finger_drag, open_mac, open_touch, pencil_stroke, wait_strokes
 from e2e.test_doc_pages import DOC, drop_pdf, wait_doc
 
 PAGES = 30
@@ -16,6 +16,14 @@ STATE = "() => document.querySelector('.scrubber').dataset.state"
 # 屏幕正中那一页（从 0 起）
 CURRENT = "() => whiteboard.currentDocPage().index"
 # 某一页上沿在屏幕上的 y（相对画布）
+# 视野停住了：连着几帧没动（手指松开后的惯性滑完）
+STILL = """() => {
+  const v = whiteboard.viewport;
+  const now = `${v.x} ${v.y} ${v.scale}`;
+  const still = window.__lastView === now;
+  window.__lastView = now;
+  return still && !whiteboard.input.momentum;
+}"""
 PAGE_TOP = "(i) => { const l = whiteboard.state.layers.filter((x) => x.sheet)[i]; return l.y * whiteboard.viewport.scale + whiteboard.viewport.y; }"
 
 
@@ -121,3 +129,24 @@ def test_only_document_boards_of_several_pages_have_a_scrubber(browser, server):
     doc_board(mac, pages=3)
     mac.wait_for_selector(SCRUBBER, state="attached")
     mac.wait_for_function("() => !document.querySelector('.scrubber').hidden")
+
+
+def test_the_pencil_writes_over_the_visible_scrubber_instead_of_turning_pages(browser, server):
+    """用户反馈：iPad 上 Pencil 会误触右边的滑条，很烦。滑块刚滚出来时，贴着右边写字的 Pencil
+    落在滑块上，原来会拖动翻页。现在滑条只认手指，Pencil 落在上面照常写字，页面不动。"""
+    mac = open_mac(browser, server.port)
+    doc_board(mac)
+    ipad = open_touch(browser, server.port, picker=True)
+    enable_pk_picker(ipad)
+    ipad.wait_for_function(f"() => !!({DOC})()")
+    finger_drag(ipad, (600, 500), (600, 380), steps=6)  # 手指滚一下：细滑块出现
+    wait_state(ipad, "scroll")
+    ipad.wait_for_function(STILL)  # 手指松开后的惯性滑完
+    view = ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]")
+    thumb = box(ipad, ".scrubber-hit")
+    x = thumb["x"] + thumb["width"] / 2
+    y = thumb["y"] + thumb["height"] / 2
+    pencil_stroke(ipad, [(x, y + i * 12) for i in range(12)])  # 从滑块上往下写一笔
+    wait_strokes(mac, 1)
+    assert ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]") == view
+    assert ipad.locator(".scrubber.dragging").count() == 0
