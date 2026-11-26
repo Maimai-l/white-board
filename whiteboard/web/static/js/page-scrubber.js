@@ -7,7 +7,8 @@
 // - 指针移到右边（Mac）或按住滑块：出现轨道，滑块变粗；上下拖，页面跟着走，旁边显示
 //   「12 / 300」；松手停在那一页的顶上。点轨道直接跳到那一页。
 // - 看不到的时候不接任何输入：贴着右边写字不会被它截走。滑块在的时候（刚滚过、指针在
-//   右边），手指和 Pencil 都能拖它，拖的时候不写字（它在 #ui 里，不在 #stage 上）。
+//   右边），手指能拖它，拖的时候不写字（它在 #ui 里，不在 #stage 上）。Pencil 不拖它：落在
+//   滑块上的 Pencil 是贴着右边在写字，交给 #stage 照常写（passToBoard）。
 // - 拖的时候一路经过几十页，不给每一页都去要图（ImageLayers.hold），停下再取。
 //
 // 滑块的位置就是视野中心在全部页面里的比例：拖到哪儿，视野中心就在哪儿，两者一直对得上。
@@ -163,6 +164,10 @@ export class PageScrubber {
   /** 按住滑块（或点轨道）：开始拖。``jump`` 时先跳到按下的位置。 */
   grab(event, jump) {
     if (this.node.hidden || this.state === "hidden" || event.button > 0) return;
+    if (event.pointerType === "pen") {
+      this.passToBoard(event);
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     clearTimeout(this.fadeTimer);
@@ -195,6 +200,17 @@ export class PageScrubber {
     addEventListener("pointerup", up, true);
     addEventListener("pointercancel", up, true);
     this.drag(event.clientY);
+  }
+
+  /**
+   * Pencil 落在滑块上：不是来翻页的，是贴着右边在写字（用户反馈：Pencil 老是误触滑条）。
+   * 滑条马上收起不再接输入，这一下原样交给 #stage，#stage 接住之后会捕获这根笔，后面的
+   * 移动和抬起都到它那里。
+   */
+  passToBoard(event) {
+    clearTimeout(this.fadeTimer);
+    this.setState("hidden");
+    this.app.input.stage.dispatchEvent(new PointerEvent(event.type, event));
   }
 
   /** 拖到 ``clientY``：视野中心跟到对应的位置，页面跟着走。 */

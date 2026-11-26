@@ -361,6 +361,35 @@ def touch_frames(page, frames, gap_ms=16, on_start=None):
         cdp.detach()
 
 
+def pencil_stroke(page, points):
+    """真的「笔」指针（CDP 的 pointerType pen）：按点上的元素命中，和 Pencil 落在屏幕上一样。
+    ``draw`` 直接往 #stage 上发事件，测不出盖在 #stage 上面的界面会不会截走 Pencil。"""
+    cdp = page.context.new_cdp_session(page)
+    try:
+        for i, (x, y) in enumerate(points):
+            kind = "mousePressed" if i == 0 else "mouseMoved"
+            cdp.send(
+                "Input.dispatchMouseEvent",
+                {
+                    "type": kind,
+                    "x": x,
+                    "y": y,
+                    "button": "left",
+                    "buttons": 1,
+                    "clickCount": 1,
+                    "pointerType": "pen",
+                    "force": 0.5,
+                },
+            )
+        x, y = points[-1]
+        cdp.send(
+            "Input.dispatchMouseEvent",
+            {"type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1, "pointerType": "pen"},
+        )
+    finally:
+        cdp.detach()
+
+
 def open_gallery(page):
     """点「白板库」，等白板库画出来。"""
     page.click('button[title="白板库"]')
