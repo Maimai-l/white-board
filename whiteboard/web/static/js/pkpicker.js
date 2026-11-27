@@ -844,6 +844,12 @@ function makeClass(Base) {
       let rows =
         `<button type="button" class="pk-row" data-toggle="shapeLines"><span>形状识别</span>` +
         `<span class="pk-switch" role="switch" aria-checked="${!!this.shapeLines}"></span></button>`;
+      // 文档板：右边的页码滑条开关，和形状识别同一种写法
+      if (this.allowScrubber) {
+        rows +=
+          `<button type="button" class="pk-row" data-toggle="scrubber"><span>页码滑条</span>` +
+          `<span class="pk-switch" role="switch" aria-checked="${this.scrubber !== false}"></span></button>`;
+      }
       // 清空白板是一项单独的权限，白板那边没给就别把这一行画出来
       if (this.allowClear !== false) {
         rows += `<button type="button" class="pk-row" data-wb="clear"><span>清空白板</span></button>`;
@@ -886,6 +892,7 @@ function makeClass(Base) {
         sizeIndex: typeof cfg.size === "number" ? cfg.size : 1,
         fingerDraws: !!this.fingerDraws,
         shapeLines: !!this.shapeLines,
+        scrubber: this.scrubber !== false,
         // 橡皮那个面板里的「对象 / 像素」二选一，白板两种都做了，见 app-eraser.js 的 erasePixels
         eraserMode: (this.tools.eraser && this.tools.eraser.mode) === "pixel" ? "pixel" : "object",
       };
@@ -935,7 +942,7 @@ function makeClass(Base) {
     }
 
     /** 白板那边改了工具 / 颜色（比如从缓存恢复），推回工具盘。 */
-    applyState({ tool, color, sizeIndex, fingerDraws, shapeLines, eraserMode }) {
+    applyState({ tool, color, sizeIndex, fingerDraws, shapeLines, scrubber, eraserMode }) {
       const art = TOOL_ART[tool] || "pen";
       this.current = art;
       const cfg = this.tools[art];
@@ -947,6 +954,7 @@ function makeClass(Base) {
       }
       if (fingerDraws !== undefined) this.fingerDraws = !!fingerDraws;
       if (shapeLines !== undefined) this.shapeLines = !!shapeLines;
+      if (scrubber !== undefined) this.scrubber = !!scrubber;
       if (eraserMode !== undefined && this.tools.eraser) {
         this.tools.eraser.mode = eraserMode === "pixel" ? "pixel" : "object";
       }

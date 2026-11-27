@@ -429,6 +429,7 @@ Drop a PDF or an image onto the window, choose 导入 PDF 或图片… (Import P
 
 - It is hidden at first. Scrolling or zooming shows a thin thumb on the right, which fades 1.5 s after the view stops. While hidden it takes no input, so writing near the right edge works as usual.
 - Moving the pointer to the right edge on the Mac, or holding the thumb on a touch device, shows the track and a wider thumb. Dragging moves the pages along and shows the page, such as 12 / 300, beside the thumb; releasing stops at the top of that page. Clicking or tapping the track jumps to that page.
+- To hide it, turn off 页码滑条 (Page scrubber) in the 更多 (More) menu, or the tool picker's “…” menu on the iPad. The setting applies to this device only and is remembered; the item appears only on document boards.
 - Only fingers and the mouse drag the thumb, and dragging it never writes. An Apple Pencil touching the thumb writes as usual, so writing at the right edge does not turn pages. Page images are loaded once the thumb stops, not for every page passed.
 
 **Blank pages.** When the annotations need more room, add blank pages to a document board. This needs the Manage boards permission:

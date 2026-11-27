@@ -26,6 +26,7 @@ import {
   loadFingerDraw,
   loadShapeLines,
   saveFingerDraw,
+  saveScrubber,
   saveShapeLines,
   prepareThumb,
   uploadThumb,
@@ -211,6 +212,7 @@ class App extends InkPad {
     this.bindPageMenu();
     // 文档白板右边的页码滑条（多于一页时才有）
     this.scrubber = new PageScrubber(this);
+    this.scrubber.setEnabled(this.ui.scrubberOn);
     this.on("meta", () => this.scrubber.setBoard());
     this.on("view", () => this.scrubber.onView());
     addEventListener("resize", () => this.scrubber.place(), { passive: true });
@@ -645,6 +647,10 @@ class App extends InkPad {
       onFingerDraw: (enabled) => {
         this.input.setFingerDraw(enabled);
         saveFingerDraw(enabled);
+      },
+      onScrubber: (enabled) => {
+        saveScrubber(enabled);
+        this.scrubber.setEnabled(enabled);
       },
       onShapeLines: (enabled) => {
         this.input.setShapeLines(enabled);

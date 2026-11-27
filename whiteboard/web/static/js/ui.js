@@ -12,7 +12,7 @@
 // 白板库、对话框、设置面板各放一个文件，方法装回 UI 上（见文件末尾）。
 
 import { icon } from "./icons.js";
-import { loadFingerDraw, loadShapeLines } from "./boards.js";
+import { loadFingerDraw, loadScrubber, loadShapeLines } from "./boards.js";
 import { loadPicker } from "./pkpicker.js";
 import { inShell } from "/inksync/shell.js";
 import { boardLabel, iconButton } from "./ui-common.js";
@@ -181,6 +181,7 @@ export class UI {
     }
     this.fingerDraw = loadFingerDraw();
     this.shapeLines = loadShapeLines();
+    this.scrubberOn = loadScrubber();
 
     this.toolbar = el("div", { id: "toolbar", class: "pill", role: "toolbar", "aria-label": "绘图工具" });
     this.root.append(this.toolbar);
@@ -337,7 +338,10 @@ export class UI {
     closeMenu();
     this.buildChrome();
     if (this.pk) this.pk.allowClear = this.may("clear");
-    if (this.pk) this.pk.allowBlank = this.canAddPages();
+    if (this.pk) {
+      this.pk.allowBlank = this.canAddPages();
+      this.pk.allowScrubber = this.isDocBoard();
+    }
     if (!this.may("manage")) this.closeGallery();
     if (!this.may("export") && this.exportDialog) this.exportDialog.close();
   }
@@ -396,6 +400,8 @@ export class UI {
     }
     // 文档板：屏幕中间那一页后面插一页空白，批注写不下时接着写
     if (this.canAddPages()) items.push({ label: "在这一页后面插入空白页", onSelect: () => this.actions.onInsertBlankHere() }, "-");
+    // 文档板右边的页码滑条：每台设备自己开关（和形状识别一样）
+    if (this.isDocBoard()) items.push({ label: "页码滑条", checked: this.scrubberOn, onSelect: () => this.toggleScrubber() }, "-");
     items.push({ label: "回到内容", onSelect: () => this.actions.onFit() });
     if (this.may("clear")) items.push("-", { label: "清空白板…", danger: true, onSelect: () => this.confirmClear() });
     this.closePopover();
@@ -446,6 +452,7 @@ export class UI {
       pk.allowClear = this.may("clear");
       pk.onClear = () => this.confirmClear();
       pk.allowBlank = this.canAddPages();
+      pk.allowScrubber = this.isDocBoard();
       pk.onBlank = () => this.actions.onInsertBlankHere();
       // 尺子只在笔具盘里有，也就是只在 iPad 上有（见 isIPad）
       pk.onRuler = (shown) => this.actions.onRuler(shown);
@@ -455,6 +462,7 @@ export class UI {
         sizeIndex: this.ink.widthIndex,
         fingerDraws: this.fingerDraw,
         shapeLines: this.shapeLines,
+        scrubber: this.scrubberOn,
         eraserMode: this.tool.eraserMode,
       });
       this.pk = pk;
@@ -520,6 +528,10 @@ export class UI {
     if (state.shapeLines !== this.shapeLines) {
       this.shapeLines = state.shapeLines;
       this.actions.onShapeLines(this.shapeLines);
+    }
+    if (state.scrubber !== this.scrubberOn) {
+      this.scrubberOn = state.scrubber;
+      this.actions.onScrubber(this.scrubberOn);
     }
     const entry = this.tool[state.tool];
     if (entry) {
@@ -589,6 +601,16 @@ export class UI {
     this.fingerDraw = !this.fingerDraw;
     this.actions.onFingerDraw(this.fingerDraw);
     this.toast(this.fingerDraw ? "hand" : "pen");
+  }
+
+  isDocBoard() {
+    return !!(this.meta && this.meta.kind === "doc");
+  }
+
+  /** 更多菜单里的页码滑条开关。 */
+  toggleScrubber() {
+    this.scrubberOn = !this.scrubberOn;
+    this.actions.onScrubber(this.scrubberOn);
   }
 
   /** 普通工具栏更多菜单里的形状识别开关。 */
@@ -884,7 +906,10 @@ export class UI {
   setMeta(meta) {
     this.meta = meta;
     if (meta) this.boardArrived(meta.id);
-    if (this.pk) this.pk.allowBlank = this.canAddPages();
+    if (this.pk) {
+      this.pk.allowBlank = this.canAddPages();
+      this.pk.allowScrubber = this.isDocBoard();
+    }
     this.syncTitle();
     if (this.panel && this.panel.kind === "settings") this.refreshPanel();
   }
