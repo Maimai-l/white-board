@@ -120,3 +120,23 @@ export function saveShapeLines(enabled) {
     console.warn("boards.js saveShapeLines：记不住，只在本次打开期间生效", err);
   }
 }
+
+const SCRUBBER_FLAG = "whiteboard.scrubber";
+
+/** 文档板右边的「页码滑条」：每台设备自己的偏好，默认开（关掉的设备记住）。 */
+export function loadScrubber() {
+  try {
+    return localStorage.getItem(SCRUBBER_FLAG) !== "0";
+  } catch (err) {
+    console.warn("boards.js loadScrubber：读不到 localStorage，按打开处理", err);
+    return true;
+  }
+}
+
+export function saveScrubber(enabled) {
+  try {
+    localStorage.setItem(SCRUBBER_FLAG, enabled ? "1" : "0");
+  } catch (err) {
+    console.warn("boards.js saveScrubber：记不住，只在本次打开期间生效", err);
+  }
+}

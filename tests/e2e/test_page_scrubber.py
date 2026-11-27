@@ -150,3 +150,54 @@ def test_the_pencil_writes_over_the_visible_scrubber_instead_of_turning_pages(br
     wait_strokes(mac, 1)
     assert ipad.evaluate("() => [whiteboard.viewport.x, whiteboard.viewport.y]") == view
     assert ipad.locator(".scrubber.dragging").count() == 0
+
+
+MENU_ITEM = '.menu-layer:not(.leaving) .menu-item:has-text("页码滑条")'
+
+
+def test_the_more_menu_turns_the_scrubber_off_and_the_mac_remembers(browser, server):
+    """用户：加一个开关，可以关闭这个滑动条。和用手指绘图、形状识别一样在更多菜单里，只管这台设备，记住设置。"""
+    mac = open_mac(browser, server.port)
+    doc_board(mac)
+    mac.click('#toolbar button[title="更多"]')
+    item = mac.locator(MENU_ITEM)
+    assert item.get_attribute("aria-checked") == "true"  # 默认打开
+    item.click()
+    mac.wait_for_function("() => document.querySelector('.scrubber').hidden")
+    # 关了之后滚动、指到右边都不出现
+    mac.mouse.move(600, 400)
+    mac.mouse.wheel(0, 600)
+    mac.mouse.move(1200 - 6, 300)
+    assert mac.locator(SCRUBBER).is_hidden()
+    # 这台设备记住：重新打开还是关着
+    mac.reload()
+    mac.wait_for_function(f"() => !!({DOC})()")
+    assert mac.locator(SCRUBBER).is_hidden()
+    mac.click('#toolbar button[title="更多"]')
+    assert mac.locator(MENU_ITEM).get_attribute("aria-checked") == "false"
+    mac.locator(MENU_ITEM).click()
+    mac.wait_for_function("() => !document.querySelector('.scrubber').hidden")
+
+
+def test_the_ipad_picker_turns_the_scrubber_off_for_this_device_only(browser, server):
+    mac = open_mac(browser, server.port)
+    doc_board(mac)
+    ipad = open_touch(browser, server.port, picker=True)
+    enable_pk_picker(ipad)
+    ipad.wait_for_function(f"() => !!({DOC})()")
+    ipad.click("#pk-host button[data-act='more']")
+    row = ipad.locator("#pk-host .pk-pop [data-toggle='scrubber']")
+    assert row.locator(".pk-switch").get_attribute("aria-checked") == "true"
+    row.click()
+    ipad.wait_for_function("() => document.querySelector('.scrubber').hidden")
+    finger_drag(ipad, (600, 500), (600, 380), steps=6)  # 滚一下也不出现
+    ipad.wait_for_timeout(300)  # 滑块要出现的话，滚动之后的这段时间里就出现了
+    assert ipad.locator(SCRUBBER).is_hidden()
+    assert mac.evaluate("() => !document.querySelector('.scrubber').hidden")  # Mac 上不受影响
+
+
+def test_boards_without_pages_have_no_scrubber_switch(browser, server):
+    mac = open_mac(browser, server.port)
+    mac.click('#toolbar button[title="更多"]')
+    mac.wait_for_selector(".menu-layer:not(.leaving) .menu")
+    assert mac.locator(MENU_ITEM).count() == 0

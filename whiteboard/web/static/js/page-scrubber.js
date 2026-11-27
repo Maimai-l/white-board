@@ -29,6 +29,7 @@ export class PageScrubber {
   constructor(app) {
     this.app = app;
     this.state = "hidden"; // hidden | scroll（细滑块）| active（轨道 + 粗滑块）
+    this.enabled = true; // 更多菜单里的「页码滑条」开关（每台设备自己的设置）
     this.sheets = [];
     this.dragging = null;
     this.fadeTimer = 0;
@@ -63,7 +64,7 @@ export class PageScrubber {
     const meta = app.state.meta;
     const isDoc = !!(meta && meta.data && meta.data.doc);
     this.sheets = isDoc ? app.state.layers.filter((layer) => layer.sheet) : [];
-    const on = this.sheets.length > 1;
+    const on = this.enabled && this.sheets.length > 1;
     this.node.hidden = !on;
     if (!on) {
       this.endDrag();
@@ -73,6 +74,12 @@ export class PageScrubber {
     this.hit.setAttribute("aria-valuemax", String(this.sheets.length));
     this.total.textContent = `/ ${this.sheets.length}`;
     this.place();
+  }
+
+  /** 更多菜单里的开关：关掉就整条收起，不接任何输入。 */
+  setEnabled(on) {
+    this.enabled = !!on;
+    this.setBoard();
   }
 
   /** 全部页面在世界坐标里的上沿和下沿。 */
